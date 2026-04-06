@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EzPlace</title>
+<style>
+  /* === NOSTALGIC WIN98/XP THEME === */
+  :root {
+    --win-bg: #008080;
+    --win-face: #c0c0c0;
+    --win-dark: #808080;
+    --win-light: #dfdfdf;
+    --win-white: #ffffff;
+    --win-shadow: #404040;
+    --win-title: #000080;
+    --win-title-text: #ffffff;
+    --win-field: #ffffff;
+    --win-field-text: #000000;
+    --win-btn-face: #c0c0c0;
+    --win-highlight: #000080;
+    --win-link: #0000ff;
+    --win-red: #ff0000;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--win-bg); color: #000; font-family: 'Comic Sans MS', 'Comic Sans', 'MS Sans Serif', 'Tahoma', sans-serif; font-size: 12px; display: flex; height: 100vh; overflow: hidden; }
+
+  /* Beveled border helpers */
+  .win-raised { border: 2px solid; border-color: var(--win-light) var(--win-shadow) var(--win-shadow) var(--win-light); }
+  .win-sunken { border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); }
+
+  /* Win98 button */
+  .win-btn { background: var(--win-btn-face); border: 2px solid; border-color: var(--win-light) var(--win-shadow) var(--win-shadow) var(--win-light); padding: 3px 12px; cursor: pointer; font-family: inherit; font-size: 12px; color: #000; }
+  .win-btn:active { border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); padding: 4px 11px 2px 13px; }
+  .win-btn:focus { outline: 1px dotted #000; outline-offset: -4px; }
+
+  /* Win98 input */
+  .win-input { background: var(--win-field); color: var(--win-field-text); border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); padding: 3px 4px; font-family: inherit; font-size: 12px; }
+
+  /* Title bar */
+  .win-titlebar { background: linear-gradient(90deg, var(--win-title), #1084d0); color: var(--win-title-text); padding: 3px 6px; font-weight: bold; font-size: 12px; display: flex; align-items: center; justify-content: space-between; user-select: none; }
+
+  /* Left: Canvas area */
+  #canvas-wrap { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--win-face); border: 2px solid; border-color: var(--win-light) var(--win-shadow) var(--win-shadow) var(--win-light); }
+  #header { padding: 3px 6px; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(90deg, #000080, #1084d0, #6a5acd); color: var(--win-title-text); flex-shrink: 0; }
+  #header h1 { font-size: 13px; font-weight: bold; }
+  #header-right { display: flex; align-items: center; gap: 10px; }
+  #lobby-name-display { font-size: 11px; color: #ddd; }
+  #lobby-name-display b { color: #ffff00; }
+  #btn-leave-lobby { font-size: 11px; }
+  #online { font-size: 11px; color: #ccc; }
+  #online span { color: #00ff00; font-weight: bold; }
+
+  #info-row { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 3px 6px; flex-shrink: 0; background: var(--win-face); border-bottom: 1px solid var(--win-dark); }
+  #hover-info { font-size: 11px; color: #333; min-width: 140px; text-align: center; }
+  #zoom-level { font-size: 11px; color: #333; min-width: 40px; text-align: center; }
+  #cooldown-warn { font-size: 11px; color: var(--win-red); min-height: 16px; text-align: center; flex-shrink: 0; background: var(--win-face); padding: 1px; }
+  #cooldown-bar { height: 6px; background: var(--win-field); border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); max-width: 520px; width: 100%; flex-shrink: 0; margin: 0 auto; }
+  #cooldown-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ff0000, #ff8800, #ffff00); transition: width 0.05s linear; }
+
+  #viewport-wrap { flex: 1; position: relative; overflow: hidden; width: 100%; background: #008080; border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); }
+  #viewport { width: 100%; height: 100%; cursor: grab; display: block; }
+
+  #zoom-buttons { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; z-index: 3; }
+  #zoom-buttons button { width: 28px; height: 28px; font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+
+  #palette-row { display: flex; gap: 2px; padding: 4px 6px; flex-wrap: wrap; justify-content: center; max-width: 600px; flex-shrink: 0; background: var(--win-face); border-top: 1px solid var(--win-dark); }
+  .color-btn { width: 24px; height: 24px; border: 2px solid; border-color: var(--win-light) var(--win-shadow) var(--win-shadow) var(--win-light); cursor: pointer; }
+  .color-btn:hover { border-color: #000; }
+  .color-btn.selected { border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); outline: 2px solid var(--win-highlight); }
+
+  #tab-warning { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000080; z-index: 100; align-items: center; justify-content: center; font-size: 18px; color: #fff; }
+  #tab-warning.show { display: flex; }
+
+  /* Lobby browser overlay */
+  #lobby-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--win-face); z-index: 10; display: flex; flex-direction: column; align-items: center; padding: 20px; overflow-y: auto; }
+  #lobby-screen h2 { color: #6a0dad; margin-bottom: 10px; font-size: 16px; text-shadow: 1px 1px 0 #ccc; }
+  #lobby-screen .section-title { font-size: 12px; color: #333; margin: 12px 0 4px; font-weight: bold; text-transform: uppercase; width: 100%; max-width: 460px; border-bottom: 1px solid var(--win-dark); padding-bottom: 2px; }
+  .lobby-list { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 3px; }
+  .lobby-card { background: var(--win-field); border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); padding: 6px 8px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+  .lobby-card:hover { background: var(--win-highlight); color: #fff; }
+  .lobby-card:hover .lobby-meta { color: #ccc; }
+  .lobby-card .lobby-info { flex: 1; }
+  .lobby-card .lobby-title { font-size: 12px; font-weight: bold; }
+  .lobby-card .lobby-meta { font-size: 10px; color: #666; margin-top: 1px; }
+  .lobby-card .lobby-online { color: #008800; font-size: 11px; font-weight: bold; }
+  .lobby-card:hover .lobby-online { color: #44ff44; }
+  .lobby-card .lobby-actions { display: flex; gap: 3px; }
+  .lobby-card .lobby-actions button { font-size: 10px; padding: 2px 6px; }
+  .lobby-card .lobby-actions button.del { color: var(--win-red); }
+
+  #join-code-row { display: flex; gap: 4px; width: 100%; max-width: 460px; margin-top: 4px; }
+  #join-code-row input { flex: 1; text-transform: uppercase; letter-spacing: 2px; }
+  #join-code-row button { }
+
+  #create-lobby-row { display: flex; gap: 4px; width: 100%; max-width: 460px; margin-top: 4px; flex-wrap: wrap; align-items: center; }
+  #create-lobby-row input { flex: 1; min-width: 100px; }
+  #create-lobby-row label { font-size: 11px; color: #333; display: flex; align-items: center; gap: 3px; cursor: pointer; }
+  .lobby-error { color: var(--win-red); font-size: 11px; margin-top: 4px; width: 100%; max-width: 460px; min-height: 14px; }
+
+  /* Lobby manage modal */
+  #manage-modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 50; align-items: center; justify-content: center; }
+  #manage-modal.show { display: flex; }
+  #manage-box { background: var(--win-face); border: 2px solid; border-color: var(--win-light) var(--win-shadow) var(--win-shadow) var(--win-light); padding: 0; width: 340px; max-height: 80vh; overflow-y: auto; }
+  #manage-box h3 { background: linear-gradient(90deg, #000080, #1084d0, #6a5acd); color: #fff; padding: 3px 6px; font-size: 12px; margin: 0; }
+  #manage-box label { font-size: 11px; color: #333; display: flex; align-items: center; gap: 4px; margin: 4px 8px; cursor: pointer; }
+  #manage-box input[type=text] { margin: 4px 8px; width: calc(100% - 16px); }
+  #manage-box .code-display { background: var(--win-field); border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); padding: 4px 8px; font-size: 13px; color: var(--win-title); font-family: 'Courier New', monospace; letter-spacing: 2px; margin: 4px 8px; text-align: center; font-weight: bold; }
+  #manage-box .wl-list { margin: 4px 8px; }
+  #manage-box .wl-item { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 11px; }
+  #manage-box .wl-item button { background: none; border: none; color: var(--win-red); cursor: pointer; font-size: 11px; text-decoration: underline; }
+  #manage-box .btn-row { display: flex; gap: 4px; margin: 8px; }
+  #manage-box .btn-row button { flex: 1; }
+  #manage-save { font-weight: bold; }
+
+  /* Right: Chat */
+  /* Sidebar tabs */
+  #sidebar-tabs { display: flex; background: var(--win-face); border-bottom: 1px solid var(--win-dark); flex-shrink: 0; }
+  .sidebar-tab { flex: 1; padding: 4px 2px; text-align: center; font-size: 11px; cursor: pointer; border: 1px solid var(--win-dark); border-bottom: none; margin: 0 -1px; background: var(--win-btn-face); color: #555; }
+  .sidebar-tab.active { background: var(--win-field); color: #000; font-weight: bold; border-bottom: 1px solid var(--win-field); position: relative; z-index: 1; }
+  .sidebar-tab:hover { color: #000; }
+  .tab-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .tab-panel.active { display: flex; }
+
+  /* Friends panel */
+  #friends-panel { padding: 4px; overflow-y: auto; flex: 1; }
+  .friend-item { display: flex; align-items: center; justify-content: space-between; padding: 3px 4px; font-size: 11px; border-bottom: 1px solid #ddd; }
+  .friend-item .f-status { width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; flex-shrink: 0; }
+  .friend-item .f-status.online { background: #00aa00; }
+  .friend-item .f-status.offline { background: #ccc; }
+  .friend-item .f-name { flex: 1; }
+  .friend-item button { font-size: 10px; padding: 1px 6px; margin-left: 2px; }
+  .friend-section { font-size: 10px; font-weight: bold; color: #666; padding: 4px 2px 2px; text-transform: uppercase; border-bottom: 1px solid var(--win-dark); }
+  #friend-add-row { display: flex; gap: 3px; padding: 4px; }
+  #friend-add-row input { flex: 1; }
+
+  /* Messages panel */
+  #msgs-panel { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+  #msg-list { flex: 1; overflow-y: auto; padding: 4px; }
+  .msg-thread { padding: 4px; cursor: pointer; border-bottom: 1px solid #ddd; font-size: 11px; }
+  .msg-thread:hover { background: #e0e0ff; }
+  .msg-thread.active { background: var(--win-highlight); color: #fff; }
+  #msg-view { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  #msg-view-header { padding: 3px 6px; background: linear-gradient(90deg, #000080, #1084d0, #6a5acd); color: #fff; font-size: 11px; font-weight: bold; display: flex; justify-content: space-between; }
+  #msg-view-msgs { flex: 1; overflow-y: auto; padding: 4px; background: var(--win-field); border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); margin: 2px; }
+  .dm-msg { font-size: 11px; margin-bottom: 2px; }
+  .dm-msg b { color: #000080; }
+  .dm-msg .dm-time { color: #999; font-size: 10px; margin-right: 3px; }
+  #msg-send-row { display: flex; gap: 3px; padding: 3px; }
+  #msg-send-row input { flex: 1; }
+  #group-create-row { display: flex; gap: 3px; padding: 4px; flex-wrap: wrap; }
+  #group-create-row input { flex: 1; min-width: 60px; }
+  .notif-badge { background: #ff0000; color: #fff; font-size: 9px; border-radius: 50%; padding: 0 4px; margin-left: 3px; }
+
+  /* Leaderboard */
+  .lb-row { display: flex; align-items: center; padding: 3px 4px; font-size: 11px; border-bottom: 1px solid #eee; }
+  .lb-row:nth-child(1) .lb-rank { color: #daa520; font-weight: bold; }
+  .lb-row:nth-child(2) .lb-rank { color: #aaa; font-weight: bold; }
+  .lb-row:nth-child(3) .lb-rank { color: #cd7f32; font-weight: bold; }
+  .lb-rank { width: 22px; text-align: center; font-weight: bold; color: #666; }
+  .lb-status { width: 8px; height: 8px; border-radius: 50%; margin: 0 4px; flex-shrink: 0; }
+  .lb-status.online { background: #00aa00; }
+  .lb-status.offline { background: #ccc; }
+  .lb-name { flex: 1; }
+  .lb-count { font-weight: bold; color: #000080; }
+
+  #sidebar { width: 300px; background: var(--win-face); display: flex; flex-direction: column; border: 2px solid; border-color: var(--win-light) var(--win-shadow) var(--win-shadow) var(--win-light); }
+  #auth-panel { padding: 8px; border-bottom: 1px solid var(--win-dark); }
+  #auth-panel h2 { font-size: 13px; color: #6a0dad; margin-bottom: 6px; text-align: center; }
+  #auth-panel input { width: 100%; margin-bottom: 4px; }
+  #captcha-row { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; display: none; }
+  #captcha-row img { border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); height: 40px; flex-shrink: 0; }
+  #captcha-row input { flex: 1; margin-bottom: 0; text-transform: uppercase; letter-spacing: 2px; }
+  #captcha-refresh { font-size: 13px; padding: 2px 6px; }
+  #auth-buttons { display: flex; gap: 4px; margin-top: 4px; }
+  #auth-buttons button { flex: 1; }
+  #auth-error { color: var(--win-red); font-size: 11px; margin-top: 4px; min-height: 14px; }
+  #user-bar { padding: 4px 8px; border-bottom: 1px solid var(--win-dark); display: none; align-items: center; justify-content: space-between; background: var(--win-face); }
+  #user-bar .user-name { color: #cc0066; font-weight: bold; font-size: 12px; }
+  #guest-bar { padding: 4px 8px; border-bottom: 1px solid var(--win-dark); display: none; align-items: center; justify-content: space-between; background: #ffffcc; }
+  #guest-bar .guest-name { color: #999; font-style: italic; font-size: 12px; }
+  #guest-bar .guest-hint { font-size: 10px; color: #888; }
+
+  #messages { flex: 1; overflow-y: auto; padding: 4px 6px; display: flex; flex-direction: column; gap: 2px; background: var(--win-field); border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); margin: 4px; }
+  .msg { font-size: 11px; line-height: 1.4; word-wrap: break-word; color: #000; }
+  .msg .name { color: #000080; }
+  .msg .name.owner { color: var(--win-red); font-weight: bold; }
+  .msg .name.guest { color: #999; font-style: italic; }
+  .msg .crown { font-size: 11px; margin-right: 1px; }
+  .msg .timestamp { color: #999; font-size: 10px; margin-right: 3px; }
+  .msg.system { color: #808080; font-style: italic; }
+
+  #chat-filter-bar { padding: 2px 8px; display: flex; align-items: center; gap: 4px; font-size: 10px; color: #555; }
+  #chat-filter-bar label { cursor: pointer; display: flex; align-items: center; gap: 2px; }
+
+  #chat-bar { padding: 4px; display: flex; gap: 4px; border-top: 1px solid var(--win-dark); }
+  #chat-bar input { flex: 1; }
+  #chat-bar button { }
+
+  #messages::-webkit-scrollbar { width: 16px; }
+  #messages::-webkit-scrollbar-track { background: var(--win-face); border: 1px solid var(--win-dark); }
+  #messages::-webkit-scrollbar-thumb { background: var(--win-btn-face); border: 2px solid; border-color: var(--win-light) var(--win-shadow) var(--win-shadow) var(--win-light); }
+  #messages::-webkit-scrollbar-button { background: var(--win-btn-face); border: 2px solid; border-color: var(--win-light) var(--win-shadow) var(--win-shadow) var(--win-light); height: 16px; }
+
+  /* Starfield background for teal area */
+  #canvas-wrap::before { content: ''; position: absolute; bottom: 4px; left: 6px; font-size: 10px; color: var(--win-dark); z-index: 1; }
+
+  /* Mobile sidebar toggle */
+  #mobile-sidebar-toggle { display: none; position: fixed; bottom: 10px; right: 10px; z-index: 20; width: 44px; height: 44px; font-size: 20px; border-radius: 4px; }
+
+  /* Mobile */
+  @media (max-width: 700px) {
+    body { flex-direction: column; }
+    #canvas-wrap { flex: 1; min-height: 0; }
+    #sidebar { width: 100%; height: 50vh; position: fixed; bottom: 0; left: 0; right: 0; z-index: 15; transform: translateY(100%); transition: transform 0.25s ease; }
+    #sidebar.open { transform: translateY(0); }
+    #mobile-sidebar-toggle { display: flex; align-items: center; justify-content: center; }
+    #header h1 { font-size: 11px; }
+    #header-right { gap: 4px; }
+    #lobby-name-display { font-size: 9px; }
+    #online { font-size: 10px; }
+    #zoom-buttons { right: 6px; }
+    #zoom-buttons button { width: 32px; height: 32px; font-size: 18px; }
+    #palette-row { gap: 1px; padding: 3px 4px; }
+    .color-btn { width: 20px; height: 20px; }
+    .sidebar-tab { font-size: 10px; padding: 5px 2px; }
+    #lobby-screen { padding: 10px; }
+    #lobby-screen h2 { font-size: 14px; }
+    .lobby-card { padding: 5px 6px; }
+    .lobby-card .lobby-title { font-size: 11px; }
+    #info-row { gap: 8px; padding: 2px 4px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="tab-warning">&#x26A0; EzPlace is open in another tab. &#x26A0;</div>
+<button id="mobile-sidebar-toggle" class="win-btn">&#x1F4AC;</button>
+
+<div id="canvas-wrap">
+  <div id="header" class="win-titlebar">
+    <h1>&#x1F5BC; EzPlace</h1>
+    <div id="header-right">
+      <div id="lobby-name-display"></div>
+      <button id="btn-leave-lobby" class="win-btn" style="display:none">Leave Lobby</button>
+      <div id="online">Online: <span id="online-count">0</span></div>
+    </div>
+  </div>
+  <div id="info-row">
+    <div id="hover-info">&nbsp;</div>
+    <div id="zoom-level">1.0x</div>
+  </div>
+  <div id="cooldown-warn">&nbsp;</div>
+  <div id="cooldown-bar"><div id="cooldown-fill"></div></div>
+  <div id="viewport-wrap">
+    <canvas id="viewport"></canvas>
+    <div id="zoom-buttons">
+      <button id="zoom-in" class="win-btn">+</button>
+      <button id="zoom-out" class="win-btn">&minus;</button>
+    </div>
+  </div>
+  <div id="palette-row"></div>
+
+  <!-- Lobby browser overlay -->
+  <div id="lobby-screen">
+    <h2>Choose a Lobby</h2>
+    <div class="section-title">Public Lobbies</div>
+    <div class="lobby-list" id="public-lobbies"></div>
+    <div class="section-title">Your Lobbies</div>
+    <div class="lobby-list" id="my-lobbies"></div>
+    <div class="section-title">Join by Code</div>
+    <div id="join-code-row">
+      <input id="join-code-input" class="win-input" type="text" placeholder="Enter lobby code" maxlength="8">
+      <button id="btn-join-code" class="win-btn">Join</button>
+    </div>
+    <div class="section-title">Create Lobby</div>
+    <div id="create-lobby-row">
+      <input id="create-name" class="win-input" type="text" placeholder="Lobby name" maxlength="30">
+      <label><input type="checkbox" id="create-public"> Public</label>
+      <label><input type="checkbox" id="create-whitelist"> Whitelist</label>
+      <button id="btn-create-lobby" class="win-btn">Create</button>
+    </div>
+    <div class="lobby-error" id="lobby-error">&nbsp;</div>
+  </div>
+</div>
+
+<!-- Manage lobby modal -->
+<div id="manage-modal">
+  <div id="manage-box">
+    <h3>Manage Lobby</h3>
+    <input type="text" id="manage-name" class="win-input" placeholder="Lobby name">
+    <div class="code-display" id="manage-code"></div>
+    <label><input type="checkbox" id="manage-public"> Public (no code/whitelist)</label>
+    <label><input type="checkbox" id="manage-wl-enabled"> Whitelist enabled</label>
+    <div id="manage-wl-section">
+      <div class="wl-list" id="manage-wl-list"></div>
+      <div style="display:flex;gap:4px;margin-top:4px;">
+        <input type="text" id="manage-wl-add" class="win-input" placeholder="Add username" style="flex:1">
+        <button id="btn-manage-wl-add" class="win-btn">Add</button>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button id="manage-save" class="win-btn">Save</button>
+      <button id="manage-close" class="win-btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="sidebar">
+  <div id="auth-panel">
+    <h2>Sign In / Register</h2>
+    <input id="auth-user" class="win-input" type="text" placeholder="Username" maxlength="20" autocomplete="username">
+    <input id="auth-pass" class="win-input" type="password" placeholder="Password" maxlength="64" autocomplete="current-password">
+    <div id="captcha-row">
+      <img id="captcha-img" src="" alt="captcha">
+      <input id="captcha-ans" class="win-input" type="text" placeholder="Type text" maxlength="5" autocomplete="off">
+      <button id="captcha-refresh" class="win-btn" title="New captcha">&#x21bb;</button>
+    </div>
+    <div id="auth-buttons">
+      <button id="btn-login" class="win-btn">Login</button>
+      <button id="btn-register" class="win-btn">Register</button>
+    </div>
+    <div id="auth-error">&nbsp;</div>
+  </div>
+  <div id="user-bar">
+    <span class="user-name" id="user-display"></span>
+    <button id="btn-logout" class="win-btn">Logout</button>
+  </div>
+  <div id="guest-bar">
+    <span class="guest-name" id="guest-display"></span>
+    <span class="guest-hint">Spectating - register to place pixels!</span>
+  </div>
+
+  <div id="sidebar-tabs">
+    <div class="sidebar-tab active" data-tab="chat-tab">Chat</div>
+    <div class="sidebar-tab" data-tab="lb-tab">Leaderboard</div>
+    <div class="sidebar-tab" data-tab="friends-tab">Friends</div>
+    <div class="sidebar-tab" data-tab="msgs-tab">Messages</div>
+  </div>
+
+  <!-- Chat tab -->
+  <div id="chat-tab" class="tab-panel active">
+    <div id="chat-filter-bar">
+      <label><input type="checkbox" id="chat-filter-toggle" checked> Chat filter</label>
+    </div>
+    <div id="messages"></div>
+    <div id="chat-bar">
+      <input id="chat-input" class="win-input" type="text" placeholder="Type a message..." maxlength="200" disabled>
+      <button id="chat-btn" class="win-btn" disabled>Send</button>
+    </div>
+  </div>
+
+  <!-- Leaderboard tab -->
+  <div id="lb-tab" class="tab-panel">
+    <div id="lb-panel" style="flex:1;overflow-y:auto;padding:4px;background:var(--win-field);border:2px solid;border-color:var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow);margin:4px;">
+      <div style="text-align:center;color:#999;font-size:11px;padding:8px;">Join a lobby to see leaderboard</div>
+    </div>
+  </div>
+
+  <!-- Friends tab -->
+  <div id="friends-tab" class="tab-panel">
+    <div id="friend-add-row">
+      <input id="friend-add-input" class="win-input" type="text" placeholder="Add friend..." maxlength="20">
+      <button id="btn-friend-add" class="win-btn">Add</button>
+    </div>
+    <div id="friends-panel"></div>
+  </div>
+
+  <!-- Messages tab -->
+  <div id="msgs-tab" class="tab-panel">
+    <div id="msg-list-view">
+      <div id="group-create-row">
+        <input id="group-name-input" class="win-input" type="text" placeholder="Group name" maxlength="30">
+        <button id="btn-create-group" class="win-btn">New Group</button>
+      </div>
+      <div id="msg-list"></div>
+    </div>
+    <div id="msg-view">
+      <div id="msg-view-header">
+        <span id="msg-view-title"></span>
+        <button class="win-btn" id="btn-msg-back" style="font-size:10px;padding:1px 6px;">Back</button>
+      </div>
+      <div id="msg-view-msgs"></div>
+      <div id="msg-send-row">
+        <input id="msg-send-input" class="win-input" type="text" placeholder="Message..." maxlength="200">
+        <button id="btn-msg-send" class="win-btn">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const GRID = 256;
+const COLORS = [
+  '#FFFFFF','#E4E4E4','#888888','#222222',
+  '#FFA7D1','#E50000','#E59500','#A06A42',
+  '#E5D900','#94E044','#02BE01','#00D3DD',
+  '#0083C7','#0000EA','#CF6EE4','#820080'
+];
+const COOLDOWN = 500;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 40;
+const GRID_LINE_MIN_ZOOM = 4;
+
+// State
+let grid = new Uint8Array(GRID * GRID);
+let selectedColor = 3;
+let username = '';
+let ws = null;
+let lastPlaceTime = 0;
+let cooldownTimer = null;
+let currentLobbyId = null;
+let currentLobbyName = '';
+let currentLobbyOwner = null;
+let chatFilterEnabled = true;
+let isGuest = false;
+let guestName = '';
+
+const FILTERED_WORDS = ['fuck','shit','ass','bitch','damn','dick','cock','pussy','nigger','nigga','faggot','retard','cunt','whore','slut'];
+function filterText(text) {
+  if (!chatFilterEnabled) return text;
+  let out = text;
+  FILTERED_WORDS.forEach(w => {
+    const re = new RegExp(w, 'gi');
+    out = out.replace(re, '*'.repeat(w.length));
+  });
+  return out;
+}
+
+// Camera
+let camX = GRID / 2, camY = GRID / 2, zoom = 1;
+let isPanning = false, panStartX = 0, panStartY = 0, camStartX = 0, camStartY = 0;
+
+// Single-tab enforcement
+const tabChannel = new BroadcastChannel('ezplace_tab');
+const tabId = Math.random().toString(36).slice(2);
+const tabWarning = document.getElementById('tab-warning');
+let blocked = false;
+tabChannel.postMessage({ type: 'claim', id: tabId });
+tabChannel.onmessage = e => {
+  if (e.data.type === 'claim' && e.data.id !== tabId) {
+    blocked = true; tabWarning.classList.add('show'); if (ws) ws.close();
+  }
+};
+window.addEventListener('focus', () => {
+  if (blocked) {
+    blocked = false; tabWarning.classList.remove('show');
+    tabChannel.postMessage({ type: 'claim', id: tabId });
+    if ((authToken || isGuest) && currentLobbyId && (!ws || ws.readyState !== WebSocket.OPEN)) connectToLobby(currentLobbyId, currentLobbyName);
+  }
+});
+
+// Canvas
+const cvs = document.getElementById('viewport');
+const ctx = cvs.getContext('2d');
+const COLOR_RGB = COLORS.map(c => c);
+
+function resizeCanvas() {
+  const wrap = document.getElementById('viewport-wrap');
+  cvs.width = wrap.clientWidth; cvs.height = wrap.clientHeight; render();
+}
+window.addEventListener('resize', resizeCanvas);
+
+function render() {
+  const w = cvs.width, h = cvs.height;
+  ctx.fillStyle = '#111'; ctx.fillRect(0, 0, w, h);
+  const left = camX - (w / 2) / zoom, top = camY - (h / 2) / zoom;
+  const startX = Math.max(0, Math.floor(left)), startY = Math.max(0, Math.floor(top));
+  const endX = Math.min(GRID, Math.ceil(left + w / zoom)), endY = Math.min(GRID, Math.ceil(top + h / zoom));
+  for (let gy = startY; gy < endY; gy++) {
+    for (let gx = startX; gx < endX; gx++) {
+      ctx.fillStyle = COLOR_RGB[grid[gy * GRID + gx]];
+      ctx.fillRect(Math.floor((gx - left) * zoom), Math.floor((gy - top) * zoom), Math.ceil(zoom), Math.ceil(zoom));
+    }
+  }
+  if (zoom >= GRID_LINE_MIN_ZOOM) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let gx = startX; gx <= endX; gx++) { const sx = Math.floor((gx - left) * zoom) + 0.5; ctx.moveTo(sx, Math.floor((startY - top) * zoom)); ctx.lineTo(sx, Math.floor((endY - top) * zoom)); }
+    for (let gy = startY; gy <= endY; gy++) { const sy = Math.floor((gy - top) * zoom) + 0.5; ctx.moveTo(Math.floor((startX - left) * zoom), sy); ctx.lineTo(Math.floor((endX - left) * zoom), sy); }
+    ctx.stroke();
+  }
+}
+
+function screenToGrid(sx, sy) {
+  const w = cvs.width, h = cvs.height;
+  const left = camX - (w / 2) / zoom, top = camY - (h / 2) / zoom;
+  return { x: Math.floor(sx / zoom + left), y: Math.floor(sy / zoom + top) };
+}
+
+function setZoom(newZoom, pivotSX, pivotSY) {
+  newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+  if (newZoom === zoom) return;
+  if (pivotSX !== undefined) {
+    const w = cvs.width, h = cvs.height;
+    const gx = pivotSX / zoom + camX - (w / 2) / zoom, gy = pivotSY / zoom + camY - (h / 2) / zoom;
+    zoom = newZoom; camX = gx - pivotSX / zoom + (w / 2) / zoom; camY = gy - pivotSY / zoom + (h / 2) / zoom;
+  } else { zoom = newZoom; }
+  document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; render();
+}
+
+cvs.addEventListener('wheel', e => { e.preventDefault(); const rect = cvs.getBoundingClientRect(); setZoom(zoom * (e.deltaY < 0 ? 1.15 : 1/1.15), e.clientX - rect.left, e.clientY - rect.top); }, { passive: false });
+document.getElementById('zoom-in').onclick = () => setZoom(zoom * 1.5);
+document.getElementById('zoom-out').onclick = () => setZoom(zoom / 1.5);
+
+function isOverGrid(sx, sy) {
+  const g = screenToGrid(sx, sy);
+  return g.x >= 0 && g.x < GRID && g.y >= 0 && g.y < GRID;
+}
+function updateCursor(sx, sy) {
+  if (isPanning) { cvs.style.cursor = 'grabbing'; }
+  else if (isOverGrid(sx, sy)) { cvs.style.cursor = 'crosshair'; }
+  else { cvs.style.cursor = 'grab'; }
+}
+cvs.addEventListener('mousedown', e => {
+  const rect = cvs.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  // Middle/right click always pans; left click pans only outside grid
+  if (e.button === 1 || e.button === 2 || (e.button === 0 && !isOverGrid(sx, sy))) {
+    isPanning = true; panStartX = e.clientX; panStartY = e.clientY; camStartX = camX; camStartY = camY;
+    cvs.style.cursor = 'grabbing'; e.preventDefault();
+  }
+});
+window.addEventListener('mousemove', e => {
+  if (isPanning) { camX = camStartX - (e.clientX - panStartX) / zoom; camY = camStartY - (e.clientY - panStartY) / zoom; render(); }
+  const rect = cvs.getBoundingClientRect(); const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  if (sx >= 0 && sy >= 0 && sx < cvs.width && sy < cvs.height) {
+    const g = screenToGrid(sx, sy);
+    if (g.x >= 0 && g.x < GRID && g.y >= 0 && g.y < GRID) hoverInfo.textContent = `(${g.x}, ${g.y}) - ${COLORS[grid[g.y * GRID + g.x]]}`;
+    else hoverInfo.innerHTML = '&nbsp;';
+    updateCursor(sx, sy);
+  }
+});
+window.addEventListener('mouseup', e => { if (isPanning) { isPanning = false; const rect = cvs.getBoundingClientRect(); updateCursor(e.clientX - rect.left, e.clientY - rect.top); } });
+cvs.addEventListener('contextmenu', e => e.preventDefault());
+cvs.addEventListener('mouseleave', () => { hoverInfo.innerHTML = '&nbsp;'; });
+const hoverInfo = document.getElementById('hover-info');
+
+// Touch support
+let touchStartDist = 0;
+let touchStartZoom = 1;
+let touchPanning = false;
+let touchStartX = 0, touchStartY = 0, touchCamX = 0, touchCamY = 0;
+let lastTapTime = 0;
+
+function getTouchDist(t1, t2) {
+  return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+}
+
+cvs.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    // Pinch zoom start
+    touchStartDist = getTouchDist(e.touches[0], e.touches[1]);
+    touchStartZoom = zoom;
+    touchPanning = false;
+  } else if (e.touches.length === 1) {
+    touchPanning = true;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchCamX = camX; touchCamY = camY;
+  }
+}, { passive: false });
+
+cvs.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    const dist = getTouchDist(e.touches[0], e.touches[1]);
+    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const rect = cvs.getBoundingClientRect();
+    setZoom(touchStartZoom * (dist / touchStartDist), midX - rect.left, midY - rect.top);
+    touchPanning = false;
+  } else if (e.touches.length === 1 && touchPanning) {
+    const dx = (e.touches[0].clientX - touchStartX) / zoom;
+    const dy = (e.touches[0].clientY - touchStartY) / zoom;
+    camX = touchCamX - dx; camY = touchCamY - dy;
+    render();
+  }
+}, { passive: false });
+
+cvs.addEventListener('touchend', e => {
+  if (e.touches.length === 0 && e.changedTouches.length === 1 && touchPanning) {
+    // Detect tap (short touch without much movement) to place pixel
+    const t = e.changedTouches[0];
+    const dx = Math.abs(t.clientX - touchStartX);
+    const dy = Math.abs(t.clientY - touchStartY);
+    if (dx < 8 && dy < 8) {
+      const rect = cvs.getBoundingClientRect();
+      const sx = t.clientX - rect.left, sy = t.clientY - rect.top;
+      const g = screenToGrid(sx, sy);
+      if (g.x >= 0 && g.x < GRID && g.y >= 0 && g.y < GRID) {
+        if (blocked || !username || !currentLobbyId) return;
+        if (isGuest) { cooldownWarn.textContent = 'Register an account to place pixels!'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
+        const now = Date.now();
+        if (now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
+        grid[g.y * GRID + g.x] = selectedColor; startCooldownBar(); render();
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pixel', x: g.x, y: g.y, color: selectedColor }));
+      }
+    }
+  }
+  touchPanning = false;
+});
+
+// Mobile sidebar toggle
+document.getElementById('mobile-sidebar-toggle').onclick = () => {
+  const sb = document.getElementById('sidebar');
+  sb.classList.toggle('open');
+};
+
+// Cooldown
+const cooldownFill = document.getElementById('cooldown-fill');
+const cooldownWarn = document.getElementById('cooldown-warn');
+let cooldownWarnTimer = null;
+function showCooldownWarn(ms) { cooldownWarn.textContent = `Cooldown! Wait ${(ms/1000).toFixed(1)}s`; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, ms); }
+function startCooldownBar() { lastPlaceTime = Date.now(); cooldownFill.style.width = '100%'; if (cooldownTimer) clearInterval(cooldownTimer); cooldownTimer = setInterval(() => { const pct = Math.max(0, 100 - ((Date.now() - lastPlaceTime) / COOLDOWN) * 100); cooldownFill.style.width = pct + '%'; if (pct <= 0) clearInterval(cooldownTimer); }, 30); }
+
+// Place pixel
+cvs.addEventListener('click', e => {
+  if (blocked || !username || !currentLobbyId) return;
+  if (isGuest) { cooldownWarn.textContent = 'Register an account to place pixels!'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
+  const now = Date.now();
+  if (now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
+  const rect = cvs.getBoundingClientRect();
+  const g = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
+  if (g.x < 0 || g.x >= GRID || g.y < 0 || g.y >= GRID) return;
+  grid[g.y * GRID + g.x] = selectedColor; startCooldownBar(); render();
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pixel', x: g.x, y: g.y, color: selectedColor }));
+});
+
+// Palette
+const paletteEl = document.getElementById('palette-row');
+COLORS.forEach((c, i) => {
+  const btn = document.createElement('div');
+  btn.className = 'color-btn' + (i === 3 ? ' selected' : '');
+  btn.style.background = c; btn.title = c;
+  btn.addEventListener('click', () => { document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); selectedColor = i; });
+  paletteEl.appendChild(btn);
+});
+
+// Chat
+const messagesEl = document.getElementById('messages');
+const chatInput = document.getElementById('chat-input');
+const chatBtn = document.getElementById('chat-btn');
+function timeStr() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+function addMsg(name, text, isOwner, isMsgGuest) {
+  const d = document.createElement('div'); d.className = 'msg';
+  const crown = isOwner ? '<span class="crown">&#x1F451;</span>' : '';
+  const nameClass = isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name');
+  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}<span class="${nameClass}">${esc(name)}:</span> ${esc(filterText(text))}`;
+  messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function sendChat() { const text = chatInput.value.trim(); if (!text || !username) return; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'chat', text })); else addMsg(username, text, !isGuest && currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase(), isGuest); chatInput.value = ''; }
+chatBtn.addEventListener('click', sendChat);
+chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+document.getElementById('chat-filter-toggle').onchange = e => { chatFilterEnabled = e.target.checked; };
+
+// Auth
+const authPanel = document.getElementById('auth-panel');
+const userBar = document.getElementById('user-bar');
+const authUser = document.getElementById('auth-user');
+const authPass = document.getElementById('auth-pass');
+const captchaRow = document.getElementById('captcha-row');
+const captchaImg = document.getElementById('captcha-img');
+const captchaAns = document.getElementById('captcha-ans');
+const authError = document.getElementById('auth-error');
+let authToken = localStorage.getItem('ezplace_token') || '';
+let captchaId = '';
+let isRegisterMode = false;
+
+async function fetchCaptcha() {
+  try { const res = await fetch('/api/captcha'); const data = await res.json(); captchaId = data.id; captchaImg.src = data.image; captchaAns.value = ''; }
+  catch { captchaImg.alt = 'Server offline'; }
+}
+
+function showRegisterMode(on) {
+  isRegisterMode = on;
+  captchaRow.style.display = on ? 'flex' : 'none';
+  if (on) fetchCaptcha();
+}
+
+document.getElementById('btn-register').onclick = () => {
+  if (!isRegisterMode) { showRegisterMode(true); return; }
+  doAuth('/api/register', true);
+};
+document.getElementById('btn-login').onclick = () => { showRegisterMode(false); doAuth('/api/login', false); };
+
+async function doAuth(endpoint, needCaptcha) {
+  const u = authUser.value.trim(), p = authPass.value;
+  if (!u || !p) { authError.textContent = 'Enter username and password'; return; }
+  const body = { username: u, password: p };
+  if (needCaptcha) {
+    const ca = captchaAns.value.trim();
+    if (!ca) { authError.textContent = 'Solve the captcha'; return; }
+    body.captcha_id = captchaId; body.captcha_answer = ca;
+  }
+  try {
+    const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.error) { authError.textContent = data.error; if (needCaptcha) fetchCaptcha(); return; }
+    authToken = data.token; username = data.username;
+    localStorage.setItem('ezplace_token', authToken); localStorage.setItem('ezplace_user', username);
+    showLoggedIn(); loadLobbies();
+  } catch { authError.textContent = 'Server offline'; }
+}
+
+function showLoggedIn() {
+  authPanel.style.display = 'none'; userBar.style.display = 'flex';
+  document.getElementById('user-display').textContent = username;
+  chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
+  connectSocial();
+}
+
+function logout() {
+  localStorage.removeItem('ezplace_token'); localStorage.removeItem('ezplace_user');
+  authToken = ''; username = ''; currentLobbyId = null;
+  isGuest = false; guestName = '';
+  if (ws) ws.close();
+  if (socialWs) socialWs.close();
+  authPanel.style.display = ''; userBar.style.display = 'none';
+  document.getElementById('guest-bar').style.display = 'none';
+  chatInput.disabled = true; chatBtn.disabled = true;
+  showRegisterMode(false);
+  document.getElementById('lobby-screen').style.display = 'flex';
+  document.getElementById('btn-leave-lobby').style.display = 'none';
+  document.getElementById('lobby-name-display').innerHTML = '';
+}
+
+document.getElementById('btn-logout').onclick = logout;
+document.getElementById('captcha-refresh').onclick = fetchCaptcha;
+authPass.addEventListener('keydown', e => { if (e.key === 'Enter') { if (isRegisterMode) doAuth('/api/register', true); else doAuth('/api/login', false); }});
+
+// Lobby browser
+const lobbyScreen = document.getElementById('lobby-screen');
+const lobbyError = document.getElementById('lobby-error');
+
+async function loadLobbies() {
+  lobbyScreen.style.display = 'flex';
+  document.getElementById('btn-leave-lobby').style.display = 'none';
+  document.getElementById('lobby-name-display').innerHTML = '';
+  // Public
+  try {
+    const res = await fetch('/api/lobbies');
+    const data = await res.json();
+    const el = document.getElementById('public-lobbies'); el.innerHTML = '';
+    data.lobbies.forEach(l => {
+      const card = document.createElement('div'); card.className = 'lobby-card';
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">Public</div></div><div class="lobby-online">${l.online} online</div>`;
+      card.onclick = () => joinLobby(l.id, l.name, true);
+      el.appendChild(card);
+    });
+  } catch {}
+  // My lobbies
+  if (authToken) {
+    try {
+      const res = await fetch('/api/my-lobbies', { headers: { Authorization: authToken } });
+      const data = await res.json();
+      const el = document.getElementById('my-lobbies'); el.innerHTML = '';
+      if (data.lobbies.length === 0) { el.innerHTML = '<div style="color:#555;font-size:12px;">No lobbies yet</div>'; }
+      data.lobbies.forEach(l => {
+        const card = document.createElement('div'); card.className = 'lobby-card';
+        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' | Whitelist' : ''}</div></div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div><div class="lobby-online">${l.online} online</div>`;
+        card.querySelector('.lobby-info').onclick = () => joinLobby(l.id, l.name, l.public);
+        card.querySelector('.manage').onclick = e => { e.stopPropagation(); openManage(l); };
+        card.querySelector('.del').onclick = e => { e.stopPropagation(); deleteLobby(l.id); };
+        el.appendChild(card);
+      });
+    } catch {}
+  }
+}
+
+function joinLobby(id, name, isPublic) {
+  if (!authToken && !isPublic) { lobbyError.textContent = 'Login first'; return; }
+  // Guest mode for unauthenticated users
+  if (!authToken) {
+    isGuest = true;
+    guestName = 'Guest ' + Math.floor(1000000000 + Math.random() * 9000000000);
+    username = guestName;
+    document.getElementById('guest-bar').style.display = 'flex';
+    document.getElementById('guest-display').textContent = guestName;
+    chatInput.disabled = false; chatBtn.disabled = false;
+  } else {
+    isGuest = false;
+  }
+  currentLobbyId = id; currentLobbyName = name;
+  lobbyScreen.style.display = 'none';
+  document.getElementById('btn-leave-lobby').style.display = '';
+  document.getElementById('lobby-name-display').innerHTML = `Lobby: <b>${esc(name)}</b>`;
+  messagesEl.innerHTML = '';
+  grid = new Uint8Array(GRID * GRID); render();
+  connectToLobby(id, name);
+}
+
+document.getElementById('btn-leave-lobby').onclick = () => {
+  if (ws) ws.close();
+  currentLobbyId = null; currentLobbyName = '';
+  document.getElementById('online-count').textContent = '0';
+  if (isGuest) {
+    isGuest = false; guestName = ''; username = '';
+    document.getElementById('guest-bar').style.display = 'none';
+    chatInput.disabled = true; chatBtn.disabled = true;
+  }
+  loadLobbies();
+};
+
+// Join by code
+document.getElementById('btn-join-code').onclick = async () => {
+  const code = document.getElementById('join-code-input').value.trim();
+  if (!code) return;
+  try {
+    const res = await fetch('/api/lobbies/join-code', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ code }) });
+    const data = await res.json();
+    if (data.error) { lobbyError.textContent = data.error; return; }
+    joinLobby(data.lobby.id, data.lobby.name);
+  } catch { lobbyError.textContent = 'Server offline'; }
+};
+
+// Create lobby
+document.getElementById('btn-create-lobby').onclick = async () => {
+  const name = document.getElementById('create-name').value.trim();
+  const isPublic = document.getElementById('create-public').checked;
+  const wl = document.getElementById('create-whitelist').checked && !isPublic;
+  if (!name) { lobbyError.textContent = 'Enter a lobby name'; return; }
+  try {
+    const res = await fetch('/api/lobbies/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, public: isPublic, whitelist_enabled: wl }) });
+    const data = await res.json();
+    if (data.error) { lobbyError.textContent = data.error; return; }
+    lobbyError.innerHTML = '&nbsp;'; document.getElementById('create-name').value = '';
+    loadLobbies();
+  } catch { lobbyError.textContent = 'Server offline'; }
+};
+document.getElementById('create-public').onchange = () => { if (document.getElementById('create-public').checked) document.getElementById('create-whitelist').checked = false; };
+document.getElementById('create-whitelist').onchange = () => { if (document.getElementById('create-whitelist').checked) document.getElementById('create-public').checked = false; };
+
+// Delete lobby
+async function deleteLobby(id) {
+  if (!confirm('Delete this lobby?')) return;
+  try {
+    await fetch('/api/lobbies/delete', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ lobby_id: id }) });
+    loadLobbies();
+  } catch {}
+}
+
+// Manage lobby modal
+let managingLobby = null;
+const manageModal = document.getElementById('manage-modal');
+
+function openManage(lobby) {
+  managingLobby = lobby;
+  document.getElementById('manage-name').value = lobby.name;
+  document.getElementById('manage-code').textContent = lobby.code || '(public)';
+  document.getElementById('manage-public').checked = lobby.public;
+  document.getElementById('manage-wl-enabled').checked = lobby.whitelist_enabled;
+  renderManageWL();
+  manageModal.classList.add('show');
+}
+document.getElementById('manage-close').onclick = () => { manageModal.classList.remove('show'); };
+document.getElementById('manage-public').onchange = () => {
+  if (document.getElementById('manage-public').checked) document.getElementById('manage-wl-enabled').checked = false;
+  renderManageWL();
+};
+document.getElementById('manage-wl-enabled').onchange = () => {
+  if (document.getElementById('manage-wl-enabled').checked) document.getElementById('manage-public').checked = false;
+  renderManageWL();
+};
+
+function renderManageWL() {
+  const show = document.getElementById('manage-wl-enabled').checked && !document.getElementById('manage-public').checked;
+  document.getElementById('manage-wl-section').style.display = show ? '' : 'none';
+  if (!managingLobby) return;
+  const list = document.getElementById('manage-wl-list'); list.innerHTML = '';
+  (managingLobby.whitelist || []).forEach(u => {
+    const d = document.createElement('div'); d.className = 'wl-item';
+    d.innerHTML = `<span>${esc(u)}</span>${u.toLowerCase() !== username.toLowerCase() ? '<button>Remove</button>' : ''}`;
+    const btn = d.querySelector('button');
+    if (btn) btn.onclick = async () => {
+      await fetch('/api/lobbies/update', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ lobby_id: managingLobby.id, remove_whitelist: u }) });
+      managingLobby.whitelist = managingLobby.whitelist.filter(x => x !== u); renderManageWL();
+    };
+    list.appendChild(d);
+  });
+}
+document.getElementById('btn-manage-wl-add').onclick = async () => {
+  const inp = document.getElementById('manage-wl-add');
+  const name = inp.value.trim(); if (!name) return;
+  await fetch('/api/lobbies/update', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ lobby_id: managingLobby.id, add_whitelist: name }) });
+  if (!managingLobby.whitelist) managingLobby.whitelist = [];
+  if (!managingLobby.whitelist.includes(name)) managingLobby.whitelist.push(name);
+  inp.value = ''; renderManageWL();
+};
+document.getElementById('manage-save').onclick = async () => {
+  const body = { lobby_id: managingLobby.id, name: document.getElementById('manage-name').value, public: document.getElementById('manage-public').checked, whitelist_enabled: document.getElementById('manage-wl-enabled').checked };
+  try {
+    const res = await fetch('/api/lobbies/update', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.ok) { manageModal.classList.remove('show'); loadLobbies(); }
+  } catch {}
+};
+
+// WebSocket
+function connectToLobby(lobbyId, lobbyName) {
+  if (!authToken && !isGuest) return;
+  if (ws) ws.close();
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  try { ws = new WebSocket(`${protocol}://${location.host}/ws`); } catch { addSystemMsg('No server.'); return; }
+  ws.onopen = () => {
+    if (isGuest) {
+      ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, guest_name: guestName }));
+    } else {
+      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId }));
+    }
+    addSystemMsg(`Connecting to ${lobbyName}...`);
+  };
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    switch (msg.type) {
+      case 'pixel': grid[msg.y * GRID + msg.x] = msg.color; render(); break;
+      case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
+      case 'online': document.getElementById('online-count').textContent = msg.count; break;
+      case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; render(); break;
+      case 'system': addSystemMsg(msg.text); break;
+      case 'error': addSystemMsg(msg.text); logout(); break;
+      case 'kicked': addSystemMsg(msg.text); currentLobbyId = null; loadLobbies(); break;
+    }
+  };
+  ws.onclose = () => { addSystemMsg('Disconnected.'); };
+  ws.onerror = () => { addSystemMsg('Connection error.'); ws = null; };
+}
+
+// === Sidebar Tabs ===
+document.querySelectorAll('.sidebar-tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'friends-tab' && authToken) loadFriendsList();
+    if (tab.dataset.tab === 'msgs-tab' && authToken) loadMsgList();
+    if (tab.dataset.tab === 'lb-tab') loadLeaderboard();
+  };
+});
+
+// === Leaderboard ===
+let lbInterval = null;
+async function loadLeaderboard() {
+  const panel = document.getElementById('lb-panel');
+  if (!currentLobbyId) { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">Join a lobby to see leaderboard</div>'; return; }
+  try {
+    const res = await fetch(`/api/leaderboard?lobby_id=${encodeURIComponent(currentLobbyId)}`);
+    const data = await res.json();
+    if (!data.leaderboard || !data.leaderboard.length) { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">No pixels placed yet</div>'; return; }
+    panel.innerHTML = '<div style="font-size:11px;font-weight:bold;color:#333;padding:2px 4px;border-bottom:1px solid #999;">Top Pixels Placed</div>';
+    data.leaderboard.forEach((p, i) => {
+      const row = document.createElement('div'); row.className = 'lb-row';
+      const medal = i === 0 ? ' &#x1F947;' : i === 1 ? ' &#x1F948;' : i === 2 ? ' &#x1F949;' : '';
+      row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="lb-name">${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
+      panel.appendChild(row);
+    });
+  } catch { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">Error loading leaderboard</div>'; }
+}
+// Auto-refresh leaderboard every 10s if tab is active
+setInterval(() => {
+  if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active') && currentLobbyId) loadLeaderboard();
+}, 10000);
+
+// === Social WebSocket ===
+let socialWs = null;
+function connectSocial() {
+  if (!authToken) return;
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  try { socialWs = new WebSocket(`${protocol}://${location.host}/ws/social`); } catch { return; }
+  socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken })); };
+  socialWs.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'dm') { if (currentDmWith && currentDmWith.toLowerCase() === msg.from.toLowerCase()) appendDmMsg(msg.from, msg.text, msg.time); }
+    if (msg.type === 'group_msg') { if (currentGroupId === msg.group_id) appendDmMsg(msg.from, msg.text, msg.time); }
+    if (msg.type === 'friend_request' || msg.type === 'friend_accepted') { loadFriendsList(); }
+  };
+  socialWs.onclose = () => { setTimeout(() => { if (authToken) connectSocial(); }, 5000); };
+}
+
+// === Friends ===
+async function loadFriendsList() {
+  if (!authToken) return;
+  const panel = document.getElementById('friends-panel'); panel.innerHTML = '';
+  try {
+    const res = await fetch('/api/friends', { headers: { Authorization: authToken } });
+    const data = await res.json();
+    if (data.incoming && data.incoming.length) {
+      panel.innerHTML += '<div class="friend-section">Incoming Requests</div>';
+      data.incoming.forEach(u => {
+        const d = document.createElement('div'); d.className = 'friend-item';
+        d.innerHTML = `<span class="f-name">${esc(u)}</span><button class="win-btn" data-accept="${u}">Accept</button><button class="win-btn" data-decline="${u}">X</button>`;
+        d.querySelector('[data-accept]').onclick = async () => { await fetch('/api/friends/accept', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) }); loadFriendsList(); };
+        d.querySelector('[data-decline]').onclick = async () => { await fetch('/api/friends/decline', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) }); loadFriendsList(); };
+        panel.appendChild(d);
+      });
+    }
+    if (data.outgoing && data.outgoing.length) {
+      panel.innerHTML += '<div class="friend-section">Pending Sent</div>';
+      data.outgoing.forEach(u => {
+        const d = document.createElement('div'); d.className = 'friend-item';
+        d.innerHTML = `<span class="f-name" style="color:#999">${esc(u)}</span><span style="font-size:10px;color:#999">pending</span>`;
+        panel.appendChild(d);
+      });
+    }
+    panel.innerHTML += '<div class="friend-section">Friends</div>';
+    if (!data.friends.length) { panel.innerHTML += '<div style="font-size:10px;color:#999;padding:4px;">No friends yet</div>'; }
+    data.friends.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0)).forEach(f => {
+      const d = document.createElement('div'); d.className = 'friend-item';
+      d.innerHTML = `<div class="f-status ${f.online ? 'online' : 'offline'}"></div><span class="f-name">${esc(f.name)}</span><button class="win-btn" data-dm="${f.name}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${f.name}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
+      d.querySelector('[data-dm]').onclick = () => { openDm(f.name); };
+      d.querySelector('[data-rm]').onclick = async () => { if (confirm(`Remove ${f.name}?`)) { await fetch('/api/friends/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: f.name }) }); loadFriendsList(); }};
+      panel.appendChild(d);
+    });
+  } catch {}
+}
+document.getElementById('btn-friend-add').onclick = async () => {
+  const inp = document.getElementById('friend-add-input');
+  const name = inp.value.trim(); if (!name) return;
+  const res = await fetch('/api/friends/add', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: name }) });
+  const data = await res.json();
+  inp.value = '';
+  if (data.error) alert(data.error);
+  else loadFriendsList();
+};
+
+// === Messages (DMs + Groups) ===
+let currentDmWith = null;
+let currentGroupId = null;
+
+async function loadMsgList() {
+  const list = document.getElementById('msg-list'); list.innerHTML = '';
+  document.getElementById('msg-list-view').style.display = '';
+  document.getElementById('msg-view').style.display = 'none';
+  currentDmWith = null; currentGroupId = null;
+  // Friends DMs
+  try {
+    const res = await fetch('/api/friends', { headers: { Authorization: authToken } });
+    const data = await res.json();
+    data.friends.forEach(f => {
+      const d = document.createElement('div'); d.className = 'msg-thread';
+      d.innerHTML = `<div class="f-status ${f.online ? 'online' : 'offline'}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;"></div>${esc(f.name)}`;
+      d.onclick = () => openDm(f.name);
+      list.appendChild(d);
+    });
+  } catch {}
+  // Groups
+  try {
+    const res = await fetch('/api/groups', { headers: { Authorization: authToken } });
+    const data = await res.json();
+    if (data.groups.length) {
+      const hdr = document.createElement('div'); hdr.className = 'friend-section'; hdr.textContent = 'Group Chats'; list.appendChild(hdr);
+      data.groups.forEach(g => {
+        const d = document.createElement('div'); d.className = 'msg-thread';
+        d.innerHTML = `<b>${esc(g.name)}</b> <span style="font-size:10px;color:#888">(${g.members.length})</span>`;
+        d.onclick = () => openGroup(g.id, g.name);
+        list.appendChild(d);
+      });
+    }
+  } catch {}
+}
+
+async function openDm(friendName) {
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-tab="msgs-tab"]').classList.add('active');
+  document.getElementById('msgs-tab').classList.add('active');
+  currentDmWith = friendName; currentGroupId = null;
+  document.getElementById('msg-list-view').style.display = 'none';
+  document.getElementById('msg-view').style.display = 'flex';
+  document.getElementById('msg-view-title').textContent = friendName;
+  const el = document.getElementById('msg-view-msgs'); el.innerHTML = '';
+  try {
+    const res = await fetch(`/api/dm/history?with=${encodeURIComponent(friendName)}`, { headers: { Authorization: authToken } });
+    const data = await res.json();
+    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text, m.time));
+  } catch {}
+}
+
+async function openGroup(gid, gname) {
+  currentGroupId = gid; currentDmWith = null;
+  document.getElementById('msg-list-view').style.display = 'none';
+  document.getElementById('msg-view').style.display = 'flex';
+  document.getElementById('msg-view-title').textContent = gname;
+  const el = document.getElementById('msg-view-msgs'); el.innerHTML = '';
+  try {
+    const res = await fetch(`/api/groups/history?id=${encodeURIComponent(gid)}`, { headers: { Authorization: authToken } });
+    const data = await res.json();
+    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text, m.time));
+  } catch {}
+}
+
+function appendDmMsg(from, text, t) {
+  const el = document.getElementById('msg-view-msgs');
+  const d = document.createElement('div'); d.className = 'dm-msg';
+  const ts = t ? new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  d.innerHTML = `<span class="dm-time">${ts}</span><b>${esc(from)}:</b> ${esc(filterText(text))}`;
+  el.appendChild(d); el.scrollTop = el.scrollHeight;
+}
+
+document.getElementById('btn-msg-back').onclick = () => loadMsgList();
+document.getElementById('btn-msg-send').onclick = sendDmOrGroup;
+document.getElementById('msg-send-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendDmOrGroup(); });
+
+async function sendDmOrGroup() {
+  const inp = document.getElementById('msg-send-input');
+  const text = inp.value.trim(); if (!text) return;
+  if (currentDmWith) {
+    await fetch('/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to: currentDmWith, text }) });
+    appendDmMsg(username, text, Date.now() / 1000);
+  } else if (currentGroupId) {
+    await fetch('/api/groups/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ group_id: currentGroupId, text }) });
+    appendDmMsg(username, text, Date.now() / 1000);
+  }
+  inp.value = '';
+}
+
+// Create group
+document.getElementById('btn-create-group').onclick = async () => {
+  const name = document.getElementById('group-name-input').value.trim();
+  if (!name) return;
+  // Get friends to add
+  let friends = [];
+  try {
+    const res = await fetch('/api/friends', { headers: { Authorization: authToken } });
+    const data = await res.json();
+    friends = data.friends.map(f => f.name);
+  } catch {}
+  if (!friends.length) { alert('Add friends first!'); return; }
+  const selected = prompt('Enter friend names to add (comma separated):\n' + friends.join(', '));
+  if (!selected) return;
+  const members = selected.split(',').map(s => s.trim()).filter(Boolean);
+  const res = await fetch('/api/groups/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, members }) });
+  const data = await res.json();
+  if (data.error) alert(data.error);
+  else { document.getElementById('group-name-input').value = ''; loadMsgList(); }
+};
+
+// Init
+function initView() {
+  const wrap = document.getElementById('viewport-wrap');
+  cvs.width = wrap.clientWidth; cvs.height = wrap.clientHeight;
+  zoom = Math.min(cvs.width, cvs.height) / GRID * 0.9;
+  zoom = Math.max(MIN_ZOOM, zoom);
+  document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x';
+  camX = GRID / 2; camY = GRID / 2; render();
+}
+
+// Auto-login
+if (authToken && localStorage.getItem('ezplace_user')) {
+  username = localStorage.getItem('ezplace_user');
+  showLoggedIn();
+}
+initView();
+loadLobbies();
+addSystemMsg('Welcome to EzPlace! Log in to place pixels, or join a public lobby as guest to spectate.');
+addSystemMsg('Scroll to zoom. Right-click drag to pan.');
+</script>
+</body>
+</html>
