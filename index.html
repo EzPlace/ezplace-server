@@ -200,6 +200,8 @@
   .msg .name.owner { color: var(--win-red); font-weight: bold; }
   .msg .name.guest { color: #999; font-style: italic; }
   .rainbow { font-weight: bold; background: linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00cc00, #0088ff, #8800ff, #ff00ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .msg .name.vip { color: #daa520; font-weight: bold; }
+  .msg .vip-badge { font-size: 10px; font-weight: bold; margin-right: 2px; background: linear-gradient(90deg, #daa520, #ffd700, #fff68f, #daa520); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 
   /* Admin panel */
   #admin-tab-btn { display: none; }
@@ -419,6 +421,15 @@
         <button class="win-btn" id="btn-admin-kick">Kick</button>
       </div>
       <div id="admin-status" style="font-size:10px;color:#666;min-height:14px;">&nbsp;</div>
+      <h4>VIP Management</h4>
+      <div class="admin-row">
+        <input id="admin-vip-input" class="win-input" type="text" placeholder="Username">
+        <button class="win-btn" id="btn-admin-vip-add">Add VIP</button>
+        <button class="win-btn" id="btn-admin-vip-remove">Remove</button>
+      </div>
+      <div class="admin-row">
+        <button class="win-btn" id="btn-view-vips">View VIPs</button>
+      </div>
       <h4>View Data</h4>
       <div class="admin-row">
         <button class="win-btn" id="btn-view-accounts">Accounts</button>
@@ -691,12 +702,13 @@ const messagesEl = document.getElementById('messages');
 const chatInput = document.getElementById('chat-input');
 const chatBtn = document.getElementById('chat-btn');
 function timeStr() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
-function addMsg(name, text, isOwner, isMsgGuest) {
+function addMsg(name, text, isOwner, isMsgGuest, isMsgVip) {
   const d = document.createElement('div'); d.className = 'msg';
   const isTP = name.toLowerCase() === 'toothpaste';
   const crown = isOwner ? '<span class="crown">&#x1F451;</span>' : '';
-  const nameClass = isTP ? 'name rainbow' : (isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name'));
-  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}<span class="${nameClass}">${esc(name)}:</span> ${esc(filterText(text))}`;
+  const vipBadge = isMsgVip && !isTP ? '<span class="vip-badge">[VIP]</span>' : '';
+  const nameClass = isTP ? 'name rainbow' : (isMsgVip ? 'name vip' : (isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name')));
+  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${vipBadge}<span class="${nameClass}">${esc(name)}:</span> ${esc(filterText(text))}`;
   messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
@@ -969,7 +981,7 @@ function connectToLobby(lobbyId, lobbyName) {
     switch (msg.type) {
       case 'pixel': grid[msg.y * GRID + msg.x] = msg.color; render(); break;
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
-      case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
+      case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; break;
       case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; render(); break;
       case 'system': addSystemMsg(msg.text); break;
@@ -1165,6 +1177,9 @@ document.getElementById('btn-view-bans').onclick = () => adminView('/api/admin/b
 document.getElementById('btn-view-ips').onclick = () => adminView('/api/admin/ips');
 document.getElementById('btn-view-friends').onclick = () => adminView('/api/admin/friends');
 document.getElementById('btn-view-lobbies').onclick = () => adminView('/api/admin/lobbies');
+document.getElementById('btn-admin-vip-add').onclick = () => { const u = document.getElementById('admin-vip-input').value.trim(); if (u) adminAction('/api/admin/vip-add', { username: u }); };
+document.getElementById('btn-admin-vip-remove').onclick = () => { const u = document.getElementById('admin-vip-input').value.trim(); if (u) adminAction('/api/admin/vip-remove', { username: u }); };
+document.getElementById('btn-view-vips').onclick = () => adminView('/api/admin/vips');
 
 function initView() {
   const wrap = document.getElementById('viewport-wrap');

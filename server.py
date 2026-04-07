@@ -28,17 +28,15 @@ FRIENDS_FILE = "friends.json"
 BANS_FILE = "bans.json"
 USER_IPS_FILE = "user_ips.json"
 GRIDS_FILE = "grids.json"
+VIPS_FILE = "vips.json"
 
 accounts = {}
-sessions = {}    # { token: username }
+sessions = {}
 captchas = {}
-
 friends_data = {}
-
 dms = {}
-
 bans = []
-
+vips = []
 user_ips = {}
 
 lobbies = {}
@@ -99,6 +97,19 @@ def load_bans():
 def save_bans():
     with open(BANS_FILE, "w") as f:
         json.dump(bans, f)
+
+def load_vips():
+    global vips
+    if os.path.exists(VIPS_FILE):
+        with open(VIPS_FILE, "r") as f:
+            vips = json.load(f)
+
+def save_vips():
+    with open(VIPS_FILE, "w") as f:
+        json.dump(vips, f)
+
+def is_vip(username):
+    return username and username.lower() in vips
 
 def load_user_ips():
     global user_ips
@@ -651,6 +662,36 @@ async def admin_kick_handler(request):
         return web.json_response({"error": "User not in any lobby"}, status=404)
     return web.json_response({"ok": True})
 
+async def admin_vips_handler(request):
+    user = get_auth_user(request)
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"vips": vips})
+
+async def admin_vip_add_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip().lower()
+    if not target:
+        return web.json_response({"error": "Username required"}, status=400)
+    if target not in vips:
+        vips.append(target)
+        save_vips()
+    return web.json_response({"ok": True, "message": f"Added {target} as VIP"})
+
+async def admin_vip_remove_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip().lower()
+    if target in vips:
+        vips.remove(target)
+        save_vips()
+    return web.json_response({"ok": True, "message": f"Removed {target} from VIP"})
+
 async def social_ws_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -802,7 +843,7 @@ async def websocket_handler(request):
                         lobby = lobbies.get(lobby_id)
                         if lobby: lobby["last_activity"] = now2
                         is_owner = not is_guest and lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
-                        await broadcast_to_lobby(lobby_id, {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest})
+                        await broadcast_to_lobby(lobby_id, {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username)})
 
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
@@ -889,6 +930,9 @@ app.router.add_get("/api/admin/ips", admin_ips_handler)
 app.router.add_post("/api/admin/ban", admin_ban_handler)
 app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
+app.router.add_get("/api/admin/vips", admin_vips_handler)
+app.router.add_post("/api/admin/vip-add", admin_vip_add_handler)
+app.router.add_post("/api/admin/vip-remove", admin_vip_remove_handler)
 app.router.add_get("/ws", websocket_handler)
 app.router.add_get("/ws/social", social_ws_handler)
 app.router.add_get("/", index_handler)
@@ -898,6 +942,7 @@ load_lobbies()
 load_grids()
 load_friends()
 load_bans()
+load_vips()
 load_user_ips()
 
 if __name__ == "__main__":
