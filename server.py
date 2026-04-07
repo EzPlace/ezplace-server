@@ -27,6 +27,7 @@ LOBBIES_FILE = "lobbies.json"
 FRIENDS_FILE = "friends.json"
 BANS_FILE = "bans.json"
 USER_IPS_FILE = "user_ips.json"
+GRIDS_FILE = "grids.json"
 
 accounts = {}
 sessions = {}    # { token: username }
@@ -146,6 +147,21 @@ def save_lobbies():
     for lid, lobby in lobbies.items():
         out[lid] = {k: v for k, v in lobby.items() if k != "grid"}
     with open(LOBBIES_FILE, "w") as f:
+        json.dump(out, f)
+
+def load_grids():
+    if os.path.exists(GRIDS_FILE):
+        with open(GRIDS_FILE, "r") as f:
+            saved = json.load(f)
+        for lid, data in saved.items():
+            if lid in lobbies and data:
+                lobbies[lid]["grid"] = bytearray(data)
+
+def save_grids():
+    out = {}
+    for lid, lobby in lobbies.items():
+        out[lid] = list(lobby["grid"])
+    with open(GRIDS_FILE, "w") as f:
         json.dump(out, f)
 
 def hash_password(password, salt=None):
@@ -765,6 +781,7 @@ async def websocket_handler(request):
                         pc[username] = pc.get(username, 0) + 1
                         if pc[username] % 10 == 0:
                             save_lobbies()
+                            save_grids()
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
                         board = get_leaderboard_top10(lobby)
                         await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": board})
@@ -878,6 +895,7 @@ app.router.add_get("/", index_handler)
 
 load_accounts()
 load_lobbies()
+load_grids()
 load_friends()
 load_bans()
 load_user_ips()
