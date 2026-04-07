@@ -740,7 +740,7 @@ function showLoggedIn() {
   authPanel.style.display = 'none'; userBar.style.display = 'flex';
   document.getElementById('user-display').textContent = username;
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
-  if (username.toLowerCase() === 'toothpaste') document.getElementById('admin-tab-btn').style.display = '';
+  if (username.toLowerCase() === 'toothpaste') document.getElementById('admin-tab-btn').style.display = 'block';
   connectSocial();
 }
 
@@ -752,6 +752,7 @@ function logout() {
   if (socialWs) socialWs.close();
   authPanel.style.display = ''; userBar.style.display = 'none';
   document.getElementById('guest-bar').style.display = 'none';
+  document.getElementById('admin-tab-btn').style.display = 'none';
   chatInput.disabled = true; chatBtn.disabled = true;
   showRegisterMode(false);
   document.getElementById('lobby-screen').style.display = 'flex';
@@ -952,7 +953,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; break;
-      case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown || 0.5) * 1000; render(); break;
+      case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); currentLobbyId = null; loadLobbies(); break;
