@@ -186,6 +186,15 @@
   .msg .name { color: #000080; }
   .msg .name.owner { color: var(--win-red); font-weight: bold; }
   .msg .name.guest { color: #999; font-style: italic; }
+  .rainbow { font-weight: bold; background: linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00cc00, #0088ff, #8800ff, #ff00ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+  /* Admin panel */
+  #admin-tab-btn { display: none; }
+  #admin-panel { padding: 4px; overflow-y: auto; flex: 1; background: var(--win-field); margin: 4px; border: 2px solid; border-color: var(--win-shadow) var(--win-light) var(--win-light) var(--win-shadow); }
+  #admin-panel h4 { color: #cc0000; font-size: 12px; margin: 6px 0 3px; border-bottom: 1px solid #ccc; }
+  .admin-row { display: flex; gap: 3px; padding: 2px 0; font-size: 11px; align-items: center; }
+  .admin-row input { flex: 1; }
+  .admin-json { background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 10px; padding: 4px; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 4px 0; border: 1px solid #333; }
   .msg .crown { font-size: 11px; margin-right: 1px; }
   .msg .timestamp { color: #999; font-size: 10px; margin-right: 3px; }
   .msg.system { color: #808080; font-style: italic; }
@@ -278,6 +287,7 @@
       <input id="create-name" class="win-input" type="text" placeholder="Lobby name" maxlength="30">
       <label><input type="checkbox" id="create-public"> Public</label>
       <label><input type="checkbox" id="create-whitelist"> Whitelist</label>
+      <label style="font-size:11px;color:#333;">CD: <input id="create-cooldown" class="win-input" type="number" min="0" max="60" step="0.5" value="0.5" style="width:50px;">s</label>
       <button id="btn-create-lobby" class="win-btn">Create</button>
     </div>
     <div class="lobby-error" id="lobby-error">&nbsp;</div>
@@ -335,7 +345,8 @@
     <div class="sidebar-tab active" data-tab="chat-tab">Chat</div>
     <div class="sidebar-tab" data-tab="lb-tab">Leaderboard</div>
     <div class="sidebar-tab" data-tab="friends-tab">Friends</div>
-    <div class="sidebar-tab" data-tab="msgs-tab">Messages</div>
+    <div class="sidebar-tab" data-tab="msgs-tab">DMs</div>
+    <div class="sidebar-tab" data-tab="admin-tab" id="admin-tab-btn">Admin</div>
   </div>
 
   <!-- Chat tab -->
@@ -366,13 +377,9 @@
     <div id="friends-panel"></div>
   </div>
 
-  <!-- Messages tab -->
+  <!-- DMs tab -->
   <div id="msgs-tab" class="tab-panel">
     <div id="msg-list-view">
-      <div id="group-create-row">
-        <input id="group-name-input" class="win-input" type="text" placeholder="Group name" maxlength="30">
-        <button id="btn-create-group" class="win-btn">New Group</button>
-      </div>
       <div id="msg-list"></div>
     </div>
     <div id="msg-view">
@@ -387,6 +394,29 @@
       </div>
     </div>
   </div>
+
+  <!-- Admin tab (toothpaste only) -->
+  <div id="admin-tab" class="tab-panel">
+    <div id="admin-panel">
+      <h4>Ban / Kick</h4>
+      <div class="admin-row">
+        <input id="admin-ban-input" class="win-input" type="text" placeholder="Username">
+        <button class="win-btn" id="btn-admin-ban">Ban</button>
+        <button class="win-btn" id="btn-admin-unban">Unban</button>
+        <button class="win-btn" id="btn-admin-kick">Kick</button>
+      </div>
+      <div id="admin-status" style="font-size:10px;color:#666;min-height:14px;">&nbsp;</div>
+      <h4>View Data</h4>
+      <div class="admin-row">
+        <button class="win-btn" id="btn-view-accounts">Accounts</button>
+        <button class="win-btn" id="btn-view-bans">Bans</button>
+        <button class="win-btn" id="btn-view-ips">IPs</button>
+        <button class="win-btn" id="btn-view-friends">Friends</button>
+        <button class="win-btn" id="btn-view-lobbies">Lobbies</button>
+      </div>
+      <div id="admin-json" class="admin-json" style="display:none;"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -397,7 +427,7 @@ const COLORS = [
   '#E5D900','#94E044','#02BE01','#00D3DD',
   '#0083C7','#0000EA','#CF6EE4','#820080'
 ];
-const COOLDOWN = 500;
+let COOLDOWN = 500; // ms, updated per lobby
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 40;
 const GRID_LINE_MIN_ZOOM = 4;
@@ -644,8 +674,9 @@ const chatBtn = document.getElementById('chat-btn');
 function timeStr() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 function addMsg(name, text, isOwner, isMsgGuest) {
   const d = document.createElement('div'); d.className = 'msg';
+  const isTP = name.toLowerCase() === 'toothpaste';
   const crown = isOwner ? '<span class="crown">&#x1F451;</span>' : '';
-  const nameClass = isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name');
+  const nameClass = isTP ? 'name rainbow' : (isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name'));
   d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}<span class="${nameClass}">${esc(name)}:</span> ${esc(filterText(text))}`;
   messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -709,6 +740,7 @@ function showLoggedIn() {
   authPanel.style.display = 'none'; userBar.style.display = 'flex';
   document.getElementById('user-display').textContent = username;
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
+  if (username.toLowerCase() === 'toothpaste') document.getElementById('admin-tab-btn').style.display = '';
   connectSocial();
 }
 
@@ -746,7 +778,7 @@ async function loadLobbies() {
     const el = document.getElementById('public-lobbies'); el.innerHTML = '';
     data.lobbies.forEach(l => {
       const card = document.createElement('div'); card.className = 'lobby-card';
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">Public</div></div><div class="lobby-online">${l.online} online</div>`;
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">Public | ${l.cooldown}s cooldown</div></div><div class="lobby-online">${l.online} online</div>`;
       card.onclick = () => joinLobby(l.id, l.name, true);
       el.appendChild(card);
     });
@@ -760,7 +792,7 @@ async function loadLobbies() {
       if (data.lobbies.length === 0) { el.innerHTML = '<div style="color:#555;font-size:12px;">No lobbies yet</div>'; }
       data.lobbies.forEach(l => {
         const card = document.createElement('div'); card.className = 'lobby-card';
-        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' | Whitelist' : ''}</div></div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div><div class="lobby-online">${l.online} online</div>`;
+        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' | Whitelist' : ''} | ${l.cooldown}s cd</div></div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div><div class="lobby-online">${l.online} online</div>`;
         card.querySelector('.lobby-info').onclick = () => joinLobby(l.id, l.name, l.public);
         card.querySelector('.manage').onclick = e => { e.stopPropagation(); openManage(l); };
         card.querySelector('.del').onclick = e => { e.stopPropagation(); deleteLobby(l.id); };
@@ -821,9 +853,10 @@ document.getElementById('btn-create-lobby').onclick = async () => {
   const name = document.getElementById('create-name').value.trim();
   const isPublic = document.getElementById('create-public').checked;
   const wl = document.getElementById('create-whitelist').checked && !isPublic;
+  const cd = Math.max(0, Math.min(60, parseFloat(document.getElementById('create-cooldown').value) || 0.5));
   if (!name) { lobbyError.textContent = 'Enter a lobby name'; return; }
   try {
-    const res = await fetch('/api/lobbies/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, public: isPublic, whitelist_enabled: wl }) });
+    const res = await fetch('/api/lobbies/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, public: isPublic, whitelist_enabled: wl, cooldown: cd }) });
     const data = await res.json();
     if (data.error) { lobbyError.textContent = data.error; return; }
     lobbyError.innerHTML = '&nbsp;'; document.getElementById('create-name').value = '';
@@ -916,9 +949,10 @@ function connectToLobby(lobbyId, lobbyName) {
     const msg = JSON.parse(e.data);
     switch (msg.type) {
       case 'pixel': grid[msg.y * GRID + msg.x] = msg.color; render(); break;
+      case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; break;
-      case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; render(); break;
+      case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown || 0.5) * 1000; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); currentLobbyId = null; loadLobbies(); break;
@@ -942,27 +976,27 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
 });
 
 // === Leaderboard ===
-let lbInterval = null;
+function renderLeaderboard(board) {
+  const panel = document.getElementById('lb-panel');
+  if (!board || !board.length) { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">No pixels placed yet</div>'; return; }
+  panel.innerHTML = '<div style="font-size:11px;font-weight:bold;color:#333;padding:2px 4px;border-bottom:1px solid #999;">Top Pixels Placed</div>';
+  board.forEach((p, i) => {
+    const row = document.createElement('div'); row.className = 'lb-row';
+    const medal = i === 0 ? ' &#x1F947;' : i === 1 ? ' &#x1F948;' : i === 2 ? ' &#x1F949;' : '';
+    const nameClass = p.name.toLowerCase() === 'toothpaste' ? 'lb-name rainbow' : 'lb-name';
+    row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="${nameClass}">${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
+    panel.appendChild(row);
+  });
+}
 async function loadLeaderboard() {
   const panel = document.getElementById('lb-panel');
   if (!currentLobbyId) { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">Join a lobby to see leaderboard</div>'; return; }
   try {
     const res = await fetch(`/api/leaderboard?lobby_id=${encodeURIComponent(currentLobbyId)}`);
     const data = await res.json();
-    if (!data.leaderboard || !data.leaderboard.length) { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">No pixels placed yet</div>'; return; }
-    panel.innerHTML = '<div style="font-size:11px;font-weight:bold;color:#333;padding:2px 4px;border-bottom:1px solid #999;">Top Pixels Placed</div>';
-    data.leaderboard.forEach((p, i) => {
-      const row = document.createElement('div'); row.className = 'lb-row';
-      const medal = i === 0 ? ' &#x1F947;' : i === 1 ? ' &#x1F948;' : i === 2 ? ' &#x1F949;' : '';
-      row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="lb-name">${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
-      panel.appendChild(row);
-    });
+    renderLeaderboard(data.leaderboard);
   } catch { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">Error loading leaderboard</div>'; }
 }
-// Auto-refresh leaderboard every 10s if tab is active
-setInterval(() => {
-  if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active') && currentLobbyId) loadLeaderboard();
-}, 10000);
 
 // === Social WebSocket ===
 let socialWs = null;
@@ -974,7 +1008,6 @@ function connectSocial() {
   socialWs.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'dm') { if (currentDmWith && currentDmWith.toLowerCase() === msg.from.toLowerCase()) appendDmMsg(msg.from, msg.text, msg.time); }
-    if (msg.type === 'group_msg') { if (currentGroupId === msg.group_id) appendDmMsg(msg.from, msg.text, msg.time); }
     if (msg.type === 'friend_request' || msg.type === 'friend_accepted') { loadFriendsList(); }
   };
   socialWs.onclose = () => { setTimeout(() => { if (authToken) connectSocial(); }, 5000); };
@@ -1026,39 +1059,24 @@ document.getElementById('btn-friend-add').onclick = async () => {
   else loadFriendsList();
 };
 
-// === Messages (DMs + Groups) ===
+// === DMs ===
 let currentDmWith = null;
-let currentGroupId = null;
 
 async function loadMsgList() {
   const list = document.getElementById('msg-list'); list.innerHTML = '';
   document.getElementById('msg-list-view').style.display = '';
   document.getElementById('msg-view').style.display = 'none';
-  currentDmWith = null; currentGroupId = null;
-  // Friends DMs
+  currentDmWith = null;
   try {
     const res = await fetch('/api/friends', { headers: { Authorization: authToken } });
     const data = await res.json();
+    if (!data.friends.length) { list.innerHTML = '<div style="font-size:10px;color:#999;padding:8px;">Add friends to start messaging</div>'; return; }
     data.friends.forEach(f => {
       const d = document.createElement('div'); d.className = 'msg-thread';
       d.innerHTML = `<div class="f-status ${f.online ? 'online' : 'offline'}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;"></div>${esc(f.name)}`;
       d.onclick = () => openDm(f.name);
       list.appendChild(d);
     });
-  } catch {}
-  // Groups
-  try {
-    const res = await fetch('/api/groups', { headers: { Authorization: authToken } });
-    const data = await res.json();
-    if (data.groups.length) {
-      const hdr = document.createElement('div'); hdr.className = 'friend-section'; hdr.textContent = 'Group Chats'; list.appendChild(hdr);
-      data.groups.forEach(g => {
-        const d = document.createElement('div'); d.className = 'msg-thread';
-        d.innerHTML = `<b>${esc(g.name)}</b> <span style="font-size:10px;color:#888">(${g.members.length})</span>`;
-        d.onclick = () => openGroup(g.id, g.name);
-        list.appendChild(d);
-      });
-    }
   } catch {}
 }
 
@@ -1067,7 +1085,7 @@ async function openDm(friendName) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelector('[data-tab="msgs-tab"]').classList.add('active');
   document.getElementById('msgs-tab').classList.add('active');
-  currentDmWith = friendName; currentGroupId = null;
+  currentDmWith = friendName;
   document.getElementById('msg-list-view').style.display = 'none';
   document.getElementById('msg-view').style.display = 'flex';
   document.getElementById('msg-view-title').textContent = friendName;
@@ -1077,19 +1095,7 @@ async function openDm(friendName) {
     const data = await res.json();
     (data.messages || []).forEach(m => appendDmMsg(m.from, m.text, m.time));
   } catch {}
-}
-
-async function openGroup(gid, gname) {
-  currentGroupId = gid; currentDmWith = null;
-  document.getElementById('msg-list-view').style.display = 'none';
-  document.getElementById('msg-view').style.display = 'flex';
-  document.getElementById('msg-view-title').textContent = gname;
-  const el = document.getElementById('msg-view-msgs'); el.innerHTML = '';
-  try {
-    const res = await fetch(`/api/groups/history?id=${encodeURIComponent(gid)}`, { headers: { Authorization: authToken } });
-    const data = await res.json();
-    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text, m.time));
-  } catch {}
+  document.getElementById('msg-send-input').focus();
 }
 
 function appendDmMsg(from, text, t) {
@@ -1101,42 +1107,47 @@ function appendDmMsg(from, text, t) {
 }
 
 document.getElementById('btn-msg-back').onclick = () => loadMsgList();
-document.getElementById('btn-msg-send').onclick = sendDmOrGroup;
-document.getElementById('msg-send-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendDmOrGroup(); });
+document.getElementById('btn-msg-send').onclick = sendDm;
+document.getElementById('msg-send-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendDm(); });
 
-async function sendDmOrGroup() {
+async function sendDm() {
   const inp = document.getElementById('msg-send-input');
-  const text = inp.value.trim(); if (!text) return;
-  if (currentDmWith) {
+  const text = inp.value.trim(); if (!text || !currentDmWith) return;
+  // Send via WebSocket for real-time delivery
+  if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+    socialWs.send(JSON.stringify({ type: 'dm', to: currentDmWith, text }));
+  } else {
     await fetch('/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to: currentDmWith, text }) });
-    appendDmMsg(username, text, Date.now() / 1000);
-  } else if (currentGroupId) {
-    await fetch('/api/groups/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ group_id: currentGroupId, text }) });
-    appendDmMsg(username, text, Date.now() / 1000);
   }
+  appendDmMsg(username, text, Date.now() / 1000);
   inp.value = '';
 }
 
-// Create group
-document.getElementById('btn-create-group').onclick = async () => {
-  const name = document.getElementById('group-name-input').value.trim();
-  if (!name) return;
-  // Get friends to add
-  let friends = [];
+// === Admin Panel (toothpaste only) ===
+async function adminAction(endpoint, body) {
   try {
-    const res = await fetch('/api/friends', { headers: { Authorization: authToken } });
+    const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
     const data = await res.json();
-    friends = data.friends.map(f => f.name);
-  } catch {}
-  if (!friends.length) { alert('Add friends first!'); return; }
-  const selected = prompt('Enter friend names to add (comma separated):\n' + friends.join(', '));
-  if (!selected) return;
-  const members = selected.split(',').map(s => s.trim()).filter(Boolean);
-  const res = await fetch('/api/groups/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, members }) });
-  const data = await res.json();
-  if (data.error) alert(data.error);
-  else { document.getElementById('group-name-input').value = ''; loadMsgList(); }
-};
+    document.getElementById('admin-status').textContent = data.error || data.message || 'Done';
+  } catch { document.getElementById('admin-status').textContent = 'Error'; }
+}
+async function adminView(endpoint) {
+  try {
+    const res = await fetch(endpoint, { headers: { Authorization: authToken } });
+    const data = await res.json();
+    const el = document.getElementById('admin-json');
+    el.style.display = 'block';
+    el.textContent = JSON.stringify(data, null, 2);
+  } catch { document.getElementById('admin-json').textContent = 'Error loading'; }
+}
+document.getElementById('btn-admin-ban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/ban', { username: u }); };
+document.getElementById('btn-admin-unban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/unban', { username: u }); };
+document.getElementById('btn-admin-kick').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/kick', { username: u }); };
+document.getElementById('btn-view-accounts').onclick = () => adminView('/api/admin/accounts');
+document.getElementById('btn-view-bans').onclick = () => adminView('/api/admin/bans');
+document.getElementById('btn-view-ips').onclick = () => adminView('/api/admin/ips');
+document.getElementById('btn-view-friends').onclick = () => adminView('/api/admin/friends');
+document.getElementById('btn-view-lobbies').onclick = () => adminView('/api/admin/lobbies');
 
 // Init
 function initView() {

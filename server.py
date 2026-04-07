@@ -13,15 +13,21 @@ from aiohttp import web
 GRID = 256
 MAX_LOBBIES_PER_USER = 5
 MAX_DM_HISTORY = 100
-MAX_GROUP_HISTORY = 100
-MAX_GROUPS_PER_USER = 10
-PUBLIC_LOBBY_NAMES = ["OFFICIAL PUBLIC LOBBY #1", "OFFICIAL PUBLIC LOBBY #2", "OFFICIAL PUBLIC LOBBY #3", "OFFICIAL PUBLIC LOBBY #4", "OFFICIAL PUBLIC LOBBY #5"]
+PUBLIC_LOBBIES = [
+    {"name": "Official 0s cooldown server [CHAOS]", "cooldown": 0},
+    {"name": "Official 0.5s cooldown server [NORMAL]", "cooldown": 0.5},
+    {"name": "Official 5 second cooldown server [SLOW]", "cooldown": 5},
+]
+DEFAULT_COOLDOWN = 0.5
+MAX_COOLDOWN = 60
+ADMIN_USER = "toothpaste"
 
 # --- Data files ---
 ACCOUNTS_FILE = "accounts.json"
 LOBBIES_FILE = "lobbies.json"
 FRIENDS_FILE = "friends.json"
-GROUPS_FILE = "groups.json"
+BANS_FILE = "bans.json"
+USER_IPS_FILE = "user_ips.json"
 
 # accounts: { username: { password_hash, salt } }
 accounts = {}
@@ -34,14 +40,21 @@ friends_data = {}
 # dms: { "user1:user2" (sorted): [ {from, text, time}, ... ] }
 dms = {}
 
-# groups: { group_id: { id, name, owner, members: [], messages: [] } }
-groups = {}
+# bans: [ username, ... ]
+bans = []
+
+# user_ips: { username: ip }
+user_ips = {}
 
 lobbies = {}
 # clients: { ws: { username, lobby_id, guest } }
 clients = {}
 # social_clients: { ws: username } — for friend status/DM delivery
 social_clients = {}
+
+
+def is_admin(user):
+    return user and user.lower() == ADMIN_USER
 
 
 def get_friend_data(user):
@@ -61,6 +74,10 @@ def is_online(username):
         if u and u.lower() == ulow:
             return True
     return False
+
+def is_banned(username):
+    ulow = username.lower()
+    return any(b.lower() == ulow for b in bans)
 
 def load_accounts():
     global accounts
@@ -82,25 +99,42 @@ def save_friends():
     with open(FRIENDS_FILE, "w") as f:
         json.dump(friends_data, f)
 
-def load_groups():
-    global groups
-    if os.path.exists(GROUPS_FILE):
-        with open(GROUPS_FILE, "r") as f:
-            groups = json.load(f)
+def load_bans():
+    global bans
+    if os.path.exists(BANS_FILE):
+        with open(BANS_FILE, "r") as f:
+            bans = json.load(f)
 
-def save_groups():
-    with open(GROUPS_FILE, "w") as f:
-        json.dump(groups, f)
+def save_bans():
+    with open(BANS_FILE, "w") as f:
+        json.dump(bans, f)
+
+def load_user_ips():
+    global user_ips
+    if os.path.exists(USER_IPS_FILE):
+        with open(USER_IPS_FILE, "r") as f:
+            user_ips = json.load(f)
+
+def save_user_ips():
+    with open(USER_IPS_FILE, "w") as f:
+        json.dump(user_ips, f)
+
+def track_ip(username, request):
+    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote
+    if ip:
+        user_ips[username] = ip
+        save_user_ips()
 
 def load_lobbies():
     global lobbies
-    for i, name in enumerate(PUBLIC_LOBBY_NAMES):
+    for i, pl in enumerate(PUBLIC_LOBBIES):
         lid = f"public_{i}"
         if lid not in lobbies:
             lobbies[lid] = {
-                "id": lid, "name": name, "owner": "toothpaste", "public": True,
+                "id": lid, "name": pl["name"], "owner": "toothpaste", "public": True,
                 "code": None, "whitelist_enabled": False, "whitelist": [],
-                "grid": bytearray(GRID * GRID), "pixel_counts": {}
+                "grid": bytearray(GRID * GRID), "pixel_counts": {},
+                "cooldown": pl["cooldown"]
             }
     if os.path.exists(LOBBIES_FILE):
         with open(LOBBIES_FILE, "r") as f:
@@ -114,6 +148,8 @@ def load_lobbies():
             ldata["grid"] = bytearray(GRID * GRID)
             if "pixel_counts" not in ldata:
                 ldata["pixel_counts"] = {}
+            if "cooldown" not in ldata:
+                ldata["cooldown"] = DEFAULT_COOLDOWN
             lobbies[lid] = ldata
 
 def save_lobbies():
@@ -140,6 +176,7 @@ def lobby_info(lobby, include_code=False):
         "id": lobby["id"], "name": lobby["name"], "owner": lobby["owner"],
         "public": lobby["public"], "whitelist_enabled": lobby["whitelist_enabled"],
         "online": sum(1 for c in clients.values() if c and c.get("lobby_id") == lobby["id"]),
+        "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN),
     }
     if include_code and lobby.get("code"):
         info["code"] = lobby["code"]
@@ -153,6 +190,11 @@ def user_lobby_count(username):
 def get_auth_user(request):
     token = request.headers.get("Authorization", "")
     return sessions.get(token)
+
+def get_leaderboard_top10(lobby):
+    pc = lobby.get("pixel_counts", {})
+    top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:10]
+    return [{"name": name, "pixels": count, "online": is_online(name)} for name, count in top]
 
 
 # --- Captcha SVG ---
@@ -226,6 +268,8 @@ async def register_handler(request):
         return web.json_response({"error": "Username must be alphanumeric"}, status=400)
     if len(pwd) < 4:
         return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
+    if is_banned(uname):
+        return web.json_response({"error": "This account is banned"}, status=403)
     cap = captchas.pop(cap_id, None)
     if not cap or cap["expires"] < time.time():
         return web.json_response({"error": "Captcha expired, get a new one"}, status=400)
@@ -246,6 +290,8 @@ async def login_handler(request):
     pwd = data.get("password", "")
     if not uname or not pwd:
         return web.json_response({"error": "Username and password required"}, status=400)
+    if is_banned(uname):
+        return web.json_response({"error": "This account is banned"}, status=403)
     found = None
     for u in accounts:
         if u.lower() == uname.lower():
@@ -283,6 +329,7 @@ async def create_lobby_handler(request):
     name = data.get("name", "").strip()[:30]
     is_public = data.get("public", False)
     whitelist_enabled = data.get("whitelist_enabled", False) and not is_public
+    cooldown = max(0, min(MAX_COOLDOWN, float(data.get("cooldown", DEFAULT_COOLDOWN))))
     if not name:
         return web.json_response({"error": "Lobby name required"}, status=400)
     if user_lobby_count(user) >= MAX_LOBBIES_PER_USER:
@@ -293,7 +340,8 @@ async def create_lobby_handler(request):
         "id": lid, "name": name, "owner": user, "public": is_public,
         "code": code, "whitelist_enabled": whitelist_enabled,
         "whitelist": [user] if whitelist_enabled else [],
-        "grid": bytearray(GRID * GRID), "pixel_counts": {}
+        "grid": bytearray(GRID * GRID), "pixel_counts": {},
+        "cooldown": cooldown
     }
     save_lobbies()
     return web.json_response({"ok": True, "lobby": lobby_info(lobbies[lid], include_code=True)})
@@ -515,95 +563,106 @@ async def dm_send_handler(request):
     return web.json_response({"ok": True})
 
 
-# --- HTTP: Group chats ---
+# --- HTTP: Admin ---
 
-async def groups_list_handler(request):
+async def admin_accounts_handler(request):
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
-    my = [{"id": g["id"], "name": g["name"], "owner": g["owner"], "members": g["members"]}
-          for g in groups.values() if user in g["members"]]
-    return web.json_response({"groups": my})
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"accounts": accounts})
 
-async def group_create_handler(request):
+async def admin_friends_handler(request):
+    user = get_auth_user(request)
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"friends": friends_data})
+
+async def admin_lobbies_handler(request):
+    user = get_auth_user(request)
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    out = {}
+    for lid, lobby in lobbies.items():
+        out[lid] = {k: v for k, v in lobby.items() if k != "grid"}
+    return web.json_response({"lobbies": out})
+
+async def admin_bans_handler(request):
+    user = get_auth_user(request)
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"bans": bans})
+
+async def admin_ips_handler(request):
+    user = get_auth_user(request)
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"ips": user_ips})
+
+async def admin_ban_handler(request):
     data = await request.json()
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
-    name = data.get("name", "").strip()[:30]
-    members = data.get("members", [])
-    if not name:
-        return web.json_response({"error": "Group name required"}, status=400)
-    user_groups = sum(1 for g in groups.values() if g["owner"].lower() == user.lower())
-    if user_groups >= MAX_GROUPS_PER_USER:
-        return web.json_response({"error": f"Max {MAX_GROUPS_PER_USER} groups"}, status=400)
-    fd = get_friend_data(user)
-    valid_members = [user] + [m for m in members if m in fd["friends"] and m != user]
-    gid = secrets.token_hex(6)
-    groups[gid] = {"id": gid, "name": name, "owner": user, "members": valid_members, "messages": []}
-    save_groups()
-    return web.json_response({"ok": True, "group": {"id": gid, "name": name, "owner": user, "members": valid_members}})
-
-async def group_send_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
-    gid = data.get("group_id", "")
-    text = data.get("text", "").strip()[:200]
-    grp = groups.get(gid)
-    if not grp or user not in grp["members"]:
-        return web.json_response({"error": "Not in group"}, status=403)
-    if not text:
-        return web.json_response({"error": "Empty message"}, status=400)
-    msg = {"from": user, "text": text, "time": time.time()}
-    grp["messages"].append(msg)
-    if len(grp["messages"]) > MAX_GROUP_HISTORY:
-        grp["messages"] = grp["messages"][-MAX_GROUP_HISTORY:]
-    save_groups()
-    for member in grp["members"]:
-        if member != user:
-            await notify_social(member, {"type": "group_msg", "group_id": gid, "group_name": grp["name"], "from": user, "text": text, "time": msg["time"]})
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    if not target:
+        return web.json_response({"error": "Username required"}, status=400)
+    if is_admin(target):
+        return web.json_response({"error": "Cannot ban admin"}, status=400)
+    if not is_banned(target):
+        bans.append(target)
+        save_bans()
+    # Invalidate sessions for banned user
+    to_remove = [tok for tok, u in sessions.items() if u.lower() == target.lower()]
+    for tok in to_remove:
+        del sessions[tok]
+    # Disconnect from game WS
+    for ws, info in list(clients.items()):
+        if info and not info.get("guest") and info.get("username", "").lower() == target.lower():
+            try:
+                await ws.send_json({"type": "kicked", "text": "You have been banned"})
+                await ws.close()
+            except Exception:
+                pass
+    # Disconnect from social WS
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == target.lower():
+            try:
+                await ws.close()
+            except Exception:
+                pass
     return web.json_response({"ok": True})
 
-async def group_history_handler(request):
-    user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
-    gid = request.query.get("id", "")
-    grp = groups.get(gid)
-    if not grp or user not in grp["members"]:
-        return web.json_response({"error": "Not in group"}, status=403)
-    return web.json_response({"messages": grp["messages"][-MAX_GROUP_HISTORY:]})
-
-async def group_delete_handler(request):
+async def admin_unban_handler(request):
     data = await request.json()
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
-    gid = data.get("group_id", "")
-    grp = groups.get(gid)
-    if not grp:
-        return web.json_response({"error": "Group not found"}, status=404)
-    if grp["owner"].lower() != user.lower():
-        return web.json_response({"error": "Not group owner"}, status=403)
-    del groups[gid]
-    save_groups()
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    if not target:
+        return web.json_response({"error": "Username required"}, status=400)
+    bans[:] = [b for b in bans if b.lower() != target.lower()]
+    save_bans()
     return web.json_response({"ok": True})
 
-async def group_leave_handler(request):
+async def admin_kick_handler(request):
     data = await request.json()
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
-    gid = data.get("group_id", "")
-    grp = groups.get(gid)
-    if not grp or user not in grp["members"]:
-        return web.json_response({"error": "Not in group"}, status=403)
-    grp["members"].remove(user)
-    if not grp["members"]:
-        del groups[gid]
-    save_groups()
+    if not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    if not target:
+        return web.json_response({"error": "Username required"}, status=400)
+    kicked = False
+    for ws, info in list(clients.items()):
+        if info and not info.get("guest") and info.get("username", "").lower() == target.lower():
+            try:
+                await ws.send_json({"type": "kicked", "text": "You have been kicked by an admin"})
+                await ws.close()
+            except Exception:
+                pass
+            kicked = True
+    if not kicked:
+        return web.json_response({"error": "User not in any lobby"}, status=404)
     return web.json_response({"ok": True})
 
 
@@ -623,10 +682,26 @@ async def social_ws_handler(request):
                     token = data.get("token", "")
                     if token in sessions:
                         username = sessions[token]
+                        if is_banned(username):
+                            await ws.close()
+                            break
                         social_clients[ws] = username
+                        track_ip(username, request)
                         await ws.send_json({"type": "social_ready"})
                     else:
                         await ws.close()
+                elif data.get("type") == "dm" and username:
+                    target = data.get("to", "").strip()
+                    text = data.get("text", "").strip()[:200]
+                    if target and text:
+                        fd = get_friend_data(username)
+                        if target in fd["friends"]:
+                            key = dm_key(username, target)
+                            m = {"from": username, "text": text, "time": time.time()}
+                            dms.setdefault(key, []).append(m)
+                            if len(dms[key]) > MAX_DM_HISTORY:
+                                dms[key] = dms[key][-MAX_DM_HISTORY:]
+                            await notify_social(target, {"type": "dm", "from": username, "text": text, "time": m["time"]})
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
@@ -653,6 +728,7 @@ async def websocket_handler(request):
     username = None
     lobby_id = None
     is_guest = False
+    last_pixel = 0
     clients[ws] = None
 
     try:
@@ -668,6 +744,10 @@ async def websocket_handler(request):
                         await ws.close()
                         break
                     username = sessions[token]
+                    if is_banned(username):
+                        await ws.send_json({"type": "error", "text": "You are banned"})
+                        await ws.close()
+                        break
                     lobby = lobbies.get(lid)
                     if not lobby:
                         await ws.send_json({"type": "error", "text": "Lobby not found"})
@@ -679,7 +759,8 @@ async def websocket_handler(request):
                         break
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False}
-                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"]})
+                    track_ip(username, request)
+                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN)})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                     await broadcast_online_lobby(lobby_id)
 
@@ -699,13 +780,18 @@ async def websocket_handler(request):
                     is_guest = True
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True}
-                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "guest": True})
+                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN)})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined (spectating)"})
                     await broadcast_online_lobby(lobby_id)
 
                 elif data["type"] == "pixel" and username and lobby_id and not is_guest:
                     x, y, color = data["x"], data["y"], data["color"]
                     lobby = lobbies.get(lobby_id)
+                    now = time.time()
+                    cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
+                    if now - last_pixel < cd:
+                        continue  # server-side cooldown enforcement
+                    last_pixel = now
                     if lobby and 0 <= x < GRID and 0 <= y < GRID and 0 <= color < 16:
                         lobby["grid"][y * GRID + x] = color
                         pc = lobby.setdefault("pixel_counts", {})
@@ -713,6 +799,9 @@ async def websocket_handler(request):
                         if pc[username] % 10 == 0:
                             save_lobbies()
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                        # Real-time leaderboard update
+                        board = get_leaderboard_top10(lobby)
+                        await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": board})
 
                 elif data["type"] == "chat" and username and lobby_id:
                     text = data.get("text", "").strip()[:200]
@@ -769,13 +858,15 @@ app.router.add_post("/api/friends/remove", friend_remove_handler)
 # DMs
 app.router.add_get("/api/dm/history", dm_history_handler)
 app.router.add_post("/api/dm/send", dm_send_handler)
-# Groups
-app.router.add_get("/api/groups", groups_list_handler)
-app.router.add_post("/api/groups/create", group_create_handler)
-app.router.add_post("/api/groups/delete", group_delete_handler)
-app.router.add_post("/api/groups/leave", group_leave_handler)
-app.router.add_post("/api/groups/send", group_send_handler)
-app.router.add_get("/api/groups/history", group_history_handler)
+# Admin
+app.router.add_get("/api/admin/accounts", admin_accounts_handler)
+app.router.add_get("/api/admin/friends", admin_friends_handler)
+app.router.add_get("/api/admin/lobbies", admin_lobbies_handler)
+app.router.add_get("/api/admin/bans", admin_bans_handler)
+app.router.add_get("/api/admin/ips", admin_ips_handler)
+app.router.add_post("/api/admin/ban", admin_ban_handler)
+app.router.add_post("/api/admin/unban", admin_unban_handler)
+app.router.add_post("/api/admin/kick", admin_kick_handler)
 # WebSockets
 app.router.add_get("/ws", websocket_handler)
 app.router.add_get("/ws/social", social_ws_handler)
@@ -785,7 +876,8 @@ app.router.add_get("/", index_handler)
 load_accounts()
 load_lobbies()
 load_friends()
-load_groups()
+load_bans()
+load_user_ips()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
