@@ -22,40 +22,30 @@ DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
 ADMIN_USER = "toothpaste"
 
-# --- Data files ---
 ACCOUNTS_FILE = "accounts.json"
 LOBBIES_FILE = "lobbies.json"
 FRIENDS_FILE = "friends.json"
 BANS_FILE = "bans.json"
 USER_IPS_FILE = "user_ips.json"
 
-# accounts: { username: { password_hash, salt } }
 accounts = {}
 sessions = {}    # { token: username }
 captchas = {}
 
-# friends_data: { username: { friends: [], incoming: [], outgoing: [] } }
 friends_data = {}
 
-# dms: { "user1:user2" (sorted): [ {from, text, time}, ... ] }
 dms = {}
 
-# bans: [ username, ... ]
 bans = []
 
-# user_ips: { username: ip }
 user_ips = {}
 
 lobbies = {}
-# clients: { ws: { username, lobby_id, guest } }
 clients = {}
-# social_clients: { ws: username } — for friend status/DM delivery
 social_clients = {}
-
 
 def is_admin(user):
     return user and user.lower() == ADMIN_USER
-
 
 def get_friend_data(user):
     if user not in friends_data:
@@ -141,7 +131,6 @@ def load_lobbies():
             saved = json.load(f)
         for lid, ldata in saved.items():
             if lid.startswith("public_"):
-                # Merge pixel_counts from saved data into existing public lobby
                 if lid in lobbies and "pixel_counts" in ldata:
                     lobbies[lid]["pixel_counts"] = ldata["pixel_counts"]
                 continue
@@ -196,9 +185,6 @@ def get_leaderboard_top10(lobby):
     top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:10]
     return [{"name": name, "pixels": count, "online": is_online(name)} for name, count in top]
 
-
-# --- Captcha SVG ---
-
 def generate_captcha_svg(text):
     width, height = 200, 70
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">']
@@ -237,9 +223,6 @@ def generate_captcha_svg(text):
         parts.append(f'<path d="M{x0},{y0} C{cx1},{cy1} {cx2},{cy2} {x3},{y3}" stroke="{color}" stroke-width="1.5" fill="none"/>')
     parts.append('</svg>')
     return ''.join(parts)
-
-
-# --- HTTP: Auth ---
 
 async def index_handler(request):
     return web.FileResponse("index.html")
@@ -307,9 +290,6 @@ async def login_handler(request):
     sessions[token] = found
     return web.json_response({"ok": True, "token": token, "username": found})
 
-
-# --- HTTP: Lobbies ---
-
 async def lobbies_handler(request):
     pub = [lobby_info(l) for l in lobbies.values() if l["public"]]
     return web.json_response({"lobbies": pub})
@@ -319,7 +299,12 @@ async def my_lobbies_handler(request):
     if not user:
         return web.json_response({"error": "Not authenticated"}, status=401)
     mine = [lobby_info(l, include_code=True) for l in lobbies.values() if l["owner"] and l["owner"].lower() == user.lower() and not l["id"].startswith("public_")]
-    return web.json_response({"lobbies": mine})
+    whitelisted = [lobby_info(l) for l in lobbies.values()
+                   if not l["id"].startswith("public_")
+                   and l.get("whitelist_enabled")
+                   and user in l.get("whitelist", [])
+                   and (not l["owner"] or l["owner"].lower() != user.lower())]
+    return web.json_response({"lobbies": mine, "whitelisted": whitelisted})
 
 async def create_lobby_handler(request):
     data = await request.json()
@@ -341,7 +326,7 @@ async def create_lobby_handler(request):
         "code": code, "whitelist_enabled": whitelist_enabled,
         "whitelist": [user] if whitelist_enabled else [],
         "grid": bytearray(GRID * GRID), "pixel_counts": {},
-        "cooldown": cooldown
+        "cooldown": cooldown, "last_activity": time.time()
     }
     save_lobbies()
     return web.json_response({"ok": True, "lobby": lobby_info(lobbies[lid], include_code=True)})
@@ -423,13 +408,9 @@ async def leaderboard_handler(request):
     if not lobby:
         return web.json_response({"error": "Lobby not found"}, status=404)
     pc = lobby.get("pixel_counts", {})
-    # Sort by count descending, top 50
     top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:50]
     board = [{"name": name, "pixels": count, "online": is_online(name)} for name, count in top]
     return web.json_response({"leaderboard": board})
-
-
-# --- HTTP: Friends ---
 
 async def friends_list_handler(request):
     user = get_auth_user(request)
@@ -447,7 +428,6 @@ async def friend_add_handler(request):
     target = data.get("username", "").strip()
     if not target:
         return web.json_response({"error": "Username required"}, status=400)
-    # Find actual username
     found = None
     for u in accounts:
         if u.lower() == target.lower():
@@ -463,7 +443,6 @@ async def friend_add_handler(request):
         return web.json_response({"error": "Already friends"}, status=400)
     if found in fd["outgoing"]:
         return web.json_response({"error": "Request already sent"}, status=400)
-    # If they already sent us a request, auto-accept
     if user in td["outgoing"]:
         td["outgoing"].remove(user)
         if user in fd["incoming"]:
@@ -528,9 +507,6 @@ async def friend_remove_handler(request):
     save_friends()
     return web.json_response({"ok": True})
 
-
-# --- HTTP: DMs ---
-
 async def dm_history_handler(request):
     user = get_auth_user(request)
     if not user:
@@ -561,9 +537,6 @@ async def dm_send_handler(request):
         dms[key] = dms[key][-MAX_DM_HISTORY:]
     await notify_social(target, {"type": "dm", "from": user, "text": text, "time": msg["time"]})
     return web.json_response({"ok": True})
-
-
-# --- HTTP: Admin ---
 
 async def admin_accounts_handler(request):
     user = get_auth_user(request)
@@ -611,11 +584,9 @@ async def admin_ban_handler(request):
     if not is_banned(target):
         bans.append(target)
         save_bans()
-    # Invalidate sessions for banned user
     to_remove = [tok for tok, u in sessions.items() if u.lower() == target.lower()]
     for tok in to_remove:
         del sessions[tok]
-    # Disconnect from game WS
     for ws, info in list(clients.items()):
         if info and not info.get("guest") and info.get("username", "").lower() == target.lower():
             try:
@@ -623,7 +594,6 @@ async def admin_ban_handler(request):
                 await ws.close()
             except Exception:
                 pass
-    # Disconnect from social WS
     for ws, uname in list(social_clients.items()):
         if uname and uname.lower() == target.lower():
             try:
@@ -664,9 +634,6 @@ async def admin_kick_handler(request):
     if not kicked:
         return web.json_response({"error": "User not in any lobby"}, status=404)
     return web.json_response({"ok": True})
-
-
-# --- Social WebSocket (for DM/friend notifications) ---
 
 async def social_ws_handler(request):
     ws = web.WebSocketResponse()
@@ -719,9 +686,6 @@ async def notify_social(target_username, data):
             except Exception:
                 pass
 
-
-# --- Game WebSocket ---
-
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -729,6 +693,8 @@ async def websocket_handler(request):
     lobby_id = None
     is_guest = False
     last_pixel = 0
+    chat_times = []
+    last_chat_text = ""
     clients[ws] = None
 
     try:
@@ -794,19 +760,30 @@ async def websocket_handler(request):
                     last_pixel = now
                     if lobby and 0 <= x < GRID and 0 <= y < GRID and 0 <= color < 16:
                         lobby["grid"][y * GRID + x] = color
+                        lobby["last_activity"] = now
                         pc = lobby.setdefault("pixel_counts", {})
                         pc[username] = pc.get(username, 0) + 1
                         if pc[username] % 10 == 0:
                             save_lobbies()
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
-                        # Real-time leaderboard update
                         board = get_leaderboard_top10(lobby)
                         await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": board})
 
                 elif data["type"] == "chat" and username and lobby_id:
                     text = data.get("text", "").strip()[:200]
                     if text:
+                        now2 = time.time()
+                        chat_times = [t for t in chat_times if now2 - t < 5]
+                        if len(chat_times) >= 5:
+                            await ws.send_json({"type": "system", "text": "Slow down! Max 5 messages per 5 seconds."})
+                            continue
+                        if text == last_chat_text and len(chat_times) >= 2:
+                            await ws.send_json({"type": "system", "text": "Stop repeating the same message."})
+                            continue
+                        chat_times.append(now2)
+                        last_chat_text = text
                         lobby = lobbies.get(lobby_id)
+                        if lobby: lobby["last_activity"] = now2
                         is_owner = not is_guest and lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
                         await broadcast_to_lobby(lobby_id, {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest})
 
@@ -833,15 +810,46 @@ async def broadcast_online_lobby(lobby_id):
     count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
     await broadcast_to_lobby(lobby_id, {"type": "online", "count": count})
 
+LOBBY_TIMEOUT = 3600  # 1 hour in seconds
 
-# --- App setup ---
+async def cleanup_inactive_lobbies(app):
+    while True:
+        await asyncio.sleep(300)  # check every 5 minutes
+        now = time.time()
+        to_delete = []
+        for lid, lobby in list(lobbies.items()):
+            if lid.startswith("public_"):
+                continue
+            last = lobby.get("last_activity", lobby.get("created", now))
+            if now - last > LOBBY_TIMEOUT:
+                to_delete.append(lid)
+        for lid in to_delete:
+            lobby = lobbies.get(lid)
+            if not lobby:
+                continue
+            for ws, info in list(clients.items()):
+                if info and info.get("lobby_id") == lid:
+                    try:
+                        await ws.send_json({"type": "kicked", "text": "Lobby deleted due to 1 hour of inactivity"})
+                        await ws.close()
+                    except:
+                        pass
+            del lobbies[lid]
+        if to_delete:
+            save_lobbies()
+
+async def start_cleanup(app):
+    app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
+
+async def stop_cleanup(app):
+    app["cleanup_task"].cancel()
 
 app = web.Application()
-# Auth
+app.on_startup.append(start_cleanup)
+app.on_cleanup.append(stop_cleanup)
 app.router.add_get("/api/captcha", captcha_handler)
 app.router.add_post("/api/register", register_handler)
 app.router.add_post("/api/login", login_handler)
-# Lobbies
 app.router.add_get("/api/lobbies", lobbies_handler)
 app.router.add_get("/api/my-lobbies", my_lobbies_handler)
 app.router.add_post("/api/lobbies/create", create_lobby_handler)
@@ -849,16 +857,13 @@ app.router.add_post("/api/lobbies/delete", delete_lobby_handler)
 app.router.add_post("/api/lobbies/update", update_lobby_handler)
 app.router.add_post("/api/lobbies/join-code", join_lobby_by_code_handler)
 app.router.add_get("/api/leaderboard", leaderboard_handler)
-# Friends
 app.router.add_get("/api/friends", friends_list_handler)
 app.router.add_post("/api/friends/add", friend_add_handler)
 app.router.add_post("/api/friends/accept", friend_accept_handler)
 app.router.add_post("/api/friends/decline", friend_decline_handler)
 app.router.add_post("/api/friends/remove", friend_remove_handler)
-# DMs
 app.router.add_get("/api/dm/history", dm_history_handler)
 app.router.add_post("/api/dm/send", dm_send_handler)
-# Admin
 app.router.add_get("/api/admin/accounts", admin_accounts_handler)
 app.router.add_get("/api/admin/friends", admin_friends_handler)
 app.router.add_get("/api/admin/lobbies", admin_lobbies_handler)
@@ -867,10 +872,8 @@ app.router.add_get("/api/admin/ips", admin_ips_handler)
 app.router.add_post("/api/admin/ban", admin_ban_handler)
 app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
-# WebSockets
 app.router.add_get("/ws", websocket_handler)
 app.router.add_get("/ws/social", social_ws_handler)
-# Static
 app.router.add_get("/", index_handler)
 
 load_accounts()
