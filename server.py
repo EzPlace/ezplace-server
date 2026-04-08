@@ -774,6 +774,12 @@ async def migrate_colors_16_to_24():
 async def on_startup(app):
     await load_all_data()
     await migrate_colors_16_to_24()
+    # One-time: remove "Lobba" lobby
+    for lid, lobby in list(lobbies.items()):
+        if lobby.get("name") == "Lobba":
+            del lobbies[lid]
+            await db["lobbies"].delete_one({"_id": lid})
+            print(f"Deleted lobby: Lobba ({lid})")
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
 
