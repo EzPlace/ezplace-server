@@ -334,6 +334,12 @@
       <input id="create-name" class="win-input" type="text" placeholder="Lobby name" maxlength="30">
       <label><input type="checkbox" id="create-public"> Public</label>
       <label><input type="checkbox" id="create-whitelist"> Whitelist</label>
+      <select id="create-size" class="win-input" style="width:auto;padding:5px 8px;">
+        <option value="256x256">256x256</option>
+        <option value="512x512">512x512</option>
+        <option value="256x512">256x512</option>
+        <option value="512x256">512x256</option>
+      </select>
       <label style="font-size:11px;color:#333;">CD: <input id="create-cooldown" class="win-input" type="number" min="0" max="60" step="0.5" value="0.5" style="width:50px;">s</label>
       <button id="btn-create-lobby" class="win-btn">Create</button>
     </div>
@@ -483,7 +489,7 @@
 </div>
 
 <script>
-const GRID = 256;
+let GRID_W = 256, GRID_H = 256;
 const COLORS = [
   '#FFFFFF','#D4D7D9','#898D90','#515252',
   '#FF4500','#FFA800','#FFD635','#FFF8B8',
@@ -497,7 +503,7 @@ const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 40;
 const GRID_LINE_MIN_ZOOM = 4;
 
-let grid = new Uint8Array(GRID * GRID);
+let grid = new Uint8Array(GRID_W * GRID_H);
 let selectedColor = 3;
 let username = '';
 let ws = null;
@@ -521,7 +527,7 @@ function filterText(text) {
   return out;
 }
 
-let camX = GRID / 2, camY = GRID / 2, zoom = 1;
+let camX = GRID_W / 2, camY = GRID_H / 2, zoom = 1;
 let hoverGridX = -1, hoverGridY = -1;
 let isPanning = false, panStartX = 0, panStartY = 0, camStartX = 0, camStartY = 0;
 
@@ -558,10 +564,10 @@ function render() {
   ctx.fillStyle = '#111'; ctx.fillRect(0, 0, w, h);
   const left = camX - (w / 2) / zoom, top = camY - (h / 2) / zoom;
   const startX = Math.max(0, Math.floor(left)), startY = Math.max(0, Math.floor(top));
-  const endX = Math.min(GRID, Math.ceil(left + w / zoom)), endY = Math.min(GRID, Math.ceil(top + h / zoom));
+  const endX = Math.min(GRID_W, Math.ceil(left + w / zoom)), endY = Math.min(GRID_H, Math.ceil(top + h / zoom));
   for (let gy = startY; gy < endY; gy++) {
     for (let gx = startX; gx < endX; gx++) {
-      ctx.fillStyle = COLOR_RGB[grid[gy * GRID + gx]];
+      ctx.fillStyle = COLOR_RGB[grid[gy * GRID_W + gx]];
       ctx.fillRect(Math.floor((gx - left) * zoom), Math.floor((gy - top) * zoom), Math.ceil(zoom), Math.ceil(zoom));
     }
   }
@@ -571,7 +577,7 @@ function render() {
     for (let gy = startY; gy <= endY; gy++) { const sy = Math.floor((gy - top) * zoom) + 0.5; ctx.moveTo(Math.floor((startX - left) * zoom), sy); ctx.lineTo(Math.floor((endX - left) * zoom), sy); }
     ctx.stroke();
   }
-  if (hoverGridX >= 0 && hoverGridX < GRID && hoverGridY >= 0 && hoverGridY < GRID) {
+  if (hoverGridX >= 0 && hoverGridX < GRID_W && hoverGridY >= 0 && hoverGridY < GRID_H) {
     const hx = Math.floor((hoverGridX - left) * zoom);
     const hy = Math.floor((hoverGridY - top) * zoom);
     const hs = Math.ceil(zoom);
@@ -607,7 +613,7 @@ document.getElementById('zoom-out').onclick = () => setZoom(zoom / 1.5);
 
 function isOverGrid(sx, sy) {
   const g = screenToGrid(sx, sy);
-  return g.x >= 0 && g.x < GRID && g.y >= 0 && g.y < GRID;
+  return g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H;
 }
 function updateCursor(sx, sy) {
   if (isPanning) { cvs.style.cursor = 'grabbing'; }
@@ -628,8 +634,8 @@ window.addEventListener('mousemove', e => {
   if (sx >= 0 && sy >= 0 && sx < cvs.width && sy < cvs.height) {
     const g = screenToGrid(sx, sy);
     const oldHX = hoverGridX, oldHY = hoverGridY;
-    if (g.x >= 0 && g.x < GRID && g.y >= 0 && g.y < GRID) {
-      hoverInfo.textContent = `(${g.x}, ${g.y}) - ${COLORS[grid[g.y * GRID + g.x]]}`;
+    if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H) {
+      hoverInfo.textContent = `(${g.x}, ${g.y}) - ${COLORS[grid[g.y * GRID_W + g.x]]}`;
       hoverGridX = g.x; hoverGridY = g.y;
     } else {
       hoverInfo.innerHTML = '&nbsp;';
@@ -694,12 +700,12 @@ cvs.addEventListener('touchend', e => {
       const rect = cvs.getBoundingClientRect();
       const sx = t.clientX - rect.left, sy = t.clientY - rect.top;
       const g = screenToGrid(sx, sy);
-      if (g.x >= 0 && g.x < GRID && g.y >= 0 && g.y < GRID) {
+      if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H) {
         if (blocked || !username || !currentLobbyId) return;
         if (isGuest) { cooldownWarn.textContent = 'Register an account to place pixels!'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
         const now = Date.now();
         if (now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
-        grid[g.y * GRID + g.x] = selectedColor; startCooldownBar(); render();
+        grid[g.y * GRID_W + g.x] = selectedColor; startCooldownBar(); render();
         if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pixel', x: g.x, y: g.y, color: selectedColor }));
       }
     }
@@ -725,8 +731,8 @@ cvs.addEventListener('click', e => {
   if (now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
   const rect = cvs.getBoundingClientRect();
   const g = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
-  if (g.x < 0 || g.x >= GRID || g.y < 0 || g.y >= GRID) return;
-  grid[g.y * GRID + g.x] = selectedColor; startCooldownBar(); render();
+  if (g.x < 0 || g.x >= GRID_W || g.y < 0 || g.y >= GRID_H) return;
+  grid[g.y * GRID_W + g.x] = selectedColor; startCooldownBar(); render();
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pixel', x: g.x, y: g.y, color: selectedColor }));
 });
 
@@ -865,7 +871,7 @@ async function loadLobbies() {
     const el = document.getElementById('public-lobbies'); el.innerHTML = '';
     data.lobbies.forEach(l => {
       const card = document.createElement('div'); card.className = 'lobby-card';
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">Public | ${l.cooldown}s cooldown</div></div><div class="lobby-online">${l.online} online</div>`;
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">Public | ${l.width}x${l.height} | ${l.cooldown}s cooldown</div></div><div class="lobby-online">${l.online} online</div>`;
       card.onclick = () => joinLobby(l.id, l.name, true);
       el.appendChild(card);
     });
@@ -878,7 +884,7 @@ async function loadLobbies() {
       if (data.lobbies.length === 0) { el.innerHTML = '<div style="color:#555;font-size:12px;">No lobbies yet</div>'; }
       data.lobbies.forEach(l => {
         const card = document.createElement('div'); card.className = 'lobby-card';
-        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' | Whitelist' : ''} | ${l.cooldown}s cd</div><div class="lobby-expiry">Auto-deletes after 1hr inactivity</div></div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div><div class="lobby-online">${l.online} online</div>`;
+        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' | Whitelist' : ''} | ${l.width}x${l.height} | ${l.cooldown}s cd</div><div class="lobby-expiry">Auto-deletes after 48hr inactivity</div></div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div><div class="lobby-online">${l.online} online</div>`;
         card.querySelector('.lobby-info').onclick = () => joinLobby(l.id, l.name, l.public);
         card.querySelector('.manage').onclick = e => { e.stopPropagation(); openManage(l); };
         card.querySelector('.del').onclick = e => { e.stopPropagation(); deleteLobby(l.id); };
@@ -914,7 +920,7 @@ function joinLobby(id, name, isPublic) {
   document.getElementById('btn-leave-lobby').style.display = '';
   document.getElementById('lobby-name-display').innerHTML = `Lobby: <b>${esc(name)}</b>`;
   messagesEl.innerHTML = '';
-  grid = new Uint8Array(GRID * GRID); render();
+  grid = new Uint8Array(GRID_W * GRID_H); render();
   connectToLobby(id, name);
 }
 
@@ -948,9 +954,11 @@ document.getElementById('btn-create-lobby').onclick = async () => {
   const isPublic = document.getElementById('create-public').checked;
   const wl = document.getElementById('create-whitelist').checked && !isPublic;
   const cd = Math.max(0, Math.min(60, parseFloat(document.getElementById('create-cooldown').value) || 0.5));
+  const sizeVal = document.getElementById('create-size').value.split('x');
+  const lw = parseInt(sizeVal[0]), lh = parseInt(sizeVal[1]);
   if (!name) { lobbyError.textContent = 'Enter a lobby name'; return; }
   try {
-    const res = await fetch('/api/lobbies/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, public: isPublic, whitelist_enabled: wl, cooldown: cd }) });
+    const res = await fetch('/api/lobbies/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, public: isPublic, whitelist_enabled: wl, cooldown: cd, width: lw, height: lh }) });
     const data = await res.json();
     if (data.error) { lobbyError.textContent = data.error; return; }
     lobbyError.innerHTML = '&nbsp;'; document.getElementById('create-name').value = '';
@@ -1043,12 +1051,12 @@ function connectToLobby(lobbyId, lobbyName) {
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
     switch (msg.type) {
-      case 'pixel': grid[msg.y * GRID + msg.x] = msg.color; render(); break;
+      case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; render(); break;
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
@@ -1276,10 +1284,10 @@ document.getElementById('btn-view-vips').onclick = () => adminView('/api/admin/v
 function initView() {
   const wrap = document.getElementById('viewport-wrap');
   cvs.width = wrap.clientWidth; cvs.height = wrap.clientHeight;
-  zoom = Math.min(cvs.width, cvs.height) / GRID * 0.9;
+  zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9;
   zoom = Math.max(MIN_ZOOM, zoom);
   document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x';
-  camX = GRID / 2; camY = GRID / 2; render();
+  camX = GRID_W / 2; camY = GRID_H / 2; render();
 }
 
 if (authToken && localStorage.getItem('ezplace_user')) {
