@@ -446,8 +446,14 @@
         <button class="win-btn" id="btn-admin-ban">Ban</button>
         <button class="win-btn" id="btn-admin-unban">Unban</button>
         <button class="win-btn" id="btn-admin-kick">Kick</button>
+        <button class="win-btn" id="btn-admin-ipban" style="background:#d32f2f">IP Ban</button>
       </div>
       <div id="admin-status" style="font-size:10px;color:#666;min-height:14px;">&nbsp;</div>
+      <h4>IP Unban</h4>
+      <div class="admin-row">
+        <input id="admin-ip-unban-input" class="win-input" type="text" placeholder="IP address">
+        <button class="win-btn" id="btn-admin-ip-unban">Unban IP</button>
+      </div>
       <h4>VIP Management</h4>
       <div class="admin-row">
         <input id="admin-vip-input" class="win-input" type="text" placeholder="Username">
@@ -461,6 +467,7 @@
       <div class="admin-row">
         <button class="win-btn" id="btn-view-accounts">Accounts</button>
         <button class="win-btn" id="btn-view-bans">Bans</button>
+        <button class="win-btn" id="btn-view-ipbans">IP Bans</button>
         <button class="win-btn" id="btn-view-ips">IPs</button>
         <button class="win-btn" id="btn-view-friends">Friends</button>
         <button class="win-btn" id="btn-view-lobbies">Lobbies</button>
@@ -1222,8 +1229,11 @@ async function adminView(endpoint) {
 document.getElementById('btn-admin-ban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/ban', { username: u }); };
 document.getElementById('btn-admin-unban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/unban', { username: u }); };
 document.getElementById('btn-admin-kick').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/kick', { username: u }); };
+document.getElementById('btn-admin-ipban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/ipban', { username: u }); };
+document.getElementById('btn-admin-ip-unban').onclick = () => { const ip = document.getElementById('admin-ip-unban-input').value.trim(); if (ip) adminAction('/api/admin/ip-unban', { ip: ip }); };
 document.getElementById('btn-view-accounts').onclick = () => adminView('/api/admin/accounts');
 document.getElementById('btn-view-bans').onclick = () => adminView('/api/admin/bans');
+document.getElementById('btn-view-ipbans').onclick = () => adminView('/api/admin/ipbans');
 document.getElementById('btn-view-ips').onclick = () => adminView('/api/admin/ips');
 document.getElementById('btn-view-friends').onclick = () => adminView('/api/admin/friends');
 document.getElementById('btn-view-lobbies').onclick = () => adminView('/api/admin/lobbies');
