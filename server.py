@@ -665,7 +665,7 @@ async def websocket_handler(request):
                     if now - last_pixel < cd:
                         continue
                     last_pixel = now
-                    if lobby and 0 <= x < GRID and 0 <= y < GRID and 0 <= color < 16:
+                    if lobby and 0 <= x < GRID and 0 <= y < GRID and 0 <= color < 24:
                         lobby["grid"][y * GRID + x] = color
                         lobby["last_activity"] = now
                         pc = lobby.setdefault("pixel_counts", {})
