@@ -1075,11 +1075,17 @@ function renderLeaderboard(board) {
   const panel = document.getElementById('lb-panel');
   if (!board || !board.length) { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">No pixels placed yet</div>'; return; }
   panel.innerHTML = '<div style="font-size:11px;font-weight:bold;color:#333;padding:2px 4px;border-bottom:1px solid #999;">Top Pixels Placed</div>';
+  const amOwner = !isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase();
   board.forEach((p, i) => {
     const row = document.createElement('div'); row.className = 'lb-row';
     const medal = i === 0 ? ' &#x1F947;' : i === 1 ? ' &#x1F948;' : i === 2 ? ' &#x1F949;' : '';
     const nameClass = p.name.toLowerCase() === 'toothpaste' ? 'lb-name rainbow' : 'lb-name';
-    row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="${nameClass}">${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
+    const canManage = amOwner && p.name.toLowerCase() !== username.toLowerCase();
+    const nameStyle = canManage ? ' style="cursor:pointer;text-decoration:underline dotted"' : '';
+    row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="${nameClass}"${nameStyle}>${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
+    if (canManage) {
+      row.querySelector(`.${nameClass.split(' ')[0]}`).addEventListener('click', e => showLobbyUserMenu(e, p.name));
+    }
     panel.appendChild(row);
   });
 }
