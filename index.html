@@ -229,6 +229,7 @@
   .admin-row { display: flex; gap: 4px; padding: 3px 0; font-size: 12px; align-items: center; }
   .admin-row input { flex: 1; }
   .admin-json { background: var(--bg-primary); color: var(--green); font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; padding: 8px; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 6px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .lobby-menu-item:hover { background: var(--bg-hover); }
   .msg .crown { font-size: 12px; margin-right: 2px; }
   .msg .timestamp { color: var(--text-muted); font-size: 10px; margin-right: 4px; }
   .msg.system { color: var(--text-muted); font-style: italic; }
@@ -284,7 +285,11 @@
 <body>
 
 <div id="tab-warning">&#x26A0; EzPlace is open in another tab. &#x26A0;</div>
-<div id="disconnect-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:90;background:var(--red);color:#fff;text-align:center;padding:8px 12px;font-size:13px;font-weight:600;animation:fadeIn 0.3s ease;">Disconnected from server. Reconnecting...</div>
+<div id="disconnect-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:90;background:var(--red);color:#fff;text-align:center;padding:8px 12px;font-size:13px;font-weight:600;animation:fadeIn 0.3s ease;">Disconnected from server. Refreshing...</div>
+<div id="lobby-user-menu" style="display:none;position:fixed;z-index:60;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 4px 16px rgba(0,0,0,0.4);padding:4px 0;min-width:120px;">
+  <div class="lobby-menu-item" id="lm-kick" style="padding:6px 12px;font-size:12px;cursor:pointer;color:var(--text-primary);">Kick from lobby</div>
+  <div class="lobby-menu-item" id="lm-ban" style="padding:6px 12px;font-size:12px;cursor:pointer;color:var(--red);">Ban from lobby</div>
+</div>
 <button id="mobile-sidebar-toggle" class="win-btn">&#x1F4AC;</button>
 
 <div id="canvas-wrap">
@@ -744,11 +749,28 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip) {
   const crown = isOwner ? '<span class="crown">&#x1F451;</span>' : '';
   const vipBadge = isMsgVip && !isTP ? '<span class="vip-badge">[VIP]</span>' : '';
   const nameClass = isTP ? 'name rainbow' : (isMsgVip ? 'name vip' : (isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name')));
-  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${vipBadge}<span class="${nameClass}">${esc(name)}:</span> ${esc(filterText(text))}`;
+  const amOwner = !isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase() && name.toLowerCase() !== username.toLowerCase();
+  const nameStyle = amOwner ? ' style="cursor:pointer;text-decoration:underline dotted"' : '';
+  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${vipBadge}<span class="${nameClass}" data-user="${esc(name)}"${nameStyle}>${esc(name)}:</span> ${esc(filterText(text))}`;
+  if (amOwner) {
+    d.querySelector('.name').addEventListener('click', e => showLobbyUserMenu(e, name));
+  }
   messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+let lobbyMenuTarget = '';
+function showLobbyUserMenu(e, targetName) {
+  e.stopPropagation();
+  lobbyMenuTarget = targetName;
+  const menu = document.getElementById('lobby-user-menu');
+  menu.style.display = 'block';
+  menu.style.left = Math.min(e.clientX, window.innerWidth - 140) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - 80) + 'px';
+}
+document.addEventListener('click', () => { document.getElementById('lobby-user-menu').style.display = 'none'; });
+document.getElementById('lm-kick').onclick = (e) => { e.stopPropagation(); if (lobbyMenuTarget && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_kick', target: lobbyMenuTarget })); document.getElementById('lobby-user-menu').style.display = 'none'; };
+document.getElementById('lm-ban').onclick = (e) => { e.stopPropagation(); if (lobbyMenuTarget && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_ban', target: lobbyMenuTarget })); document.getElementById('lobby-user-menu').style.display = 'none'; };
 function sendChat() { const text = chatInput.value.trim(); if (!text || !username) return; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'chat', text })); else addMsg(username, text, !isGuest && currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase(), isGuest); chatInput.value = ''; }
 chatBtn.addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
@@ -897,6 +919,7 @@ function joinLobby(id, name, isPublic) {
 }
 
 document.getElementById('btn-leave-lobby').onclick = () => {
+  intentionalClose = true;
   if (ws) ws.close();
   currentLobbyId = null; currentLobbyName = '';
   messagesEl.innerHTML = '';
@@ -1000,9 +1023,12 @@ document.getElementById('manage-save').onclick = async () => {
   } catch {}
 };
 
+let intentionalClose = false;
 function connectToLobby(lobbyId, lobbyName) {
   if (!authToken && !isGuest) return;
+  intentionalClose = true;
   if (ws) ws.close();
+  intentionalClose = false;
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   try { ws = new WebSocket(`${protocol}://${location.host}/ws`); } catch { addSystemMsg('No server.'); return; }
   ws.onopen = () => {
@@ -1025,11 +1051,11 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
-      case 'kicked': addSystemMsg(msg.text); currentLobbyId = null; loadLobbies(); break;
+      case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
     }
   };
-  ws.onclose = () => { addSystemMsg('Disconnected.'); clearInterval(pingInterval); document.getElementById('ping-ms').textContent = '--'; document.getElementById('disconnect-banner').style.display = ''; };
-  ws.onerror = () => { addSystemMsg('Connection error.'); ws = null; clearInterval(pingInterval); document.getElementById('disconnect-banner').style.display = ''; };
+  ws.onclose = () => { clearInterval(pingInterval); document.getElementById('ping-ms').textContent = '--'; if (!intentionalClose) { document.getElementById('disconnect-banner').style.display = ''; setTimeout(() => location.reload(), 3000); } };
+  ws.onerror = () => { ws = null; clearInterval(pingInterval); if (!intentionalClose) { document.getElementById('disconnect-banner').style.display = ''; setTimeout(() => location.reload(), 3000); } };
   let pingInterval = setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping', time: Date.now() })); }, 3000);
 }
 

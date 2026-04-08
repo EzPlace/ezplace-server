@@ -681,6 +681,8 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
                     if lobby["whitelist_enabled"] and username not in lobby["whitelist"]:
                         await ws.send_json({"type": "error", "text": "Not whitelisted"}); await ws.close(); break
+                    if username.lower() in [b.lower() for b in lobby.get("lobby_bans", [])]:
+                        await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request)}
                     await track_ip(username, request)
@@ -740,6 +742,40 @@ async def websocket_handler(request):
                         if lobby: lobby["last_activity"] = now2
                         is_owner = not is_guest and lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
                         await broadcast_to_lobby(lobby_id, {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username)})
+
+                elif data["type"] == "lobby_kick" and username and lobby_id and not is_guest:
+                    lobby = lobbies.get(lobby_id)
+                    if lobby and lobby["owner"].lower() == username.lower():
+                        target = data.get("target", "").strip()
+                        for cws, cinfo in list(clients.items()):
+                            if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower() and cws != ws:
+                                try: await cws.send_json({"type": "kicked", "text": f"Kicked from lobby by {username}"}); await cws.close()
+                                except: pass
+                        await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was kicked by the lobby owner"})
+
+                elif data["type"] == "lobby_ban" and username and lobby_id and not is_guest:
+                    lobby = lobbies.get(lobby_id)
+                    if lobby and lobby["owner"].lower() == username.lower():
+                        target = data.get("target", "").strip()
+                        if target.lower() != username.lower():
+                            lb = lobby.setdefault("lobby_bans", [])
+                            if target.lower() not in [b.lower() for b in lb]:
+                                lb.append(target)
+                                await save_lobby(lobby_id)
+                            for cws, cinfo in list(clients.items()):
+                                if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower() and cws != ws:
+                                    try: await cws.send_json({"type": "kicked", "text": f"Banned from lobby by {username}"}); await cws.close()
+                                    except: pass
+                            await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was banned from this lobby"})
+
+                elif data["type"] == "lobby_unban" and username and lobby_id and not is_guest:
+                    lobby = lobbies.get(lobby_id)
+                    if lobby and lobby["owner"].lower() == username.lower():
+                        target = data.get("target", "").strip()
+                        lb = lobby.get("lobby_bans", [])
+                        lobby["lobby_bans"] = [b for b in lb if b.lower() != target.lower()]
+                        await save_lobby(lobby_id)
+                        await ws.send_json({"type": "system", "text": f"Unbanned {target} from this lobby"})
 
                 elif data["type"] == "ping":
                     await ws.send_json({"type": "pong", "time": data.get("time", 0)})
