@@ -742,8 +742,37 @@ async def cleanup_inactive_lobbies(app):
             del lobbies[lid]
             await delete_lobby_db(lid)
 
+async def migrate_colors_16_to_24():
+    """One-time migration: remap old 16-color indices to new 24-color palette."""
+    flag = await db["store"].find_one({"_id": "color_migration_done"})
+    if flag:
+        return
+    # Old palette -> New palette index mapping
+    # old 0:#FFFFFF->new 0, 1:#E4E4E4->1, 2:#888888->2, 3:#222222->23,
+    # 4:#FFA7D1->15, 5:#E50000->18, 6:#E59500->5, 7:#A06A42->16,
+    # 8:#E5D900->6, 9:#94E044->9, 10:#02BE01->8, 11:#00D3DD->12,
+    # 12:#0083C7->11, 13:#0000EA->10, 14:#CF6EE4->14, 15:#820080->13
+    remap = [0, 1, 2, 23, 15, 18, 5, 16, 6, 9, 8, 12, 11, 10, 14, 13]
+    count = 0
+    for lid, lobby in lobbies.items():
+        grid = lobby["grid"]
+        changed = False
+        for i in range(len(grid)):
+            old = grid[i]
+            if 0 <= old < 16:
+                new = remap[old]
+                if new != old:
+                    grid[i] = new
+                    changed = True
+        if changed:
+            count += 1
+    await save_all_lobbies()
+    await db["store"].update_one({"_id": "color_migration_done"}, {"$set": {"data": True}}, upsert=True)
+    print(f"Color migration complete: remapped {count} lobbies from 16 to 24 colors")
+
 async def on_startup(app):
     await load_all_data()
+    await migrate_colors_16_to_24()
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
 
