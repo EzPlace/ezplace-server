@@ -21,7 +21,7 @@ PUBLIC_LOBBIES = [
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
 ADMIN_USER = "toothpaste"
-LOBBY_TIMEOUT = 3600
+LOBBY_TIMEOUT = 172800
 
 MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/ezplace")
 mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
@@ -715,7 +715,8 @@ async def broadcast_to_lobby(lobby_id, data, exclude=None):
 
 async def broadcast_online_lobby(lobby_id):
     count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
-    await broadcast_to_lobby(lobby_id, {"type": "online", "count": count})
+    total = sum(1 for info in clients.values() if info)
+    await broadcast_to_lobby(lobby_id, {"type": "online", "count": count, "total": total})
 
 async def leaderboard_broadcast_loop(app):
     while True:
