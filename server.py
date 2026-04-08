@@ -10,13 +10,18 @@ import time
 from aiohttp import web
 import motor.motor_asyncio
 
-GRID = 256
 MAX_LOBBIES_PER_USER = 5
 MAX_DM_HISTORY = 100
+VALID_SIZES = [(256, 256), (512, 512), (256, 512), (512, 256)]
 PUBLIC_LOBBIES = [
-    {"name": "Official 0s cooldown server [CHAOS]", "cooldown": 0},
-    {"name": "Official 0.5s cooldown server [NORMAL]", "cooldown": 0.5},
-    {"name": "Official 5 second cooldown server [SLOW]", "cooldown": 5},
+    {"name": "24/7 CHAOS 256x256", "cooldown": 0, "width": 256, "height": 256},
+    {"name": "24/7 CHAOS 512x512", "cooldown": 0, "width": 512, "height": 512},
+    {"name": "24/7 CHAOS 256x512", "cooldown": 0, "width": 256, "height": 512},
+    {"name": "24/7 CHAOS 512x256", "cooldown": 0, "width": 512, "height": 256},
+    {"name": "24/7 NORMAL SPEED 256x256", "cooldown": 0.5, "width": 256, "height": 256},
+    {"name": "24/7 NORMAL SPEED 512x512", "cooldown": 0.5, "width": 512, "height": 512},
+    {"name": "24/7 NORMAL SPEED 256x512", "cooldown": 0.5, "width": 256, "height": 512},
+    {"name": "24/7 NORMAL SPEED 512x256", "cooldown": 0.5, "width": 512, "height": 256},
 ]
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
@@ -84,6 +89,7 @@ def lobby_info(lobby, include_code=False):
         "public": lobby["public"], "whitelist_enabled": lobby["whitelist_enabled"],
         "online": sum(1 for c in clients.values() if c and c.get("lobby_id") == lobby["id"]),
         "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN),
+        "width": lobby.get("width", 256), "height": lobby.get("height", 256),
     }
     if include_code and lobby.get("code"):
         info["code"] = lobby["code"]
@@ -171,11 +177,12 @@ async def load_all_data():
 
     for i, pl in enumerate(PUBLIC_LOBBIES):
         lid = f"public_{i}"
+        w, h = pl["width"], pl["height"]
         lobbies[lid] = {
             "id": lid, "name": pl["name"], "owner": "toothpaste", "public": True,
             "code": None, "whitelist_enabled": False, "whitelist": [],
-            "grid": bytearray(GRID * GRID), "pixel_counts": {},
-            "cooldown": pl["cooldown"]
+            "grid": bytearray(w * h), "pixel_counts": {},
+            "cooldown": pl["cooldown"], "width": w, "height": h
         }
 
     async for doc in db["lobbies"].find():
@@ -183,12 +190,17 @@ async def load_all_data():
         meta = doc.get("meta", {})
         grid_data = doc.get("grid")
         if lid.startswith("public_") and lid in lobbies:
+            expected_size = lobbies[lid]["width"] * lobbies[lid]["height"]
             if "pixel_counts" in meta:
                 lobbies[lid]["pixel_counts"] = meta["pixel_counts"]
-            if grid_data:
+            if grid_data and len(grid_data) == expected_size:
                 lobbies[lid]["grid"] = bytearray(grid_data)
+        elif lid.startswith("public_") and lid not in lobbies:
+            continue
         else:
-            meta["grid"] = bytearray(grid_data) if grid_data else bytearray(GRID * GRID)
+            lw = meta.get("width", 256)
+            lh = meta.get("height", 256)
+            meta["grid"] = bytearray(grid_data) if grid_data else bytearray(lw * lh)
             if "pixel_counts" not in meta:
                 meta["pixel_counts"] = {}
             if "cooldown" not in meta:
@@ -314,6 +326,10 @@ async def create_lobby_handler(request):
     is_public = data.get("public", False)
     wl = data.get("whitelist_enabled", False) and not is_public
     cooldown = max(0, min(MAX_COOLDOWN, float(data.get("cooldown", DEFAULT_COOLDOWN))))
+    lw = int(data.get("width", 256))
+    lh = int(data.get("height", 256))
+    if (lw, lh) not in VALID_SIZES:
+        lw, lh = 256, 256
     if not name:
         return web.json_response({"error": "Lobby name required"}, status=400)
     if user_lobby_count(user) >= MAX_LOBBIES_PER_USER:
@@ -324,8 +340,9 @@ async def create_lobby_handler(request):
         "id": lid, "name": name, "owner": user, "public": is_public,
         "code": code, "whitelist_enabled": wl,
         "whitelist": [user] if wl else [],
-        "grid": bytearray(GRID * GRID), "pixel_counts": {},
-        "cooldown": cooldown, "last_activity": time.time()
+        "grid": bytearray(lw * lh), "pixel_counts": {},
+        "cooldown": cooldown, "last_activity": time.time(),
+        "width": lw, "height": lh
     }
     await save_lobby(lid)
     return web.json_response({"ok": True, "lobby": lobby_info(lobbies[lid], True)})
@@ -686,7 +703,7 @@ async def websocket_handler(request):
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request)}
                     await track_ip(username, request)
-                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN)})
+                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                     await broadcast_online_lobby(lobby_id)
 
@@ -702,7 +719,7 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "error", "text": "Guests can only join public lobbies"}); await ws.close(); break
                     username = guest_name; is_guest = True; lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True, "ip": get_client_ip(request)}
-                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN)})
+                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined (spectating)"})
                     await broadcast_online_lobby(lobby_id)
 
@@ -714,9 +731,10 @@ async def websocket_handler(request):
                     if now - last_pixel < cd:
                         continue
                     last_pixel = now
-                    if lobby and 0 <= x < GRID and 0 <= y < GRID and 0 <= color < 24:
-                        old_color = lobby["grid"][y * GRID + x]
-                        lobby["grid"][y * GRID + x] = color
+                    lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
+                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 24:
+                        old_color = lobby["grid"][y * lw + x]
+                        lobby["grid"][y * lw + x] = color
                         lobby["last_activity"] = now
                         if color != old_color:
                             pc = lobby.setdefault("pixel_counts", {})
@@ -821,7 +839,7 @@ async def cleanup_inactive_lobbies(app):
         for lid in to_delete:
             for ws, info in list(clients.items()):
                 if info and info.get("lobby_id") == lid:
-                    try: await ws.send_json({"type": "kicked", "text": "Lobby deleted (1hr inactivity)"}); await ws.close()
+                    try: await ws.send_json({"type": "kicked", "text": "Lobby deleted (48hr inactivity)"}); await ws.close()
                     except: pass
             del lobbies[lid]
             await delete_lobby_db(lid)
