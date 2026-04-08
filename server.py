@@ -666,10 +666,12 @@ async def websocket_handler(request):
                         continue
                     last_pixel = now
                     if lobby and 0 <= x < GRID and 0 <= y < GRID and 0 <= color < 24:
+                        old_color = lobby["grid"][y * GRID + x]
                         lobby["grid"][y * GRID + x] = color
                         lobby["last_activity"] = now
-                        pc = lobby.setdefault("pixel_counts", {})
-                        pc[username] = pc.get(username, 0) + 1
+                        if color != old_color:
+                            pc = lobby.setdefault("pixel_counts", {})
+                            pc[username] = pc.get(username, 0) + 1
                         if pc[username] % 10 == 0:
                             await save_lobby(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
