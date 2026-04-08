@@ -268,6 +268,7 @@
       <div id="lobby-name-display"></div>
       <button id="btn-leave-lobby" class="win-btn" style="display:none">Leave Lobby</button>
       <div id="online">Online: <span id="online-count">0</span></div>
+      <div id="ping-display" style="font-size:10px;color:#ccc;">Ping: <span id="ping-ms">--</span>ms</div>
     </div>
   </div>
   <div id="info-row">
@@ -981,6 +982,7 @@ function connectToLobby(lobbyId, lobbyName) {
     switch (msg.type) {
       case 'pixel': grid[msg.y * GRID + msg.x] = msg.color; render(); break;
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
+      case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; break;
       case 'grid': grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; render(); break;
@@ -989,8 +991,9 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'kicked': addSystemMsg(msg.text); currentLobbyId = null; loadLobbies(); break;
     }
   };
-  ws.onclose = () => { addSystemMsg('Disconnected.'); };
-  ws.onerror = () => { addSystemMsg('Connection error.'); ws = null; };
+  ws.onclose = () => { addSystemMsg('Disconnected.'); clearInterval(pingInterval); document.getElementById('ping-ms').textContent = '--'; };
+  ws.onerror = () => { addSystemMsg('Connection error.'); ws = null; clearInterval(pingInterval); };
+  let pingInterval = setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping', time: Date.now() })); }, 3000);
 }
 
 document.querySelectorAll('.sidebar-tab').forEach(tab => {

@@ -673,7 +673,6 @@ async def websocket_handler(request):
                         if pc[username] % 10 == 0:
                             await save_lobby(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
-                        await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
 
                 elif data["type"] == "chat" and username and lobby_id:
                     text = data.get("text", "").strip()[:200]
@@ -692,6 +691,9 @@ async def websocket_handler(request):
                         if lobby: lobby["last_activity"] = now2
                         is_owner = not is_guest and lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
                         await broadcast_to_lobby(lobby_id, {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username)})
+
+                elif data["type"] == "ping":
+                    await ws.send_json({"type": "pong", "time": data.get("time", 0)})
 
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
@@ -713,6 +715,14 @@ async def broadcast_online_lobby(lobby_id):
     count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
     await broadcast_to_lobby(lobby_id, {"type": "online", "count": count})
 
+async def leaderboard_broadcast_loop(app):
+    while True:
+        await asyncio.sleep(5)
+        for lid, lobby in list(lobbies.items()):
+            online = sum(1 for c in clients.values() if c and c.get("lobby_id") == lid)
+            if online > 0 and lobby.get("pixel_counts"):
+                await broadcast_to_lobby(lid, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
+
 async def cleanup_inactive_lobbies(app):
     while True:
         await asyncio.sleep(300)
@@ -733,9 +743,11 @@ async def cleanup_inactive_lobbies(app):
 async def on_startup(app):
     await load_all_data()
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
+    app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
 
 async def on_cleanup(app):
     app["cleanup_task"].cancel()
+    app["lb_task"].cancel()
     await save_all_lobbies()
 
 app = web.Application()
