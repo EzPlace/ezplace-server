@@ -672,8 +672,8 @@ async def websocket_handler(request):
                         if color != old_color:
                             pc = lobby.setdefault("pixel_counts", {})
                             pc[username] = pc.get(username, 0) + 1
-                        if pc[username] % 10 == 0:
-                            await save_lobby(lobby_id)
+                            if pc[username] % 10 == 0:
+                                await save_lobby(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
                 elif data["type"] == "chat" and username and lobby_id:
