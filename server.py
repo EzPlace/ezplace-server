@@ -2,13 +2,13 @@ import asyncio
 import base64
 import hashlib
 import json
-import math
 import os
 import random
 import secrets
 import string
 import time
 from aiohttp import web
+import motor.motor_asyncio
 
 GRID = 256
 MAX_LOBBIES_PER_USER = 5
@@ -21,14 +21,11 @@ PUBLIC_LOBBIES = [
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
 ADMIN_USER = "toothpaste"
+LOBBY_TIMEOUT = 3600
 
-ACCOUNTS_FILE = "accounts.json"
-LOBBIES_FILE = "lobbies.json"
-FRIENDS_FILE = "friends.json"
-BANS_FILE = "bans.json"
-USER_IPS_FILE = "user_ips.json"
-GRIDS_FILE = "grids.json"
-VIPS_FILE = "vips.json"
+MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/ezplace")
+mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+db = mongo_client.get_default_database() if "mongodb.net" in MONGO_URI else mongo_client["ezplace"]
 
 accounts = {}
 sessions = {}
@@ -38,7 +35,6 @@ dms = {}
 bans = []
 vips = []
 user_ips = {}
-
 lobbies = {}
 clients = {}
 social_clients = {}
@@ -65,127 +61,16 @@ def is_online(username):
     return False
 
 def is_banned(username):
-    ulow = username.lower()
-    return any(b.lower() == ulow for b in bans)
-
-def load_accounts():
-    global accounts
-    if os.path.exists(ACCOUNTS_FILE):
-        with open(ACCOUNTS_FILE, "r") as f:
-            accounts = json.load(f)
-
-def save_accounts():
-    with open(ACCOUNTS_FILE, "w") as f:
-        json.dump(accounts, f)
-
-def load_friends():
-    global friends_data
-    if os.path.exists(FRIENDS_FILE):
-        with open(FRIENDS_FILE, "r") as f:
-            friends_data = json.load(f)
-
-def save_friends():
-    with open(FRIENDS_FILE, "w") as f:
-        json.dump(friends_data, f)
-
-def load_bans():
-    global bans
-    if os.path.exists(BANS_FILE):
-        with open(BANS_FILE, "r") as f:
-            bans = json.load(f)
-
-def save_bans():
-    with open(BANS_FILE, "w") as f:
-        json.dump(bans, f)
-
-def load_vips():
-    global vips
-    if os.path.exists(VIPS_FILE):
-        with open(VIPS_FILE, "r") as f:
-            vips = json.load(f)
-
-def save_vips():
-    with open(VIPS_FILE, "w") as f:
-        json.dump(vips, f)
+    return username.lower() in [b.lower() for b in bans]
 
 def is_vip(username):
     return username and username.lower() in vips
 
-def load_user_ips():
-    global user_ips
-    if os.path.exists(USER_IPS_FILE):
-        with open(USER_IPS_FILE, "r") as f:
-            user_ips = json.load(f)
+def get_auth_user(request):
+    return sessions.get(request.headers.get("Authorization", ""))
 
-def save_user_ips():
-    with open(USER_IPS_FILE, "w") as f:
-        json.dump(user_ips, f)
-
-def track_ip(username, request):
-    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote
-    if ip:
-        user_ips[username] = ip
-        save_user_ips()
-
-def load_lobbies():
-    global lobbies
-    for i, pl in enumerate(PUBLIC_LOBBIES):
-        lid = f"public_{i}"
-        if lid not in lobbies:
-            lobbies[lid] = {
-                "id": lid, "name": pl["name"], "owner": "toothpaste", "public": True,
-                "code": None, "whitelist_enabled": False, "whitelist": [],
-                "grid": bytearray(GRID * GRID), "pixel_counts": {},
-                "cooldown": pl["cooldown"]
-            }
-    if os.path.exists(LOBBIES_FILE):
-        with open(LOBBIES_FILE, "r") as f:
-            saved = json.load(f)
-        for lid, ldata in saved.items():
-            if lid.startswith("public_"):
-                if lid in lobbies and "pixel_counts" in ldata:
-                    lobbies[lid]["pixel_counts"] = ldata["pixel_counts"]
-                continue
-            ldata["grid"] = bytearray(GRID * GRID)
-            if "pixel_counts" not in ldata:
-                ldata["pixel_counts"] = {}
-            if "cooldown" not in ldata:
-                ldata["cooldown"] = DEFAULT_COOLDOWN
-            lobbies[lid] = ldata
-
-def save_lobbies():
-    out = {}
-    for lid, lobby in lobbies.items():
-        out[lid] = {k: v for k, v in lobby.items() if k != "grid"}
-    with open(LOBBIES_FILE, "w") as f:
-        json.dump(out, f)
-
-def load_grids():
-    if os.path.exists(GRIDS_FILE):
-        with open(GRIDS_FILE, "r") as f:
-            saved = json.load(f)
-        for lid, data in saved.items():
-            if lid in lobbies and data:
-                lobbies[lid]["grid"] = bytearray(data)
-
-def save_grids():
-    out = {}
-    for lid, lobby in lobbies.items():
-        out[lid] = list(lobby["grid"])
-    with open(GRIDS_FILE, "w") as f:
-        json.dump(out, f)
-
-def hash_password(password, salt=None):
-    if salt is None:
-        salt = secrets.token_hex(16)
-    h = hashlib.sha256((salt + password).encode()).hexdigest()
-    return h, salt
-
-def clean_captchas():
-    now = time.time()
-    expired = [k for k, v in captchas.items() if v["expires"] < now]
-    for k in expired:
-        del captchas[k]
+def get_client_ip(request):
+    return request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote or "unknown"
 
 def lobby_info(lobby, include_code=False):
     info = {
@@ -203,14 +88,107 @@ def lobby_info(lobby, include_code=False):
 def user_lobby_count(username):
     return sum(1 for l in lobbies.values() if l["owner"] and l["owner"].lower() == username.lower() and not l["id"].startswith("public_"))
 
-def get_auth_user(request):
-    token = request.headers.get("Authorization", "")
-    return sessions.get(token)
-
 def get_leaderboard_top10(lobby):
     pc = lobby.get("pixel_counts", {})
     top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:10]
-    return [{"name": name, "pixels": count, "online": is_online(name)} for name, count in top]
+    return [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top]
+
+def hash_password(password, salt=None):
+    if salt is None:
+        salt = secrets.token_hex(16)
+    return hashlib.sha256((salt + password).encode()).hexdigest(), salt
+
+def clean_captchas():
+    now = time.time()
+    for k in [k for k, v in captchas.items() if v["expires"] < now]:
+        del captchas[k]
+
+async def db_save(collection, key, data):
+    await db[collection].update_one({"_id": key}, {"$set": {"data": data}}, upsert=True)
+
+async def db_load(collection, key):
+    doc = await db[collection].find_one({"_id": key})
+    return doc["data"] if doc else None
+
+async def save_accounts():
+    await db_save("store", "accounts", accounts)
+
+async def save_friends():
+    await db_save("store", "friends", friends_data)
+
+async def save_bans():
+    await db_save("store", "bans", bans)
+
+async def save_vips():
+    await db_save("store", "vips", vips)
+
+async def save_user_ips():
+    await db_save("store", "user_ips", user_ips)
+
+async def save_lobby(lid):
+    lobby = lobbies.get(lid)
+    if not lobby:
+        return
+    data = {k: v for k, v in lobby.items() if k != "grid"}
+    grid_data = list(lobby["grid"])
+    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_data}}, upsert=True)
+
+async def save_all_lobbies():
+    for lid in lobbies:
+        await save_lobby(lid)
+
+async def delete_lobby_db(lid):
+    await db["lobbies"].delete_one({"_id": lid})
+
+async def save_dm(key):
+    msgs = dms.get(key, [])
+    await db_save("dms", key, msgs)
+
+async def track_ip(username, request):
+    ip = get_client_ip(request)
+    if ip and username:
+        user_ips[username] = ip
+        await save_user_ips()
+
+async def load_all_data():
+    global accounts, friends_data, bans, vips, user_ips, dms
+
+    accounts = await db_load("store", "accounts") or {}
+    friends_data = await db_load("store", "friends") or {}
+    bans = await db_load("store", "bans") or []
+    vips = await db_load("store", "vips") or []
+    user_ips = await db_load("store", "user_ips") or {}
+
+    for i, pl in enumerate(PUBLIC_LOBBIES):
+        lid = f"public_{i}"
+        lobbies[lid] = {
+            "id": lid, "name": pl["name"], "owner": "toothpaste", "public": True,
+            "code": None, "whitelist_enabled": False, "whitelist": [],
+            "grid": bytearray(GRID * GRID), "pixel_counts": {},
+            "cooldown": pl["cooldown"]
+        }
+
+    async for doc in db["lobbies"].find():
+        lid = doc["_id"]
+        meta = doc.get("meta", {})
+        grid_data = doc.get("grid")
+        if lid.startswith("public_") and lid in lobbies:
+            if "pixel_counts" in meta:
+                lobbies[lid]["pixel_counts"] = meta["pixel_counts"]
+            if grid_data:
+                lobbies[lid]["grid"] = bytearray(grid_data)
+        else:
+            meta["grid"] = bytearray(grid_data) if grid_data else bytearray(GRID * GRID)
+            if "pixel_counts" not in meta:
+                meta["pixel_counts"] = {}
+            if "cooldown" not in meta:
+                meta["cooldown"] = DEFAULT_COOLDOWN
+            lobbies[lid] = meta
+
+    async for doc in db["dms"].find():
+        dms[doc["_id"]] = doc.get("data", [])
+
+    print(f"Loaded: {len(accounts)} accounts, {len(lobbies)} lobbies, {len(friends_data)} friend entries")
 
 def generate_captcha_svg(text):
     width, height = 200, 70
@@ -219,12 +197,12 @@ def generate_captcha_svg(text):
     for _ in range(6):
         x1, y1 = random.randint(0, width), random.randint(0, height)
         x2, y2 = random.randint(0, width), random.randint(0, height)
-        color = f"#{random.randint(30,80):02x}{random.randint(30,80):02x}{random.randint(80,140):02x}"
-        parts.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{color}" stroke-width="2"/>')
+        c = f"#{random.randint(30,80):02x}{random.randint(30,80):02x}{random.randint(80,140):02x}"
+        parts.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{c}" stroke-width="2"/>')
     for _ in range(40):
         cx, cy = random.randint(0, width), random.randint(0, height)
-        color = f"#{random.randint(40,100):02x}{random.randint(40,100):02x}{random.randint(80,160):02x}"
-        parts.append(f'<circle cx="{cx}" cy="{cy}" r="{random.uniform(1,3):.1f}" fill="{color}"/>')
+        c = f"#{random.randint(40,100):02x}{random.randint(40,100):02x}{random.randint(80,160):02x}"
+        parts.append(f'<circle cx="{cx}" cy="{cy}" r="{random.uniform(1,3):.1f}" fill="{c}"/>')
     spacing = width / (len(text) + 1)
     fonts = ["serif", "sans-serif", "monospace"]
     for i, ch in enumerate(text):
@@ -233,21 +211,16 @@ def generate_captcha_svg(text):
         angle = random.uniform(-25, 25)
         size = random.randint(28, 38)
         font = random.choice(fonts)
-        sx = random.uniform(0.85, 1.15)
-        sy = random.uniform(0.85, 1.15)
-        color = f"#{random.randint(180,255):02x}{random.randint(180,255):02x}{random.randint(50,150):02x}"
-        parts.append(
-            f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" font-family="{font}" '
-            f'fill="{color}" text-anchor="middle" dominant-baseline="central" '
-            f'transform="rotate({angle:.1f},{x:.1f},{y:.1f}) scale({sx:.2f},{sy:.2f})">{ch}</text>'
-        )
+        sx, sy2 = random.uniform(0.85, 1.15), random.uniform(0.85, 1.15)
+        c = f"#{random.randint(180,255):02x}{random.randint(180,255):02x}{random.randint(50,150):02x}"
+        parts.append(f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" font-family="{font}" fill="{c}" text-anchor="middle" dominant-baseline="central" transform="rotate({angle:.1f},{x:.1f},{y:.1f}) scale({sx:.2f},{sy2:.2f})">{ch}</text>')
     for _ in range(3):
         x0, y0 = random.randint(0, width), random.randint(0, height)
         cx1, cy1 = random.randint(0, width), random.randint(0, height)
         cx2, cy2 = random.randint(0, width), random.randint(0, height)
         x3, y3 = random.randint(0, width), random.randint(0, height)
-        color = f"#{random.randint(60,120):02x}{random.randint(40,80):02x}{random.randint(80,160):02x}"
-        parts.append(f'<path d="M{x0},{y0} C{cx1},{cy1} {cx2},{cy2} {x3},{y3}" stroke="{color}" stroke-width="1.5" fill="none"/>')
+        c = f"#{random.randint(60,120):02x}{random.randint(40,80):02x}{random.randint(80,160):02x}"
+        parts.append(f'<path d="M{x0},{y0} C{cx1},{cy1} {cx2},{cy2} {x3},{y3}" stroke="{c}" stroke-width="1.5" fill="none"/>')
     parts.append('</svg>')
     return ''.join(parts)
 
@@ -258,24 +231,19 @@ async def captcha_handler(request):
     clean_captchas()
     chars = string.ascii_uppercase.replace('O', '').replace('I', '').replace('L', '')
     text = ''.join(random.choices(chars, k=5))
-    captcha_id = secrets.token_hex(8)
-    captchas[captcha_id] = {"answer": text, "expires": time.time() + 300}
-    svg = generate_captcha_svg(text)
-    svg_b64 = base64.b64encode(svg.encode()).decode()
-    return web.json_response({"id": captcha_id, "image": f"data:image/svg+xml;base64,{svg_b64}"})
+    cid = secrets.token_hex(8)
+    captchas[cid] = {"answer": text, "expires": time.time() + 300}
+    svg_b64 = base64.b64encode(generate_captcha_svg(text).encode()).decode()
+    return web.json_response({"id": cid, "image": f"data:image/svg+xml;base64,{svg_b64}"})
 
 async def register_handler(request):
     data = await request.json()
-    uname = data.get("username", "").strip()
-    pwd = data.get("password", "")
-    cap_id = data.get("captcha_id", "")
-    cap_ans = data.get("captcha_answer", "")
+    uname, pwd = data.get("username", "").strip(), data.get("password", "")
+    cap_id, cap_ans = data.get("captcha_id", ""), data.get("captcha_answer", "")
     if not uname or not pwd:
         return web.json_response({"error": "Username and password required"}, status=400)
-    if len(uname) < 3 or len(uname) > 20:
-        return web.json_response({"error": "Username must be 3-20 characters"}, status=400)
-    if not uname.isalnum():
-        return web.json_response({"error": "Username must be alphanumeric"}, status=400)
+    if len(uname) < 3 or len(uname) > 20 or not uname.isalnum():
+        return web.json_response({"error": "Username must be 3-20 alphanumeric characters"}, status=400)
     if len(pwd) < 4:
         return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
     if is_banned(uname):
@@ -289,24 +257,20 @@ async def register_handler(request):
         return web.json_response({"error": "Username already taken"}, status=400)
     pw_hash, salt = hash_password(pwd)
     accounts[uname] = {"password_hash": pw_hash, "salt": salt}
-    save_accounts()
+    await save_accounts()
     token = secrets.token_hex(16)
     sessions[token] = uname
+    await track_ip(uname, request)
     return web.json_response({"ok": True, "token": token, "username": uname})
 
 async def login_handler(request):
     data = await request.json()
-    uname = data.get("username", "").strip()
-    pwd = data.get("password", "")
+    uname, pwd = data.get("username", "").strip(), data.get("password", "")
     if not uname or not pwd:
         return web.json_response({"error": "Username and password required"}, status=400)
     if is_banned(uname):
         return web.json_response({"error": "This account is banned"}, status=403)
-    found = None
-    for u in accounts:
-        if u.lower() == uname.lower():
-            found = u
-            break
+    found = next((u for u in accounts if u.lower() == uname.lower()), None)
     if not found:
         return web.json_response({"error": "Invalid username or password"}, status=400)
     acc = accounts[found]
@@ -315,22 +279,20 @@ async def login_handler(request):
         return web.json_response({"error": "Invalid username or password"}, status=400)
     token = secrets.token_hex(16)
     sessions[token] = found
+    await track_ip(found, request)
     return web.json_response({"ok": True, "token": token, "username": found})
 
 async def lobbies_handler(request):
-    pub = [lobby_info(l) for l in lobbies.values() if l["public"]]
-    return web.json_response({"lobbies": pub})
+    return web.json_response({"lobbies": [lobby_info(l) for l in lobbies.values() if l["public"]]})
 
 async def my_lobbies_handler(request):
     user = get_auth_user(request)
     if not user:
         return web.json_response({"error": "Not authenticated"}, status=401)
-    mine = [lobby_info(l, include_code=True) for l in lobbies.values() if l["owner"] and l["owner"].lower() == user.lower() and not l["id"].startswith("public_")]
+    mine = [lobby_info(l, True) for l in lobbies.values() if l["owner"] and l["owner"].lower() == user.lower() and not l["id"].startswith("public_")]
     whitelisted = [lobby_info(l) for l in lobbies.values()
-                   if not l["id"].startswith("public_")
-                   and l.get("whitelist_enabled")
-                   and user in l.get("whitelist", [])
-                   and (not l["owner"] or l["owner"].lower() != user.lower())]
+                   if not l["id"].startswith("public_") and l.get("whitelist_enabled")
+                   and user in l.get("whitelist", []) and (not l["owner"] or l["owner"].lower() != user.lower())]
     return web.json_response({"lobbies": mine, "whitelisted": whitelisted})
 
 async def create_lobby_handler(request):
@@ -340,23 +302,23 @@ async def create_lobby_handler(request):
         return web.json_response({"error": "Not authenticated"}, status=401)
     name = data.get("name", "").strip()[:30]
     is_public = data.get("public", False)
-    whitelist_enabled = data.get("whitelist_enabled", False) and not is_public
+    wl = data.get("whitelist_enabled", False) and not is_public
     cooldown = max(0, min(MAX_COOLDOWN, float(data.get("cooldown", DEFAULT_COOLDOWN))))
     if not name:
         return web.json_response({"error": "Lobby name required"}, status=400)
     if user_lobby_count(user) >= MAX_LOBBIES_PER_USER:
-        return web.json_response({"error": f"Max {MAX_LOBBIES_PER_USER} lobbies per account"}, status=400)
+        return web.json_response({"error": f"Max {MAX_LOBBIES_PER_USER} lobbies"}, status=400)
     lid = secrets.token_hex(6)
     code = secrets.token_hex(4).upper() if not is_public else None
     lobbies[lid] = {
         "id": lid, "name": name, "owner": user, "public": is_public,
-        "code": code, "whitelist_enabled": whitelist_enabled,
-        "whitelist": [user] if whitelist_enabled else [],
+        "code": code, "whitelist_enabled": wl,
+        "whitelist": [user] if wl else [],
         "grid": bytearray(GRID * GRID), "pixel_counts": {},
         "cooldown": cooldown, "last_activity": time.time()
     }
-    save_lobbies()
-    return web.json_response({"ok": True, "lobby": lobby_info(lobbies[lid], include_code=True)})
+    await save_lobby(lid)
+    return web.json_response({"ok": True, "lobby": lobby_info(lobbies[lid], True)})
 
 async def delete_lobby_handler(request):
     data = await request.json()
@@ -365,19 +327,16 @@ async def delete_lobby_handler(request):
         return web.json_response({"error": "Not authenticated"}, status=401)
     lid = data.get("lobby_id", "")
     lobby = lobbies.get(lid)
-    if not lobby or lobby["id"].startswith("public_"):
-        return web.json_response({"error": "Lobby not found"}, status=404)
+    if not lobby or lid.startswith("public_"):
+        return web.json_response({"error": "Not found"}, status=404)
     if lobby["owner"].lower() != user.lower():
-        return web.json_response({"error": "Not your lobby"}, status=403)
+        return web.json_response({"error": "Not yours"}, status=403)
     for ws, info in list(clients.items()):
         if info and info.get("lobby_id") == lid:
-            try:
-                await ws.send_json({"type": "kicked", "text": "Lobby was deleted"})
-                await ws.close()
-            except Exception:
-                pass
+            try: await ws.send_json({"type": "kicked", "text": "Lobby deleted"}); await ws.close()
+            except: pass
     del lobbies[lid]
-    save_lobbies()
+    await delete_lobby_db(lid)
     return web.json_response({"ok": True})
 
 async def update_lobby_handler(request):
@@ -387,34 +346,26 @@ async def update_lobby_handler(request):
         return web.json_response({"error": "Not authenticated"}, status=401)
     lid = data.get("lobby_id", "")
     lobby = lobbies.get(lid)
-    if not lobby or lobby["id"].startswith("public_"):
-        return web.json_response({"error": "Lobby not found"}, status=404)
+    if not lobby or lid.startswith("public_"):
+        return web.json_response({"error": "Not found"}, status=404)
     if lobby["owner"].lower() != user.lower():
-        return web.json_response({"error": "Not your lobby"}, status=403)
+        return web.json_response({"error": "Not yours"}, status=403)
     if "public" in data:
         lobby["public"] = bool(data["public"])
-        if lobby["public"]:
-            lobby["whitelist_enabled"] = False
-            lobby["code"] = None
-        else:
-            if not lobby["code"]:
-                lobby["code"] = secrets.token_hex(4).upper()
+        if lobby["public"]: lobby["whitelist_enabled"] = False; lobby["code"] = None
+        elif not lobby["code"]: lobby["code"] = secrets.token_hex(4).upper()
     if "whitelist_enabled" in data and not lobby["public"]:
         lobby["whitelist_enabled"] = bool(data["whitelist_enabled"])
-        if lobby["whitelist_enabled"] and user not in lobby["whitelist"]:
-            lobby["whitelist"].append(user)
+        if lobby["whitelist_enabled"] and user not in lobby["whitelist"]: lobby["whitelist"].append(user)
     if "add_whitelist" in data and lobby["whitelist_enabled"]:
         n = data["add_whitelist"].strip()
-        if n and n not in lobby["whitelist"]:
-            lobby["whitelist"].append(n)
+        if n and n not in lobby["whitelist"]: lobby["whitelist"].append(n)
     if "remove_whitelist" in data and lobby["whitelist_enabled"]:
         n = data["remove_whitelist"].strip()
-        if n in lobby["whitelist"] and n.lower() != user.lower():
-            lobby["whitelist"].remove(n)
-    if "name" in data:
-        lobby["name"] = data["name"].strip()[:30] or lobby["name"]
-    save_lobbies()
-    return web.json_response({"ok": True, "lobby": lobby_info(lobby, include_code=True)})
+        if n in lobby["whitelist"] and n.lower() != user.lower(): lobby["whitelist"].remove(n)
+    if "name" in data: lobby["name"] = data["name"].strip()[:30] or lobby["name"]
+    await save_lobby(lid)
+    return web.json_response({"ok": True, "lobby": lobby_info(lobby, True)})
 
 async def join_lobby_by_code_handler(request):
     data = await request.json()
@@ -425,271 +376,190 @@ async def join_lobby_by_code_handler(request):
     for lobby in lobbies.values():
         if lobby.get("code") and lobby["code"] == code:
             if lobby["whitelist_enabled"] and user not in lobby["whitelist"]:
-                return web.json_response({"error": "You are not whitelisted"}, status=403)
+                return web.json_response({"error": "Not whitelisted"}, status=403)
             return web.json_response({"ok": True, "lobby": lobby_info(lobby)})
-    return web.json_response({"error": "Invalid lobby code"}, status=404)
+    return web.json_response({"error": "Invalid code"}, status=404)
 
 async def leaderboard_handler(request):
-    lobby_id = request.query.get("lobby_id", "")
-    lobby = lobbies.get(lobby_id)
+    lid = request.query.get("lobby_id", "")
+    lobby = lobbies.get(lid)
     if not lobby:
-        return web.json_response({"error": "Lobby not found"}, status=404)
+        return web.json_response({"error": "Not found"}, status=404)
     pc = lobby.get("pixel_counts", {})
     top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:50]
-    board = [{"name": name, "pixels": count, "online": is_online(name)} for name, count in top]
-    return web.json_response({"leaderboard": board})
+    return web.json_response({"leaderboard": [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top]})
 
 async def friends_list_handler(request):
     user = get_auth_user(request)
     if not user:
         return web.json_response({"error": "Not authenticated"}, status=401)
     fd = get_friend_data(user)
-    friends_with_status = [{"name": f, "online": is_online(f)} for f in fd["friends"]]
-    return web.json_response({"friends": friends_with_status, "incoming": fd["incoming"], "outgoing": fd["outgoing"]})
+    return web.json_response({"friends": [{"name": f, "online": is_online(f)} for f in fd["friends"]], "incoming": fd["incoming"], "outgoing": fd["outgoing"]})
 
 async def friend_add_handler(request):
     data = await request.json()
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     target = data.get("username", "").strip()
-    if not target:
-        return web.json_response({"error": "Username required"}, status=400)
-    found = None
-    for u in accounts:
-        if u.lower() == target.lower():
-            found = u
-            break
-    if not found:
-        return web.json_response({"error": "User not found"}, status=404)
-    if found.lower() == user.lower():
-        return web.json_response({"error": "Can't add yourself"}, status=400)
-    fd = get_friend_data(user)
-    td = get_friend_data(found)
-    if found in fd["friends"]:
-        return web.json_response({"error": "Already friends"}, status=400)
-    if found in fd["outgoing"]:
-        return web.json_response({"error": "Request already sent"}, status=400)
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return web.json_response({"error": "User not found"}, status=404)
+    if found.lower() == user.lower(): return web.json_response({"error": "Can't add yourself"}, status=400)
+    fd, td = get_friend_data(user), get_friend_data(found)
+    if found in fd["friends"]: return web.json_response({"error": "Already friends"}, status=400)
+    if found in fd["outgoing"]: return web.json_response({"error": "Already sent"}, status=400)
     if user in td["outgoing"]:
         td["outgoing"].remove(user)
-        if user in fd["incoming"]:
-            fd["incoming"].remove(user)
-        fd["friends"].append(found)
-        td["friends"].append(user)
-        save_friends()
+        if user in fd["incoming"]: fd["incoming"].remove(user)
+        fd["friends"].append(found); td["friends"].append(user)
+        await save_friends()
         await notify_social(found, {"type": "friend_accepted", "username": user})
         return web.json_response({"ok": True, "accepted": True})
-    fd["outgoing"].append(found)
-    td["incoming"].append(user)
-    save_friends()
+    fd["outgoing"].append(found); td["incoming"].append(user)
+    await save_friends()
     await notify_social(found, {"type": "friend_request", "username": user})
     return web.json_response({"ok": True, "sent": True})
 
 async def friend_accept_handler(request):
     data = await request.json()
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     target = data.get("username", "").strip()
     fd = get_friend_data(user)
-    if target not in fd["incoming"]:
-        return web.json_response({"error": "No request from this user"}, status=400)
+    if target not in fd["incoming"]: return web.json_response({"error": "No request"}, status=400)
     td = get_friend_data(target)
     fd["incoming"].remove(target)
-    if user in td["outgoing"]:
-        td["outgoing"].remove(user)
-    fd["friends"].append(target)
-    td["friends"].append(user)
-    save_friends()
+    if user in td["outgoing"]: td["outgoing"].remove(user)
+    fd["friends"].append(target); td["friends"].append(user)
+    await save_friends()
     await notify_social(target, {"type": "friend_accepted", "username": user})
     return web.json_response({"ok": True})
 
 async def friend_decline_handler(request):
     data = await request.json()
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     target = data.get("username", "").strip()
-    fd = get_friend_data(user)
-    if target in fd["incoming"]:
-        fd["incoming"].remove(target)
-    td = get_friend_data(target)
-    if user in td["outgoing"]:
-        td["outgoing"].remove(user)
-    save_friends()
+    fd, td = get_friend_data(user), get_friend_data(target)
+    if target in fd["incoming"]: fd["incoming"].remove(target)
+    if user in td["outgoing"]: td["outgoing"].remove(user)
+    await save_friends()
     return web.json_response({"ok": True})
 
 async def friend_remove_handler(request):
     data = await request.json()
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     target = data.get("username", "").strip()
-    fd = get_friend_data(user)
-    td = get_friend_data(target)
-    if target in fd["friends"]:
-        fd["friends"].remove(target)
-    if user in td["friends"]:
-        td["friends"].remove(user)
-    save_friends()
+    fd, td = get_friend_data(user), get_friend_data(target)
+    if target in fd["friends"]: fd["friends"].remove(target)
+    if user in td["friends"]: td["friends"].remove(user)
+    await save_friends()
     return web.json_response({"ok": True})
 
 async def dm_history_handler(request):
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     target = request.query.get("with", "")
-    key = dm_key(user, target)
-    msgs = dms.get(key, [])[-MAX_DM_HISTORY:]
-    return web.json_response({"messages": msgs})
+    return web.json_response({"messages": dms.get(dm_key(user, target), [])[-MAX_DM_HISTORY:]})
 
 async def dm_send_handler(request):
     data = await request.json()
     user = get_auth_user(request)
-    if not user:
-        return web.json_response({"error": "Not authenticated"}, status=401)
-    target = data.get("to", "").strip()
-    text = data.get("text", "").strip()[:200]
-    if not target or not text:
-        return web.json_response({"error": "Missing fields"}, status=400)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    target, text = data.get("to", "").strip(), data.get("text", "").strip()[:200]
+    if not target or not text: return web.json_response({"error": "Missing fields"}, status=400)
     fd = get_friend_data(user)
-    if target not in fd["friends"]:
-        return web.json_response({"error": "Not friends"}, status=403)
+    if target not in fd["friends"]: return web.json_response({"error": "Not friends"}, status=403)
     key = dm_key(user, target)
     msg = {"from": user, "text": text, "time": time.time()}
-    if key not in dms:
-        dms[key] = []
-    dms[key].append(msg)
-    if len(dms[key]) > MAX_DM_HISTORY:
-        dms[key] = dms[key][-MAX_DM_HISTORY:]
+    dms.setdefault(key, []).append(msg)
+    if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
+    await save_dm(key)
     await notify_social(target, {"type": "dm", "from": user, "text": text, "time": msg["time"]})
     return web.json_response({"ok": True})
 
 async def admin_accounts_handler(request):
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"accounts": accounts})
 
 async def admin_friends_handler(request):
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"friends": friends_data})
 
 async def admin_lobbies_handler(request):
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
-    out = {}
-    for lid, lobby in lobbies.items():
-        out[lid] = {k: v for k, v in lobby.items() if k != "grid"}
-    return web.json_response({"lobbies": out})
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"lobbies": {lid: {k: v for k, v in l.items() if k != "grid"} for lid, l in lobbies.items()}})
 
 async def admin_bans_handler(request):
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"bans": bans})
 
 async def admin_ips_handler(request):
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"ips": user_ips})
+
+async def admin_vips_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"vips": vips})
 
 async def admin_ban_handler(request):
     data = await request.json()
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     target = data.get("username", "").strip()
-    if not target:
-        return web.json_response({"error": "Username required"}, status=400)
-    if is_admin(target):
-        return web.json_response({"error": "Cannot ban admin"}, status=400)
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    if is_admin(target): return web.json_response({"error": "Cannot ban admin"}, status=400)
     if not is_banned(target):
         bans.append(target)
-        save_bans()
-    to_remove = [tok for tok, u in sessions.items() if u.lower() == target.lower()]
-    for tok in to_remove:
+        await save_bans()
+    for tok in [t for t, u in sessions.items() if u.lower() == target.lower()]:
         del sessions[tok]
     for ws, info in list(clients.items()):
         if info and not info.get("guest") and info.get("username", "").lower() == target.lower():
-            try:
-                await ws.send_json({"type": "kicked", "text": "You have been banned"})
-                await ws.close()
-            except Exception:
-                pass
+            try: await ws.send_json({"type": "kicked", "text": "You have been banned"}); await ws.close()
+            except: pass
     for ws, uname in list(social_clients.items()):
         if uname and uname.lower() == target.lower():
-            try:
-                await ws.close()
-            except Exception:
-                pass
-    return web.json_response({"ok": True})
+            try: await ws.close()
+            except: pass
+    return web.json_response({"ok": True, "message": f"Banned {target}"})
 
 async def admin_unban_handler(request):
     data = await request.json()
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     target = data.get("username", "").strip()
-    if not target:
-        return web.json_response({"error": "Username required"}, status=400)
     bans[:] = [b for b in bans if b.lower() != target.lower()]
-    save_bans()
-    return web.json_response({"ok": True})
+    await save_bans()
+    return web.json_response({"ok": True, "message": f"Unbanned {target}"})
 
 async def admin_kick_handler(request):
     data = await request.json()
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     target = data.get("username", "").strip()
-    if not target:
-        return web.json_response({"error": "Username required"}, status=400)
     kicked = False
     for ws, info in list(clients.items()):
         if info and not info.get("guest") and info.get("username", "").lower() == target.lower():
-            try:
-                await ws.send_json({"type": "kicked", "text": "You have been kicked by an admin"})
-                await ws.close()
-            except Exception:
-                pass
+            try: await ws.send_json({"type": "kicked", "text": "Kicked by admin"}); await ws.close()
+            except: pass
             kicked = True
-    if not kicked:
-        return web.json_response({"error": "User not in any lobby"}, status=404)
-    return web.json_response({"ok": True})
-
-async def admin_vips_handler(request):
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
-    return web.json_response({"vips": vips})
+    return web.json_response({"ok": True} if kicked else {"error": "Not online"}, status=200 if kicked else 404)
 
 async def admin_vip_add_handler(request):
     data = await request.json()
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     target = data.get("username", "").strip().lower()
-    if not target:
-        return web.json_response({"error": "Username required"}, status=400)
-    if target not in vips:
+    if target and target not in vips:
         vips.append(target)
-        save_vips()
+        await save_vips()
     return web.json_response({"ok": True, "message": f"Added {target} as VIP"})
 
 async def admin_vip_remove_handler(request):
     data = await request.json()
-    user = get_auth_user(request)
-    if not is_admin(user):
-        return web.json_response({"error": "Forbidden"}, status=403)
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     target = data.get("username", "").strip().lower()
     if target in vips:
         vips.remove(target)
-        save_vips()
+        await save_vips()
     return web.json_response({"ok": True, "message": f"Removed {target} from VIP"})
 
 async def social_ws_handler(request):
@@ -697,7 +567,6 @@ async def social_ws_handler(request):
     await ws.prepare(request)
     username = None
     social_clients[ws] = None
-
     try:
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
@@ -706,11 +575,9 @@ async def social_ws_handler(request):
                     token = data.get("token", "")
                     if token in sessions:
                         username = sessions[token]
-                        if is_banned(username):
-                            await ws.close()
-                            break
+                        if is_banned(username): await ws.close(); break
                         social_clients[ws] = username
-                        track_ip(username, request)
+                        await track_ip(username, request)
                         await ws.send_json({"type": "social_ready"})
                     else:
                         await ws.close()
@@ -723,14 +590,13 @@ async def social_ws_handler(request):
                             key = dm_key(username, target)
                             m = {"from": username, "text": text, "time": time.time()}
                             dms.setdefault(key, []).append(m)
-                            if len(dms[key]) > MAX_DM_HISTORY:
-                                dms[key] = dms[key][-MAX_DM_HISTORY:]
+                            if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
+                            await save_dm(key)
                             await notify_social(target, {"type": "dm", "from": username, "text": text, "time": m["time"]})
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
         del social_clients[ws]
-
     return ws
 
 async def notify_social(target_username, data):
@@ -738,10 +604,8 @@ async def notify_social(target_username, data):
     tlow = target_username.lower()
     for ws, uname in list(social_clients.items()):
         if uname and uname.lower() == tlow and not ws.closed:
-            try:
-                await ws.send_str(msg)
-            except Exception:
-                pass
+            try: await ws.send_str(msg)
+            except: pass
 
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
@@ -763,26 +627,18 @@ async def websocket_handler(request):
                     token = data.get("token", "")
                     lid = data.get("lobby_id", "")
                     if token not in sessions:
-                        await ws.send_json({"type": "error", "text": "Invalid session"})
-                        await ws.close()
-                        break
+                        await ws.send_json({"type": "error", "text": "Invalid session"}); await ws.close(); break
                     username = sessions[token]
                     if is_banned(username):
-                        await ws.send_json({"type": "error", "text": "You are banned"})
-                        await ws.close()
-                        break
+                        await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
                     lobby = lobbies.get(lid)
                     if not lobby:
-                        await ws.send_json({"type": "error", "text": "Lobby not found"})
-                        await ws.close()
-                        break
+                        await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
                     if lobby["whitelist_enabled"] and username not in lobby["whitelist"]:
-                        await ws.send_json({"type": "error", "text": "You are not whitelisted"})
-                        await ws.close()
-                        break
+                        await ws.send_json({"type": "error", "text": "Not whitelisted"}); await ws.close(); break
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False}
-                    track_ip(username, request)
+                    await track_ip(username, request)
                     await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN)})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                     await broadcast_online_lobby(lobby_id)
@@ -792,16 +648,10 @@ async def websocket_handler(request):
                     guest_name = data.get("guest_name", "Guest")
                     lobby = lobbies.get(lid)
                     if not lobby:
-                        await ws.send_json({"type": "error", "text": "Lobby not found"})
-                        await ws.close()
-                        break
+                        await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
                     if not lobby["public"]:
-                        await ws.send_json({"type": "error", "text": "Guests can only join public lobbies"})
-                        await ws.close()
-                        break
-                    username = guest_name
-                    is_guest = True
-                    lobby_id = lid
+                        await ws.send_json({"type": "error", "text": "Guests can only join public lobbies"}); await ws.close(); break
+                    username = guest_name; is_guest = True; lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True}
                     await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN)})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined (spectating)"})
@@ -813,7 +663,7 @@ async def websocket_handler(request):
                     now = time.time()
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if now - last_pixel < cd:
-                        continue  # server-side cooldown enforcement
+                        continue
                     last_pixel = now
                     if lobby and 0 <= x < GRID and 0 <= y < GRID and 0 <= color < 16:
                         lobby["grid"][y * GRID + x] = color
@@ -821,11 +671,9 @@ async def websocket_handler(request):
                         pc = lobby.setdefault("pixel_counts", {})
                         pc[username] = pc.get(username, 0) + 1
                         if pc[username] % 10 == 0:
-                            save_lobbies()
-                            save_grids()
+                            await save_lobby(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
-                        board = get_leaderboard_top10(lobby)
-                        await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": board})
+                        await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
 
                 elif data["type"] == "chat" and username and lobby_id:
                     text = data.get("text", "").strip()[:200]
@@ -852,59 +700,47 @@ async def websocket_handler(request):
         if username and lobby_id:
             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} left"})
             await broadcast_online_lobby(lobby_id)
-
     return ws
 
 async def broadcast_to_lobby(lobby_id, data, exclude=None):
     msg = json.dumps(data)
     for ws, info in list(clients.items()):
         if info and info.get("lobby_id") == lobby_id and ws != exclude and not ws.closed:
-            try:
-                await ws.send_str(msg)
-            except Exception:
-                pass
+            try: await ws.send_str(msg)
+            except: pass
 
 async def broadcast_online_lobby(lobby_id):
     count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
     await broadcast_to_lobby(lobby_id, {"type": "online", "count": count})
 
-LOBBY_TIMEOUT = 3600  # 1 hour in seconds
-
 async def cleanup_inactive_lobbies(app):
     while True:
-        await asyncio.sleep(300)  # check every 5 minutes
+        await asyncio.sleep(300)
         now = time.time()
         to_delete = []
         for lid, lobby in list(lobbies.items()):
-            if lid.startswith("public_"):
-                continue
-            last = lobby.get("last_activity", lobby.get("created", now))
-            if now - last > LOBBY_TIMEOUT:
+            if lid.startswith("public_"): continue
+            if now - lobby.get("last_activity", now) > LOBBY_TIMEOUT:
                 to_delete.append(lid)
         for lid in to_delete:
-            lobby = lobbies.get(lid)
-            if not lobby:
-                continue
             for ws, info in list(clients.items()):
                 if info and info.get("lobby_id") == lid:
-                    try:
-                        await ws.send_json({"type": "kicked", "text": "Lobby deleted due to 1 hour of inactivity"})
-                        await ws.close()
-                    except:
-                        pass
+                    try: await ws.send_json({"type": "kicked", "text": "Lobby deleted (1hr inactivity)"}); await ws.close()
+                    except: pass
             del lobbies[lid]
-        if to_delete:
-            save_lobbies()
+            await delete_lobby_db(lid)
 
-async def start_cleanup(app):
+async def on_startup(app):
+    await load_all_data()
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
 
-async def stop_cleanup(app):
+async def on_cleanup(app):
     app["cleanup_task"].cancel()
+    await save_all_lobbies()
 
 app = web.Application()
-app.on_startup.append(start_cleanup)
-app.on_cleanup.append(stop_cleanup)
+app.on_startup.append(on_startup)
+app.on_cleanup.append(on_cleanup)
 app.router.add_get("/api/captcha", captcha_handler)
 app.router.add_post("/api/register", register_handler)
 app.router.add_post("/api/login", login_handler)
@@ -927,23 +763,15 @@ app.router.add_get("/api/admin/friends", admin_friends_handler)
 app.router.add_get("/api/admin/lobbies", admin_lobbies_handler)
 app.router.add_get("/api/admin/bans", admin_bans_handler)
 app.router.add_get("/api/admin/ips", admin_ips_handler)
+app.router.add_get("/api/admin/vips", admin_vips_handler)
 app.router.add_post("/api/admin/ban", admin_ban_handler)
 app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
-app.router.add_get("/api/admin/vips", admin_vips_handler)
 app.router.add_post("/api/admin/vip-add", admin_vip_add_handler)
 app.router.add_post("/api/admin/vip-remove", admin_vip_remove_handler)
 app.router.add_get("/ws", websocket_handler)
 app.router.add_get("/ws/social", social_ws_handler)
 app.router.add_get("/", index_handler)
-
-load_accounts()
-load_lobbies()
-load_grids()
-load_friends()
-load_bans()
-load_vips()
-load_user_ips()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

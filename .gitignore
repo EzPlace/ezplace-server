@@ -2,3 +2,4 @@ bot.py
 backup.js
 ezplace-backup-*.json
 __pycache__/
+migrate_to_mongo.py
