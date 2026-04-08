@@ -33,11 +33,13 @@ captchas = {}
 friends_data = {}
 dms = {}
 bans = []
+ip_bans = []
 vips = []
 user_ips = {}
 lobbies = {}
 clients = {}
 social_clients = {}
+social_ips = {}
 
 def is_admin(user):
     return user and user.lower() == ADMIN_USER
@@ -62,6 +64,10 @@ def is_online(username):
 
 def is_banned(username):
     return username.lower() in [b.lower() for b in bans]
+
+def is_ip_banned(request):
+    ip = get_client_ip(request)
+    return ip in ip_bans
 
 def is_vip(username):
     return username and username.lower() in vips
@@ -119,6 +125,9 @@ async def save_friends():
 async def save_bans():
     await db_save("store", "bans", bans)
 
+async def save_ip_bans():
+    await db_save("store", "ip_bans", ip_bans)
+
 async def save_vips():
     await db_save("store", "vips", vips)
 
@@ -151,11 +160,12 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, vips, user_ips, dms
+    global accounts, friends_data, bans, ip_bans, vips, user_ips, dms
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
     bans = await db_load("store", "bans") or []
+    ip_bans = await db_load("store", "ip_bans") or []
     vips = await db_load("store", "vips") or []
     user_ips = await db_load("store", "user_ips") or {}
 
@@ -246,7 +256,7 @@ async def register_handler(request):
         return web.json_response({"error": "Username must be 3-20 alphanumeric characters"}, status=400)
     if len(pwd) < 4:
         return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
-    if is_banned(uname):
+    if is_banned(uname) or is_ip_banned(request):
         return web.json_response({"error": "This account is banned"}, status=403)
     cap = captchas.pop(cap_id, None)
     if not cap or cap["expires"] < time.time():
@@ -268,7 +278,7 @@ async def login_handler(request):
     uname, pwd = data.get("username", "").strip(), data.get("password", "")
     if not uname or not pwd:
         return web.json_response({"error": "Username and password required"}, status=400)
-    if is_banned(uname):
+    if is_banned(uname) or is_ip_banned(request):
         return web.json_response({"error": "This account is banned"}, status=403)
     found = next((u for u in accounts if u.lower() == uname.lower()), None)
     if not found:
@@ -532,6 +542,39 @@ async def admin_unban_handler(request):
     await save_bans()
     return web.json_response({"ok": True, "message": f"Unbanned {target}"})
 
+async def admin_ipban_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    ip = user_ips.get(target)
+    if not ip: return web.json_response({"error": f"No IP found for {target}"}, status=404)
+    if ip not in ip_bans:
+        ip_bans.append(ip)
+        await save_ip_bans()
+    # Also account-ban and kick all connections from that IP
+    if not is_banned(target):
+        bans.append(target)
+        await save_bans()
+    for ws, info in list(clients.items()):
+        if info and info.get("ip") == ip:
+            try: await ws.send_json({"type": "kicked", "text": "You have been IP banned"}); await ws.close()
+            except: pass
+    for ws in list(social_clients.keys()):
+        if social_ips.get(ws) == ip:
+            try: await ws.close()
+            except: pass
+    return web.json_response({"ok": True, "message": f"IP banned {target} ({ip})"})
+
+async def admin_ip_unban_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    ip = data.get("ip", "").strip()
+    if not ip: return web.json_response({"error": "IP required"}, status=400)
+    ip_bans[:] = [b for b in ip_bans if b != ip]
+    await save_ip_bans()
+    return web.json_response({"ok": True, "message": f"IP unbanned {ip}"})
+
 async def admin_kick_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -567,6 +610,7 @@ async def social_ws_handler(request):
     await ws.prepare(request)
     username = None
     social_clients[ws] = None
+    social_ips[ws] = get_client_ip(request)
     try:
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
@@ -575,7 +619,7 @@ async def social_ws_handler(request):
                     token = data.get("token", "")
                     if token in sessions:
                         username = sessions[token]
-                        if is_banned(username): await ws.close(); break
+                        if is_banned(username) or is_ip_banned(request): await ws.close(); break
                         social_clients[ws] = username
                         await track_ip(username, request)
                         await ws.send_json({"type": "social_ready"})
@@ -597,6 +641,7 @@ async def social_ws_handler(request):
                 break
     finally:
         del social_clients[ws]
+        social_ips.pop(ws, None)
     return ws
 
 async def notify_social(target_username, data):
@@ -629,7 +674,7 @@ async def websocket_handler(request):
                     if token not in sessions:
                         await ws.send_json({"type": "error", "text": "Invalid session"}); await ws.close(); break
                     username = sessions[token]
-                    if is_banned(username):
+                    if is_banned(username) or is_ip_banned(request):
                         await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
                     lobby = lobbies.get(lid)
                     if not lobby:
@@ -637,13 +682,15 @@ async def websocket_handler(request):
                     if lobby["whitelist_enabled"] and username not in lobby["whitelist"]:
                         await ws.send_json({"type": "error", "text": "Not whitelisted"}); await ws.close(); break
                     lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False}
+                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request)}
                     await track_ip(username, request)
                     await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN)})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                     await broadcast_online_lobby(lobby_id)
 
                 elif data["type"] == "guest_join":
+                    if is_ip_banned(request):
+                        await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
                     lid = data.get("lobby_id", "")
                     guest_name = data.get("guest_name", "Guest")
                     lobby = lobbies.get(lid)
@@ -652,7 +699,7 @@ async def websocket_handler(request):
                     if not lobby["public"]:
                         await ws.send_json({"type": "error", "text": "Guests can only join public lobbies"}); await ws.close(); break
                     username = guest_name; is_guest = True; lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True}
+                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True, "ip": get_client_ip(request)}
                     await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN)})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined (spectating)"})
                     await broadcast_online_lobby(lobby_id)
@@ -817,6 +864,9 @@ app.router.add_get("/api/admin/vips", admin_vips_handler)
 app.router.add_post("/api/admin/ban", admin_ban_handler)
 app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
+app.router.add_post("/api/admin/ipban", admin_ipban_handler)
+app.router.add_post("/api/admin/ip-unban", admin_ip_unban_handler)
+app.router.add_get("/api/admin/ipbans", lambda r: web.json_response({"ip_bans": ip_bans}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 app.router.add_post("/api/admin/vip-add", admin_vip_add_handler)
 app.router.add_post("/api/admin/vip-remove", admin_vip_remove_handler)
 app.router.add_get("/ws", websocket_handler)
