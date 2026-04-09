@@ -612,6 +612,68 @@ async def admin_kick_handler(request):
             kicked = True
     return web.json_response({"ok": True} if kicked else {"error": "Not online"}, status=200 if kicked else 404)
 
+async def admin_delete_account_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    if is_admin(target): return web.json_response({"error": "Cannot delete admin"}, status=400)
+    tlow = target.lower()
+    found = next((u for u in accounts if u.lower() == tlow), None)
+    if not found:
+        return web.json_response({"error": f"Account {target} not found"}, status=404)
+    # Disconnect any active sessions
+    for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
+        del sessions[tok]
+    for ws, info in list(clients.items()):
+        if info and not info.get("guest") and info.get("username", "").lower() == tlow:
+            try: await ws.send_json({"type": "kicked", "text": "Your account was deleted"}); await ws.close()
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == tlow:
+            try: await ws.close()
+            except: pass
+    # Remove from accounts
+    del accounts[found]
+    await save_accounts()
+    # Remove from friends_data (their entry + references in others)
+    if found in friends_data:
+        del friends_data[found]
+    for u, fd in list(friends_data.items()):
+        fd["friends"] = [f for f in fd.get("friends", []) if f.lower() != tlow]
+        fd["incoming"] = [f for f in fd.get("incoming", []) if f.lower() != tlow]
+        fd["outgoing"] = [f for f in fd.get("outgoing", []) if f.lower() != tlow]
+    await save_friends()
+    # Remove from bans, vips, user_ips
+    bans[:] = [b for b in bans if b.lower() != tlow]
+    await save_bans()
+    if tlow in vips:
+        vips.remove(tlow)
+        await save_vips()
+    if found in user_ips:
+        del user_ips[found]
+        await save_user_ips()
+    # Delete their owned lobbies
+    owned_lids = [lid for lid, l in list(lobbies.items()) if not lid.startswith("public_") and l.get("owner", "").lower() == tlow]
+    for lid in owned_lids:
+        for ws, info in list(clients.items()):
+            if info and info.get("lobby_id") == lid:
+                try: await ws.send_json({"type": "kicked", "text": "Lobby deleted (owner account removed)"}); await ws.close()
+                except: pass
+        del lobbies[lid]
+        await db["lobbies"].delete_one({"_id": lid})
+    # Remove from pixel_counts in all remaining lobbies
+    for lid, l in lobbies.items():
+        pc = l.get("pixel_counts", {})
+        for k in [k for k in pc if k.lower() == tlow]:
+            del pc[k]
+    # Delete DM threads involving this user
+    keys_to_delete = [k for k in dms if tlow in k.split(":")]
+    for k in keys_to_delete:
+        del dms[k]
+        await db["dms"].delete_one({"_id": k})
+    return web.json_response({"ok": True, "message": f"Deleted account {found} ({len(owned_lids)} lobbies, {len(keys_to_delete)} DM threads)"})
+
 async def admin_vip_add_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -812,6 +874,31 @@ async def websocket_handler(request):
                         await save_lobby(lobby_id)
                         await ws.send_json({"type": "system", "text": f"Unbanned {target} from this lobby"})
 
+                elif data["type"] == "admin_brush" and username and lobby_id and not is_guest and is_admin(username):
+                    lobby = lobbies.get(lobby_id)
+                    if lobby:
+                        coords = data.get("pixels", [])
+                        color = data.get("color", 0)
+                        lw = lobby.get("width", 256)
+                        lh = lobby.get("height", 256)
+                        if isinstance(coords, list) and 0 <= color < 32:
+                            placed = 0
+                            for c in coords[:1024]:  # cap brush stamps
+                                if not isinstance(c, list) or len(c) != 2: continue
+                                x, y = c[0], c[1]
+                                if not (isinstance(x, int) and isinstance(y, int)): continue
+                                if not (0 <= x < lw and 0 <= y < lh): continue
+                                old_color = lobby["grid"][y * lw + x]
+                                lobby["grid"][y * lw + x] = color
+                                if color != old_color:
+                                    pc = lobby.setdefault("pixel_counts", {})
+                                    pc[username] = pc.get(username, 0) + 1
+                                placed += 1
+                                await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                            if placed:
+                                lobby["last_activity"] = time.time()
+                                await save_lobby(lobby_id)
+
                 elif data["type"] == "import_grid" and username and lobby_id and not is_guest:
                     lobby = lobbies.get(lobby_id)
                     if lobby and lobby["owner"].lower() == username.lower():
@@ -966,6 +1053,7 @@ app.router.add_get("/api/admin/vips", admin_vips_handler)
 app.router.add_post("/api/admin/ban", admin_ban_handler)
 app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
+app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
 app.router.add_post("/api/admin/ipban", admin_ipban_handler)
 app.router.add_post("/api/admin/ip-unban", admin_ip_unban_handler)
 app.router.add_get("/api/admin/ipbans", lambda r: web.json_response({"ip_bans": ip_bans}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
