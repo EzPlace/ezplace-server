@@ -989,21 +989,32 @@ document.getElementById('import-file').onchange = async (e) => {
     if (!data.grid || !Array.isArray(data.grid)) { alert('Invalid file: missing grid array'); return; }
     if (typeof data.width !== 'number' || typeof data.height !== 'number') { alert('Invalid file: missing width/height'); return; }
     if (data.grid.length !== data.width * data.height) { alert('Grid data length mismatch'); return; }
-    if (data.width < GRID_W || data.height < GRID_H) { alert(`File is smaller than lobby canvas (${data.width}x${data.height} < ${GRID_W}x${GRID_H}). Only same-size or larger maps can be imported.`); return; }
-    let gridToSend;
+    let gridToSend = new Array(GRID_W * GRID_H);
+    let note = '';
     if (data.width === GRID_W && data.height === GRID_H) {
       gridToSend = data.grid;
-    } else {
-      // Crop top-left GRID_W x GRID_H region from larger source
-      gridToSend = new Array(GRID_W * GRID_H);
+    } else if (data.width >= GRID_W && data.height >= GRID_H) {
+      // Crop top-left region from larger source
       for (let y = 0; y < GRID_H; y++) {
         for (let x = 0; x < GRID_W; x++) {
           gridToSend[y * GRID_W + x] = data.grid[y * data.width + x];
         }
       }
+      note = ` (cropping ${data.width}x${data.height} to top-left ${GRID_W}x${GRID_H})`;
+    } else if (data.width <= GRID_W && data.height <= GRID_H) {
+      // Overlay smaller source onto top-left of current canvas, keep rest
+      for (let i = 0; i < gridToSend.length; i++) gridToSend[i] = grid[i];
+      for (let y = 0; y < data.height; y++) {
+        for (let x = 0; x < data.width; x++) {
+          gridToSend[y * GRID_W + x] = data.grid[y * data.width + x];
+        }
+      }
+      note = ` (placing ${data.width}x${data.height} in top-left, keeping rest)`;
+    } else {
+      alert(`Mixed dimensions not supported: file is ${data.width}x${data.height}, lobby is ${GRID_W}x${GRID_H}`);
+      return;
     }
-    const cropNote = (data.width !== GRID_W || data.height !== GRID_H) ? ` (cropping ${data.width}x${data.height} to top-left ${GRID_W}x${GRID_H})` : '';
-    if (!confirm(`Import this grid? This will replace the current canvas in "${currentLobbyName}".${cropNote}`)) return;
+    if (!confirm(`Import this grid into "${currentLobbyName}"?${note}`)) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'import_grid', grid: gridToSend }));
     }
