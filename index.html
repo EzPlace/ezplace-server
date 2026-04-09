@@ -1045,10 +1045,9 @@ document.getElementById('btn-leave-lobby').onclick = () => {
 document.getElementById('btn-manage-current').onclick = async () => {
   if (!currentLobbyId || !authToken) return;
   try {
-    const res = await fetch('/api/my-lobbies', { headers: { Authorization: authToken } });
+    const res = await fetch(`/api/lobbies/info?id=${encodeURIComponent(currentLobbyId)}`, { headers: { Authorization: authToken } });
     const data = await res.json();
-    const found = (data.lobbies || []).find(l => l.id === currentLobbyId);
-    if (found) openManage(found);
+    if (data.lobby) openManage(data.lobby);
   } catch {}
 };
 
@@ -1175,10 +1174,15 @@ const manageModal = document.getElementById('manage-modal');
 
 function openManage(lobby) {
   managingLobby = lobby;
+  const isOfficial = lobby.id && lobby.id.startsWith('public_');
   document.getElementById('manage-name').value = lobby.name;
+  document.getElementById('manage-name').disabled = isOfficial;
   document.getElementById('manage-code').textContent = lobby.code || '(public)';
   document.getElementById('manage-public').checked = lobby.public;
+  document.getElementById('manage-public').disabled = isOfficial;
   document.getElementById('manage-wl-enabled').checked = lobby.whitelist_enabled;
+  document.getElementById('manage-wl-enabled').disabled = isOfficial;
+  document.getElementById('manage-save').style.display = isOfficial ? 'none' : '';
   renderManageWL();
   renderManageBans();
   manageModal.classList.add('show');
@@ -1273,7 +1277,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn && !currentLobbyId.startsWith('public_')) ? '' : 'none'; } render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
