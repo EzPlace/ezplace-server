@@ -104,6 +104,8 @@ def lobby_info(lobby, include_code=False):
     }
     if include_code and lobby.get("code"):
         info["code"] = lobby["code"]
+    if include_code:
+        info["lobby_bans"] = lobby.get("lobby_bans", [])
     if lobby["whitelist_enabled"]:
         info["whitelist"] = lobby["whitelist"]
     return info
@@ -440,9 +442,11 @@ async def update_lobby_handler(request):
         return web.json_response({"error": "Not yours"}, status=403)
     if "public" in data:
         lobby["public"] = bool(data["public"])
-        if lobby["public"]: lobby["whitelist_enabled"] = False; lobby["code"] = None
-        elif not lobby["code"]: lobby["code"] = secrets.token_hex(4).upper()
-    if "whitelist_enabled" in data and not lobby["public"]:
+        if lobby["public"]:
+            lobby["code"] = None
+        elif not lobby["code"]:
+            lobby["code"] = secrets.token_hex(4).upper()
+    if "whitelist_enabled" in data:
         lobby["whitelist_enabled"] = bool(data["whitelist_enabled"])
         if lobby["whitelist_enabled"] and user not in lobby["whitelist"]: lobby["whitelist"].append(user)
     if "add_whitelist" in data and lobby["whitelist_enabled"]:
@@ -451,9 +455,16 @@ async def update_lobby_handler(request):
     if "remove_whitelist" in data and lobby["whitelist_enabled"]:
         n = data["remove_whitelist"].strip()
         if n in lobby["whitelist"] and n.lower() != user.lower(): lobby["whitelist"].remove(n)
+    if "lobby_unban" in data:
+        n = data["lobby_unban"].strip()
+        if n:
+            lb = lobby.get("lobby_bans", [])
+            lobby["lobby_bans"] = [b for b in lb if b.lower() != n.lower()]
     if "name" in data: lobby["name"] = data["name"].strip()[:30] or lobby["name"]
     await save_lobby(lid)
-    return web.json_response({"ok": True, "lobby": lobby_info(lobby, True)})
+    info = lobby_info(lobby, True)
+    info["lobby_bans"] = lobby.get("lobby_bans", [])
+    return web.json_response({"ok": True, "lobby": info})
 
 async def join_lobby_by_code_handler(request):
     data = await request.json()
