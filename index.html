@@ -297,10 +297,11 @@
 <div id="tab-warning">&#x26A0; EzPlace is open in another tab. &#x26A0;</div>
 <div id="disconnect-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:90;background:var(--red);color:#fff;text-align:center;padding:8px 12px;font-size:13px;font-weight:600;animation:fadeIn 0.3s ease;">Disconnected from server. Refreshing...</div>
 <div id="dm-toast-container" style="position:fixed;top:14px;right:14px;z-index:95;display:flex;flex-direction:column;gap:8px;max-width:320px;pointer-events:none;"></div>
-<div id="lobby-user-menu" style="display:none;position:fixed;z-index:60;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:8px;min-width:160px;">
+<div id="lobby-user-menu" style="display:none;position:fixed;z-index:60;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:8px;min-width:170px;">
   <div id="lm-target-name" style="font-size:11px;color:var(--text-muted);padding:2px 4px 6px;border-bottom:1px solid var(--border);margin-bottom:6px;font-weight:600;"></div>
   <button class="win-btn" id="lm-kick" style="width:100%;margin-bottom:4px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);">Kick from lobby</button>
-  <button class="win-btn" id="lm-ban" style="width:100%;background:var(--red);color:#fff;border:1px solid #ff6b6b;">Ban from lobby</button>
+  <button class="win-btn" id="lm-ban" style="width:100%;margin-bottom:4px;background:var(--red);color:#fff;border:1px solid #ff6b6b;">Ban from lobby</button>
+  <button class="win-btn" id="lm-unban" style="width:100%;background:var(--green);color:#fff;border:1px solid #5dd49a;">Unban from lobby</button>
 </div>
 <button id="mobile-sidebar-toggle" class="win-btn">&#x1F4AC;</button>
 
@@ -326,6 +327,9 @@
   <div id="cooldown-bar"><div id="cooldown-fill"></div></div>
   <div id="viewport-wrap">
     <canvas id="viewport"></canvas>
+    <div id="guest-warning" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#cc0000;color:#ffeb3b;font-weight:800;font-size:15px;padding:14px 22px;border-radius:10px;border:2px solid #ffeb3b;box-shadow:0 6px 24px rgba(0,0,0,0.6);text-align:center;max-width:90%;pointer-events:none;z-index:5;text-shadow:0 1px 2px rgba(0,0,0,0.6);">
+      You are not logged into an account.<br>Please make an account to place pixels.
+    </div>
     <div id="zoom-buttons">
       <button id="zoom-in" class="win-btn">+</button>
       <button id="zoom-out" class="win-btn">&minus;</button>
@@ -870,6 +874,15 @@ function showLobbyUserMenu(e, targetName) {
 document.addEventListener('click', () => { document.getElementById('lobby-user-menu').style.display = 'none'; });
 document.getElementById('lm-kick').onclick = (e) => { e.stopPropagation(); if (lobbyMenuTarget && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_kick', target: lobbyMenuTarget })); document.getElementById('lobby-user-menu').style.display = 'none'; };
 document.getElementById('lm-ban').onclick = (e) => { e.stopPropagation(); if (lobbyMenuTarget && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_ban', target: lobbyMenuTarget })); document.getElementById('lobby-user-menu').style.display = 'none'; };
+document.getElementById('lm-unban').onclick = async (e) => {
+  e.stopPropagation();
+  document.getElementById('lobby-user-menu').style.display = 'none';
+  if (!lobbyMenuTarget || !currentLobbyId || !authToken) return;
+  try {
+    await fetch('/api/lobbies/update', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ lobby_id: currentLobbyId, lobby_unban: lobbyMenuTarget }) });
+    addSystemMsg(`Unbanned ${lobbyMenuTarget} from this lobby`);
+  } catch {}
+};
 function sendChat() { const text = chatInput.value.trim(); if (!text || !username) return; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'chat', text })); else addMsg(username, text, !isGuest && currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase(), isGuest); chatInput.value = ''; }
 chatBtn.addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
@@ -962,6 +975,7 @@ async function loadLobbies() {
   document.getElementById('btn-export-grid').style.display = 'none';
   document.getElementById('btn-import-grid').style.display = 'none';
   document.getElementById('btn-manage-current').style.display = 'none';
+  document.getElementById('guest-warning').style.display = 'none';
   document.getElementById('lobby-name-display').innerHTML = '';
   try {
     const res = await fetch('/api/lobbies');
@@ -1019,6 +1033,7 @@ function joinLobby(id, name, isPublic) {
   lobbyScreen.style.display = 'none';
   document.getElementById('btn-leave-lobby').style.display = '';
   document.getElementById('btn-export-grid').style.display = '';
+  document.getElementById('guest-warning').style.display = isGuest ? '' : 'none';
   document.getElementById('lobby-name-display').innerHTML = `Lobby: <b>${esc(name)}</b>`;
   messagesEl.innerHTML = '';
   grid = new Uint8Array(GRID_W * GRID_H); render();
@@ -1034,6 +1049,7 @@ document.getElementById('btn-leave-lobby').onclick = () => {
   document.getElementById('btn-export-grid').style.display = 'none';
   document.getElementById('btn-import-grid').style.display = 'none';
   document.getElementById('btn-manage-current').style.display = 'none';
+  document.getElementById('guest-warning').style.display = 'none';
   if (isGuest) {
     isGuest = false; guestName = ''; username = '';
     document.getElementById('guest-bar').style.display = 'none';

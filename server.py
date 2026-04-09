@@ -995,7 +995,7 @@ async def websocket_handler(request):
 
                 elif data["type"] == "lobby_kick" and username and lobby_id and not is_guest:
                     lobby = lobbies.get(lobby_id)
-                    if lobby and lobby["owner"].lower() == username.lower():
+                    if lobby and (lobby["owner"].lower() == username.lower() or is_admin(username)):
                         target = data.get("target", "").strip()
                         if is_admin(target):
                             await ws.send_json({"type": "system", "text": "Cannot kick this user"})
@@ -1008,7 +1008,7 @@ async def websocket_handler(request):
 
                 elif data["type"] == "lobby_ban" and username and lobby_id and not is_guest:
                     lobby = lobbies.get(lobby_id)
-                    if lobby and lobby["owner"].lower() == username.lower():
+                    if lobby and (lobby["owner"].lower() == username.lower() or is_admin(username)):
                         target = data.get("target", "").strip()
                         if is_admin(target):
                             await ws.send_json({"type": "system", "text": "Cannot ban this user"})
