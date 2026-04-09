@@ -223,6 +223,14 @@
   .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; background: linear-gradient(90deg, #daa520, #ffd700, #fff68f, #daa520); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
   .msg .rank-badge { font-size: 10px; font-weight: 700; margin-right: 3px; }
   .msg .rank-badge.rainbow { background: linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00cc00, #0088ff, #8800ff, #ff00ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(20px); } }
+  .dm-toast { background: var(--bg-elevated); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: var(--radius-md); padding: 10px 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.5); pointer-events: auto; cursor: pointer; animation: toastIn 0.25s ease; }
+  .dm-toast.closing { animation: toastOut 0.25s ease forwards; }
+  .dm-toast .dm-toast-from { font-size: 12px; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .dm-toast .dm-toast-text { font-size: 12px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .msg-thread .thread-unread { background: var(--red); color: #fff; font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 6px; margin-left: 6px; }
+  .msg-thread.has-unread { background: rgba(124,92,252,0.12); border-left: 3px solid var(--accent); }
 
   /* Admin panel */
   #admin-tab-btn { display: none; }
@@ -288,6 +296,7 @@
 
 <div id="tab-warning">&#x26A0; EzPlace is open in another tab. &#x26A0;</div>
 <div id="disconnect-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:90;background:var(--red);color:#fff;text-align:center;padding:8px 12px;font-size:13px;font-weight:600;animation:fadeIn 0.3s ease;">Disconnected from server. Refreshing...</div>
+<div id="dm-toast-container" style="position:fixed;top:14px;right:14px;z-index:95;display:flex;flex-direction:column;gap:8px;max-width:320px;pointer-events:none;"></div>
 <div id="lobby-user-menu" style="display:none;position:fixed;z-index:60;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 4px 16px rgba(0,0,0,0.4);padding:4px 0;min-width:120px;">
   <div class="lobby-menu-item" id="lm-kick" style="padding:6px 12px;font-size:12px;cursor:pointer;color:var(--text-primary);">Kick from lobby</div>
   <div class="lobby-menu-item" id="lm-ban" style="padding:6px 12px;font-size:12px;cursor:pointer;color:var(--red);">Ban from lobby</div>
@@ -918,6 +927,8 @@ function logout() {
   localStorage.removeItem('ezplace_token'); localStorage.removeItem('ezplace_user');
   authToken = ''; username = ''; currentLobbyId = null;
   isGuest = false; guestName = '';
+  unreadDms = {}; updateDmTabBadge();
+  document.getElementById('dm-toast-container').innerHTML = '';
   if (ws) ws.close();
   if (socialWs) socialWs.close();
   authPanel.style.display = ''; userBar.style.display = 'none';
@@ -1237,7 +1248,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById(tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'friends-tab' && authToken) { loadFriendsList(); const fb = document.getElementById('friend-notif'); fb.style.display = 'none'; fb.textContent = ''; }
-    if (tab.dataset.tab === 'msgs-tab' && authToken) { loadMsgList(); const db = document.getElementById('dm-notif'); db.style.display = 'none'; db.textContent = ''; }
+    if (tab.dataset.tab === 'msgs-tab' && authToken) { loadMsgList(); }
     if (tab.dataset.tab === 'lb-tab') loadLeaderboard();
   };
 });
@@ -1300,6 +1311,45 @@ async function loadLeaderboard() {
   } catch { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">Error loading leaderboard</div>'; }
 }
 
+// Map of friend_lower -> unread count, used for badges in the DM list
+let unreadDms = {};
+
+function totalUnread() {
+  let n = 0;
+  for (const k in unreadDms) n += unreadDms[k] || 0;
+  return n;
+}
+
+function updateDmTabBadge() {
+  const badge = document.getElementById('dm-notif');
+  const total = totalUnread();
+  if (total > 0) {
+    badge.textContent = total;
+    badge.style.display = '';
+  } else {
+    badge.textContent = '';
+    badge.style.display = 'none';
+  }
+}
+
+function showDmToast(from, text) {
+  const container = document.getElementById('dm-toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'dm-toast';
+  toast.innerHTML = `<div class="dm-toast-from">&#x1F4E9; New message from ${esc(from)}</div><div class="dm-toast-text">${esc(text)}</div>`;
+  toast.onclick = () => {
+    toast.classList.add('closing');
+    setTimeout(() => toast.remove(), 250);
+    openDm(from);
+  };
+  container.appendChild(toast);
+  setTimeout(() => {
+    if (!toast.parentNode) return;
+    toast.classList.add('closing');
+    setTimeout(() => toast.remove(), 250);
+  }, 6000);
+}
+
 let socialWs = null;
 function connectSocial() {
   if (!authToken) return;
@@ -1308,13 +1358,31 @@ function connectSocial() {
   socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken })); };
   socialWs.onmessage = e => {
     const msg = JSON.parse(e.data);
-    if (msg.type === 'dm') {
-      if (currentDmWith && currentDmWith.toLowerCase() === msg.from.toLowerCase()) appendDmMsg(msg.from, msg.text, msg.time);
+    if (msg.type === 'unread_dms') {
+      unreadDms = {};
+      (msg.senders || []).forEach(s => {
+        unreadDms[s.from.toLowerCase()] = s.count;
+        showDmToast(s.from, s.last_text || '(message)');
+      });
+      updateDmTabBadge();
       const activeTab = document.querySelector('.sidebar-tab.active');
-      if (!activeTab || activeTab.dataset.tab !== 'msgs-tab') {
-        const badge = document.getElementById('dm-notif');
-        const cur = parseInt(badge.textContent) || 0;
-        badge.textContent = cur + 1; badge.style.display = '';
+      if (activeTab && activeTab.dataset.tab === 'msgs-tab') loadMsgList();
+    }
+    if (msg.type === 'dm') {
+      const activeTab = document.querySelector('.sidebar-tab.active');
+      const fromLow = msg.from.toLowerCase();
+      const isViewingThisThread = currentDmWith && currentDmWith.toLowerCase() === fromLow && activeTab && activeTab.dataset.tab === 'msgs-tab';
+      if (isViewingThisThread) {
+        appendDmMsg(msg.from, msg.text, msg.time);
+        // Mark as seen since we're actively viewing
+        if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+          socialWs.send(JSON.stringify({ type: 'dm_seen', peer: msg.from }));
+        }
+      } else {
+        unreadDms[fromLow] = (unreadDms[fromLow] || 0) + 1;
+        updateDmTabBadge();
+        showDmToast(msg.from, msg.text);
+        if (activeTab && activeTab.dataset.tab === 'msgs-tab') loadMsgList();
       }
     }
     if (msg.type === 'friend_request') {
@@ -1392,9 +1460,20 @@ async function loadMsgList() {
     const res = await fetch('/api/friends', { headers: { Authorization: authToken } });
     const data = await res.json();
     if (!data.friends.length) { list.innerHTML = '<div style="font-size:10px;color:#999;padding:8px;">Add friends to start messaging</div>'; return; }
-    data.friends.forEach(f => {
+    // Sort: friends with unread DMs first, then online, then offline
+    const sorted = [...data.friends].sort((a, b) => {
+      const ua = unreadDms[a.name.toLowerCase()] || 0;
+      const ub = unreadDms[b.name.toLowerCase()] || 0;
+      if (ua !== ub) return ub - ua;
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    sorted.forEach(f => {
       const d = document.createElement('div'); d.className = 'msg-thread';
-      d.innerHTML = `<div class="f-status ${f.online ? 'online' : 'offline'}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;"></div>${esc(f.name)}`;
+      const unread = unreadDms[f.name.toLowerCase()] || 0;
+      if (unread > 0) d.classList.add('has-unread');
+      const badge = unread > 0 ? `<span class="thread-unread">${unread}</span>` : '';
+      d.innerHTML = `<div class="f-status ${f.online ? 'online' : 'offline'}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;"></div>${esc(f.name)}${badge}`;
       d.onclick = () => openDm(f.name);
       list.appendChild(d);
     });
@@ -1406,11 +1485,19 @@ async function openDm(friendName) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelector('[data-tab="msgs-tab"]').classList.add('active');
   document.getElementById('msgs-tab').classList.add('active');
+  // Open sidebar on mobile so the user actually sees the thread
+  document.getElementById('sidebar').classList.add('open');
   currentDmWith = friendName;
   document.getElementById('msg-list-view').style.display = 'none';
   document.getElementById('msg-view').style.display = 'flex';
   document.getElementById('msg-view-title').textContent = friendName;
   const el = document.getElementById('msg-view-msgs'); el.innerHTML = '';
+  // Clear unread for this thread
+  delete unreadDms[friendName.toLowerCase()];
+  updateDmTabBadge();
+  if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+    socialWs.send(JSON.stringify({ type: 'dm_seen', peer: friendName }));
+  }
   try {
     const res = await fetch(`/api/dm/history?with=${encodeURIComponent(friendName)}`, { headers: { Authorization: authToken } });
     const data = await res.json();
