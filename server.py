@@ -908,6 +908,13 @@ async def on_startup(app):
             del lobbies[lid]
             await db["lobbies"].delete_one({"_id": lid})
             print(f"Deleted lobby: Lobba ({lid})")
+    # One-time: remove ASG lobbies
+    for lid, lobby in list(lobbies.items()):
+        if lid.startswith("public_"): continue
+        if "ASG" in (lobby.get("name") or ""):
+            del lobbies[lid]
+            await db["lobbies"].delete_one({"_id": lid})
+            print(f"Deleted ASG lobby: {lobby.get('name')} ({lid})")
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
 
