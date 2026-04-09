@@ -297,9 +297,10 @@
 <div id="tab-warning">&#x26A0; EzPlace is open in another tab. &#x26A0;</div>
 <div id="disconnect-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:90;background:var(--red);color:#fff;text-align:center;padding:8px 12px;font-size:13px;font-weight:600;animation:fadeIn 0.3s ease;">Disconnected from server. Refreshing...</div>
 <div id="dm-toast-container" style="position:fixed;top:14px;right:14px;z-index:95;display:flex;flex-direction:column;gap:8px;max-width:320px;pointer-events:none;"></div>
-<div id="lobby-user-menu" style="display:none;position:fixed;z-index:60;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 4px 16px rgba(0,0,0,0.4);padding:4px 0;min-width:120px;">
-  <div class="lobby-menu-item" id="lm-kick" style="padding:6px 12px;font-size:12px;cursor:pointer;color:var(--text-primary);">Kick from lobby</div>
-  <div class="lobby-menu-item" id="lm-ban" style="padding:6px 12px;font-size:12px;cursor:pointer;color:var(--red);">Ban from lobby</div>
+<div id="lobby-user-menu" style="display:none;position:fixed;z-index:60;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:8px;min-width:160px;">
+  <div id="lm-target-name" style="font-size:11px;color:var(--text-muted);padding:2px 4px 6px;border-bottom:1px solid var(--border);margin-bottom:6px;font-weight:600;"></div>
+  <button class="win-btn" id="lm-kick" style="width:100%;margin-bottom:4px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);">Kick from lobby</button>
+  <button class="win-btn" id="lm-ban" style="width:100%;background:var(--red);color:#fff;border:1px solid #ff6b6b;">Ban from lobby</button>
 </div>
 <button id="mobile-sidebar-toggle" class="win-btn">&#x1F4AC;</button>
 
@@ -842,11 +843,14 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank) {
     rankBadge = '<span class="vip-badge">[VIP]</span>';
     nameClass = 'name vip';
   }
-  const amOwner = !isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase() && name.toLowerCase() !== username.toLowerCase();
-  if (amOwner) styleParts.push('cursor:pointer', 'text-decoration:underline dotted');
+  const canModerate = !isGuest && username && name.toLowerCase() !== username.toLowerCase() && (
+    (currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase()) ||
+    username.toLowerCase() === 'toothpaste'
+  );
+  if (canModerate) styleParts.push('cursor:pointer', 'text-decoration:underline dotted');
   const styleAttr = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
   d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${rankBadge}<span class="${nameClass}" data-user="${esc(name)}"${styleAttr}>${esc(name)}:</span> ${esc(filterText(text))}`;
-  if (amOwner) {
+  if (canModerate) {
     d.querySelector('.name').addEventListener('click', e => showLobbyUserMenu(e, name));
   }
   messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -857,10 +861,11 @@ let lobbyMenuTarget = '';
 function showLobbyUserMenu(e, targetName) {
   e.stopPropagation();
   lobbyMenuTarget = targetName;
+  document.getElementById('lm-target-name').textContent = targetName;
   const menu = document.getElementById('lobby-user-menu');
   menu.style.display = 'block';
-  menu.style.left = Math.min(e.clientX, window.innerWidth - 140) + 'px';
-  menu.style.top = Math.min(e.clientY, window.innerHeight - 80) + 'px';
+  menu.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - 110) + 'px';
 }
 document.addEventListener('click', () => { document.getElementById('lobby-user-menu').style.display = 'none'; });
 document.getElementById('lm-kick').onclick = (e) => { e.stopPropagation(); if (lobbyMenuTarget && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_kick', target: lobbyMenuTarget })); document.getElementById('lobby-user-menu').style.display = 'none'; };
@@ -1326,11 +1331,12 @@ function renderLeaderboard(board) {
   title.textContent = 'Top Pixels Placed';
   panel.appendChild(title);
   const amOwner = !isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase();
+  const isTPAdmin = !isGuest && username && username.toLowerCase() === 'toothpaste';
   entries.forEach((p, i) => {
     const row = document.createElement('div'); row.className = 'lb-row';
     const medal = i === 0 ? ' &#x1F947;' : i === 1 ? ' &#x1F948;' : i === 2 ? ' &#x1F949;' : '';
     const nameClass = p.name.toLowerCase() === 'toothpaste' ? 'lb-name rainbow' : 'lb-name';
-    const canManage = amOwner && p.name.toLowerCase() !== username.toLowerCase();
+    const canManage = (amOwner || isTPAdmin) && p.name.toLowerCase() !== username.toLowerCase();
     const nameStyle = canManage ? ' style="cursor:pointer;text-decoration:underline dotted"' : '';
     row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="${nameClass}"${nameStyle}>${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
     if (canManage) {
