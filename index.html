@@ -297,6 +297,9 @@
     <h1>&#x1F5BC; EzPlace</h1>
     <div id="header-right">
       <div id="lobby-name-display"></div>
+      <button id="btn-export-grid" class="win-btn" style="display:none">Export</button>
+      <button id="btn-import-grid" class="win-btn" style="display:none">Import</button>
+      <input type="file" id="import-file" accept=".json" style="display:none">
       <button id="btn-leave-lobby" class="win-btn" style="display:none">Leave Lobby</button>
       <div id="online">Lobby: <span id="online-count">0</span> | All: <span id="total-online">0</span></div>
       <div id="ping-display" style="font-size:10px;color:#ccc;">Ping: <span id="ping-ms">--</span>ms</div>
@@ -514,6 +517,7 @@ let cooldownTimer = null;
 let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
+let canPlace = true;
 let chatFilterEnabled = true;
 let isGuest = false;
 let guestName = '';
@@ -705,6 +709,7 @@ cvs.addEventListener('touchend', e => {
       if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H) {
         if (blocked || !username || !currentLobbyId) return;
         if (isGuest) { cooldownWarn.textContent = 'Register an account to place pixels!'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
+        if (!canPlace) { cooldownWarn.textContent = 'Spectator mode - you cannot place pixels here'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
         const now = Date.now();
         if (now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
         grid[g.y * GRID_W + g.x] = selectedColor; startCooldownBar(); render();
@@ -729,6 +734,7 @@ function startCooldownBar() { lastPlaceTime = Date.now(); cooldownFill.style.wid
 cvs.addEventListener('click', e => {
   if (blocked || !username || !currentLobbyId) return;
   if (isGuest) { cooldownWarn.textContent = 'Register an account to place pixels!'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
+  if (!canPlace) { cooldownWarn.textContent = 'Spectator mode - you cannot place pixels here'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
   const now = Date.now();
   if (now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
   const rect = cvs.getBoundingClientRect();
@@ -751,6 +757,12 @@ const messagesEl = document.getElementById('messages');
 const chatInput = document.getElementById('chat-input');
 const chatBtn = document.getElementById('chat-btn');
 function timeStr() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+function formatExpires(secs) {
+  if (secs === null || secs === undefined) return '';
+  if (secs <= 0) return 'expiring...';
+  if (secs < 3600) return `${Math.ceil(secs / 60)}min until expiration`;
+  return `${Math.floor(secs / 3600)}h until expiration`;
+}
 function addMsg(name, text, isOwner, isMsgGuest, isMsgVip) {
   const d = document.createElement('div'); d.className = 'msg';
   const isTP = name.toLowerCase() === 'toothpaste';
@@ -866,6 +878,8 @@ const lobbyError = document.getElementById('lobby-error');
 async function loadLobbies() {
   lobbyScreen.style.display = 'flex';
   document.getElementById('btn-leave-lobby').style.display = 'none';
+  document.getElementById('btn-export-grid').style.display = 'none';
+  document.getElementById('btn-import-grid').style.display = 'none';
   document.getElementById('lobby-name-display').innerHTML = '';
   try {
     const res = await fetch('/api/lobbies');
@@ -886,7 +900,7 @@ async function loadLobbies() {
       if (data.lobbies.length === 0) { el.innerHTML = '<div style="color:#555;font-size:12px;">No lobbies yet</div>'; }
       data.lobbies.forEach(l => {
         const card = document.createElement('div'); card.className = 'lobby-card';
-        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' | Whitelist' : ''} | ${l.width}x${l.height} | ${l.cooldown}s cd</div><div class="lobby-expiry">Auto-deletes after 48hr inactivity</div></div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div><div class="lobby-online">${l.online} online</div>`;
+        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' | Whitelist' : ''} | ${l.width}x${l.height} | ${l.cooldown}s cd</div><div class="lobby-expiry">${formatExpires(l.expires_in)}</div></div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div><div class="lobby-online">${l.online} online</div>`;
         card.querySelector('.lobby-info').onclick = () => joinLobby(l.id, l.name, l.public);
         card.querySelector('.manage').onclick = e => { e.stopPropagation(); openManage(l); };
         card.querySelector('.del').onclick = e => { e.stopPropagation(); deleteLobby(l.id); };
@@ -896,7 +910,7 @@ async function loadLobbies() {
         const hdr = document.createElement('div'); hdr.className = 'friend-section'; hdr.textContent = 'Invited Lobbies'; el.appendChild(hdr);
         data.whitelisted.forEach(l => {
           const card = document.createElement('div'); card.className = 'lobby-card';
-          card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">by ${esc(l.owner)} | ${l.cooldown}s cd</div></div><div class="lobby-online">${l.online} online</div>`;
+          card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">by ${esc(l.owner)} | ${l.width}x${l.height} | ${l.cooldown}s cd</div><div class="lobby-expiry">${formatExpires(l.expires_in)}</div></div><div class="lobby-online">${l.online} online</div>`;
           card.onclick = () => joinLobby(l.id, l.name, false);
           el.appendChild(card);
         });
@@ -920,6 +934,7 @@ function joinLobby(id, name, isPublic) {
   currentLobbyId = id; currentLobbyName = name;
   lobbyScreen.style.display = 'none';
   document.getElementById('btn-leave-lobby').style.display = '';
+  document.getElementById('btn-export-grid').style.display = '';
   document.getElementById('lobby-name-display').innerHTML = `Lobby: <b>${esc(name)}</b>`;
   messagesEl.innerHTML = '';
   grid = new Uint8Array(GRID_W * GRID_H); render();
@@ -932,12 +947,56 @@ document.getElementById('btn-leave-lobby').onclick = () => {
   currentLobbyId = null; currentLobbyName = '';
   messagesEl.innerHTML = '';
   document.getElementById('online-count').textContent = '0';
+  document.getElementById('btn-export-grid').style.display = 'none';
+  document.getElementById('btn-import-grid').style.display = 'none';
   if (isGuest) {
     isGuest = false; guestName = ''; username = '';
     document.getElementById('guest-bar').style.display = 'none';
     chatInput.disabled = true; chatBtn.disabled = true;
   }
   loadLobbies();
+};
+
+document.getElementById('btn-export-grid').onclick = () => {
+  if (!currentLobbyId) return;
+  const payload = {
+    lobby_name: currentLobbyName,
+    width: GRID_W,
+    height: GRID_H,
+    colors: COLORS,
+    grid: Array.from(grid),
+    exported_at: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ezplace-${currentLobbyName.replace(/[^a-z0-9]/gi, '_')}-${Date.now()}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+document.getElementById('btn-import-grid').onclick = () => {
+  document.getElementById('import-file').click();
+};
+
+document.getElementById('import-file').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data.grid || !Array.isArray(data.grid)) { alert('Invalid file: missing grid array'); return; }
+    if (data.width !== GRID_W || data.height !== GRID_H) { alert(`Size mismatch: file is ${data.width}x${data.height}, lobby is ${GRID_W}x${GRID_H}`); return; }
+    if (data.grid.length !== GRID_W * GRID_H) { alert('Grid data length mismatch'); return; }
+    if (!confirm(`Import this grid? This will replace the current canvas in "${currentLobbyName}".`)) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'import_grid', grid: data.grid }));
+    }
+  } catch (err) {
+    alert('Failed to import: ' + err.message);
+  }
+  e.target.value = '';
 };
 
 document.getElementById('btn-join-code').onclick = async () => {
@@ -967,8 +1026,6 @@ document.getElementById('btn-create-lobby').onclick = async () => {
     loadLobbies();
   } catch { lobbyError.textContent = 'Server offline'; }
 };
-document.getElementById('create-public').onchange = () => { if (document.getElementById('create-public').checked) document.getElementById('create-whitelist').checked = false; };
-document.getElementById('create-whitelist').onchange = () => { if (document.getElementById('create-whitelist').checked) document.getElementById('create-public').checked = false; };
 
 async function deleteLobby(id) {
   if (!confirm('Delete this lobby?')) return;
@@ -1058,7 +1115,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); document.getElementById('btn-import-grid').style.display = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()) ? '' : 'none'; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;

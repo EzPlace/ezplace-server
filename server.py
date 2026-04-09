@@ -90,6 +90,8 @@ def lobby_info(lobby, include_code=False):
         "online": sum(1 for c in clients.values() if c and c.get("lobby_id") == lobby["id"]),
         "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN),
         "width": lobby.get("width", 256), "height": lobby.get("height", 256),
+        "last_activity": lobby.get("last_activity", time.time()),
+        "expires_in": max(0, LOBBY_TIMEOUT - (time.time() - lobby.get("last_activity", time.time()))) if not lobby["id"].startswith("public_") else None,
     }
     if include_code and lobby.get("code"):
         info["code"] = lobby["code"]
@@ -324,7 +326,7 @@ async def create_lobby_handler(request):
         return web.json_response({"error": "Not authenticated"}, status=401)
     name = data.get("name", "").strip()[:30]
     is_public = data.get("public", False)
-    wl = data.get("whitelist_enabled", False) and not is_public
+    wl = data.get("whitelist_enabled", False)
     cooldown = max(0, min(MAX_COOLDOWN, float(data.get("cooldown", DEFAULT_COOLDOWN))))
     lw = int(data.get("width", 256))
     lh = int(data.get("height", 256))
@@ -696,14 +698,15 @@ async def websocket_handler(request):
                     lobby = lobbies.get(lid)
                     if not lobby:
                         await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
-                    if lobby["whitelist_enabled"] and username not in lobby["whitelist"]:
+                    if lobby["whitelist_enabled"] and username not in lobby["whitelist"] and not lobby["public"]:
                         await ws.send_json({"type": "error", "text": "Not whitelisted"}); await ws.close(); break
                     if username.lower() in [b.lower() for b in lobby.get("lobby_bans", [])]:
                         await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
+                    can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
                     lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request)}
+                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "can_place": can_place}
                     await track_ip(username, request)
-                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)})
+                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place})
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                     await broadcast_online_lobby(lobby_id)
 
@@ -724,6 +727,8 @@ async def websocket_handler(request):
                     await broadcast_online_lobby(lobby_id)
 
                 elif data["type"] == "pixel" and username and lobby_id and not is_guest:
+                    if not clients.get(ws, {}).get("can_place", True):
+                        continue
                     x, y, color = data["x"], data["y"], data["color"]
                     lobby = lobbies.get(lobby_id)
                     now = time.time()
@@ -765,6 +770,9 @@ async def websocket_handler(request):
                     lobby = lobbies.get(lobby_id)
                     if lobby and lobby["owner"].lower() == username.lower():
                         target = data.get("target", "").strip()
+                        if is_admin(target):
+                            await ws.send_json({"type": "system", "text": "Cannot kick this user"})
+                            continue
                         for cws, cinfo in list(clients.items()):
                             if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower() and cws != ws:
                                 try: await cws.send_json({"type": "kicked", "text": f"Kicked from lobby by {username}"}); await cws.close()
@@ -775,6 +783,9 @@ async def websocket_handler(request):
                     lobby = lobbies.get(lobby_id)
                     if lobby and lobby["owner"].lower() == username.lower():
                         target = data.get("target", "").strip()
+                        if is_admin(target):
+                            await ws.send_json({"type": "system", "text": "Cannot ban this user"})
+                            continue
                         if target.lower() != username.lower():
                             lb = lobby.setdefault("lobby_bans", [])
                             if target.lower() not in [b.lower() for b in lb]:
@@ -794,6 +805,22 @@ async def websocket_handler(request):
                         lobby["lobby_bans"] = [b for b in lb if b.lower() != target.lower()]
                         await save_lobby(lobby_id)
                         await ws.send_json({"type": "system", "text": f"Unbanned {target} from this lobby"})
+
+                elif data["type"] == "import_grid" and username and lobby_id and not is_guest:
+                    lobby = lobbies.get(lobby_id)
+                    if lobby and lobby["owner"].lower() == username.lower():
+                        new_grid = data.get("grid", [])
+                        lw = lobby.get("width", 256)
+                        lh = lobby.get("height", 256)
+                        expected = lw * lh
+                        if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < 32 for c in new_grid):
+                            lobby["grid"] = bytearray(new_grid)
+                            lobby["last_activity"] = time.time()
+                            await save_lobby(lobby_id)
+                            await broadcast_to_lobby(lobby_id, {"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lw, "height": lh})
+                            await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"Grid imported by {username}"})
+                        else:
+                            await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
 
                 elif data["type"] == "ping":
                     await ws.send_json({"type": "pong", "time": data.get("time", 0)})
