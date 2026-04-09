@@ -957,14 +957,25 @@ document.getElementById('btn-leave-lobby').onclick = () => {
   loadLobbies();
 };
 
-document.getElementById('btn-export-grid').onclick = () => {
+document.getElementById('btn-export-grid').onclick = async () => {
   if (!currentLobbyId) return;
+  // Fetch fresh full leaderboard so all pixel counts are included (not just top 10)
+  let pixel_counts = {};
+  let original_owner = currentOriginalOwner || currentLobbyOwner || null;
+  try {
+    const res = await fetch(`/api/leaderboard?lobby_id=${encodeURIComponent(currentLobbyId)}`);
+    const data = await res.json();
+    (data.leaderboard || []).forEach(p => { pixel_counts[p.name] = p.pixels; });
+    if (data.original_owner) original_owner = data.original_owner;
+  } catch {}
   const payload = {
     lobby_name: currentLobbyName,
     width: GRID_W,
     height: GRID_H,
     colors: COLORS,
     grid: Array.from(grid),
+    pixel_counts,
+    original_owner,
     exported_at: new Date().toISOString()
   };
   const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
@@ -1016,7 +1027,10 @@ document.getElementById('import-file').onchange = async (e) => {
     }
     if (!confirm(`Import this grid into "${currentLobbyName}"?${note}`)) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'import_grid', grid: gridToSend }));
+      const msg = { type: 'import_grid', grid: gridToSend };
+      if (data.pixel_counts && typeof data.pixel_counts === 'object') msg.pixel_counts = data.pixel_counts;
+      if (data.original_owner && typeof data.original_owner === 'string') msg.original_owner = data.original_owner;
+      ws.send(JSON.stringify(msg));
     }
   } catch (err) {
     alert('Failed to import: ' + err.message);
@@ -1163,12 +1177,42 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
   };
 });
 
+let currentLeaderboard = [];
+let currentOriginalOwner = null;
 function renderLeaderboard(board) {
+  // Accept either the old array form or the new { entries, original_owner } form
+  let entries, origOwner = null;
+  if (Array.isArray(board)) {
+    entries = board;
+  } else if (board && Array.isArray(board.entries)) {
+    entries = board.entries;
+    origOwner = board.original_owner || null;
+  } else {
+    entries = [];
+  }
+  currentLeaderboard = entries;
+  currentOriginalOwner = origOwner;
   const panel = document.getElementById('lb-panel');
-  if (!board || !board.length) { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">No pixels placed yet</div>'; return; }
-  panel.innerHTML = '<div style="font-size:11px;font-weight:bold;color:#333;padding:2px 4px;border-bottom:1px solid #999;">Top Pixels Placed</div>';
+  panel.innerHTML = '';
+  if (origOwner) {
+    const banner = document.createElement('div');
+    banner.style.cssText = 'font-size:11px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--bg-elevated);color:var(--gold);font-weight:600;';
+    banner.innerHTML = `&#x1F3A8; Original creator: ${esc(origOwner)}`;
+    panel.appendChild(banner);
+  }
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'text-align:center;color:#999;font-size:11px;padding:8px;';
+    empty.textContent = 'No pixels placed yet';
+    panel.appendChild(empty);
+    return;
+  }
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:11px;font-weight:bold;color:var(--text-secondary);padding:4px 6px;border-bottom:1px solid var(--border);';
+  title.textContent = 'Top Pixels Placed';
+  panel.appendChild(title);
   const amOwner = !isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase();
-  board.forEach((p, i) => {
+  entries.forEach((p, i) => {
     const row = document.createElement('div'); row.className = 'lb-row';
     const medal = i === 0 ? ' &#x1F947;' : i === 1 ? ' &#x1F948;' : i === 2 ? ' &#x1F949;' : '';
     const nameClass = p.name.toLowerCase() === 'toothpaste' ? 'lb-name rainbow' : 'lb-name';
@@ -1187,7 +1231,7 @@ async function loadLeaderboard() {
   try {
     const res = await fetch(`/api/leaderboard?lobby_id=${encodeURIComponent(currentLobbyId)}`);
     const data = await res.json();
-    renderLeaderboard(data.leaderboard);
+    renderLeaderboard({ entries: data.leaderboard, original_owner: data.original_owner });
   } catch { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">Error loading leaderboard</div>'; }
 }
 
