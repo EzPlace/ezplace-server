@@ -949,7 +949,9 @@ async function loadLobbies() {
     const el = document.getElementById('public-lobbies'); el.innerHTML = '';
     data.lobbies.forEach(l => {
       const card = document.createElement('div'); card.className = 'lobby-card';
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">Public | ${l.width}x${l.height} | ${l.cooldown}s cooldown</div></div><div class="lobby-online">${l.online} online</div>`;
+      const ownerLabel = l.id.startsWith('public_') ? 'Public' : `by ${esc(l.owner)}`;
+      const expiryLine = l.expires_in !== null && l.expires_in !== undefined ? `<div class="lobby-expiry">${formatExpires(l.expires_in)}</div>` : '';
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${ownerLabel} | ${l.width}x${l.height} | ${l.cooldown}s cooldown</div>${expiryLine}</div><div class="lobby-online">${l.online} online</div>`;
       card.onclick = () => joinLobby(l.id, l.name, true);
       el.appendChild(card);
     });
@@ -1114,8 +1116,9 @@ document.getElementById('btn-join-code').onclick = async () => {
 document.getElementById('btn-create-lobby').onclick = async () => {
   const name = document.getElementById('create-name').value.trim();
   const isPublic = document.getElementById('create-public').checked;
-  const wl = document.getElementById('create-whitelist').checked && !isPublic;
-  const cd = Math.max(0, Math.min(60, parseFloat(document.getElementById('create-cooldown').value) || 0.5));
+  const wl = document.getElementById('create-whitelist').checked;
+  const cdRaw = parseFloat(document.getElementById('create-cooldown').value);
+  const cd = Math.max(0, Math.min(60, isNaN(cdRaw) ? 0 : cdRaw));
   const sizeVal = document.getElementById('create-size').value.split('x');
   const lw = parseInt(sizeVal[0]), lh = parseInt(sizeVal[1]);
   if (!name) { lobbyError.textContent = 'Enter a lobby name'; return; }
