@@ -380,6 +380,18 @@ async def my_lobbies_handler(request):
                    and user in l.get("whitelist", []) and (not l["owner"] or l["owner"].lower() != user.lower())]
     return web.json_response({"lobbies": mine, "whitelisted": whitelisted})
 
+async def lobby_detail_handler(request):
+    user = get_auth_user(request)
+    if not user:
+        return web.json_response({"error": "Not authenticated"}, status=401)
+    lid = request.query.get("id", "")
+    lobby = lobbies.get(lid)
+    if not lobby:
+        return web.json_response({"error": "Not found"}, status=404)
+    if lobby["owner"].lower() != user.lower() and not is_admin(user):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"lobby": lobby_info(lobby, True)})
+
 async def create_lobby_handler(request):
     data = await request.json()
     user = get_auth_user(request)
@@ -436,10 +448,21 @@ async def update_lobby_handler(request):
         return web.json_response({"error": "Not authenticated"}, status=401)
     lid = data.get("lobby_id", "")
     lobby = lobbies.get(lid)
-    if not lobby or lid.startswith("public_"):
+    if not lobby:
         return web.json_response({"error": "Not found"}, status=404)
-    if lobby["owner"].lower() != user.lower():
+    if lobby["owner"].lower() != user.lower() and not is_admin(user):
         return web.json_response({"error": "Not yours"}, status=403)
+    # Official public_ lobbies: only lobby_unban is editable
+    if lid.startswith("public_"):
+        if "lobby_unban" in data:
+            n = data["lobby_unban"].strip()
+            if n:
+                lb = lobby.get("lobby_bans", [])
+                lobby["lobby_bans"] = [b for b in lb if b.lower() != n.lower()]
+                await save_lobby(lid)
+        info = lobby_info(lobby, True)
+        info["lobby_bans"] = lobby.get("lobby_bans", [])
+        return web.json_response({"ok": True, "lobby": info})
     if "public" in data:
         lobby["public"] = bool(data["public"])
         if lobby["public"]:
@@ -1168,6 +1191,7 @@ app.router.add_post("/api/register", register_handler)
 app.router.add_post("/api/login", login_handler)
 app.router.add_get("/api/lobbies", lobbies_handler)
 app.router.add_get("/api/my-lobbies", my_lobbies_handler)
+app.router.add_get("/api/lobbies/info", lobby_detail_handler)
 app.router.add_post("/api/lobbies/create", create_lobby_handler)
 app.router.add_post("/api/lobbies/delete", delete_lobby_handler)
 app.router.add_post("/api/lobbies/update", update_lobby_handler)
