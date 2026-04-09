@@ -40,6 +40,7 @@ dms = {}
 bans = []
 ip_bans = []
 vips = []
+ranks = {}  # { username_lower: { "label": "VIP", "color": "#daa520" } }
 user_ips = {}
 lobbies = {}
 clients = {}
@@ -76,6 +77,13 @@ def is_ip_banned(request):
 
 def is_vip(username):
     return username and username.lower() in vips
+
+def get_rank(username):
+    if not username:
+        return None
+    if is_admin(username):
+        return {"label": "CREATOR", "color": "rainbow"}
+    return ranks.get(username.lower())
 
 def get_auth_user(request):
     return sessions.get(request.headers.get("Authorization", ""))
@@ -142,6 +150,9 @@ async def save_ip_bans():
 async def save_vips():
     await db_save("store", "vips", vips)
 
+async def save_ranks():
+    await db_save("store", "ranks", ranks)
+
 async def save_user_ips():
     await db_save("store", "user_ips", user_ips)
 
@@ -171,13 +182,23 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, user_ips, dms
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, dms
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
     bans = await db_load("store", "bans") or []
     ip_bans = await db_load("store", "ip_bans") or []
     vips = await db_load("store", "vips") or []
+    ranks = await db_load("store", "ranks") or {}
+    # Migrate any existing VIPs that don't already have a rank
+    rank_dirty = False
+    for v in vips:
+        vlow = v.lower()
+        if vlow not in ranks:
+            ranks[vlow] = {"label": "VIP", "color": "#daa520"}
+            rank_dirty = True
+    if rank_dirty:
+        await save_ranks()
     user_ips = await db_load("store", "user_ips") or {}
 
     for i, pl in enumerate(PUBLIC_LOBBIES):
@@ -650,6 +671,9 @@ async def admin_delete_account_handler(request):
     if tlow in vips:
         vips.remove(tlow)
         await save_vips()
+    if tlow in ranks:
+        del ranks[tlow]
+        await save_ranks()
     if found in user_ips:
         del user_ips[found]
         await save_user_ips()
@@ -691,6 +715,44 @@ async def admin_vip_remove_handler(request):
         vips.remove(target)
         await save_vips()
     return web.json_response({"ok": True, "message": f"Removed {target} from VIP"})
+
+async def admin_rank_set_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    label = data.get("label", "").strip()[:16]
+    color = data.get("color", "").strip()[:32] or "#daa520"
+    if not target or not label:
+        return web.json_response({"error": "Username and label required"}, status=400)
+    if is_admin(target):
+        return web.json_response({"error": "Cannot change admin rank"}, status=400)
+    tlow = target.lower()
+    ranks[tlow] = {"label": label, "color": color}
+    if tlow not in vips:
+        vips.append(tlow)
+        await save_vips()
+    await save_ranks()
+    return web.json_response({"ok": True, "message": f"Set {target} rank to [{label}]"})
+
+async def admin_rank_remove_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip().lower()
+    changed = False
+    if target in ranks:
+        del ranks[target]
+        changed = True
+    if target in vips:
+        vips.remove(target)
+        await save_vips()
+        changed = True
+    if changed:
+        await save_ranks()
+    return web.json_response({"ok": True, "message": f"Removed rank from {target}"})
+
+async def admin_ranks_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"ranks": ranks})
 
 async def social_ws_handler(request):
     ws = web.WebSocketResponse()
@@ -832,7 +894,7 @@ async def websocket_handler(request):
                         lobby = lobbies.get(lobby_id)
                         if lobby: lobby["last_activity"] = now2
                         is_owner = not is_guest and lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
-                        await broadcast_to_lobby(lobby_id, {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username)})
+                        await broadcast_to_lobby(lobby_id, {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username), "rank": get_rank(username)})
 
                 elif data["type"] == "lobby_kick" and username and lobby_id and not is_guest:
                     lobby = lobbies.get(lobby_id)
@@ -1059,6 +1121,9 @@ app.router.add_post("/api/admin/ip-unban", admin_ip_unban_handler)
 app.router.add_get("/api/admin/ipbans", lambda r: web.json_response({"ip_bans": ip_bans}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 app.router.add_post("/api/admin/vip-add", admin_vip_add_handler)
 app.router.add_post("/api/admin/vip-remove", admin_vip_remove_handler)
+app.router.add_post("/api/admin/rank-set", admin_rank_set_handler)
+app.router.add_post("/api/admin/rank-remove", admin_rank_remove_handler)
+app.router.add_get("/api/admin/ranks", admin_ranks_handler)
 app.router.add_get("/ws", websocket_handler)
 app.router.add_get("/ws/social", social_ws_handler)
 app.router.add_get("/", index_handler)

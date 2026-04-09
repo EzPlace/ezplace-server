@@ -221,6 +221,8 @@
   .rainbow { font-weight: 700; background: linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00cc00, #0088ff, #8800ff, #ff00ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
   .msg .name.vip { color: var(--gold); font-weight: 700; }
   .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; background: linear-gradient(90deg, #daa520, #ffd700, #fff68f, #daa520); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .msg .rank-badge { font-size: 10px; font-weight: 700; margin-right: 3px; }
+  .msg .rank-badge.rainbow { background: linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00cc00, #0088ff, #8800ff, #ff00ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 
   /* Admin panel */
   #admin-tab-btn { display: none; }
@@ -485,14 +487,18 @@
           <option value="25">25x25</option>
         </select>
       </div>
-      <h4>VIP Management</h4>
+      <h4>Rank Management</h4>
       <div class="admin-row">
-        <input id="admin-vip-input" class="win-input" type="text" placeholder="Username">
-        <button class="win-btn" id="btn-admin-vip-add">Add VIP</button>
-        <button class="win-btn" id="btn-admin-vip-remove">Remove</button>
+        <input id="admin-rank-user" class="win-input" type="text" placeholder="Username" style="flex:2">
       </div>
       <div class="admin-row">
-        <button class="win-btn" id="btn-view-vips">View VIPs</button>
+        <input id="admin-rank-label" class="win-input" type="text" placeholder="Rank label (e.g. MOD)" maxlength="16" style="flex:2">
+        <input id="admin-rank-color" class="win-input" type="color" value="#daa520" style="width:50px;padding:2px;">
+      </div>
+      <div class="admin-row">
+        <button class="win-btn" id="btn-admin-rank-set">Set Rank</button>
+        <button class="win-btn" id="btn-admin-rank-remove">Remove Rank</button>
+        <button class="win-btn" id="btn-view-ranks">View Ranks</button>
       </div>
       <h4>View Data</h4>
       <div class="admin-row">
@@ -803,15 +809,31 @@ function formatExpires(secs) {
   if (secs < 3600) return `${Math.ceil(secs / 60)}min until expiration`;
   return `${Math.floor(secs / 3600)}h until expiration`;
 }
-function addMsg(name, text, isOwner, isMsgGuest, isMsgVip) {
+function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank) {
   const d = document.createElement('div'); d.className = 'msg';
   const isTP = name.toLowerCase() === 'toothpaste';
   const crown = isOwner ? '<span class="crown">&#x1F451;</span>' : '';
-  const vipBadge = isMsgVip && !isTP ? '<span class="vip-badge">[VIP]</span>' : '';
-  const nameClass = isTP ? 'name rainbow' : (isMsgVip ? 'name vip' : (isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name')));
+  let rankBadge = '';
+  let nameClass = isTP ? 'name rainbow' : (isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name'));
+  const styleParts = [];
+  if (rank && rank.label) {
+    if (rank.color === 'rainbow') {
+      rankBadge = `<span class="rank-badge rainbow">[${esc(rank.label)}]</span>`;
+      nameClass = 'name rainbow';
+    } else {
+      const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(rank.color) ? rank.color : '#daa520';
+      rankBadge = `<span class="rank-badge" style="color:${safeColor}">[${esc(rank.label)}]</span>`;
+      nameClass = 'name';
+      styleParts.push(`color:${safeColor}`, 'font-weight:700');
+    }
+  } else if (isMsgVip && !isTP) {
+    rankBadge = '<span class="vip-badge">[VIP]</span>';
+    nameClass = 'name vip';
+  }
   const amOwner = !isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase() && name.toLowerCase() !== username.toLowerCase();
-  const nameStyle = amOwner ? ' style="cursor:pointer;text-decoration:underline dotted"' : '';
-  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${vipBadge}<span class="${nameClass}" data-user="${esc(name)}"${nameStyle}>${esc(name)}:</span> ${esc(filterText(text))}`;
+  if (amOwner) styleParts.push('cursor:pointer', 'text-decoration:underline dotted');
+  const styleAttr = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
+  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${rankBadge}<span class="${nameClass}" data-user="${esc(name)}"${styleAttr}>${esc(name)}:</span> ${esc(filterText(text))}`;
   if (amOwner) {
     d.querySelector('.name').addEventListener('click', e => showLobbyUserMenu(e, name));
   }
@@ -1192,7 +1214,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; render(); break;
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
-      case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip); break;
+      case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); document.getElementById('btn-import-grid').style.display = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()) ? '' : 'none'; render(); break;
       case 'system': addSystemMsg(msg.text); break;
@@ -1453,9 +1475,18 @@ document.getElementById('btn-view-ipbans').onclick = () => adminView('/api/admin
 document.getElementById('btn-view-ips').onclick = () => adminView('/api/admin/ips');
 document.getElementById('btn-view-friends').onclick = () => adminView('/api/admin/friends');
 document.getElementById('btn-view-lobbies').onclick = () => adminView('/api/admin/lobbies');
-document.getElementById('btn-admin-vip-add').onclick = () => { const u = document.getElementById('admin-vip-input').value.trim(); if (u) adminAction('/api/admin/vip-add', { username: u }); };
-document.getElementById('btn-admin-vip-remove').onclick = () => { const u = document.getElementById('admin-vip-input').value.trim(); if (u) adminAction('/api/admin/vip-remove', { username: u }); };
-document.getElementById('btn-view-vips').onclick = () => adminView('/api/admin/vips');
+document.getElementById('btn-admin-rank-set').onclick = () => {
+  const u = document.getElementById('admin-rank-user').value.trim();
+  const label = document.getElementById('admin-rank-label').value.trim();
+  const color = document.getElementById('admin-rank-color').value;
+  if (!u || !label) { document.getElementById('admin-status').textContent = 'Username and label required'; return; }
+  adminAction('/api/admin/rank-set', { username: u, label, color });
+};
+document.getElementById('btn-admin-rank-remove').onclick = () => {
+  const u = document.getElementById('admin-rank-user').value.trim();
+  if (u) adminAction('/api/admin/rank-remove', { username: u });
+};
+document.getElementById('btn-view-ranks').onclick = () => adminView('/api/admin/ranks');
 
 function initView() {
   const wrap = document.getElementById('viewport-wrap');
