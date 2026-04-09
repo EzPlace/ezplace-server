@@ -732,7 +732,7 @@ async def websocket_handler(request):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
-                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 28:
+                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 32:
                         old_color = lobby["grid"][y * lw + x]
                         lobby["grid"][y * lw + x] = color
                         lobby["last_activity"] = now
