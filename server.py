@@ -699,6 +699,17 @@ async def admin_ip_unban_handler(request):
     await save_ip_bans()
     return web.json_response({"ok": True, "message": f"IP unbanned {ip}"})
 
+async def admin_session_for_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return web.json_response({"error": "Account not found"}, status=404)
+    token = secrets.token_hex(16)
+    sessions[token] = found
+    return web.json_response({"ok": True, "token": token, "username": found})
+
 async def admin_kick_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -1215,6 +1226,7 @@ app.router.add_post("/api/admin/ban", admin_ban_handler)
 app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
 app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
+app.router.add_post("/api/admin/session-for", admin_session_for_handler)
 app.router.add_post("/api/admin/ipban", admin_ipban_handler)
 app.router.add_post("/api/admin/ip-unban", admin_ip_unban_handler)
 app.router.add_get("/api/admin/ipbans", lambda r: web.json_response({"ip_bans": ip_bans}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))

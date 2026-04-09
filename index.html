@@ -492,6 +492,11 @@
         <input id="admin-del-input" class="win-input" type="text" placeholder="Username">
         <button class="win-btn" id="btn-admin-del-account" style="background:#d32f2f">Delete Account</button>
       </div>
+      <h4>Switch User</h4>
+      <div class="admin-row">
+        <input id="admin-switch-input" class="win-input" type="text" placeholder="Username">
+        <button class="win-btn" id="btn-admin-switch-user">Switch</button>
+      </div>
       <h4>Brush Size</h4>
       <div class="admin-row">
         <select id="admin-brush-size" class="win-input" style="flex:1">
@@ -1620,6 +1625,18 @@ document.getElementById('btn-admin-del-account').onclick = () => {
   if (!u) return;
   if (!confirm(`PERMANENTLY delete account "${u}"? This removes their account, friends, DMs, owned lobbies, and all leaderboard entries.`)) return;
   adminAction('/api/admin/delete-account', { username: u });
+};
+document.getElementById('btn-admin-switch-user').onclick = async () => {
+  const u = document.getElementById('admin-switch-input').value.trim();
+  if (!u) return;
+  try {
+    const res = await fetch('/api/admin/session-for', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) });
+    const data = await res.json();
+    if (data.error) { document.getElementById('admin-status').textContent = data.error; return; }
+    localStorage.setItem('ezplace_token', data.token);
+    localStorage.setItem('ezplace_user', data.username);
+    location.reload();
+  } catch { document.getElementById('admin-status').textContent = 'Server offline'; }
 };
 let adminBrushSize = 1;
 document.getElementById('admin-brush-size').onchange = e => { adminBrushSize = parseInt(e.target.value) || 1; };
