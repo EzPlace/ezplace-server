@@ -376,6 +376,8 @@
         <button id="btn-manage-wl-add" class="win-btn">Add</button>
       </div>
     </div>
+    <div style="margin:8px 12px 4px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Lobby Bans</div>
+    <div class="wl-list" id="manage-bans-list" style="margin:4px 12px 8px;"></div>
     <div class="btn-row">
       <button id="manage-save" class="win-btn">Save</button>
       <button id="manage-close" class="win-btn">Close</button>
@@ -1160,20 +1162,15 @@ function openManage(lobby) {
   document.getElementById('manage-public').checked = lobby.public;
   document.getElementById('manage-wl-enabled').checked = lobby.whitelist_enabled;
   renderManageWL();
+  renderManageBans();
   manageModal.classList.add('show');
 }
 document.getElementById('manage-close').onclick = () => { manageModal.classList.remove('show'); };
-document.getElementById('manage-public').onchange = () => {
-  if (document.getElementById('manage-public').checked) document.getElementById('manage-wl-enabled').checked = false;
-  renderManageWL();
-};
-document.getElementById('manage-wl-enabled').onchange = () => {
-  if (document.getElementById('manage-wl-enabled').checked) document.getElementById('manage-public').checked = false;
-  renderManageWL();
-};
+document.getElementById('manage-public').onchange = renderManageWL;
+document.getElementById('manage-wl-enabled').onchange = renderManageWL;
 
 function renderManageWL() {
-  const show = document.getElementById('manage-wl-enabled').checked && !document.getElementById('manage-public').checked;
+  const show = document.getElementById('manage-wl-enabled').checked;
   document.getElementById('manage-wl-section').style.display = show ? '' : 'none';
   if (!managingLobby) return;
   const list = document.getElementById('manage-wl-list'); list.innerHTML = '';
@@ -1184,6 +1181,34 @@ function renderManageWL() {
     if (btn) btn.onclick = async () => {
       await fetch('/api/lobbies/update', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ lobby_id: managingLobby.id, remove_whitelist: u }) });
       managingLobby.whitelist = managingLobby.whitelist.filter(x => x !== u); renderManageWL();
+    };
+    list.appendChild(d);
+  });
+}
+
+function renderManageBans() {
+  const list = document.getElementById('manage-bans-list'); list.innerHTML = '';
+  if (!managingLobby) return;
+  const bans = managingLobby.lobby_bans || [];
+  if (!bans.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:11px;color:var(--text-muted);padding:4px 0;';
+    empty.textContent = 'No banned users';
+    list.appendChild(empty);
+    return;
+  }
+  bans.forEach(u => {
+    const d = document.createElement('div'); d.className = 'wl-item';
+    d.innerHTML = `<span>${esc(u)}</span><button>Unban</button>`;
+    d.querySelector('button').onclick = async () => {
+      try {
+        const res = await fetch('/api/lobbies/update', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ lobby_id: managingLobby.id, lobby_unban: u }) });
+        const data = await res.json();
+        if (data.ok && data.lobby) {
+          managingLobby.lobby_bans = data.lobby.lobby_bans || [];
+          renderManageBans();
+        }
+      } catch {}
     };
     list.appendChild(d);
   });
