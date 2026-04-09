@@ -468,6 +468,23 @@
         <input id="admin-ip-unban-input" class="win-input" type="text" placeholder="IP address">
         <button class="win-btn" id="btn-admin-ip-unban">Unban IP</button>
       </div>
+      <h4>Delete Account</h4>
+      <div class="admin-row">
+        <input id="admin-del-input" class="win-input" type="text" placeholder="Username">
+        <button class="win-btn" id="btn-admin-del-account" style="background:#d32f2f">Delete Account</button>
+      </div>
+      <h4>Brush Size</h4>
+      <div class="admin-row">
+        <select id="admin-brush-size" class="win-input" style="flex:1">
+          <option value="1">1x1 (normal)</option>
+          <option value="3">3x3</option>
+          <option value="5">5x5</option>
+          <option value="7">7x7</option>
+          <option value="9">9x9</option>
+          <option value="15">15x15</option>
+          <option value="25">25x25</option>
+        </select>
+      </div>
       <h4>VIP Management</h4>
       <div class="admin-row">
         <input id="admin-vip-input" class="win-input" type="text" placeholder="Username">
@@ -711,9 +728,9 @@ cvs.addEventListener('touchend', e => {
         if (isGuest) { cooldownWarn.textContent = 'Register an account to place pixels!'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
         if (!canPlace) { cooldownWarn.textContent = 'Spectator mode - you cannot place pixels here'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
         const now = Date.now();
-        if (now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
-        grid[g.y * GRID_W + g.x] = selectedColor; startCooldownBar(); render();
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pixel', x: g.x, y: g.y, color: selectedColor }));
+        if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
+        if (!isAdminUser()) startCooldownBar();
+        paintBrush(g.x, g.y);
       }
     }
   }
@@ -731,17 +748,40 @@ let cooldownWarnTimer = null;
 function showCooldownWarn(ms) { cooldownWarn.textContent = `Cooldown! Wait ${(ms/1000).toFixed(1)}s`; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, ms); }
 function startCooldownBar() { lastPlaceTime = Date.now(); cooldownFill.style.width = '100%'; if (cooldownTimer) clearInterval(cooldownTimer); cooldownTimer = setInterval(() => { const pct = Math.max(0, 100 - ((Date.now() - lastPlaceTime) / COOLDOWN) * 100); cooldownFill.style.width = pct + '%'; if (pct <= 0) clearInterval(cooldownTimer); }, 30); }
 
+function isAdminUser() { return username && username.toLowerCase() === 'toothpaste'; }
+function paintBrush(cx, cy) {
+  const size = isAdminUser() ? adminBrushSize : 1;
+  const half = Math.floor(size / 2);
+  const pixels = [];
+  for (let dy = -half; dy <= half; dy++) {
+    for (let dx = -half; dx <= half; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) continue;
+      grid[y * GRID_W + x] = selectedColor;
+      pixels.push([x, y]);
+    }
+  }
+  render();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    if (size > 1 && isAdminUser()) {
+      ws.send(JSON.stringify({ type: 'admin_brush', pixels, color: selectedColor }));
+    } else if (pixels.length === 1) {
+      ws.send(JSON.stringify({ type: 'pixel', x: cx, y: cy, color: selectedColor }));
+    }
+  }
+}
+
 cvs.addEventListener('click', e => {
   if (blocked || !username || !currentLobbyId) return;
   if (isGuest) { cooldownWarn.textContent = 'Register an account to place pixels!'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
   if (!canPlace) { cooldownWarn.textContent = 'Spectator mode - you cannot place pixels here'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
   const now = Date.now();
-  if (now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
+  if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
   const rect = cvs.getBoundingClientRect();
   const g = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
   if (g.x < 0 || g.x >= GRID_W || g.y < 0 || g.y >= GRID_H) return;
-  grid[g.y * GRID_W + g.x] = selectedColor; startCooldownBar(); render();
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pixel', x: g.x, y: g.y, color: selectedColor }));
+  if (!isAdminUser()) startCooldownBar();
+  paintBrush(g.x, g.y);
 });
 
 const paletteEl = document.getElementById('palette-row');
@@ -1399,6 +1439,14 @@ document.getElementById('btn-admin-unban').onclick = () => { const u = document.
 document.getElementById('btn-admin-kick').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/kick', { username: u }); };
 document.getElementById('btn-admin-ipban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/ipban', { username: u }); };
 document.getElementById('btn-admin-ip-unban').onclick = () => { const ip = document.getElementById('admin-ip-unban-input').value.trim(); if (ip) adminAction('/api/admin/ip-unban', { ip: ip }); };
+document.getElementById('btn-admin-del-account').onclick = () => {
+  const u = document.getElementById('admin-del-input').value.trim();
+  if (!u) return;
+  if (!confirm(`PERMANENTLY delete account "${u}"? This removes their account, friends, DMs, owned lobbies, and all leaderboard entries.`)) return;
+  adminAction('/api/admin/delete-account', { username: u });
+};
+let adminBrushSize = 1;
+document.getElementById('admin-brush-size').onchange = e => { adminBrushSize = parseInt(e.target.value) || 1; };
 document.getElementById('btn-view-accounts').onclick = () => adminView('/api/admin/accounts');
 document.getElementById('btn-view-bans').onclick = () => adminView('/api/admin/bans');
 document.getElementById('btn-view-ipbans').onclick = () => adminView('/api/admin/ipbans');
