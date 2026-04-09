@@ -308,6 +308,7 @@
     <h1>&#x1F5BC; EzPlace</h1>
     <div id="header-right">
       <div id="lobby-name-display"></div>
+      <button id="btn-manage-current" class="win-btn" style="display:none">Manage</button>
       <button id="btn-export-grid" class="win-btn" style="display:none">Export</button>
       <button id="btn-import-grid" class="win-btn" style="display:none">Import</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
@@ -955,6 +956,7 @@ async function loadLobbies() {
   document.getElementById('btn-leave-lobby').style.display = 'none';
   document.getElementById('btn-export-grid').style.display = 'none';
   document.getElementById('btn-import-grid').style.display = 'none';
+  document.getElementById('btn-manage-current').style.display = 'none';
   document.getElementById('lobby-name-display').innerHTML = '';
   try {
     const res = await fetch('/api/lobbies');
@@ -1026,12 +1028,23 @@ document.getElementById('btn-leave-lobby').onclick = () => {
   document.getElementById('online-count').textContent = '0';
   document.getElementById('btn-export-grid').style.display = 'none';
   document.getElementById('btn-import-grid').style.display = 'none';
+  document.getElementById('btn-manage-current').style.display = 'none';
   if (isGuest) {
     isGuest = false; guestName = ''; username = '';
     document.getElementById('guest-bar').style.display = 'none';
     chatInput.disabled = true; chatBtn.disabled = true;
   }
   loadLobbies();
+};
+
+document.getElementById('btn-manage-current').onclick = async () => {
+  if (!currentLobbyId || !authToken) return;
+  try {
+    const res = await fetch('/api/my-lobbies', { headers: { Authorization: authToken } });
+    const data = await res.json();
+    const found = (data.lobbies || []).find(l => l.id === currentLobbyId);
+    if (found) openManage(found);
+  } catch {}
 };
 
 document.getElementById('btn-export-grid').onclick = async () => {
@@ -1255,7 +1268,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); document.getElementById('btn-import-grid').style.display = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()) ? '' : 'none'; render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn && !currentLobbyId.startsWith('public_')) ? '' : 'none'; } render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
