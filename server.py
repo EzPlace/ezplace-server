@@ -37,6 +37,7 @@ sessions = {}
 captchas = {}
 friends_data = {}
 dms = {}
+dm_last_seen = {}  # { user_lower: { peer_lower: epoch_seconds } }
 bans = []
 ip_bans = []
 vips = []
@@ -175,6 +176,39 @@ async def save_dm(key):
     msgs = dms.get(key, [])
     await db_save("dms", key, msgs)
 
+async def save_dm_last_seen():
+    await db_save("store", "dm_last_seen", dm_last_seen)
+
+def mark_dm_seen(user, peer):
+    ulow = user.lower()
+    plow = peer.lower()
+    if ulow not in dm_last_seen:
+        dm_last_seen[ulow] = {}
+    dm_last_seen[ulow][plow] = time.time()
+
+def get_unread_dm_summary(user):
+    """Return a list of {from, count, last_text, last_time} for threads with unread peer messages."""
+    ulow = user.lower()
+    seen_map = dm_last_seen.get(ulow, {})
+    # Find all DM threads this user is part of
+    senders = {}  # peer_display_name -> {count, last_text, last_time}
+    for key, msgs in dms.items():
+        parts = key.split(":")
+        if ulow not in parts:
+            continue
+        peer_lower = parts[0] if parts[1] == ulow else parts[1]
+        last_seen = seen_map.get(peer_lower, 0)
+        unread = [m for m in msgs if m.get("from", "").lower() != ulow and m.get("time", 0) > last_seen]
+        if unread:
+            last = unread[-1]
+            senders[last["from"]] = {
+                "from": last["from"],
+                "count": len(unread),
+                "last_text": last.get("text", ""),
+                "last_time": last.get("time", 0),
+            }
+    return list(senders.values())
+
 async def track_ip(username, request):
     ip = get_client_ip(request)
     if ip and username:
@@ -182,7 +216,7 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, dms
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, dms, dm_last_seen
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
@@ -190,6 +224,7 @@ async def load_all_data():
     ip_bans = await db_load("store", "ip_bans") or []
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
+    dm_last_seen = await db_load("store", "dm_last_seen") or {}
     # Migrate any existing VIPs that don't already have a rank
     rank_dirty = False
     for v in vips:
@@ -517,7 +552,16 @@ async def dm_history_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     target = request.query.get("with", "")
-    return web.json_response({"messages": dms.get(dm_key(user, target), [])[-MAX_DM_HISTORY:]})
+    msgs = dms.get(dm_key(user, target), [])[-MAX_DM_HISTORY:]
+    if target:
+        mark_dm_seen(user, target)
+        await save_dm_last_seen()
+    return web.json_response({"messages": msgs})
+
+async def dm_unread_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    return web.json_response({"senders": get_unread_dm_summary(user)})
 
 async def dm_send_handler(request):
     data = await request.json()
@@ -696,6 +740,17 @@ async def admin_delete_account_handler(request):
     for k in keys_to_delete:
         del dms[k]
         await db["dms"].delete_one({"_id": k})
+    # Remove dm_last_seen entries for and about this user
+    seen_dirty = False
+    if tlow in dm_last_seen:
+        del dm_last_seen[tlow]
+        seen_dirty = True
+    for peers in dm_last_seen.values():
+        if tlow in peers:
+            del peers[tlow]
+            seen_dirty = True
+    if seen_dirty:
+        await save_dm_last_seen()
     return web.json_response({"ok": True, "message": f"Deleted account {found} ({len(owned_lids)} lobbies, {len(keys_to_delete)} DM threads)"})
 
 async def admin_vip_add_handler(request):
@@ -772,8 +827,16 @@ async def social_ws_handler(request):
                         social_clients[ws] = username
                         await track_ip(username, request)
                         await ws.send_json({"type": "social_ready"})
+                        unread = get_unread_dm_summary(username)
+                        if unread:
+                            await ws.send_json({"type": "unread_dms", "senders": unread})
                     else:
                         await ws.close()
+                elif data.get("type") == "dm_seen" and username:
+                    peer = data.get("peer", "").strip()
+                    if peer:
+                        mark_dm_seen(username, peer)
+                        await save_dm_last_seen()
                 elif data.get("type") == "dm" and username:
                     target = data.get("to", "").strip()
                     text = data.get("text", "").strip()[:200]
@@ -1106,6 +1169,7 @@ app.router.add_post("/api/friends/decline", friend_decline_handler)
 app.router.add_post("/api/friends/remove", friend_remove_handler)
 app.router.add_get("/api/dm/history", dm_history_handler)
 app.router.add_post("/api/dm/send", dm_send_handler)
+app.router.add_get("/api/dm/unread", dm_unread_handler)
 app.router.add_get("/api/admin/accounts", admin_accounts_handler)
 app.router.add_get("/api/admin/friends", admin_friends_handler)
 app.router.add_get("/api/admin/lobbies", admin_lobbies_handler)
