@@ -105,7 +105,10 @@ def user_lobby_count(username):
 def get_leaderboard_top10(lobby):
     pc = lobby.get("pixel_counts", {})
     top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:10]
-    return [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top]
+    return {
+        "entries": [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top],
+        "original_owner": lobby.get("original_owner"),
+    }
 
 def hash_password(password, salt=None):
     if salt is None:
@@ -416,7 +419,10 @@ async def leaderboard_handler(request):
         return web.json_response({"error": "Not found"}, status=404)
     pc = lobby.get("pixel_counts", {})
     top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:50]
-    return web.json_response({"leaderboard": [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top]})
+    return web.json_response({
+        "leaderboard": [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top],
+        "original_owner": lobby.get("original_owner"),
+    })
 
 async def friends_list_handler(request):
     user = get_auth_user(request)
@@ -816,8 +822,16 @@ async def websocket_handler(request):
                         if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < 32 for c in new_grid):
                             lobby["grid"] = bytearray(new_grid)
                             lobby["last_activity"] = time.time()
+                            imported_counts = data.get("pixel_counts")
+                            if isinstance(imported_counts, dict):
+                                clean = {str(k)[:20]: int(v) for k, v in imported_counts.items() if isinstance(v, (int, float)) and v >= 0}
+                                lobby["pixel_counts"] = clean
+                            imported_owner = data.get("original_owner")
+                            if isinstance(imported_owner, str) and imported_owner.strip():
+                                lobby["original_owner"] = imported_owner.strip()[:20]
                             await save_lobby(lobby_id)
                             await broadcast_to_lobby(lobby_id, {"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lw, "height": lh})
+                            await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
                             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"Grid imported by {username}"})
                         else:
                             await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
