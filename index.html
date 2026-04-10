@@ -81,6 +81,7 @@
   #zoom-buttons button:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   #palette-row { display: flex; gap: 4px; padding: 8px 10px; flex-wrap: wrap; justify-content: center; max-width: 680px; flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); }
+  #palette-scroll-hint { display: none; }
   .color-btn { width: 26px; height: 26px; border: 2px solid transparent; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
   .color-btn:hover { transform: scale(1.2); border-color: rgba(255,255,255,0.5); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
   .color-btn.selected { border-color: #fff; transform: scale(1.15); box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(124,92,252,0.4); }
@@ -330,8 +331,13 @@
     #btn-export-grid, #btn-import-grid, #btn-manage-current { font-size: 10px; padding: 4px 8px; }
     #zoom-buttons { right: 10px; gap: 6px; }
     #zoom-buttons button { width: 44px; height: 44px; font-size: 22px; }
-    #palette-row { gap: 6px; padding: 8px; max-width: 100%; width: 100%; min-height: 54px; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: thin; white-space: nowrap; touch-action: pan-x; }
+    #palette-wrap { width: 100%; }
+    #palette-row { gap: 6px; padding: 8px 28px 8px 8px; max-width: 100%; width: 100%; min-height: 54px; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: thin; white-space: nowrap; touch-action: pan-x; mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 36px), transparent 100%); -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 36px), transparent 100%); }
     #palette-row::-webkit-scrollbar { height: 4px; }
+    #palette-row.at-end { mask-image: none; -webkit-mask-image: none; padding-right: 8px; }
+    #palette-scroll-hint { display: flex; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 20px; font-weight: 900; color: var(--accent); pointer-events: none; animation: scroll-pulse 1.4s ease-in-out infinite; z-index: 2; text-shadow: 0 0 6px rgba(124,92,252,0.8); }
+    #palette-wrap.at-end #palette-scroll-hint { display: none; }
+    @keyframes scroll-pulse { 0%, 100% { transform: translate(0, -50%); opacity: 0.55; } 50% { transform: translate(4px, -50%); opacity: 1; } }
     .color-btn { width: 36px; height: 36px; min-width: 36px; flex-shrink: 0; touch-action: manipulation; }
     .sidebar-tab { font-size: 11px; padding: 10px 4px; }
     #lobby-screen { padding: 12px; }
@@ -385,7 +391,7 @@
       <button id="zoom-out" class="win-btn">&minus;</button>
     </div>
   </div>
-  <div id="palette-row"></div>
+  <div id="palette-wrap" style="position:relative;flex-shrink:0;"><div id="palette-row"></div><div id="palette-scroll-hint">&#x276F;</div></div>
 
   <!-- Lobby browser overlay -->
   <div id="lobby-screen">
@@ -1061,6 +1067,7 @@ cvs.addEventListener('click', e => {
 });
 
 const paletteEl = document.getElementById('palette-row');
+const paletteWrap = document.getElementById('palette-wrap');
 COLORS.forEach((c, i) => {
   const btn = document.createElement('div');
   btn.className = 'color-btn' + (i === 3 ? ' selected' : '');
@@ -1068,6 +1075,15 @@ COLORS.forEach((c, i) => {
   btn.addEventListener('click', () => { document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); selectedColor = i; });
   paletteEl.appendChild(btn);
 });
+// Hide the mobile scroll hint once the user has scrolled near the right edge
+function updatePaletteScrollState() {
+  const atEnd = paletteEl.scrollLeft + paletteEl.clientWidth >= paletteEl.scrollWidth - 8;
+  paletteWrap.classList.toggle('at-end', atEnd);
+  paletteEl.classList.toggle('at-end', atEnd);
+}
+paletteEl.addEventListener('scroll', updatePaletteScrollState, { passive: true });
+window.addEventListener('resize', updatePaletteScrollState);
+updatePaletteScrollState();
 
 const messagesEl = document.getElementById('messages');
 const chatInput = document.getElementById('chat-input');
