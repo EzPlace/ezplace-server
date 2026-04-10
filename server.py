@@ -159,17 +159,44 @@ async def save_ranks():
 async def save_user_ips():
     await db_save("store", "user_ips", user_ips)
 
+# Set of lobby IDs with unsaved changes. The background task flushes them periodically.
+# save_lobby() flushes immediately; mark_lobby_dirty() defers to the background loop.
+dirty_lobbies = set()
+
+def mark_lobby_dirty(lid):
+    if lid and lid in lobbies:
+        dirty_lobbies.add(lid)
+
 async def save_lobby(lid):
     lobby = lobbies.get(lid)
     if not lobby:
         return
     data = {k: v for k, v in lobby.items() if k != "grid"}
-    grid_data = list(lobby["grid"])
-    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_data}}, upsert=True)
+    # Store the grid as raw bytes. BSON binary is ~5x smaller than a list of ints
+    # (1 byte per pixel vs ~5-7 bytes per int in BSON) and backward compatible because
+    # bytearray(x) accepts both lists and bytes when we load it.
+    grid_bytes = bytes(lobby["grid"])
+    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_bytes}}, upsert=True)
+    dirty_lobbies.discard(lid)
 
 async def save_all_lobbies():
-    for lid in lobbies:
+    for lid in list(lobbies.keys()):
         await save_lobby(lid)
+
+async def flush_dirty_lobbies_loop(app):
+    """Background task: every 30s, save any lobby that has unsaved pixel changes."""
+    while True:
+        try:
+            await asyncio.sleep(30)
+            for lid in list(dirty_lobbies):
+                try:
+                    await save_lobby(lid)
+                except Exception as e:
+                    print(f"flush_dirty_lobbies: failed to save {lid}: {e}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"flush_dirty_lobbies_loop error: {e}")
 
 async def delete_lobby_db(lid):
     await db["lobbies"].delete_one({"_id": lid})
@@ -248,22 +275,34 @@ async def load_all_data():
             "cooldown": pl["cooldown"], "width": w, "height": h
         }
 
+    # Convert whatever MongoDB gives us back (old int-list format or new bytes format) to bytearray
+    def _to_bytearray(data):
+        if data is None:
+            return None
+        # pymongo returns BSON Binary as the `bytes` type and lists as Python lists.
+        # bytearray() accepts both so this is a one-liner, but we wrap it for clarity.
+        try:
+            return bytearray(data)
+        except Exception:
+            return None
+
     async for doc in db["lobbies"].find():
         lid = doc["_id"]
         meta = doc.get("meta", {})
         grid_data = doc.get("grid")
+        grid_ba = _to_bytearray(grid_data)
         if lid.startswith("public_") and lid in lobbies:
             expected_size = lobbies[lid]["width"] * lobbies[lid]["height"]
             if "pixel_counts" in meta:
                 lobbies[lid]["pixel_counts"] = meta["pixel_counts"]
-            if grid_data and len(grid_data) == expected_size:
-                lobbies[lid]["grid"] = bytearray(grid_data)
+            if grid_ba is not None and len(grid_ba) == expected_size:
+                lobbies[lid]["grid"] = grid_ba
         elif lid.startswith("public_") and lid not in lobbies:
             continue
         else:
             lw = meta.get("width", 256)
             lh = meta.get("height", 256)
-            meta["grid"] = bytearray(grid_data) if grid_data else bytearray(lw * lh)
+            meta["grid"] = grid_ba if grid_ba is not None else bytearray(lw * lh)
             if "pixel_counts" not in meta:
                 meta["pixel_counts"] = {}
             if "cooldown" not in meta:
@@ -983,8 +1022,7 @@ async def websocket_handler(request):
                         if color != old_color:
                             pc = lobby.setdefault("pixel_counts", {})
                             pc[username] = pc.get(username, 0) + 1
-                            if pc[username] % 10 == 0:
-                                await save_lobby(lobby_id)
+                            mark_lobby_dirty(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
                 elif data["type"] == "chat" and username and lobby_id:
@@ -1068,7 +1106,7 @@ async def websocket_handler(request):
                                 await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
                             if placed:
                                 lobby["last_activity"] = time.time()
-                                await save_lobby(lobby_id)
+                                mark_lobby_dirty(lobby_id)
 
                 elif data["type"] == "import_grid" and username and lobby_id and not is_guest:
                     lobby = lobbies.get(lobby_id)
@@ -1222,10 +1260,16 @@ async def on_startup(app):
             print(f"Deleted ASG lobby: {lobby.get('name')} ({lid})")
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
+    app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
 
 async def on_cleanup(app):
     app["cleanup_task"].cancel()
     app["lb_task"].cancel()
+    app["flush_task"].cancel()
+    # Final flush of all dirty lobbies so we don't lose the last batch on shutdown
+    for lid in list(dirty_lobbies):
+        try: await save_lobby(lid)
+        except: pass
     await save_all_lobbies()
 
 app = web.Application()
