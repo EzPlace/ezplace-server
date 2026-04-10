@@ -660,8 +660,17 @@ const ctx = cvs.getContext('2d');
 const COLOR_RGB = COLORS.map(c => c);
 
 // E-ink (Kindle Paperwhite) mode — optimizes for slow grayscale screens
-const KINDLE_UA = /Kindle|Silk|KFTT|KFOT|KFJW|KFSOWI|KFTHWA|KFTHWI|KFAPWA|KFAPWI|KFARWI|KFASWI|KFFOWI|KFMEWI|KFTBWI|KFMAWI|KFTRWI|KFTRPWI|KFGIWI/i;
-let einkMode = KINDLE_UA.test(navigator.userAgent || '');
+function detectEink() {
+  // Primary detection: monochrome display media query (true for e-ink, false for any color screen)
+  try {
+    if (window.matchMedia && window.matchMedia('(monochrome)').matches) return true;
+  } catch {}
+  // Fallback: strict Kindle Paperwhite UA pattern. Only the actual e-ink Kindle browser
+  // includes "Kindle/<version>" — Kindle Fires use Silk and are explicitly NOT matched.
+  const ua = navigator.userAgent || '';
+  return /Kindle\/\d/i.test(ua);
+}
+let einkMode = detectEink();
 function applyEinkMode() {
   document.body.classList.toggle('eink-mode', einkMode);
   rebuildColorBytes();
