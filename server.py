@@ -761,6 +761,47 @@ async def admin_kick_handler(request):
             kicked = True
     return web.json_response({"ok": True} if kicked else {"error": "Not online"}, status=200 if kicked else 404)
 
+async def admin_alert_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    text = data.get("text", "").strip()[:500]
+    if not target or not text:
+        return web.json_response({"error": "Username and message required"}, status=400)
+    delivered = 0
+    tlow = target.lower()
+    for ws, info in list(clients.items()):
+        if info and info.get("username", "").lower() == tlow:
+            try: await ws.send_json({"type": "client_alert", "text": text}); delivered += 1
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == tlow:
+            try: await ws.send_json({"type": "client_alert", "text": text}); delivered += 1
+            except: pass
+    return web.json_response({"ok": True, "message": f"Alert delivered to {delivered} connection(s) for {target}"} if delivered else {"error": f"{target} is not online"})
+
+async def admin_redirect_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    url = data.get("url", "").strip()[:500]
+    if not target or not url:
+        return web.json_response({"error": "Username and url required"}, status=400)
+    # Only allow http(s) URLs — blocks javascript:, data:, file:, etc. so this stays a redirect, not a code exec vector
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return web.json_response({"error": "URL must start with http:// or https://"}, status=400)
+    delivered = 0
+    tlow = target.lower()
+    for ws, info in list(clients.items()):
+        if info and info.get("username", "").lower() == tlow:
+            try: await ws.send_json({"type": "client_redirect", "url": url}); delivered += 1
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == tlow:
+            try: await ws.send_json({"type": "client_redirect", "url": url}); delivered += 1
+            except: pass
+    return web.json_response({"ok": True, "message": f"Redirect sent to {delivered} connection(s) for {target}"} if delivered else {"error": f"{target} is not online"})
+
 async def admin_delete_account_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -1303,6 +1344,8 @@ app.router.add_get("/api/admin/vips", admin_vips_handler)
 app.router.add_post("/api/admin/ban", admin_ban_handler)
 app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
+app.router.add_post("/api/admin/alert", admin_alert_handler)
+app.router.add_post("/api/admin/redirect", admin_redirect_handler)
 app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
 app.router.add_post("/api/admin/session-for", admin_session_for_handler)
 app.router.add_post("/api/admin/ipban", admin_ipban_handler)

@@ -570,6 +570,18 @@
         <input id="admin-switch-input" class="win-input" type="text" placeholder="Username">
         <button class="win-btn" id="btn-admin-switch-user">Switch</button>
       </div>
+      <h4>Client Actions</h4>
+      <div class="admin-row">
+        <input id="admin-action-user" class="win-input" type="text" placeholder="Target username" style="flex:1">
+      </div>
+      <div class="admin-row">
+        <input id="admin-alert-msg" class="win-input" type="text" placeholder="Alert message" style="flex:1" maxlength="500">
+        <button class="win-btn" id="btn-admin-alert">Send Alert</button>
+      </div>
+      <div class="admin-row">
+        <input id="admin-redirect-url" class="win-input" type="text" placeholder="https://..." style="flex:1" maxlength="500">
+        <button class="win-btn" id="btn-admin-redirect">Redirect</button>
+      </div>
       <h4>Brush Size</h4>
       <div class="admin-row">
         <select id="admin-brush-size" class="win-input" style="flex:1">
@@ -1789,6 +1801,8 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
+      case 'client_alert': alert(msg.text); break;
+      case 'client_redirect': if (typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; } break;
     }
   };
   ws.onclose = () => { clearInterval(pingInterval); document.getElementById('ping-ms').textContent = '--'; if (!intentionalClose) { document.getElementById('disconnect-banner').style.display = ''; setTimeout(() => location.reload(), 3000); } };
@@ -1914,6 +1928,8 @@ function connectSocial() {
   socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken })); };
   socialWs.onmessage = e => {
     const msg = JSON.parse(e.data);
+    if (msg.type === 'client_alert') { alert(msg.text); return; }
+    if (msg.type === 'client_redirect' && typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; return; }
     if (msg.type === 'unread_dms') {
       unreadDms = {};
       (msg.senders || []).forEach(s => {
@@ -2124,6 +2140,19 @@ document.getElementById('btn-admin-switch-user').onclick = async () => {
     localStorage.setItem('ezplace_user', data.username);
     location.reload();
   } catch { document.getElementById('admin-status').textContent = 'Server offline'; }
+};
+document.getElementById('btn-admin-alert').onclick = () => {
+  const u = document.getElementById('admin-action-user').value.trim();
+  const text = document.getElementById('admin-alert-msg').value.trim();
+  if (!u || !text) { document.getElementById('admin-status').textContent = 'Need username and message'; return; }
+  adminAction('/api/admin/alert', { username: u, text });
+};
+document.getElementById('btn-admin-redirect').onclick = () => {
+  const u = document.getElementById('admin-action-user').value.trim();
+  const url = document.getElementById('admin-redirect-url').value.trim();
+  if (!u || !url) { document.getElementById('admin-status').textContent = 'Need username and URL'; return; }
+  if (!url.startsWith('http://') && !url.startsWith('https://')) { document.getElementById('admin-status').textContent = 'URL must start with http:// or https://'; return; }
+  adminAction('/api/admin/redirect', { username: u, url });
 };
 let adminBrushSize = 1;
 document.getElementById('admin-brush-size').onchange = e => { adminBrushSize = parseInt(e.target.value) || 1; };
