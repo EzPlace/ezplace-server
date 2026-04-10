@@ -288,8 +288,15 @@
   body.eink-mode .win-btn { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; font-weight: 700 !important; }
   body.eink-mode .win-input { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; }
   body.eink-mode #header h1, body.eink-mode .rainbow, body.eink-mode .rank-badge.rainbow { background: none !important; -webkit-text-fill-color: #000 !important; color: #000 !important; }
-  body.eink-mode .msg .name, body.eink-mode .msg .name.owner, body.eink-mode .msg .name.guest, body.eink-mode .msg .name.vip, body.eink-mode .msg .crown, body.eink-mode .lb-name, body.eink-mode .lb-count { color: #000 !important; font-weight: 700 !important; }
-  body.eink-mode .msg.system { color: #555 !important; }
+  body.eink-mode .msg, body.eink-mode .msg *, body.eink-mode .dm-msg, body.eink-mode .dm-msg * { color: #000 !important; }
+  body.eink-mode .msg .name, body.eink-mode .msg .name.owner, body.eink-mode .msg .name.guest, body.eink-mode .msg .name.vip, body.eink-mode .msg .crown, body.eink-mode .lb-name, body.eink-mode .lb-count, body.eink-mode .dm-msg b { color: #000 !important; font-weight: 700 !important; }
+  body.eink-mode .msg.system, body.eink-mode .msg.system * { color: #555 !important; }
+  body.eink-mode .msg .timestamp, body.eink-mode .dm-msg .dm-time { color: #666 !important; }
+  body.eink-mode .msg .mention-tag { background: #fff !important; color: #000 !important; border: 1px solid #000; padding: 0 3px; }
+  body.eink-mode .msg .mention-tag.self { background: #000 !important; color: #fff !important; border-color: #000; }
+  body.eink-mode .msg.mention-self { background: #ddd !important; border-left: 3px solid #000 !important; }
+  body.eink-mode #typing-indicator { background: #fff !important; color: #000 !important; border-left: 3px solid #000 !important; }
+  body.eink-mode #typing-indicator #typing-text, body.eink-mode #typing-indicator #typing-dots { color: #000 !important; }
   body.eink-mode .vip-badge, body.eink-mode .rank-badge { color: #000 !important; -webkit-text-fill-color: #000 !important; background: none !important; border: 1px solid #000; padding: 0 2px; }
   body.eink-mode .lobby-card { background: #fff !important; border: 2px solid #000 !important; }
   body.eink-mode .lobby-card:hover { background: #ddd !important; }
