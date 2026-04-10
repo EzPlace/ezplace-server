@@ -442,19 +442,27 @@
 
 <div id="sidebar">
   <div id="auth-panel">
-    <h2>Sign In / Register</h2>
-    <input id="auth-user" class="win-input" type="text" placeholder="Username" maxlength="20" autocomplete="username">
-    <input id="auth-pass" class="win-input" type="password" placeholder="Password" maxlength="64" autocomplete="current-password">
-    <div id="captcha-row">
-      <img id="captcha-img" src="" alt="captcha">
-      <input id="captcha-ans" class="win-input" type="text" placeholder="Type text" maxlength="5" autocomplete="off">
-      <button id="captcha-refresh" class="win-btn" title="New captcha">&#x21bb;</button>
+    <div id="auth-mode-switch" style="display:flex;gap:0;margin-bottom:10px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">
+      <button id="mode-login" class="win-btn" style="flex:1;border-radius:0;border:none;background:var(--accent);color:#fff;font-weight:600;">Log In</button>
+      <button id="mode-register" class="win-btn" style="flex:1;border-radius:0;border:none;background:var(--bg-tertiary);color:var(--text-secondary);font-weight:600;">Sign Up</button>
     </div>
-    <div id="auth-buttons">
-      <button id="btn-login" class="win-btn">Login</button>
-      <button id="btn-register" class="win-btn">Register</button>
+    <h2 id="auth-title">Log in to place pixels</h2>
+    <div id="auth-helper" style="font-size:11px;color:var(--text-muted);margin:-4px 0 8px;line-height:1.4;">Welcome back! Enter your username and password.</div>
+    <input id="auth-user" class="win-input" type="text" placeholder="Username (3-20 letters/numbers)" maxlength="20" autocomplete="username">
+    <input id="auth-pass" class="win-input" type="password" placeholder="Password (min 4 characters)" maxlength="64" autocomplete="current-password">
+    <div id="captcha-row" style="display:none;flex-direction:column;gap:6px;margin-bottom:4px;">
+      <div style="font-size:11px;color:var(--text-secondary);">Type the letters you see below (5 letters, not case-sensitive):</div>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <img id="captcha-img" src="" alt="captcha" style="height:50px;border:1px solid var(--border);border-radius:var(--radius-sm);background:#fff;">
+        <button id="captcha-refresh" class="win-btn" title="New captcha" style="padding:4px 8px;font-size:14px;">&#x21bb;</button>
+      </div>
+      <input id="captcha-ans" class="win-input" type="text" placeholder="Type captcha here" maxlength="5" autocomplete="off" autocapitalize="characters" style="letter-spacing:3px;text-align:center;font-size:15px;">
     </div>
+    <button id="btn-auth-submit" class="win-btn" style="width:100%;padding:10px;font-size:14px;font-weight:700;margin-top:4px;">Log In</button>
     <div id="auth-error">&nbsp;</div>
+    <div style="display:flex;align-items:center;gap:6px;margin:8px 0;color:var(--text-muted);font-size:10px;"><div style="flex:1;height:1px;background:var(--border);"></div>OR<div style="flex:1;height:1px;background:var(--border);"></div></div>
+    <button id="btn-play-guest" class="win-btn" style="width:100%;padding:9px;font-size:13px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);">&#x1F464; Play as Guest (view only)</button>
+    <div style="font-size:10px;color:var(--text-muted);text-align:center;margin-top:4px;">Guests can chat and watch but can't place pixels.</div>
   </div>
   <div id="user-bar">
     <span class="user-name" id="user-display"></span>
@@ -1322,17 +1330,47 @@ async function fetchCaptcha() {
   catch { captchaImg.alt = 'Server offline'; }
 }
 
-function showRegisterMode(on) {
-  isRegisterMode = on;
-  captchaRow.style.display = on ? 'flex' : 'none';
-  if (on) fetchCaptcha();
+function setAuthMode(register) {
+  isRegisterMode = register;
+  const loginBtn = document.getElementById('mode-login');
+  const regBtn = document.getElementById('mode-register');
+  const submit = document.getElementById('btn-auth-submit');
+  const title = document.getElementById('auth-title');
+  const helper = document.getElementById('auth-helper');
+  if (register) {
+    loginBtn.style.background = 'var(--bg-tertiary)';
+    loginBtn.style.color = 'var(--text-secondary)';
+    regBtn.style.background = 'var(--accent)';
+    regBtn.style.color = '#fff';
+    submit.textContent = 'Create Account';
+    title.textContent = 'Create an account';
+    helper.textContent = 'Pick a username (3-20 letters/numbers), a password (4+ chars), and solve the captcha below.';
+    captchaRow.style.display = 'flex';
+    fetchCaptcha();
+  } else {
+    loginBtn.style.background = 'var(--accent)';
+    loginBtn.style.color = '#fff';
+    regBtn.style.background = 'var(--bg-tertiary)';
+    regBtn.style.color = 'var(--text-secondary)';
+    submit.textContent = 'Log In';
+    title.textContent = 'Log in to place pixels';
+    helper.textContent = 'Welcome back! Enter your username and password.';
+    captchaRow.style.display = 'none';
+  }
+  authError.innerHTML = '&nbsp;';
 }
 
-document.getElementById('btn-register').onclick = () => {
-  if (!isRegisterMode) { showRegisterMode(true); return; }
-  doAuth('/api/register', true);
+document.getElementById('mode-login').onclick = () => setAuthMode(false);
+document.getElementById('mode-register').onclick = () => setAuthMode(true);
+document.getElementById('btn-auth-submit').onclick = () => {
+  if (isRegisterMode) doAuth('/api/register', true);
+  else doAuth('/api/login', false);
 };
-document.getElementById('btn-login').onclick = () => { showRegisterMode(false); doAuth('/api/login', false); };
+document.getElementById('btn-play-guest').onclick = () => {
+  // Just scroll the lobby browser into view - they pick a public lobby to enter as guest
+  document.getElementById('lobby-screen').style.display = 'flex';
+  addSystemMsg('Pick any public lobby to join as a guest.');
+};
 
 async function doAuth(endpoint, needCaptcha) {
   const u = authUser.value.trim(), p = authPass.value;
@@ -1373,7 +1411,7 @@ function logout() {
   document.getElementById('guest-bar').style.display = 'none';
   document.getElementById('admin-tab-btn').style.display = 'none';
   chatInput.disabled = true; chatBtn.disabled = true;
-  showRegisterMode(false);
+  setAuthMode(false);
   document.getElementById('lobby-screen').style.display = 'flex';
   document.getElementById('btn-leave-lobby').style.display = 'none';
   document.getElementById('lobby-name-display').innerHTML = '';
@@ -1381,7 +1419,9 @@ function logout() {
 
 document.getElementById('btn-logout').onclick = logout;
 document.getElementById('captcha-refresh').onclick = fetchCaptcha;
-authPass.addEventListener('keydown', e => { if (e.key === 'Enter') { if (isRegisterMode) doAuth('/api/register', true); else doAuth('/api/login', false); }});
+authPass.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
+captchaAns.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
+authUser.addEventListener('keydown', e => { if (e.key === 'Enter') authPass.focus(); });
 
 const lobbyScreen = document.getElementById('lobby-screen');
 const lobbyError = document.getElementById('lobby-error');
