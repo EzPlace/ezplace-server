@@ -242,6 +242,13 @@
   .admin-row input { flex: 1; }
   .admin-json { background: var(--bg-primary); color: var(--green); font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; padding: 8px; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 6px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); }
   .lobby-menu-item:hover { background: var(--bg-hover); }
+  .mention-item { padding: 8px 12px; font-size: 12px; cursor: pointer; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+  .mention-item:hover, .mention-item.active { background: var(--accent); color: #fff; }
+  .mention-item .at { color: var(--accent); font-weight: 700; }
+  .mention-item.active .at { color: #fff; }
+  .msg.mention-self { background: rgba(124,92,252,0.18); border-left: 3px solid var(--accent); padding: 4px 8px; margin: 2px 0; border-radius: var(--radius-sm); }
+  .msg .mention-tag { background: var(--accent-dim); color: var(--accent); font-weight: 700; padding: 0 3px; border-radius: 3px; }
+  .msg .mention-tag.self { background: var(--accent); color: #fff; }
   .msg .crown { font-size: 12px; margin-right: 2px; }
   .msg .timestamp { color: var(--text-muted); font-size: 10px; margin-right: 4px; }
   .msg.system { color: var(--text-muted); font-style: italic; }
@@ -473,7 +480,8 @@
     </div>
     <div id="messages"></div>
     <div id="typing-indicator" style="display:none;font-size:12px;color:var(--accent);font-weight:600;padding:6px 12px;background:var(--accent-dim);border-left:3px solid var(--accent);margin:4px 6px 0;border-radius:var(--radius-sm);"><span id="typing-text"></span><span id="typing-dots" style="display:inline-block;margin-left:2px;letter-spacing:1px;"></span></div>
-    <div id="chat-bar">
+    <div id="chat-bar" style="position:relative;">
+      <div id="mention-popup" style="display:none;position:absolute;bottom:calc(100% + 4px);left:6px;right:6px;max-height:160px;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:30;"></div>
       <input id="chat-input" class="win-input" type="text" placeholder="Type a message..." maxlength="200" disabled>
       <button id="chat-btn" class="win-btn" disabled>Send</button>
     </div>
@@ -589,7 +597,11 @@ const COLORS = [
   '#9C6926','#6D001A','#BE0039','#FF3881',
   '#6A5CFF','#009EAA','#00756F','#000000',
   '#8B0045','#FF6B6B','#FF7F50','#0A2463',
-  '#FF0000','#40E0D0','#FF1493','#7FFF00'
+  '#FF0000','#40E0D0','#FF1493','#7FFF00',
+  '#228B22','#808000','#4B0082','#D8BFD8',
+  '#FFDAB9','#800020','#D2B48C','#4A2C2A',
+  '#36454F','#87CEEB','#B76E79','#98FF98',
+  '#F5DEB3','#2F4F4F','#DDA0DD'
 ];
 let COOLDOWN = 500; // ms, updated per lobby
 let userHasInteracted = false; // becomes true once the user manually zooms or pans, locking the auto-fit
@@ -1085,7 +1097,31 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank) {
   );
   if (canModerate) styleParts.push('cursor:pointer', 'text-decoration:underline dotted');
   const styleAttr = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
-  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${rankBadge}<span class="${nameClass}" data-user="${esc(name)}"${styleAttr}>${esc(name)}:</span> ${esc(filterText(text))}`;
+  // Parse @mentions, highlight any tag that targets the current user, and tag the whole message if so
+  const filtered = filterText(text);
+  const meLow = (username || '').toLowerCase();
+  let mentionsMe = false;
+  // Match @ followed by 3-20 alnum chars (matches the username rules)
+  const tokens = [];
+  const re = /@([A-Za-z0-9]{3,20})/g;
+  let lastIdx = 0;
+  let m;
+  while ((m = re.exec(filtered)) !== null) {
+    if (m.index > lastIdx) tokens.push({ type: 'text', value: filtered.slice(lastIdx, m.index) });
+    const target = m[1];
+    const isMe = target.toLowerCase() === meLow && meLow.length > 0;
+    if (isMe) mentionsMe = true;
+    tokens.push({ type: 'mention', value: target, isMe });
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < filtered.length) tokens.push({ type: 'text', value: filtered.slice(lastIdx) });
+  if (tokens.length === 0) tokens.push({ type: 'text', value: filtered });
+  const bodyHtml = tokens.map(t => {
+    if (t.type === 'mention') return `<span class="mention-tag${t.isMe ? ' self' : ''}">@${esc(t.value)}</span>`;
+    return esc(t.value);
+  }).join('');
+  if (mentionsMe && name.toLowerCase() !== meLow) d.classList.add('mention-self');
+  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${rankBadge}<span class="${nameClass}" data-user="${esc(name)}"${styleAttr}>${esc(name)}:</span> ${bodyHtml}`;
   if (canModerate) {
     d.querySelector('.name').addEventListener('click', e => showLobbyUserMenu(e, name));
   }
@@ -1170,18 +1206,101 @@ setInterval(() => {
   dots.textContent = '.'.repeat(typingDotPhase);
 }, 400);
 
+// === @ mention popup ===
+let lobbyUsers = [];
+let mentionActiveIndex = 0;
+let mentionMatches = [];
+let mentionAnchorStart = -1; // index in chatInput.value where the @ starts
+
+function getMentionContext() {
+  const v = chatInput.value;
+  const caret = chatInput.selectionStart || 0;
+  // Find the most recent @ before the caret that is at start-of-string or preceded by whitespace
+  let i = caret - 1;
+  while (i >= 0) {
+    const ch = v[i];
+    if (ch === '@') {
+      if (i === 0 || /\s/.test(v[i - 1])) return { start: i, query: v.slice(i + 1, caret) };
+      return null;
+    }
+    if (/\s/.test(ch)) return null;
+    i--;
+  }
+  return null;
+}
+
+function updateMentionPopup() {
+  const popup = document.getElementById('mention-popup');
+  const ctx = getMentionContext();
+  if (!ctx) {
+    popup.style.display = 'none';
+    mentionAnchorStart = -1;
+    return;
+  }
+  mentionAnchorStart = ctx.start;
+  const q = ctx.query.toLowerCase();
+  // Build candidate list: lobbyUsers from server, plus self for completeness
+  const all = new Set();
+  lobbyUsers.forEach(u => all.add(u));
+  if (username) all.add(username);
+  mentionMatches = [...all].filter(u => u.toLowerCase().startsWith(q) && u.toLowerCase() !== (username || '').toLowerCase()).slice(0, 8);
+  // Allow mentioning yourself too if query matches
+  if (username && username.toLowerCase().startsWith(q)) mentionMatches.unshift(username);
+  if (mentionMatches.length === 0) {
+    popup.style.display = 'none';
+    return;
+  }
+  if (mentionActiveIndex >= mentionMatches.length) mentionActiveIndex = 0;
+  popup.innerHTML = '';
+  mentionMatches.forEach((name, i) => {
+    const item = document.createElement('div');
+    item.className = 'mention-item' + (i === mentionActiveIndex ? ' active' : '');
+    item.innerHTML = `<span class="at">@</span>${esc(name)}`;
+    item.onmousedown = (e) => { e.preventDefault(); insertMention(name); };
+    popup.appendChild(item);
+  });
+  popup.style.display = 'block';
+}
+
+function insertMention(name) {
+  if (mentionAnchorStart < 0) return;
+  const v = chatInput.value;
+  const caret = chatInput.selectionStart || v.length;
+  const before = v.slice(0, mentionAnchorStart);
+  const after = v.slice(caret);
+  const insert = '@' + name + ' ';
+  chatInput.value = before + insert + after;
+  const newPos = (before + insert).length;
+  chatInput.setSelectionRange(newPos, newPos);
+  document.getElementById('mention-popup').style.display = 'none';
+  mentionAnchorStart = -1;
+  mentionActiveIndex = 0;
+  chatInput.focus();
+}
+
 function sendChat() {
   const text = chatInput.value.trim();
   if (!text || !username) return;
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'chat', text }));
   else addMsg(username, text, !isGuest && currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase(), isGuest);
   chatInput.value = '';
+  document.getElementById('mention-popup').style.display = 'none';
+  mentionAnchorStart = -1;
   if (myTypingStopTimer) { clearTimeout(myTypingStopTimer); myTypingStopTimer = null; }
   sendTyping(false);
 }
 chatBtn.addEventListener('click', sendChat);
-chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
-chatInput.addEventListener('input', notifyTypingFromInput);
+chatInput.addEventListener('keydown', e => {
+  const popupOpen = document.getElementById('mention-popup').style.display === 'block';
+  if (popupOpen && mentionMatches.length) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); mentionActiveIndex = (mentionActiveIndex + 1) % mentionMatches.length; updateMentionPopup(); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); mentionActiveIndex = (mentionActiveIndex - 1 + mentionMatches.length) % mentionMatches.length; updateMentionPopup(); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionMatches[mentionActiveIndex]); return; }
+    if (e.key === 'Escape') { e.preventDefault(); document.getElementById('mention-popup').style.display = 'none'; mentionAnchorStart = -1; return; }
+  }
+  if (e.key === 'Enter') sendChat();
+});
+chatInput.addEventListener('input', () => { notifyTypingFromInput(); updateMentionPopup(); });
 chatInput.addEventListener('blur', () => { if (myTypingStopTimer) { clearTimeout(myTypingStopTimer); myTypingStopTimer = null; } sendTyping(false); });
 document.getElementById('chat-filter-toggle').onchange = e => { chatFilterEnabled = e.target.checked; };
 if (einkMode) applyEinkMode();
@@ -1601,8 +1720,8 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
-      case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); render(); break;
+      case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); } break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
