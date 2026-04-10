@@ -330,8 +330,9 @@
     #btn-export-grid, #btn-import-grid, #btn-manage-current { font-size: 10px; padding: 4px 8px; }
     #zoom-buttons { right: 10px; gap: 6px; }
     #zoom-buttons button { width: 44px; height: 44px; font-size: 22px; }
-    #palette-row { gap: 6px; padding: 8px 6px; max-width: 100%; overflow-x: auto; flex-wrap: wrap; justify-content: center; }
-    .color-btn { width: 32px; height: 32px; min-width: 32px; }
+    #palette-row { gap: 6px; padding: 8px; max-width: 100%; width: 100%; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: thin; white-space: nowrap; }
+    #palette-row::-webkit-scrollbar { height: 4px; }
+    .color-btn { width: 36px; height: 36px; min-width: 36px; flex-shrink: 0; }
     .sidebar-tab { font-size: 11px; padding: 10px 4px; }
     #lobby-screen { padding: 12px; }
     #lobby-screen h2 { font-size: 16px; }
