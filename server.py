@@ -916,6 +916,7 @@ async def websocket_handler(request):
     lobby_id = None
     is_guest = False
     last_pixel = 0
+    last_cursor = 0
     chat_times = []
     last_chat_text = ""
     clients[ws] = None
@@ -1093,6 +1094,23 @@ async def websocket_handler(request):
                         else:
                             await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
 
+                elif data["type"] == "cursor" and username and lobby_id:
+                    now_c = time.time()
+                    if now_c - last_cursor < 0.05:
+                        continue
+                    last_cursor = now_c
+                    lobby = lobbies.get(lobby_id)
+                    if not lobby:
+                        continue
+                    lw = lobby.get("width", 256)
+                    lh = lobby.get("height", 256)
+                    x = data.get("x")
+                    y = data.get("y")
+                    if x is None or y is None:
+                        await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username}, exclude=ws)
+                    elif isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
+                        await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y, "guest": is_guest}, exclude=ws)
+
                 elif data["type"] == "ping":
                     await ws.send_json({"type": "pong", "time": data.get("time", 0)})
 
@@ -1101,6 +1119,7 @@ async def websocket_handler(request):
     finally:
         del clients[ws]
         if username and lobby_id:
+            await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username})
             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} left"})
             await broadcast_online_lobby(lobby_id)
     return ws
