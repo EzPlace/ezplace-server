@@ -976,7 +976,7 @@ async def websocket_handler(request):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
-                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 32:
+                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 47:
                         old_color = lobby["grid"][y * lw + x]
                         lobby["grid"][y * lw + x] = color
                         lobby["last_activity"] = now
@@ -1052,7 +1052,7 @@ async def websocket_handler(request):
                         color = data.get("color", 0)
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
-                        if isinstance(coords, list) and 0 <= color < 32:
+                        if isinstance(coords, list) and 0 <= color < 47:
                             placed = 0
                             for c in coords[:1024]:  # cap brush stamps
                                 if not isinstance(c, list) or len(c) != 2: continue
@@ -1077,7 +1077,7 @@ async def websocket_handler(request):
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
                         expected = lw * lh
-                        if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < 32 for c in new_grid):
+                        if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < 47 for c in new_grid):
                             lobby["grid"] = bytearray(new_grid)
                             lobby["last_activity"] = time.time()
                             imported_counts = data.get("pixel_counts")
@@ -1139,7 +1139,17 @@ async def broadcast_to_lobby(lobby_id, data, exclude=None):
 async def broadcast_online_lobby(lobby_id):
     count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
     total = sum(1 for info in clients.values() if info)
-    await broadcast_to_lobby(lobby_id, {"type": "online", "count": count, "total": total})
+    # Distinct logged-in usernames in this lobby (guests excluded — they can't be @ mentioned in any meaningful way)
+    seen = set()
+    users = []
+    for info in clients.values():
+        if not info or info.get("lobby_id") != lobby_id or info.get("guest"):
+            continue
+        n = info.get("username")
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            users.append(n)
+    await broadcast_to_lobby(lobby_id, {"type": "online", "count": count, "total": total, "users": users})
 
 async def leaderboard_broadcast_loop(app):
     while True:
