@@ -729,9 +729,27 @@ function setOffscreenPixel(x, y, color) {
 
 function resizeCanvas() {
   const wrap = document.getElementById('viewport-wrap');
-  cvs.width = wrap.clientWidth; cvs.height = wrap.clientHeight; render();
+  const w = wrap.clientWidth || window.innerWidth;
+  const h = wrap.clientHeight || window.innerHeight;
+  if (cvs.width !== w || cvs.height !== h) {
+    cvs.width = w; cvs.height = h;
+  }
+  render();
+}
+function fitViewToGrid() {
+  const w = cvs.width || 1, h = cvs.height || 1;
+  zoom = Math.min(w, h) / Math.max(GRID_W, GRID_H) * 0.9;
+  zoom = Math.max(MIN_ZOOM, zoom);
+  camX = GRID_W / 2; camY = GRID_H / 2;
+  document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x';
 }
 window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 200));
+// ResizeObserver catches address-bar collapse on mobile and any other layout shifts the window resize event misses
+if (typeof ResizeObserver !== 'undefined') {
+  const ro = new ResizeObserver(() => resizeCanvas());
+  ro.observe(document.getElementById('viewport-wrap'));
+}
 
 // In e-ink mode, debounce render to avoid hammering the screen
 let einkRenderTimer = null;
@@ -1569,7 +1587,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
@@ -1931,12 +1949,10 @@ document.getElementById('btn-admin-rank-remove').onclick = () => {
 document.getElementById('btn-view-ranks').onclick = () => adminView('/api/admin/ranks');
 
 function initView() {
-  const wrap = document.getElementById('viewport-wrap');
-  cvs.width = wrap.clientWidth; cvs.height = wrap.clientHeight;
-  zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9;
-  zoom = Math.max(MIN_ZOOM, zoom);
-  document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x';
-  camX = GRID_W / 2; camY = GRID_H / 2; resetOffscreen(); render();
+  resizeCanvas();
+  fitViewToGrid();
+  resetOffscreen();
+  render();
 }
 
 if (authToken && localStorage.getItem('ezplace_user')) {
