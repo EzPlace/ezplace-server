@@ -563,6 +563,18 @@ let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
 let canPlace = true;
+// Remote cursors: { username_lower: { name, x, y, isGuest, lastUpdate } }
+let remoteCursors = {};
+const REMOTE_CURSOR_TIMEOUT = 6000;
+let lastSentCursorX = -1, lastSentCursorY = -1, lastSentCursorTime = 0;
+setInterval(() => {
+  const now = Date.now();
+  let expired = false;
+  for (const k in remoteCursors) {
+    if (now - remoteCursors[k].lastUpdate > REMOTE_CURSOR_TIMEOUT) { delete remoteCursors[k]; expired = true; }
+  }
+  if (expired) render();
+}, 2000);
 let chatFilterEnabled = true;
 let isGuest = false;
 let guestName = '';
@@ -639,6 +651,39 @@ function render() {
     ctx.lineWidth = 1;
     ctx.strokeRect(hx - 1, hy - 1, hs + 2, hs + 2);
   }
+  // Render remote cursors
+  const nowR = Date.now();
+  ctx.font = '11px Inter, sans-serif';
+  ctx.textBaseline = 'bottom';
+  for (const key in remoteCursors) {
+    const c = remoteCursors[key];
+    if (nowR - c.lastUpdate > REMOTE_CURSOR_TIMEOUT) { delete remoteCursors[key]; continue; }
+    const cx = Math.floor((c.x - left) * zoom);
+    const cy = Math.floor((c.y - top) * zoom);
+    const cs = Math.max(2, Math.ceil(zoom));
+    if (cx + cs < 0 || cy + cs < 0 || cx > w || cy > h) continue;
+    const color = c.isGuest ? '#999999' : '#7c5cfc';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(cx, cy, cs, cs);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx, cy, cs, cs);
+    // Username label above the cursor
+    const label = c.name;
+    const padX = 4, padY = 2;
+    const tw = ctx.measureText(label).width + padX * 2;
+    const th = 14;
+    let lx = cx;
+    let ly = cy - 2;
+    if (ly - th < 0) ly = cy + cs + th;
+    if (lx + tw > w) lx = w - tw;
+    if (lx < 0) lx = 0;
+    ctx.fillStyle = color;
+    ctx.fillRect(lx, ly - th, tw, th);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, lx + padX, ly - padY);
+  }
 }
 
 function screenToGrid(sx, sy) {
@@ -666,6 +711,20 @@ function isOverGrid(sx, sy) {
   const g = screenToGrid(sx, sy);
   return g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H;
 }
+function sendCursor(x, y) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !currentLobbyId) return;
+  const now = Date.now();
+  if (x === lastSentCursorX && y === lastSentCursorY) return;
+  if (now - lastSentCursorTime < 60) return;
+  lastSentCursorX = x; lastSentCursorY = y; lastSentCursorTime = now;
+  ws.send(JSON.stringify({ type: 'cursor', x, y }));
+}
+function clearOwnCursor() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !currentLobbyId) return;
+  if (lastSentCursorX === -1 && lastSentCursorY === -1) return;
+  lastSentCursorX = -1; lastSentCursorY = -1; lastSentCursorTime = Date.now();
+  ws.send(JSON.stringify({ type: 'cursor', x: null, y: null }));
+}
 function updateCursor(sx, sy) {
   if (isPanning) { cvs.style.cursor = 'grabbing'; }
   else if (isOverGrid(sx, sy)) { cvs.style.cursor = 'crosshair'; }
@@ -688,8 +747,10 @@ window.addEventListener('mousemove', e => {
     if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H) {
       hoverInfo.textContent = `(${g.x}, ${g.y}) - ${COLORS[grid[g.y * GRID_W + g.x]]}`;
       hoverGridX = g.x; hoverGridY = g.y;
+      sendCursor(g.x, g.y);
     } else {
       hoverInfo.innerHTML = '&nbsp;';
+      if (hoverGridX !== -1) clearOwnCursor();
       hoverGridX = -1; hoverGridY = -1;
     }
     if (hoverGridX !== oldHX || hoverGridY !== oldHY) render();
@@ -698,7 +759,7 @@ window.addEventListener('mousemove', e => {
 });
 window.addEventListener('mouseup', e => { if (isPanning) { isPanning = false; const rect = cvs.getBoundingClientRect(); updateCursor(e.clientX - rect.left, e.clientY - rect.top); } });
 cvs.addEventListener('contextmenu', e => e.preventDefault());
-cvs.addEventListener('mouseleave', () => { hoverInfo.innerHTML = '&nbsp;'; hoverGridX = -1; hoverGridY = -1; render(); });
+cvs.addEventListener('mouseleave', () => { hoverInfo.innerHTML = '&nbsp;'; hoverGridX = -1; hoverGridY = -1; clearOwnCursor(); render(); });
 const hoverInfo = document.getElementById('hover-info');
 
 let touchStartDist = 0;
@@ -1294,11 +1355,13 @@ function connectToLobby(lobbyId, lobbyName) {
     const msg = JSON.parse(e.data);
     switch (msg.type) {
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; render(); break;
+      case 'cursor': if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) { remoteCursors[msg.username.toLowerCase()] = { name: msg.username, x: msg.x, y: msg.y, isGuest: !!msg.guest, lastUpdate: Date.now() }; render(); } break;
+      case 'cursor_remove': if (msg.username) { delete remoteCursors[msg.username.toLowerCase()]; render(); } break;
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
