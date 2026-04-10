@@ -219,11 +219,12 @@
   .msg .name { color: var(--accent); font-weight: 500; }
   .msg .name.owner { color: var(--red); font-weight: 700; }
   .msg .name.guest { color: var(--text-muted); font-style: italic; }
-  .rainbow { font-weight: 700; background: linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00cc00, #0088ff, #8800ff, #ff00ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  @keyframes lava-flow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+  .rainbow { font-weight: 700; background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
   .msg .name.vip { color: var(--gold); font-weight: 700; }
   .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; background: linear-gradient(90deg, #daa520, #ffd700, #fff68f, #daa520); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
   .msg .rank-badge { font-size: 10px; font-weight: 700; margin-right: 3px; }
-  .msg .rank-badge.rainbow { background: linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00cc00, #0088ff, #8800ff, #ff00ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .msg .rank-badge.rainbow { background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
   @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(20px); } }
   .dm-toast { background: var(--bg-elevated); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: var(--radius-md); padding: 10px 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.5); pointer-events: auto; cursor: pointer; animation: toastIn 0.25s ease; }
@@ -472,6 +473,7 @@
       <label><input type="checkbox" id="eink-toggle"> E-ink mode</label>
     </div>
     <div id="messages"></div>
+    <div id="typing-indicator" style="display:none;font-size:11px;color:var(--text-muted);font-style:italic;padding:2px 10px;min-height:16px;"></div>
     <div id="chat-bar">
       <input id="chat-input" class="win-input" type="text" placeholder="Type a message..." maxlength="200" disabled>
       <button id="chat-btn" class="win-btn" disabled>Send</button>
@@ -1072,9 +1074,65 @@ document.getElementById('lm-unban').onclick = async (e) => {
     addSystemMsg(`Unbanned ${lobbyMenuTarget} from this lobby`);
   } catch {}
 };
-function sendChat() { const text = chatInput.value.trim(); if (!text || !username) return; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'chat', text })); else addMsg(username, text, !isGuest && currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase(), isGuest); chatInput.value = ''; }
+// Typing indicator state
+const typingUsers = new Map(); // username_lower -> { name, expiresAt }
+let myTypingState = false;
+let myTypingStopTimer = null;
+const TYPING_IDLE_MS = 4000;
+const TYPING_EXPIRE_MS = 7000;
+
+function sendTyping(state) {
+  if (isGuest) return;
+  if (state === myTypingState) return;
+  myTypingState = state;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'typing', typing: state }));
+  }
+}
+function notifyTypingFromInput() {
+  if (!chatInput.value.trim()) {
+    if (myTypingStopTimer) { clearTimeout(myTypingStopTimer); myTypingStopTimer = null; }
+    sendTyping(false);
+    return;
+  }
+  sendTyping(true);
+  if (myTypingStopTimer) clearTimeout(myTypingStopTimer);
+  myTypingStopTimer = setTimeout(() => { sendTyping(false); myTypingStopTimer = null; }, TYPING_IDLE_MS);
+}
+function renderTypingIndicator() {
+  const el = document.getElementById('typing-indicator');
+  const now = Date.now();
+  // Drop expired entries
+  for (const [k, v] of typingUsers) {
+    if (v.expiresAt < now) typingUsers.delete(k);
+  }
+  const names = [...typingUsers.values()].map(v => v.name);
+  if (names.length === 0) {
+    el.style.display = 'none';
+    el.textContent = '';
+  } else if (names.length === 1) {
+    el.style.display = '';
+    el.textContent = `${names[0]} is typing...`;
+  } else {
+    el.style.display = '';
+    el.textContent = `${names.length}+ people are typing...`;
+  }
+}
+setInterval(renderTypingIndicator, 1500);
+
+function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text || !username) return;
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'chat', text }));
+  else addMsg(username, text, !isGuest && currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase(), isGuest);
+  chatInput.value = '';
+  if (myTypingStopTimer) { clearTimeout(myTypingStopTimer); myTypingStopTimer = null; }
+  sendTyping(false);
+}
 chatBtn.addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+chatInput.addEventListener('input', notifyTypingFromInput);
+chatInput.addEventListener('blur', () => { if (myTypingStopTimer) { clearTimeout(myTypingStopTimer); myTypingStopTimer = null; } sendTyping(false); });
 document.getElementById('chat-filter-toggle').onchange = e => { chatFilterEnabled = e.target.checked; };
 document.getElementById('eink-toggle').checked = einkMode;
 document.getElementById('eink-toggle').onchange = e => {
@@ -1241,6 +1299,7 @@ document.getElementById('btn-leave-lobby').onclick = () => {
   intentionalClose = true;
   if (ws) ws.close();
   currentLobbyId = null; currentLobbyName = '';
+  typingUsers.clear(); renderTypingIndicator();
   messagesEl.innerHTML = '';
   document.getElementById('online-count').textContent = '0';
   document.getElementById('btn-export-grid').style.display = 'none';
@@ -1488,11 +1547,19 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; setOffscreenPixel(msg.x, msg.y, msg.color); render(); break;
       case 'cursor': if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) { remoteCursors[msg.username.toLowerCase()] = { name: msg.username, x: msg.x, y: msg.y, isGuest: !!msg.guest, lastUpdate: Date.now() }; render(); } break;
       case 'cursor_remove': if (msg.username) { delete remoteCursors[msg.username.toLowerCase()]; render(); } break;
+      case 'typing': {
+        if (!msg.username || msg.username.toLowerCase() === (username || '').toLowerCase()) break;
+        const k = msg.username.toLowerCase();
+        if (msg.typing) typingUsers.set(k, { name: msg.username, expiresAt: Date.now() + TYPING_EXPIRE_MS });
+        else typingUsers.delete(k);
+        renderTypingIndicator();
+        break;
+      }
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; camX = GRID_W / 2; camY = GRID_H / 2; zoom = Math.min(cvs.width, cvs.height) / Math.max(GRID_W, GRID_H) * 0.9; zoom = Math.max(MIN_ZOOM, zoom); document.getElementById('zoom-level').textContent = zoom.toFixed(1) + 'x'; if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;

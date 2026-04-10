@@ -1094,6 +1094,10 @@ async def websocket_handler(request):
                         else:
                             await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
 
+                elif data["type"] == "typing" and username and lobby_id and not is_guest:
+                    state = bool(data.get("typing"))
+                    await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": state}, exclude=ws)
+
                 elif data["type"] == "cursor" and username and lobby_id:
                     now_c = time.time()
                     if now_c - last_cursor < 0.05:
@@ -1120,6 +1124,7 @@ async def websocket_handler(request):
         del clients[ws]
         if username and lobby_id:
             await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username})
+            await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": False})
             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} left"})
             await broadcast_online_lobby(lobby_id)
     return ws
