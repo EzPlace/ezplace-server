@@ -592,6 +592,7 @@ const COLORS = [
   '#FF0000','#40E0D0','#FF1493','#7FFF00'
 ];
 let COOLDOWN = 500; // ms, updated per lobby
+let userHasInteracted = false; // becomes true once the user manually zooms or pans, locking the auto-fit
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 40;
 const GRID_LINE_MIN_ZOOM = 4;
@@ -763,6 +764,18 @@ function render() {
   _renderImpl();
 }
 _renderImpl = function() {
+  // Until the user manually zooms/pans, always re-fit the view to the current canvas dimensions.
+  // This protects against mobile address-bar collapse, late layout, and any other timing issue
+  // that leaves cvs.width stale at the moment the grid handler ran.
+  if (!userHasInteracted && currentLobbyId) {
+    const wrap = document.getElementById('viewport-wrap');
+    const targetW = wrap.clientWidth || window.innerWidth;
+    const targetH = wrap.clientHeight || window.innerHeight;
+    if (targetW > 0 && targetH > 0 && (cvs.width !== targetW || cvs.height !== targetH)) {
+      cvs.width = targetW; cvs.height = targetH;
+    }
+    fitViewToGrid();
+  }
   const w = cvs.width, h = cvs.height;
   ctx.fillStyle = einkMode ? '#fff' : '#111'; ctx.fillRect(0, 0, w, h);
   const left = camX - (w / 2) / zoom, top = camY - (h / 2) / zoom;
@@ -840,6 +853,7 @@ function screenToGrid(sx, sy) {
 function setZoom(newZoom, pivotSX, pivotSY) {
   newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
   if (newZoom === zoom) return;
+  userHasInteracted = true;
   if (pivotSX !== undefined) {
     const w = cvs.width, h = cvs.height;
     const gx = pivotSX / zoom + camX - (w / 2) / zoom, gy = pivotSY / zoom + camY - (h / 2) / zoom;
@@ -880,7 +894,7 @@ cvs.addEventListener('mousedown', e => {
   const rect = cvs.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   if (e.button === 1 || e.button === 2 || (e.button === 0 && !isOverGrid(sx, sy))) {
-    isPanning = true; panStartX = e.clientX; panStartY = e.clientY; camStartX = camX; camStartY = camY;
+    isPanning = true; userHasInteracted = true; panStartX = e.clientX; panStartY = e.clientY; camStartX = camX; camStartY = camY;
     cvs.style.cursor = 'grabbing'; e.preventDefault();
   }
 });
@@ -944,6 +958,7 @@ cvs.addEventListener('touchmove', e => {
   } else if (e.touches.length === 1 && touchPanning) {
     const dx = (e.touches[0].clientX - touchStartX) / zoom;
     const dy = (e.touches[0].clientY - touchStartY) / zoom;
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) userHasInteracted = true;
     camX = touchCamX - dx; camY = touchCamY - dy;
     render();
   }
@@ -1587,7 +1602,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
