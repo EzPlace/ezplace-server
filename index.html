@@ -316,6 +316,16 @@
   body.eink-mode .f-status.online, body.eink-mode .lb-status.online { background: #000 !important; }
   body.eink-mode .f-status.offline, body.eink-mode .lb-status.offline { background: #fff !important; border: 1px solid #000; }
 
+  /* Mobile chat overlay — hidden on desktop */
+  #mobile-chat-overlay { display: none; }
+  @keyframes chatBubbleIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes chatBubbleOut { from { opacity: 1; } to { opacity: 0; transform: translateY(-4px); } }
+  .mobile-chat-bubble { background: rgba(22,22,29,0.88); backdrop-filter: blur(6px); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 6px 10px; font-size: 12px; color: var(--text-primary); animation: chatBubbleIn 0.2s ease; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-chat-bubble.fading { animation: chatBubbleOut 0.4s ease forwards; }
+  .mobile-chat-bubble .mcb-name { font-weight: 700; color: var(--accent); margin-right: 4px; }
+  .mobile-chat-bubble .mcb-name.owner { color: var(--red); }
+  .mobile-chat-bubble .mcb-name.guest { color: var(--text-muted); font-style: italic; }
+
   /* Mobile sidebar toggle */
   #mobile-sidebar-toggle { display: none; position: fixed; bottom: 14px; right: 14px; z-index: 20; width: 48px; height: 48px; font-size: 20px; border-radius: 50%; background: var(--accent); border: none; color: #fff; box-shadow: 0 4px 16px rgba(124,92,252,0.4); }
   #mobile-sidebar-toggle:hover { background: var(--accent-hover); }
@@ -328,6 +338,7 @@
     #sidebar { width: 100%; height: 65vh; position: fixed; bottom: 0; left: 0; right: 0; z-index: 15; transform: translateY(100%); transition: transform 0.25s ease; border-left: none; border-top: 1px solid var(--border); }
     #sidebar.open { transform: translateY(0); }
     #mobile-sidebar-toggle { display: flex; align-items: center; justify-content: center; bottom: 18px; right: 18px; width: 56px; height: 56px; font-size: 24px; }
+    #mobile-chat-overlay { display: flex; }
     #header { padding: 6px 8px; }
     #header h1 { font-size: 13px; }
     #header-right { gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
@@ -390,6 +401,7 @@
   <div id="cooldown-bar"><div id="cooldown-fill"></div></div>
   <div id="viewport-wrap">
     <canvas id="viewport"></canvas>
+    <div id="mobile-chat-overlay" style="position:absolute;top:6px;left:6px;right:6px;z-index:6;display:flex;flex-direction:column;gap:4px;pointer-events:none;"></div>
     <div id="guest-warning" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#cc0000;color:#ffeb3b;font-weight:800;font-size:15px;padding:14px 22px;border-radius:10px;border:2px solid #ffeb3b;box-shadow:0 6px 24px rgba(0,0,0,0.6);text-align:center;max-width:90%;pointer-events:none;z-index:5;text-shadow:0 1px 2px rgba(0,0,0,0.6);">
       You are not logged into an account.<br>Please make an account to place pixels.
     </div>
@@ -1114,6 +1126,31 @@ function formatExpires(secs) {
   if (secs < 3600) return `${Math.ceil(secs / 60)}min until expiration`;
   return `${Math.floor(secs / 3600)}h until expiration`;
 }
+// Mobile chat overlay: show chat messages above the canvas when sidebar is closed
+const MAX_MOBILE_BUBBLES = 4;
+const MOBILE_BUBBLE_DURATION = 5000;
+function showMobileChatBubble(name, text, isOwner, isMsgGuest) {
+  const overlay = document.getElementById('mobile-chat-overlay');
+  if (!overlay || getComputedStyle(overlay).display === 'none') return;
+  // Don't show if sidebar is open (user can read chat directly)
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar && sidebar.classList.contains('open')) return;
+  const bubble = document.createElement('div');
+  bubble.className = 'mobile-chat-bubble';
+  const nameClass = isOwner ? 'mcb-name owner' : (isMsgGuest ? 'mcb-name guest' : 'mcb-name');
+  bubble.innerHTML = `<span class="${nameClass}">${esc(name)}:</span> ${esc(text).slice(0, 80)}${text.length > 80 ? '...' : ''}`;
+  overlay.appendChild(bubble);
+  // Cap visible bubbles
+  while (overlay.children.length > MAX_MOBILE_BUBBLES) {
+    overlay.removeChild(overlay.firstChild);
+  }
+  // Auto-remove after duration
+  setTimeout(() => {
+    bubble.classList.add('fading');
+    setTimeout(() => { if (bubble.parentNode) bubble.parentNode.removeChild(bubble); }, 400);
+  }, MOBILE_BUBBLE_DURATION);
+}
+
 function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank) {
   const d = document.createElement('div'); d.className = 'msg';
   const isTP = name.toLowerCase() === 'toothpaste';
@@ -1795,7 +1832,7 @@ function connectToLobby(lobbyId, lobbyName) {
       }
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
-      case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); break;
+      case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); } break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; render(); break;
       case 'system': addSystemMsg(msg.text); break;
@@ -2185,6 +2222,12 @@ function initView() {
 if (authToken && localStorage.getItem('ezplace_user')) {
   username = localStorage.getItem('ezplace_user');
   showLoggedIn();
+} else {
+  // If this IP has previously logged in, default the panel to Log In; otherwise default to Sign Up.
+  fetch('/api/auth/suggest-mode').then(r => r.json()).then(d => {
+    if (d && d.mode === 'register') setAuthMode(true);
+    else setAuthMode(false);
+  }).catch(() => {});
 }
 initView();
 loadLobbies();
