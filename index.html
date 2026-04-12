@@ -628,13 +628,15 @@
         <button class="win-btn" id="btn-view-friends">Friends</button>
         <button class="win-btn" id="btn-view-lobbies">Lobbies</button>
       </div>
-      <h4>Fake Admin</h4>
-      <div class="admin-row">
-        <input id="admin-fakeadmin-input" class="win-input" type="text" placeholder="Username">
-        <button class="win-btn" id="btn-fakeadmin-add">Grant</button>
-        <button class="win-btn" id="btn-fakeadmin-remove">Revoke</button>
-        <button class="win-btn" id="btn-view-fakeadmins">View</button>
-        <button class="win-btn" id="btn-view-fakelog" style="background:var(--accent)">Spy Log</button>
+      <div id="fake-admin-section" style="display:none;">
+        <h4>Fake Admin</h4>
+        <div class="admin-row">
+          <input id="admin-fakeadmin-input" class="win-input" type="text" placeholder="Username">
+          <button class="win-btn" id="btn-fakeadmin-add">Grant</button>
+          <button class="win-btn" id="btn-fakeadmin-remove">Revoke</button>
+          <button class="win-btn" id="btn-view-fakeadmins">View</button>
+          <button class="win-btn" id="btn-view-fakelog" style="background:var(--accent)">Spy Log</button>
+        </div>
       </div>
       <div id="admin-json" class="admin-json" style="display:none;"></div>
     </div>
@@ -1502,7 +1504,7 @@ function showLoggedIn() {
   authPanel.style.display = 'none'; userBar.style.display = 'flex';
   document.getElementById('user-display').textContent = username;
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
-  if (username.toLowerCase() === 'toothpaste') document.getElementById('admin-tab-btn').style.display = 'block';
+  if (username.toLowerCase() === 'toothpaste') { document.getElementById('admin-tab-btn').style.display = 'block'; document.getElementById('fake-admin-section').style.display = ''; }
   connectSocial();
 }
 
