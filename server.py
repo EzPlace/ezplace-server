@@ -1320,7 +1320,19 @@ async def on_cleanup(app):
         except: pass
     await save_all_lobbies()
 
-app = web.Application()
+@web.middleware
+async def cors_middleware(request, handler):
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        resp = web.Response()
+    else:
+        resp = await handler(request)
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    return resp
+
+app = web.Application(middlewares=[cors_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
 app.router.add_get("/api/captcha", captcha_handler)
