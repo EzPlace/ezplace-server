@@ -967,6 +967,33 @@ async def admin_fake_admin_remove_handler(request):
     await save_fake_admins()
     return web.json_response({"ok": True, "message": f"Revoked fake admin from {target}"})
 
+fake_action_log = []  # [{username, action, target, detail, time}]
+
+async def fake_action_log_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user or not is_fake_admin(user): return web.json_response({"ok": True})
+    fake_action_log.append({
+        "username": user,
+        "action": data.get("action", ""),
+        "target": data.get("target", ""),
+        "detail": data.get("detail", ""),
+        "time": time.time()
+    })
+    # Cap log to last 200 entries
+    if len(fake_action_log) > 200: del fake_action_log[:len(fake_action_log) - 200]
+    return web.json_response({"ok": True})
+
+async def admin_view_fake_log_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    # Return the log with human-readable timestamps
+    entries = []
+    for e in fake_action_log[-50:]:
+        import datetime
+        ts = datetime.datetime.fromtimestamp(e["time"]).strftime("%H:%M:%S")
+        entries.append(f'[{ts}] {e["username"]} tried: {e["action"]} → target: {e["target"]}')
+    return web.json_response({"log": entries})
+
 async def social_ws_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -1407,6 +1434,8 @@ app.router.add_get("/api/admin/ranks", admin_ranks_handler)
 app.router.add_post("/api/admin/fake-admin-add", admin_fake_admin_add_handler)
 app.router.add_post("/api/admin/fake-admin-remove", admin_fake_admin_remove_handler)
 app.router.add_get("/api/admin/fake-admins", lambda r: web.json_response({"fake_admins": fake_admins}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
+app.router.add_post("/api/admin/fake-action-log", fake_action_log_handler)
+app.router.add_get("/api/admin/fake-log", admin_view_fake_log_handler)
 app.router.add_get("/ws", websocket_handler)
 app.router.add_get("/ws/social", social_ws_handler)
 app.router.add_get("/", index_handler)
