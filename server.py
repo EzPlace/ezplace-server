@@ -43,10 +43,14 @@ ip_bans = []
 vips = []
 ranks = {}  # { username_lower: { "label": "VIP", "color": "#daa520" } }
 user_ips = {}
+fake_admins = []
 lobbies = {}
 clients = {}
 social_clients = {}
 social_ips = {}
+
+def is_fake_admin(user):
+    return user and user.lower() in [f.lower() for f in fake_admins]
 
 def is_admin(user):
     return user and user.lower() == ADMIN_USER
@@ -153,6 +157,9 @@ async def save_ip_bans():
 async def save_vips():
     await db_save("store", "vips", vips)
 
+async def save_fake_admins():
+    await db_save("store", "fake_admins", fake_admins)
+
 async def save_ranks():
     await db_save("store", "ranks", ranks)
 
@@ -245,7 +252,7 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, dms, dm_last_seen
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, dms, dm_last_seen
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
@@ -253,6 +260,7 @@ async def load_all_data():
     ip_bans = await db_load("store", "ip_bans") or []
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
+    fake_admins = await db_load("store", "fake_admins") or []
     dm_last_seen = await db_load("store", "dm_last_seen") or {}
     # Migrate any existing VIPs that don't already have a rank
     rank_dirty = False
@@ -941,6 +949,24 @@ async def admin_ranks_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"ranks": ranks})
 
+async def admin_fake_admin_add_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    if target.lower() not in [f.lower() for f in fake_admins]:
+        fake_admins.append(target.lower())
+        await save_fake_admins()
+    return web.json_response({"ok": True, "message": f"Granted fake admin to {target}"})
+
+async def admin_fake_admin_remove_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip().lower()
+    fake_admins[:] = [f for f in fake_admins if f.lower() != target]
+    await save_fake_admins()
+    return web.json_response({"ok": True, "message": f"Revoked fake admin from {target}"})
+
 async def social_ws_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -1032,7 +1058,9 @@ async def websocket_handler(request):
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "can_place": can_place}
                     await track_ip(username, request)
-                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place})
+                    grid_msg = {"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place}
+                    if is_fake_admin(username): grid_msg["fake_admin"] = True
+                    await ws.send_json(grid_msg)
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                     await broadcast_online_lobby(lobby_id)
 
@@ -1376,6 +1404,9 @@ app.router.add_post("/api/admin/vip-remove", admin_vip_remove_handler)
 app.router.add_post("/api/admin/rank-set", admin_rank_set_handler)
 app.router.add_post("/api/admin/rank-remove", admin_rank_remove_handler)
 app.router.add_get("/api/admin/ranks", admin_ranks_handler)
+app.router.add_post("/api/admin/fake-admin-add", admin_fake_admin_add_handler)
+app.router.add_post("/api/admin/fake-admin-remove", admin_fake_admin_remove_handler)
+app.router.add_get("/api/admin/fake-admins", lambda r: web.json_response({"fake_admins": fake_admins}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 app.router.add_get("/ws", websocket_handler)
 app.router.add_get("/ws/social", social_ws_handler)
 app.router.add_get("/", index_handler)
