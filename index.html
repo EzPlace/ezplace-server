@@ -634,6 +634,18 @@
 </div>
 
 <script>
+// When served from GitHub Pages (or any external host), route API/WS to the Render backend.
+// When served from Render itself, use same-origin (empty string).
+const BACKEND_HOST = location.hostname.includes('github.io') || location.hostname.includes('is-a.dev') || location.hostname.includes('is-into.tech') || location.hostname.includes('is-pro.dev') ? 'ezplace-server.onrender.com' : '';
+const BACKEND = BACKEND_HOST ? 'https://' + BACKEND_HOST : '';
+const WS_HOST = BACKEND_HOST || location.host;
+// Monkey-patch fetch so all /api calls go to the backend automatically
+const _origFetch = window.fetch;
+window.fetch = function(url, ...args) {
+  if (typeof url === 'string' && url.startsWith('/')) url = BACKEND + url;
+  return _origFetch.call(this, url, ...args);
+};
+
 let GRID_W = 256, GRID_H = 256;
 const COLORS = [
   '#FFFFFF','#D4D7D9','#898D90','#515252',
@@ -1806,7 +1818,8 @@ function connectToLobby(lobbyId, lobbyName) {
   if (ws) ws.close();
   intentionalClose = false;
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  try { ws = new WebSocket(`${protocol}://${location.host}/ws`); } catch { addSystemMsg('No server.'); return; }
+  const wsProto = BACKEND_HOST ? 'wss' : protocol;
+  try { ws = new WebSocket(`${wsProto}://${WS_HOST}/ws`); } catch { addSystemMsg('No server.'); return; }
   ws.onopen = () => {
     if (isGuest) {
       ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, guest_name: guestName }));
@@ -1961,7 +1974,8 @@ let socialWs = null;
 function connectSocial() {
   if (!authToken) return;
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  try { socialWs = new WebSocket(`${protocol}://${location.host}/ws/social`); } catch { return; }
+  const socialProto = BACKEND_HOST ? 'wss' : protocol;
+  try { socialWs = new WebSocket(`${socialProto}://${WS_HOST}/ws/social`); } catch { return; }
   socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken })); };
   socialWs.onmessage = e => {
     const msg = JSON.parse(e.data);
