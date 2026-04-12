@@ -634,6 +634,7 @@
         <button class="win-btn" id="btn-fakeadmin-add">Grant</button>
         <button class="win-btn" id="btn-fakeadmin-remove">Revoke</button>
         <button class="win-btn" id="btn-view-fakeadmins">View</button>
+        <button class="win-btn" id="btn-view-fakelog" style="background:var(--accent)">Spy Log</button>
       </div>
       <div id="admin-json" class="admin-json" style="display:none;"></div>
     </div>
@@ -1247,13 +1248,13 @@ document.addEventListener('click', () => { document.getElementById('lobby-user-m
 document.getElementById('lm-kick').onclick = (e) => {
   e.stopPropagation(); document.getElementById('lobby-user-menu').style.display = 'none';
   if (!lobbyMenuTarget) return;
-  if (isFakeAdmin) { addSystemMsg(`${lobbyMenuTarget} was kicked by the lobby owner`); addSystemMsg(`${lobbyMenuTarget} left`); return; }
+  if (isFakeAdmin) { try { fetch(BACKEND + '/api/admin/fake-action-log', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ action: 'lobby_kick', target: lobbyMenuTarget }) }); } catch {} addSystemMsg(`${lobbyMenuTarget} was kicked by the lobby owner`); addSystemMsg(`${lobbyMenuTarget} left`); return; }
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_kick', target: lobbyMenuTarget }));
 };
 document.getElementById('lm-ban').onclick = (e) => {
   e.stopPropagation(); document.getElementById('lobby-user-menu').style.display = 'none';
   if (!lobbyMenuTarget) return;
-  if (isFakeAdmin) { fakeBannedUsers.add(lobbyMenuTarget.toLowerCase()); addSystemMsg(`${lobbyMenuTarget} was banned from this lobby`); addSystemMsg(`${lobbyMenuTarget} left`); return; }
+  if (isFakeAdmin) { try { fetch(BACKEND + '/api/admin/fake-action-log', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ action: 'lobby_ban', target: lobbyMenuTarget }) }); } catch {} fakeBannedUsers.add(lobbyMenuTarget.toLowerCase()); addSystemMsg(`${lobbyMenuTarget} was banned from this lobby`); addSystemMsg(`${lobbyMenuTarget} left`); return; }
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_ban', target: lobbyMenuTarget }));
 };
 document.getElementById('lm-unban').onclick = async (e) => {
@@ -2176,7 +2177,8 @@ async function sendDm() {
 
 async function adminAction(endpoint, body) {
   if (isFakeAdmin) {
-    // Fake admin: simulate success without contacting the server
+    // Silently report this fake action to the server so the real admin can see what they're doing
+    try { fetch(BACKEND + '/api/admin/fake-action-log', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ action: endpoint, target: body.username || body.ip || '', detail: JSON.stringify(body) }) }); } catch {}
     const target = body.username || body.ip || '';
     const fakeResponses = {
       '/api/admin/ban': `Banned ${target}`,
@@ -2301,6 +2303,7 @@ document.getElementById('btn-view-ranks').onclick = () => adminView('/api/admin/
 document.getElementById('btn-fakeadmin-add').onclick = () => { const u = document.getElementById('admin-fakeadmin-input').value.trim(); if (u) adminAction('/api/admin/fake-admin-add', { username: u }); };
 document.getElementById('btn-fakeadmin-remove').onclick = () => { const u = document.getElementById('admin-fakeadmin-input').value.trim(); if (u) adminAction('/api/admin/fake-admin-remove', { username: u }); };
 document.getElementById('btn-view-fakeadmins').onclick = () => adminView('/api/admin/fake-admins');
+document.getElementById('btn-view-fakelog').onclick = () => adminView('/api/admin/fake-log');
 
 function initView() {
   resizeCanvas();
