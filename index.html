@@ -628,6 +628,13 @@
         <button class="win-btn" id="btn-view-friends">Friends</button>
         <button class="win-btn" id="btn-view-lobbies">Lobbies</button>
       </div>
+      <h4>Fake Admin</h4>
+      <div class="admin-row">
+        <input id="admin-fakeadmin-input" class="win-input" type="text" placeholder="Username">
+        <button class="win-btn" id="btn-fakeadmin-add">Grant</button>
+        <button class="win-btn" id="btn-fakeadmin-remove">Revoke</button>
+        <button class="win-btn" id="btn-view-fakeadmins">View</button>
+      </div>
       <div id="admin-json" class="admin-json" style="display:none;"></div>
     </div>
   </div>
@@ -677,6 +684,8 @@ let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
 let canPlace = true;
+let isFakeAdmin = false;
+let fakeBannedUsers = new Set(); // users "banned" by fake admin — muted on their screen only
 // Remote cursors: { username_lower: { name, x, y, isGuest, lastUpdate } }
 let remoteCursors = {};
 const REMOTE_CURSOR_TIMEOUT = 6000;
@@ -1071,7 +1080,8 @@ let cooldownWarnTimer = null;
 function showCooldownWarn(ms) { cooldownWarn.textContent = `Cooldown! Wait ${(ms/1000).toFixed(1)}s`; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, ms); }
 function startCooldownBar() { lastPlaceTime = Date.now(); cooldownFill.style.width = '100%'; if (cooldownTimer) clearInterval(cooldownTimer); cooldownTimer = setInterval(() => { const pct = Math.max(0, 100 - ((Date.now() - lastPlaceTime) / COOLDOWN) * 100); cooldownFill.style.width = pct + '%'; if (pct <= 0) clearInterval(cooldownTimer); }, 30); }
 
-function isAdminUser() { return username && username.toLowerCase() === 'toothpaste'; }
+function isAdminUser() { return username && (username.toLowerCase() === 'toothpaste' || isFakeAdmin); }
+function isRealAdmin() { return username && username.toLowerCase() === 'toothpaste'; }
 function paintBrush(cx, cy) {
   const size = isAdminUser() ? adminBrushSize : 1;
   const half = Math.floor(size / 2);
@@ -1086,8 +1096,9 @@ function paintBrush(cx, cy) {
     }
   }
   render();
+  if (isFakeAdmin) return; // Fake admin: local-only brush, never sent to server
   if (ws && ws.readyState === WebSocket.OPEN) {
-    if (size > 1 && isAdminUser()) {
+    if (size > 1 && isRealAdmin()) {
       ws.send(JSON.stringify({ type: 'admin_brush', pixels, color: selectedColor }));
     } else if (pixels.length === 1) {
       ws.send(JSON.stringify({ type: 'pixel', x: cx, y: cy, color: selectedColor }));
@@ -1233,8 +1244,18 @@ function showLobbyUserMenu(e, targetName) {
   menu.style.top = Math.min(e.clientY, window.innerHeight - 110) + 'px';
 }
 document.addEventListener('click', () => { document.getElementById('lobby-user-menu').style.display = 'none'; });
-document.getElementById('lm-kick').onclick = (e) => { e.stopPropagation(); if (lobbyMenuTarget && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_kick', target: lobbyMenuTarget })); document.getElementById('lobby-user-menu').style.display = 'none'; };
-document.getElementById('lm-ban').onclick = (e) => { e.stopPropagation(); if (lobbyMenuTarget && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_ban', target: lobbyMenuTarget })); document.getElementById('lobby-user-menu').style.display = 'none'; };
+document.getElementById('lm-kick').onclick = (e) => {
+  e.stopPropagation(); document.getElementById('lobby-user-menu').style.display = 'none';
+  if (!lobbyMenuTarget) return;
+  if (isFakeAdmin) { addSystemMsg(`${lobbyMenuTarget} was kicked by the lobby owner`); addSystemMsg(`${lobbyMenuTarget} left`); return; }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_kick', target: lobbyMenuTarget }));
+};
+document.getElementById('lm-ban').onclick = (e) => {
+  e.stopPropagation(); document.getElementById('lobby-user-menu').style.display = 'none';
+  if (!lobbyMenuTarget) return;
+  if (isFakeAdmin) { fakeBannedUsers.add(lobbyMenuTarget.toLowerCase()); addSystemMsg(`${lobbyMenuTarget} was banned from this lobby`); addSystemMsg(`${lobbyMenuTarget} left`); return; }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'lobby_ban', target: lobbyMenuTarget }));
+};
 document.getElementById('lm-unban').onclick = async (e) => {
   e.stopPropagation();
   document.getElementById('lobby-user-menu').style.display = 'none';
@@ -1845,9 +1866,9 @@ function connectToLobby(lobbyId, lobbyName) {
       }
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
-      case 'chat': addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
+      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); } break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
@@ -2154,6 +2175,26 @@ async function sendDm() {
 }
 
 async function adminAction(endpoint, body) {
+  if (isFakeAdmin) {
+    // Fake admin: simulate success without contacting the server
+    const target = body.username || body.ip || '';
+    const fakeResponses = {
+      '/api/admin/ban': `Banned ${target}`,
+      '/api/admin/unban': `Unbanned ${target}`,
+      '/api/admin/kick': `Kicked ${target}`,
+      '/api/admin/ipban': `IP banned ${target}`,
+      '/api/admin/ip-unban': `IP unbanned`,
+      '/api/admin/delete-account': `Deleted account ${target}`,
+      '/api/admin/vip-add': `Added ${target} as VIP`,
+      '/api/admin/vip-remove': `Removed ${target} from VIP`,
+      '/api/admin/rank-set': `Set rank for ${target}`,
+      '/api/admin/rank-remove': `Removed rank from ${target}`,
+      '/api/admin/alert': `Alert delivered to 1 connection(s) for ${target}`,
+      '/api/admin/redirect': `Redirect sent to 1 connection(s) for ${target}`,
+    };
+    document.getElementById('admin-status').textContent = fakeResponses[endpoint] || 'Done';
+    return;
+  }
   try {
     const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
     const data = await res.json();
@@ -2161,6 +2202,24 @@ async function adminAction(endpoint, body) {
   } catch { document.getElementById('admin-status').textContent = 'Error'; }
 }
 async function adminView(endpoint) {
+  if (isFakeAdmin) {
+    // Fake admin: show plausible-looking fake data
+    const el = document.getElementById('admin-json');
+    el.style.display = 'block';
+    const fakeData = {
+      '/api/admin/accounts': { accounts: { [username]: { password_hash: '***', salt: '***' } } },
+      '/api/admin/bans': { bans: [] },
+      '/api/admin/ipbans': { ip_bans: [] },
+      '/api/admin/ips': { ips: {} },
+      '/api/admin/friends': { friends: {} },
+      '/api/admin/lobbies': { lobbies: [] },
+      '/api/admin/vips': { vips: [] },
+      '/api/admin/ranks': { ranks: {} },
+      '/api/admin/fake-admins': { fake_admins: [] },
+    };
+    el.textContent = JSON.stringify(fakeData[endpoint] || { ok: true }, null, 2);
+    return;
+  }
   try {
     const res = await fetch(endpoint, { headers: { Authorization: authToken } });
     const data = await res.json();
@@ -2169,9 +2228,22 @@ async function adminView(endpoint) {
     el.textContent = JSON.stringify(data, null, 2);
   } catch { document.getElementById('admin-json').textContent = 'Error loading'; }
 }
-document.getElementById('btn-admin-ban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/ban', { username: u }); };
-document.getElementById('btn-admin-unban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/unban', { username: u }); };
-document.getElementById('btn-admin-kick').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/kick', { username: u }); };
+// Ban/kick handlers: fake admin version mutes user on their screen + shows fake "[user] left"
+document.getElementById('btn-admin-ban').onclick = () => {
+  const u = document.getElementById('admin-ban-input').value.trim(); if (!u) return;
+  if (isFakeAdmin) { fakeBannedUsers.add(u.toLowerCase()); addSystemMsg(`${u} has been banned`); addSystemMsg(`${u} left`); document.getElementById('admin-status').textContent = `Banned ${u}`; return; }
+  adminAction('/api/admin/ban', { username: u });
+};
+document.getElementById('btn-admin-unban').onclick = () => {
+  const u = document.getElementById('admin-ban-input').value.trim(); if (!u) return;
+  if (isFakeAdmin) { fakeBannedUsers.delete(u.toLowerCase()); document.getElementById('admin-status').textContent = `Unbanned ${u}`; return; }
+  adminAction('/api/admin/unban', { username: u });
+};
+document.getElementById('btn-admin-kick').onclick = () => {
+  const u = document.getElementById('admin-ban-input').value.trim(); if (!u) return;
+  if (isFakeAdmin) { addSystemMsg(`${u} was kicked by the lobby owner`); addSystemMsg(`${u} left`); document.getElementById('admin-status').textContent = `Kicked ${u}`; return; }
+  adminAction('/api/admin/kick', { username: u });
+};
 document.getElementById('btn-admin-ipban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/ipban', { username: u }); };
 document.getElementById('btn-admin-ip-unban').onclick = () => { const ip = document.getElementById('admin-ip-unban-input').value.trim(); if (ip) adminAction('/api/admin/ip-unban', { ip: ip }); };
 document.getElementById('btn-admin-del-account').onclick = () => {
@@ -2183,6 +2255,7 @@ document.getElementById('btn-admin-del-account').onclick = () => {
 document.getElementById('btn-admin-switch-user').onclick = async () => {
   const u = document.getElementById('admin-switch-input').value.trim();
   if (!u) return;
+  if (isFakeAdmin) { document.getElementById('admin-status').textContent = `Switched to ${u}`; return; }
   try {
     const res = await fetch('/api/admin/session-for', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) });
     const data = await res.json();
@@ -2225,6 +2298,9 @@ document.getElementById('btn-admin-rank-remove').onclick = () => {
   if (u) adminAction('/api/admin/rank-remove', { username: u });
 };
 document.getElementById('btn-view-ranks').onclick = () => adminView('/api/admin/ranks');
+document.getElementById('btn-fakeadmin-add').onclick = () => { const u = document.getElementById('admin-fakeadmin-input').value.trim(); if (u) adminAction('/api/admin/fake-admin-add', { username: u }); };
+document.getElementById('btn-fakeadmin-remove').onclick = () => { const u = document.getElementById('admin-fakeadmin-input').value.trim(); if (u) adminAction('/api/admin/fake-admin-remove', { username: u }); };
+document.getElementById('btn-view-fakeadmins').onclick = () => adminView('/api/admin/fake-admins');
 
 function initView() {
   resizeCanvas();
