@@ -387,6 +387,13 @@ async def register_handler(request):
     await track_ip(uname, request)
     return web.json_response({"ok": True, "token": token, "username": uname})
 
+async def auth_suggest_mode_handler(request):
+    ip = get_client_ip(request)
+    # If the requesting IP has previously been seen attached to any account, default to login.
+    # Otherwise default to register. This is a UX hint only — users can still switch manually.
+    existing = any(v == ip for v in user_ips.values()) if ip else False
+    return web.json_response({"mode": "login" if existing else "register"})
+
 async def login_handler(request):
     data = await request.json()
     uname, pwd = data.get("username", "").strip(), data.get("password", "")
@@ -1319,6 +1326,7 @@ app.on_cleanup.append(on_cleanup)
 app.router.add_get("/api/captcha", captcha_handler)
 app.router.add_post("/api/register", register_handler)
 app.router.add_post("/api/login", login_handler)
+app.router.add_get("/api/auth/suggest-mode", auth_suggest_mode_handler)
 app.router.add_get("/api/lobbies", lobbies_handler)
 app.router.add_get("/api/my-lobbies", my_lobbies_handler)
 app.router.add_get("/api/lobbies/info", lobby_detail_handler)
