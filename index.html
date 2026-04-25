@@ -325,6 +325,12 @@
   .mobile-chat-bubble .mcb-name { font-weight: 700; color: var(--accent); margin-right: 4px; }
   .mobile-chat-bubble .mcb-name.owner { color: var(--red); }
   .mobile-chat-bubble .mcb-name.guest { color: var(--text-muted); font-style: italic; }
+  .rtc-tile { background: var(--bg-elevated); border: 1px solid var(--accent); border-radius: var(--radius-md); padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); display: flex; flex-direction: column; gap: 3px; }
+  .rtc-tile video { width: 180px; height: 135px; background: #000; border-radius: var(--radius-sm); object-fit: cover; display: block; }
+  .rtc-tile.audio-only { padding: 8px 12px; min-width: 120px; }
+  .rtc-tile.audio-only video { display: none; }
+  .rtc-tile .rtc-name { font-size: 11px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 4px; }
+  .rtc-tile .rtc-name .rtc-mic { font-size: 10px; }
 
   /* Mobile sidebar toggle */
   #mobile-sidebar-toggle { display: none; position: fixed; bottom: 14px; right: 14px; z-index: 20; width: 48px; height: 48px; font-size: 20px; border-radius: 50%; background: var(--accent); border: none; color: #fff; box-shadow: 0 4px 16px rgba(124,92,252,0.4); }
@@ -388,6 +394,10 @@
       <button id="btn-export-grid" class="win-btn" style="display:none">Export</button>
       <button id="btn-import-grid" class="win-btn" style="display:none">Import</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
+      <button id="btn-voice" class="win-btn" style="display:none">&#x1F3A4; Voice</button>
+      <button id="btn-video" class="win-btn" style="display:none">&#x1F4F9; Video</button>
+      <button id="btn-mute" class="win-btn" style="display:none;background:var(--bg-tertiary)">&#x1F507; Mute</button>
+      <button id="btn-leave-call" class="win-btn" style="display:none;background:var(--red);color:#fff">End Call</button>
       <button id="btn-leave-lobby" class="win-btn" style="display:none">Leave Lobby</button>
       <div id="online">Lobby: <span id="online-count">0</span> | All: <span id="total-online">0</span></div>
       <div id="ping-display" style="font-size:10px;color:#ccc;">Ping: <span id="ping-ms">--</span>ms</div>
@@ -401,6 +411,7 @@
   <div id="cooldown-bar"><div id="cooldown-fill"></div></div>
   <div id="viewport-wrap">
     <canvas id="viewport"></canvas>
+    <div id="rtc-tiles" style="position:absolute;top:6px;right:6px;z-index:7;display:flex;flex-direction:column;gap:6px;max-width:200px;"></div>
     <div id="mobile-chat-overlay" style="position:absolute;top:6px;left:6px;right:6px;z-index:6;display:flex;flex-direction:column;gap:4px;pointer-events:none;"></div>
     <div id="guest-warning" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#cc0000;color:#ffeb3b;font-weight:800;font-size:15px;padding:14px 22px;border-radius:10px;border:2px solid #ffeb3b;box-shadow:0 6px 24px rgba(0,0,0,0.6);text-align:center;max-width:90%;pointer-events:none;z-index:5;text-shadow:0 1px 2px rgba(0,0,0,0.6);">
       You are not logged into an account.<br>Please make an account to place pixels.
@@ -967,17 +978,166 @@ function clearOwnCursor() {
   lastSentCursorX = -1; lastSentCursorY = -1; lastSentCursorTime = Date.now();
   ws.send(JSON.stringify({ type: 'cursor', x: null, y: null }));
 }
+// === WebRTC voice & video chat ===
+const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
+const MAX_PEERS = 8;
+let localStream = null;
+let isVideoCall = false;
+let isMuted = false;
+const peers = new Map(); // username_lower -> { pc, video, tile, hasVideo }
+
+function rtcSend(type, payload) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type, ...payload }));
+}
+
+function makeTile(name, hasVideo) {
+  const tile = document.createElement('div');
+  tile.className = 'rtc-tile' + (hasVideo ? '' : ' audio-only');
+  tile.innerHTML = `<video autoplay playsinline></video><div class="rtc-name"><span class="rtc-mic">&#x1F3A4;</span><span>${esc(name)}</span></div>`;
+  document.getElementById('rtc-tiles').appendChild(tile);
+  return tile;
+}
+
+async function startCall(withVideo) {
+  if (localStream) return;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: withVideo });
+  } catch (err) {
+    addSystemMsg('Mic/camera permission denied or unavailable.');
+    return;
+  }
+  isVideoCall = withVideo;
+  isMuted = false;
+  document.getElementById('btn-voice').style.display = 'none';
+  document.getElementById('btn-video').style.display = 'none';
+  document.getElementById('btn-mute').style.display = '';
+  document.getElementById('btn-leave-call').style.display = '';
+  // Show local tile (muted to prevent echo)
+  const localTile = makeTile(username + ' (you)', withVideo);
+  localTile.querySelector('video').srcObject = localStream;
+  localTile.querySelector('video').muted = true;
+  peers.set('__self__', { pc: null, video: localTile.querySelector('video'), tile: localTile, hasVideo: withVideo });
+  // Announce to lobby
+  rtcSend('rtc_join', { video: withVideo });
+}
+
+async function createPeerFor(remoteName, isInitiator) {
+  if (peers.has(remoteName.toLowerCase())) return;
+  if (peers.size > MAX_PEERS) return;
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  pc.onicecandidate = e => { if (e.candidate) rtcSend('rtc_ice', { target: remoteName, candidate: e.candidate }); };
+  const tile = makeTile(remoteName, true); // assume video, hide if audio-only via track event
+  const videoEl = tile.querySelector('video');
+  let hasVideo = false;
+  pc.ontrack = e => {
+    videoEl.srcObject = e.streams[0];
+    if (e.track.kind === 'video') { hasVideo = true; tile.classList.remove('audio-only'); }
+    else if (!hasVideo) tile.classList.add('audio-only');
+  };
+  pc.onconnectionstatechange = () => {
+    if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) closePeer(remoteName);
+  };
+  peers.set(remoteName.toLowerCase(), { pc, video: videoEl, tile, hasVideo: false });
+  if (isInitiator) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    rtcSend('rtc_offer', { target: remoteName, sdp: pc.localDescription });
+  }
+}
+
+function closePeer(remoteName) {
+  const key = remoteName.toLowerCase();
+  const p = peers.get(key);
+  if (!p) return;
+  if (p.pc) try { p.pc.close(); } catch {}
+  if (p.tile && p.tile.parentNode) p.tile.parentNode.removeChild(p.tile);
+  peers.delete(key);
+}
+
+function endCall() {
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  for (const k of [...peers.keys()]) closePeer(k);
+  peers.clear();
+  rtcSend('rtc_leave', {});
+  isVideoCall = false; isMuted = false;
+  document.getElementById('btn-voice').style.display = currentLobbyId ? '' : 'none';
+  document.getElementById('btn-video').style.display = currentLobbyId ? '' : 'none';
+  document.getElementById('btn-mute').style.display = 'none';
+  document.getElementById('btn-leave-call').style.display = 'none';
+}
+
+function toggleMute() {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+  document.getElementById('btn-mute').textContent = isMuted ? '\u{1F507} Unmute' : '\u{1F507} Mute';
+}
+
+document.getElementById('btn-voice').onclick = () => startCall(false);
+document.getElementById('btn-video').onclick = () => startCall(true);
+document.getElementById('btn-mute').onclick = toggleMute;
+document.getElementById('btn-leave-call').onclick = endCall;
+
+async function handleRtcMessage(msg) {
+  if (msg.type === 'rtc_join') {
+    // Someone else joined the call. If we're already in, send them an offer.
+    if (localStream) await createPeerFor(msg.username, true);
+  } else if (msg.type === 'rtc_leave') {
+    closePeer(msg.username);
+  } else if (msg.type === 'rtc_offer') {
+    if (!localStream) return; // we're not in the call, ignore
+    await createPeerFor(msg.username, false);
+    const peer = peers.get(msg.username.toLowerCase());
+    if (!peer || !peer.pc) return;
+    await peer.pc.setRemoteDescription(msg.sdp);
+    const answer = await peer.pc.createAnswer();
+    await peer.pc.setLocalDescription(answer);
+    rtcSend('rtc_answer', { target: msg.username, sdp: peer.pc.localDescription });
+  } else if (msg.type === 'rtc_answer') {
+    const peer = peers.get(msg.username.toLowerCase());
+    if (peer && peer.pc) await peer.pc.setRemoteDescription(msg.sdp);
+  } else if (msg.type === 'rtc_ice') {
+    const peer = peers.get(msg.username.toLowerCase());
+    if (peer && peer.pc && msg.candidate) try { await peer.pc.addIceCandidate(msg.candidate); } catch {}
+  }
+}
+
 function updateCursor(sx, sy) {
   if (isPanning) { cvs.style.cursor = 'grabbing'; }
   else if (isOverGrid(sx, sy)) { cvs.style.cursor = 'crosshair'; }
   else { cvs.style.cursor = 'grab'; }
 }
+let isDrawing = false;
+let drawLastX = -1, drawLastY = -1;
+let lastDrawTime = 0;
+
+function tryPlacePixel(gx, gy) {
+  if (blocked || !username || !currentLobbyId) return false;
+  if (isGuest) return false;
+  if (!canPlace) return false;
+  if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) return false;
+  const now = Date.now();
+  if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) return false;
+  if (!isAdminUser()) startCooldownBar();
+  paintBrush(gx, gy);
+  return true;
+}
+
 cvs.addEventListener('mousedown', e => {
   const rect = cvs.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   if (e.button === 1 || e.button === 2 || (e.button === 0 && !isOverGrid(sx, sy))) {
     isPanning = true; userHasInteracted = true; panStartX = e.clientX; panStartY = e.clientY; camStartX = camX; camStartY = camY;
     cvs.style.cursor = 'grabbing'; e.preventDefault();
+  } else if (e.button === 0 && isOverGrid(sx, sy)) {
+    // Start drag-to-paint
+    const g = screenToGrid(sx, sy);
+    isDrawing = true;
+    drawLastX = g.x; drawLastY = g.y;
+    tryPlacePixel(g.x, g.y);
+    e.preventDefault();
   }
 });
 window.addEventListener('mousemove', e => {
@@ -995,11 +1155,23 @@ window.addEventListener('mousemove', e => {
       if (hoverGridX !== -1) clearOwnCursor();
       hoverGridX = -1; hoverGridY = -1;
     }
+    // Drag-to-paint: place pixels as the mouse moves while held
+    if (isDrawing && (g.x !== drawLastX || g.y !== drawLastY)) {
+      const now = Date.now();
+      // Throttle admin brush during drag to avoid flooding (max 30fps)
+      if (isAdminUser() && now - lastDrawTime < 33) { /* skip */ }
+      else {
+        if (tryPlacePixel(g.x, g.y)) { drawLastX = g.x; drawLastY = g.y; lastDrawTime = now; }
+      }
+    }
     if (hoverGridX !== oldHX || hoverGridY !== oldHY) render();
     updateCursor(sx, sy);
   }
 });
-window.addEventListener('mouseup', e => { if (isPanning) { isPanning = false; const rect = cvs.getBoundingClientRect(); updateCursor(e.clientX - rect.left, e.clientY - rect.top); } });
+window.addEventListener('mouseup', e => {
+  if (isPanning) { isPanning = false; const rect = cvs.getBoundingClientRect(); updateCursor(e.clientX - rect.left, e.clientY - rect.top); }
+  if (isDrawing) { isDrawing = false; drawLastX = -1; drawLastY = -1; }
+});
 cvs.addEventListener('contextmenu', e => e.preventDefault());
 cvs.addEventListener('mouseleave', () => { hoverInfo.innerHTML = '&nbsp;'; hoverGridX = -1; hoverGridY = -1; clearOwnCursor(); render(); });
 const hoverInfo = document.getElementById('hover-info');
@@ -1109,18 +1281,14 @@ function paintBrush(cx, cy) {
   }
 }
 
+// Click handler: shows guest/spectator/cooldown warnings (actual placement is via mousedown drag system)
 cvs.addEventListener('click', e => {
-  if (Date.now() - touchHandledRecently < 500) return; // suppress synthetic click after tap
+  if (Date.now() - touchHandledRecently < 500) return;
   if (blocked || !username || !currentLobbyId) return;
   if (isGuest) { cooldownWarn.textContent = 'Register an account to place pixels!'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
   if (!canPlace) { cooldownWarn.textContent = 'Spectator mode - you cannot place pixels here'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
   const now = Date.now();
   if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
-  const rect = cvs.getBoundingClientRect();
-  const g = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
-  if (g.x < 0 || g.x >= GRID_W || g.y < 0 || g.y >= GRID_H) return;
-  if (!isAdminUser()) startCooldownBar();
-  paintBrush(g.x, g.y);
 });
 
 const paletteEl = document.getElementById('palette-row');
@@ -1541,6 +1709,11 @@ async function loadLobbies() {
   document.getElementById('btn-export-grid').style.display = 'none';
   document.getElementById('btn-import-grid').style.display = 'none';
   document.getElementById('btn-manage-current').style.display = 'none';
+  document.getElementById('btn-voice').style.display = 'none';
+  document.getElementById('btn-video').style.display = 'none';
+  document.getElementById('btn-mute').style.display = 'none';
+  document.getElementById('btn-leave-call').style.display = 'none';
+  if (localStream) endCall();
   document.getElementById('guest-warning').style.display = 'none';
   document.getElementById('lobby-name-display').innerHTML = '';
   try {
@@ -1599,6 +1772,8 @@ function joinLobby(id, name, isPublic) {
   lobbyScreen.style.display = 'none';
   document.getElementById('btn-leave-lobby').style.display = '';
   document.getElementById('btn-export-grid').style.display = '';
+  document.getElementById('btn-voice').style.display = isGuest ? 'none' : '';
+  document.getElementById('btn-video').style.display = isGuest ? 'none' : '';
   document.getElementById('guest-warning').style.display = isGuest ? '' : 'none';
   document.getElementById('lobby-name-display').innerHTML = `Lobby: <b>${esc(name)}</b>`;
   messagesEl.innerHTML = '';
@@ -1616,6 +1791,11 @@ document.getElementById('btn-leave-lobby').onclick = () => {
   document.getElementById('btn-export-grid').style.display = 'none';
   document.getElementById('btn-import-grid').style.display = 'none';
   document.getElementById('btn-manage-current').style.display = 'none';
+  document.getElementById('btn-voice').style.display = 'none';
+  document.getElementById('btn-video').style.display = 'none';
+  document.getElementById('btn-mute').style.display = 'none';
+  document.getElementById('btn-leave-call').style.display = 'none';
+  if (localStream) endCall();
   document.getElementById('guest-warning').style.display = 'none';
   if (isGuest) {
     isGuest = false; guestName = ''; username = '';
@@ -1859,6 +2039,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; setOffscreenPixel(msg.x, msg.y, msg.color); render(); break;
       case 'cursor': if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) { remoteCursors[msg.username.toLowerCase()] = { name: msg.username, x: msg.x, y: msg.y, isGuest: !!msg.guest, lastUpdate: Date.now() }; render(); } break;
       case 'cursor_remove': if (msg.username) { delete remoteCursors[msg.username.toLowerCase()]; render(); } break;
+      case 'rtc_join': case 'rtc_leave': case 'rtc_offer': case 'rtc_answer': case 'rtc_ice': handleRtcMessage(msg); break;
       case 'typing': {
         if (!msg.username || msg.username.toLowerCase() === (username || '').toLowerCase()) break;
         const k = msg.username.toLowerCase();
