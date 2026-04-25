@@ -1235,6 +1235,20 @@ async def websocket_handler(request):
                         else:
                             await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
 
+                elif data["type"] in ("rtc_join", "rtc_leave", "rtc_offer", "rtc_answer", "rtc_ice") and username and lobby_id and not is_guest:
+                    # WebRTC signaling: relay to specific peer (offer/answer/ice) or broadcast to lobby (join/leave)
+                    msg_type = data["type"]
+                    if msg_type in ("rtc_join", "rtc_leave"):
+                        await broadcast_to_lobby(lobby_id, {"type": msg_type, "username": username, "video": bool(data.get("video"))}, exclude=ws)
+                    else:
+                        target = data.get("target", "").strip()
+                        if not target: continue
+                        payload = {"type": msg_type, "username": username, "sdp": data.get("sdp"), "candidate": data.get("candidate")}
+                        for cws, cinfo in list(clients.items()):
+                            if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower():
+                                try: await cws.send_json(payload)
+                                except: pass
+
                 elif data["type"] == "typing" and username and lobby_id and not is_guest:
                     state = bool(data.get("typing"))
                     await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": state}, exclude=ws)
