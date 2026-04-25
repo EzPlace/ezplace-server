@@ -394,10 +394,6 @@
       <button id="btn-export-grid" class="win-btn" style="display:none">Export</button>
       <button id="btn-import-grid" class="win-btn" style="display:none">Import</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
-      <button id="btn-voice" class="win-btn" style="display:none">&#x1F3A4; Voice</button>
-      <button id="btn-video" class="win-btn" style="display:none">&#x1F4F9; Video</button>
-      <button id="btn-mute" class="win-btn" style="display:none;background:var(--bg-tertiary)">&#x1F507; Mute</button>
-      <button id="btn-leave-call" class="win-btn" style="display:none;background:var(--red);color:#fff">End Call</button>
       <button id="btn-leave-lobby" class="win-btn" style="display:none">Leave Lobby</button>
       <div id="online">Lobby: <span id="online-count">0</span> | All: <span id="total-online">0</span></div>
       <div id="ping-display" style="font-size:10px;color:#ccc;">Ping: <span id="ping-ms">--</span>ms</div>
@@ -520,6 +516,12 @@
 
   <!-- Chat tab -->
   <div id="chat-tab" class="tab-panel active">
+    <div id="call-bar" style="padding:6px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);display:none;gap:4px;align-items:center;flex-wrap:wrap;">
+      <button id="btn-voice" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;">Voice</button>
+      <button id="btn-video" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;">Video</button>
+      <button id="btn-mute" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--bg-elevated)">Mute</button>
+      <button id="btn-leave-call" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--red);color:#fff">End Call</button>
+    </div>
     <div id="chat-filter-bar">
       <label><input type="checkbox" id="chat-filter-toggle" checked> Chat filter</label>
     </div>
@@ -1062,8 +1064,9 @@ function endCall() {
   peers.clear();
   rtcSend('rtc_leave', {});
   isVideoCall = false; isMuted = false;
-  document.getElementById('btn-voice').style.display = currentLobbyId ? '' : 'none';
-  document.getElementById('btn-video').style.display = currentLobbyId ? '' : 'none';
+  const showCall = currentLobbyId && !isGuest;
+  document.getElementById('btn-voice').style.display = showCall ? '' : 'none';
+  document.getElementById('btn-video').style.display = showCall ? '' : 'none';
   document.getElementById('btn-mute').style.display = 'none';
   document.getElementById('btn-leave-call').style.display = 'none';
 }
@@ -1072,7 +1075,7 @@ function toggleMute() {
   if (!localStream) return;
   isMuted = !isMuted;
   localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
-  document.getElementById('btn-mute').textContent = isMuted ? '\u{1F507} Unmute' : '\u{1F507} Mute';
+  document.getElementById('btn-mute').textContent = isMuted ? 'Unmute' : 'Mute';
 }
 
 document.getElementById('btn-voice').onclick = () => startCall(false);
@@ -1709,6 +1712,7 @@ async function loadLobbies() {
   document.getElementById('btn-export-grid').style.display = 'none';
   document.getElementById('btn-import-grid').style.display = 'none';
   document.getElementById('btn-manage-current').style.display = 'none';
+  document.getElementById('call-bar').style.display = 'none';
   document.getElementById('btn-voice').style.display = 'none';
   document.getElementById('btn-video').style.display = 'none';
   document.getElementById('btn-mute').style.display = 'none';
@@ -1772,6 +1776,7 @@ function joinLobby(id, name, isPublic) {
   lobbyScreen.style.display = 'none';
   document.getElementById('btn-leave-lobby').style.display = '';
   document.getElementById('btn-export-grid').style.display = '';
+  document.getElementById('call-bar').style.display = isGuest ? 'none' : 'flex';
   document.getElementById('btn-voice').style.display = isGuest ? 'none' : '';
   document.getElementById('btn-video').style.display = isGuest ? 'none' : '';
   document.getElementById('guest-warning').style.display = isGuest ? '' : 'none';
@@ -1791,6 +1796,7 @@ document.getElementById('btn-leave-lobby').onclick = () => {
   document.getElementById('btn-export-grid').style.display = 'none';
   document.getElementById('btn-import-grid').style.display = 'none';
   document.getElementById('btn-manage-current').style.display = 'none';
+  document.getElementById('call-bar').style.display = 'none';
   document.getElementById('btn-voice').style.display = 'none';
   document.getElementById('btn-video').style.display = 'none';
   document.getElementById('btn-mute').style.display = 'none';
@@ -2051,7 +2057,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
-      case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); } break;
+      case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
