@@ -1118,7 +1118,7 @@ async def websocket_handler(request):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
-                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 47:
+                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 53:
                         old_color = lobby["grid"][y * lw + x]
                         lobby["grid"][y * lw + x] = color
                         lobby["last_activity"] = now
@@ -1193,7 +1193,7 @@ async def websocket_handler(request):
                         color = data.get("color", 0)
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
-                        if isinstance(coords, list) and 0 <= color < 47:
+                        if isinstance(coords, list) and 0 <= color < 53:
                             placed = 0
                             for c in coords[:1024]:  # cap brush stamps
                                 if not isinstance(c, list) or len(c) != 2: continue
@@ -1218,7 +1218,7 @@ async def websocket_handler(request):
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
                         expected = lw * lh
-                        if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < 47 for c in new_grid):
+                        if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < 53 for c in new_grid):
                             lobby["grid"] = bytearray(new_grid)
                             lobby["last_activity"] = time.time()
                             imported_counts = data.get("pixel_counts")
