@@ -355,6 +355,8 @@
     #btn-export-grid, #btn-import-grid, #btn-manage-current { font-size: 10px; padding: 4px 8px; }
     #zoom-buttons { right: 10px; gap: 6px; }
     #zoom-buttons button { width: 44px; height: 44px; font-size: 22px; }
+    #btn-mobile-mode { display: flex !important; align-items: center; justify-content: center; }
+    #btn-mobile-mode.draw { background: var(--accent) !important; color: #fff; }
     #palette-wrap { width: 100%; }
     #palette-row { gap: 6px; padding: 8px 28px 8px 8px; max-width: 100%; width: 100%; min-height: 54px; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: thin; white-space: nowrap; touch-action: pan-x; mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 36px), transparent 100%); -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 36px), transparent 100%); }
     #palette-row::-webkit-scrollbar { height: 4px; }
@@ -415,6 +417,7 @@
     <div id="zoom-buttons">
       <button id="zoom-in" class="win-btn">+</button>
       <button id="zoom-out" class="win-btn">&minus;</button>
+      <button id="btn-mobile-mode" class="win-btn" style="display:none;font-size:11px;font-weight:700;">PAN</button>
     </div>
   </div>
   <div id="palette-wrap" style="position:relative;flex-shrink:0;"><div id="palette-row"></div><div id="palette-scroll-hint">&#x276F;</div></div>
@@ -1191,17 +1194,44 @@ function getTouchDist(t1, t2) {
   return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 }
 
+// Mobile draw mode toggle: when true, single-finger drag draws pixels instead of panning.
+// Two-finger pinch still zooms in either mode.
+let mobileDrawMode = false;
+let isTouchDrawing = false;
+let touchDrawLastX = -1, touchDrawLastY = -1;
+let lastTouchDrawTime = 0;
+const modeBtn = document.getElementById('btn-mobile-mode');
+modeBtn.onclick = () => {
+  mobileDrawMode = !mobileDrawMode;
+  modeBtn.textContent = mobileDrawMode ? 'DRAW' : 'PAN';
+  modeBtn.classList.toggle('draw', mobileDrawMode);
+};
+
 cvs.addEventListener('touchstart', e => {
   e.preventDefault();
   if (e.touches.length === 2) {
     touchStartDist = getTouchDist(e.touches[0], e.touches[1]);
     touchStartZoom = zoom;
     touchPanning = false;
+    isTouchDrawing = false;
   } else if (e.touches.length === 1) {
-    touchPanning = true;
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
-    touchCamX = camX; touchCamY = camY;
+    if (mobileDrawMode) {
+      // Start drawing immediately
+      const t = e.touches[0];
+      const rect = cvs.getBoundingClientRect();
+      const g = screenToGrid(t.clientX - rect.left, t.clientY - rect.top);
+      if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H) {
+        isTouchDrawing = true;
+        touchDrawLastX = g.x; touchDrawLastY = g.y;
+        tryPlacePixel(g.x, g.y);
+      }
+      touchPanning = false;
+    } else {
+      touchPanning = true;
+      touchCamX = camX; touchCamY = camY;
+    }
   }
 }, { passive: false });
 
@@ -1214,6 +1244,18 @@ cvs.addEventListener('touchmove', e => {
     const rect = cvs.getBoundingClientRect();
     setZoom(touchStartZoom * (dist / touchStartDist), midX - rect.left, midY - rect.top);
     touchPanning = false;
+    isTouchDrawing = false;
+  } else if (e.touches.length === 1 && isTouchDrawing) {
+    const t = e.touches[0];
+    const rect = cvs.getBoundingClientRect();
+    const g = screenToGrid(t.clientX - rect.left, t.clientY - rect.top);
+    if (g.x !== touchDrawLastX || g.y !== touchDrawLastY) {
+      const now = Date.now();
+      if (isAdminUser() && now - lastTouchDrawTime < 33) { /* throttle */ }
+      else if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H) {
+        if (tryPlacePixel(g.x, g.y)) { touchDrawLastX = g.x; touchDrawLastY = g.y; lastTouchDrawTime = now; }
+      }
+    }
   } else if (e.touches.length === 1 && touchPanning) {
     const dx = (e.touches[0].clientX - touchStartX) / zoom;
     const dy = (e.touches[0].clientY - touchStartY) / zoom;
@@ -1226,7 +1268,7 @@ cvs.addEventListener('touchmove', e => {
 let touchHandledRecently = 0;
 cvs.addEventListener('touchend', e => {
   e.preventDefault();
-  if (e.touches.length === 0 && e.changedTouches.length === 1 && touchPanning) {
+  if (e.touches.length === 0 && e.changedTouches.length === 1 && touchPanning && !isTouchDrawing) {
     const t = e.changedTouches[0];
     const dx = Math.abs(t.clientX - touchStartX);
     const dy = Math.abs(t.clientY - touchStartY);
@@ -1246,7 +1288,9 @@ cvs.addEventListener('touchend', e => {
       }
     }
   }
+  if (isTouchDrawing) { touchHandledRecently = Date.now(); }
   touchPanning = false;
+  isTouchDrawing = false;
 });
 
 document.getElementById('mobile-sidebar-toggle').onclick = () => {
