@@ -6,6 +6,7 @@ import os
 import random
 import secrets
 import string
+import struct
 import time
 from aiohttp import web
 import motor.motor_asyncio
@@ -174,16 +175,41 @@ def mark_lobby_dirty(lid):
     if lid and lid in lobbies:
         dirty_lobbies.add(lid)
 
+TIMELAPSE_WINDOW_SEC = 24 * 60 * 60  # 24 hours
+EVENT_STRUCT = struct.Struct('<IHHBB')  # 10 bytes: ts (uint32 sec), x (uint16), y (uint16), new_color (uint8), old_color (uint8)
+EVENT_SIZE = EVENT_STRUCT.size
+
+def append_event(lobby, x, y, new_color, old_color):
+    """Append a pixel event to the lobby's timelapse log and prune entries older than 24h."""
+    log = lobby.setdefault("events", bytearray())
+    now = int(time.time())
+    log.extend(EVENT_STRUCT.pack(now, x, y, new_color, old_color))
+    # Prune old events: scan from start and find first event within window
+    cutoff = now - TIMELAPSE_WINDOW_SEC
+    drop = 0
+    while drop + EVENT_SIZE <= len(log):
+        ts, _, _, _, _ = EVENT_STRUCT.unpack_from(log, drop)
+        if ts >= cutoff:
+            break
+        drop += EVENT_SIZE
+    if drop > 0:
+        del log[:drop]
+
+def get_oldest_event_time(lobby):
+    log = lobby.get("events")
+    if not log or len(log) < EVENT_SIZE:
+        return None
+    return EVENT_STRUCT.unpack_from(log, 0)[0]
+
 async def save_lobby(lid):
     lobby = lobbies.get(lid)
     if not lobby:
         return
-    data = {k: v for k, v in lobby.items() if k != "grid"}
-    # Store the grid as raw bytes. BSON binary is ~5x smaller than a list of ints
-    # (1 byte per pixel vs ~5-7 bytes per int in BSON) and backward compatible because
-    # bytearray(x) accepts both lists and bytes when we load it.
+    # Strip grid and events from the meta dict; we save those as separate binary fields
+    data = {k: v for k, v in lobby.items() if k not in ("grid", "events")}
     grid_bytes = bytes(lobby["grid"])
-    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_bytes}}, upsert=True)
+    events_bytes = bytes(lobby.get("events", b""))
+    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_bytes, "events": events_bytes}}, upsert=True)
     dirty_lobbies.discard(lid)
 
 async def save_all_lobbies():
@@ -298,19 +324,23 @@ async def load_all_data():
         lid = doc["_id"]
         meta = doc.get("meta", {})
         grid_data = doc.get("grid")
+        events_data = doc.get("events")
         grid_ba = _to_bytearray(grid_data)
+        events_ba = bytearray(events_data) if events_data else bytearray()
         if lid.startswith("public_") and lid in lobbies:
             expected_size = lobbies[lid]["width"] * lobbies[lid]["height"]
             if "pixel_counts" in meta:
                 lobbies[lid]["pixel_counts"] = meta["pixel_counts"]
             if grid_ba is not None and len(grid_ba) == expected_size:
                 lobbies[lid]["grid"] = grid_ba
+            lobbies[lid]["events"] = events_ba
         elif lid.startswith("public_") and lid not in lobbies:
             continue
         else:
             lw = meta.get("width", 256)
             lh = meta.get("height", 256)
             meta["grid"] = grid_ba if grid_ba is not None else bytearray(lw * lh)
+            meta["events"] = events_ba
             if "pixel_counts" not in meta:
                 meta["pixel_counts"] = {}
             if "cooldown" not in meta:
@@ -433,6 +463,30 @@ async def my_lobbies_handler(request):
                    if not l["id"].startswith("public_") and l.get("whitelist_enabled")
                    and user in l.get("whitelist", []) and (not l["owner"] or l["owner"].lower() != user.lower())]
     return web.json_response({"lobbies": mine, "whitelisted": whitelisted})
+
+async def lobby_timelapse_handler(request):
+    """Return the raw event log for a lobby (for the last 24h). The client reconstructs the
+    start state by reverse-applying events from the current grid, then plays them forward."""
+    lid = request.query.get("id", "")
+    lobby = lobbies.get(lid)
+    if not lobby:
+        return web.json_response({"error": "Not found"}, status=404)
+    log = lobby.get("events", b"") or b""
+    oldest = get_oldest_event_time(lobby)
+    now = int(time.time())
+    has_full_24h = oldest is not None and (now - oldest) >= TIMELAPSE_WINDOW_SEC - 60  # allow 1min slack
+    return web.Response(
+        body=bytes(log),
+        headers={
+            "Content-Type": "application/octet-stream",
+            "X-Width": str(lobby.get("width", 256)),
+            "X-Height": str(lobby.get("height", 256)),
+            "X-Now": str(now),
+            "X-Oldest": str(oldest) if oldest is not None else "",
+            "X-Full-24h": "1" if has_full_24h else "0",
+            "X-Event-Count": str(len(log) // EVENT_SIZE),
+        }
+    )
 
 async def lobby_detail_handler(request):
     user = get_auth_user(request)
@@ -1125,6 +1179,7 @@ async def websocket_handler(request):
                         if color != old_color:
                             pc = lobby.setdefault("pixel_counts", {})
                             pc[username] = pc.get(username, 0) + 1
+                            append_event(lobby, x, y, color, old_color)
                             mark_lobby_dirty(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
@@ -1205,6 +1260,7 @@ async def websocket_handler(request):
                                 if color != old_color:
                                     pc = lobby.setdefault("pixel_counts", {})
                                     pc[username] = pc.get(username, 0) + 1
+                                    append_event(lobby, x, y, color, old_color)
                                 placed += 1
                                 await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
                             if placed:
@@ -1411,6 +1467,7 @@ app.router.add_get("/api/auth/suggest-mode", auth_suggest_mode_handler)
 app.router.add_get("/api/lobbies", lobbies_handler)
 app.router.add_get("/api/my-lobbies", my_lobbies_handler)
 app.router.add_get("/api/lobbies/info", lobby_detail_handler)
+app.router.add_get("/api/lobbies/timelapse", lobby_timelapse_handler)
 app.router.add_post("/api/lobbies/create", create_lobby_handler)
 app.router.add_post("/api/lobbies/delete", delete_lobby_handler)
 app.router.add_post("/api/lobbies/update", update_lobby_handler)

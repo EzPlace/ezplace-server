@@ -453,6 +453,26 @@
 </div>
 
 <!-- Manage lobby modal -->
+<div id="timelapse-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:100;flex-direction:column;align-items:center;justify-content:center;padding:14px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;width:100%;max-width:900px;margin-bottom:8px;">
+    <div style="font-weight:700;font-size:14px;color:var(--text-primary);">Flashback &mdash; last 24 hours</div>
+    <button id="btn-timelapse-close" class="win-btn" style="background:var(--bg-elevated);">Close</button>
+  </div>
+  <canvas id="timelapse-canvas" style="background:#000;max-width:100%;max-height:60vh;image-rendering:pixelated;border-radius:var(--radius-sm);"></canvas>
+  <div style="display:flex;align-items:center;gap:8px;width:100%;max-width:900px;margin-top:10px;">
+    <button id="btn-timelapse-play" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
+    <input type="range" id="timelapse-scrubber" min="0" max="100" value="0" style="flex:1;accent-color:var(--accent);">
+    <select id="timelapse-speed" class="win-input" style="width:auto;padding:4px 6px;font-size:11px;">
+      <option value="1">1x</option>
+      <option value="5">5x</option>
+      <option value="25" selected>25x</option>
+      <option value="100">100x</option>
+      <option value="500">500x</option>
+    </select>
+  </div>
+  <div id="timelapse-info" style="margin-top:6px;font-size:11px;color:var(--text-muted);width:100%;max-width:900px;text-align:center;">Loading...</div>
+</div>
+
 <div id="manage-modal">
   <div id="manage-box">
     <h3>Manage Lobby</h3>
@@ -524,6 +544,7 @@
       <button id="btn-video" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;">Video</button>
       <button id="btn-mute" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--bg-elevated)">Mute</button>
       <button id="btn-leave-call" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--red);color:#fff">End Call</button>
+      <button id="btn-timelapse" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--accent);color:#fff">Flashback 24h</button>
     </div>
     <div id="chat-filter-bar">
       <label><input type="checkbox" id="chat-filter-toggle" checked> Chat filter</label>
@@ -991,16 +1012,18 @@ const MAX_PEERS = 8;
 let localStream = null;
 let isVideoCall = false;
 let isMuted = false;
-const peers = new Map(); // username_lower -> { pc, video, tile, hasVideo }
+const peers = new Map(); // username_lower -> { pc, video, tile, pendingIce, makingOffer, polite }
+
+function rtcLog(...args) { try { console.log('[RTC]', ...args); } catch {} }
 
 function rtcSend(type, payload) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) { rtcLog('WS not open, dropping', type); return; }
   ws.send(JSON.stringify({ type, ...payload }));
 }
 
-function makeTile(name, hasVideo) {
+function makeTile(name) {
   const tile = document.createElement('div');
-  tile.className = 'rtc-tile' + (hasVideo ? '' : ' audio-only');
+  tile.className = 'rtc-tile audio-only';
   tile.innerHTML = `<video autoplay playsinline></video><div class="rtc-name"><span class="rtc-mic">&#x1F3A4;</span><span>${esc(name)}</span></div>`;
   document.getElementById('rtc-tiles').appendChild(tile);
   return tile;
@@ -1008,10 +1031,15 @@ function makeTile(name, hasVideo) {
 
 async function startCall(withVideo) {
   if (localStream) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    addSystemMsg('Voice/video requires a secure context. Try the HTTPS version of this site.');
+    return;
+  }
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: withVideo });
   } catch (err) {
-    addSystemMsg('Mic/camera permission denied or unavailable.');
+    rtcLog('getUserMedia failed:', err.name, err.message);
+    addSystemMsg('Mic/camera permission denied or unavailable. (' + (err.name || 'error') + ')');
     return;
   }
   isVideoCall = withVideo;
@@ -1020,38 +1048,55 @@ async function startCall(withVideo) {
   document.getElementById('btn-video').style.display = 'none';
   document.getElementById('btn-mute').style.display = '';
   document.getElementById('btn-leave-call').style.display = '';
-  // Show local tile (muted to prevent echo)
-  const localTile = makeTile(username + ' (you)', withVideo);
+  // Local self tile (muted to prevent echo)
+  const localTile = makeTile(username + ' (you)');
+  if (withVideo) localTile.classList.remove('audio-only');
   localTile.querySelector('video').srcObject = localStream;
   localTile.querySelector('video').muted = true;
-  peers.set('__self__', { pc: null, video: localTile.querySelector('video'), tile: localTile, hasVideo: withVideo });
-  // Announce to lobby
+  peers.set('__self__', { pc: null, tile: localTile });
+  rtcLog('startCall: announcing rtc_join');
   rtcSend('rtc_join', { video: withVideo });
+  addSystemMsg('You joined the ' + (withVideo ? 'video' : 'voice') + ' call. Others must click ' + (withVideo ? 'Video' : 'Voice') + ' to join you.');
 }
 
-async function createPeerFor(remoteName, isInitiator) {
-  if (peers.has(remoteName.toLowerCase())) return;
-  if (peers.size > MAX_PEERS) return;
+// "Perfect negotiation" pattern: the user with the alphabetically smaller username is "polite" and
+// yields on glare; the other is "impolite" and ignores incoming offers when they have one in flight.
+function isPolite(remoteName) {
+  return (username || '').toLowerCase() < (remoteName || '').toLowerCase();
+}
+
+function makePeer(remoteName) {
+  if (peers.has(remoteName.toLowerCase())) return peers.get(remoteName.toLowerCase());
+  if (peers.size >= MAX_PEERS + 1) { rtcLog('Peer cap reached, ignoring', remoteName); return null; }
   const pc = new RTCPeerConnection(RTC_CONFIG);
+  const tile = makeTile(remoteName);
+  const videoEl = tile.querySelector('video');
+  const peer = { pc, tile, video: videoEl, pendingIce: [], makingOffer: false, polite: isPolite(remoteName), ignoreOffer: false };
   if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
   pc.onicecandidate = e => { if (e.candidate) rtcSend('rtc_ice', { target: remoteName, candidate: e.candidate }); };
-  const tile = makeTile(remoteName, true); // assume video, hide if audio-only via track event
-  const videoEl = tile.querySelector('video');
-  let hasVideo = false;
   pc.ontrack = e => {
+    rtcLog('ontrack from', remoteName, e.track.kind);
     videoEl.srcObject = e.streams[0];
-    if (e.track.kind === 'video') { hasVideo = true; tile.classList.remove('audio-only'); }
-    else if (!hasVideo) tile.classList.add('audio-only');
+    if (e.track.kind === 'video') tile.classList.remove('audio-only');
+    videoEl.play().catch(err => rtcLog('video.play() rejected', err.name));
   };
   pc.onconnectionstatechange = () => {
-    if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) closePeer(remoteName);
+    rtcLog('connectionState', remoteName, pc.connectionState);
+    if (['failed', 'closed'].includes(pc.connectionState)) closePeer(remoteName);
   };
-  peers.set(remoteName.toLowerCase(), { pc, video: videoEl, tile, hasVideo: false });
-  if (isInitiator) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    rtcSend('rtc_offer', { target: remoteName, sdp: pc.localDescription });
-  }
+  pc.onnegotiationneeded = async () => {
+    try {
+      peer.makingOffer = true;
+      await pc.setLocalDescription();
+      rtcSend('rtc_offer', { target: remoteName, sdp: pc.localDescription });
+    } catch (err) {
+      rtcLog('negotiationneeded error', err);
+    } finally {
+      peer.makingOffer = false;
+    }
+  };
+  peers.set(remoteName.toLowerCase(), peer);
+  return peer;
 }
 
 function closePeer(remoteName) {
@@ -1089,28 +1134,182 @@ document.getElementById('btn-mute').onclick = toggleMute;
 document.getElementById('btn-leave-call').onclick = endCall;
 
 async function handleRtcMessage(msg) {
+  rtcLog('recv', msg.type, 'from', msg.username);
   if (msg.type === 'rtc_join') {
-    // Someone else joined the call. If we're already in, send them an offer.
-    if (localStream) await createPeerFor(msg.username, true);
-  } else if (msg.type === 'rtc_leave') {
-    closePeer(msg.username);
-  } else if (msg.type === 'rtc_offer') {
-    if (!localStream) return; // we're not in the call, ignore
-    await createPeerFor(msg.username, false);
-    const peer = peers.get(msg.username.toLowerCase());
-    if (!peer || !peer.pc) return;
-    await peer.pc.setRemoteDescription(msg.sdp);
-    const answer = await peer.pc.createAnswer();
-    await peer.pc.setLocalDescription(answer);
-    rtcSend('rtc_answer', { target: msg.username, sdp: peer.pc.localDescription });
-  } else if (msg.type === 'rtc_answer') {
-    const peer = peers.get(msg.username.toLowerCase());
-    if (peer && peer.pc) await peer.pc.setRemoteDescription(msg.sdp);
-  } else if (msg.type === 'rtc_ice') {
-    const peer = peers.get(msg.username.toLowerCase());
-    if (peer && peer.pc && msg.candidate) try { await peer.pc.addIceCandidate(msg.candidate); } catch {}
+    // A new user joined the call. If we're already in voice/video, create a peer (negotiationneeded fires the offer).
+    if (localStream) makePeer(msg.username);
+    return;
+  }
+  if (msg.type === 'rtc_leave') { closePeer(msg.username); return; }
+  if (!localStream) return; // not in the call, ignore offer/answer/ice
+  const peer = makePeer(msg.username);
+  if (!peer) return;
+  const pc = peer.pc;
+  try {
+    if (msg.type === 'rtc_offer') {
+      const offerCollision = peer.makingOffer || pc.signalingState !== 'stable';
+      peer.ignoreOffer = !peer.polite && offerCollision;
+      if (peer.ignoreOffer) { rtcLog('ignoring colliding offer from', msg.username); return; }
+      await pc.setRemoteDescription(msg.sdp);
+      // Flush any ICE candidates that arrived before the description
+      for (const c of peer.pendingIce) try { await pc.addIceCandidate(c); } catch (e) { rtcLog('flush ice err', e); }
+      peer.pendingIce = [];
+      await pc.setLocalDescription();
+      rtcSend('rtc_answer', { target: msg.username, sdp: pc.localDescription });
+    } else if (msg.type === 'rtc_answer') {
+      if (pc.signalingState === 'have-local-offer') await pc.setRemoteDescription(msg.sdp);
+      for (const c of peer.pendingIce) try { await pc.addIceCandidate(c); } catch (e) { rtcLog('flush ice err', e); }
+      peer.pendingIce = [];
+    } else if (msg.type === 'rtc_ice') {
+      if (!msg.candidate) return;
+      if (!pc.remoteDescription) { peer.pendingIce.push(msg.candidate); return; }
+      try { await pc.addIceCandidate(msg.candidate); } catch (e) { if (!peer.ignoreOffer) rtcLog('addIceCandidate err', e); }
+    }
+  } catch (err) {
+    rtcLog('handleRtcMessage error', msg.type, err);
   }
 }
+
+// === Timelapse / Flashback ===
+const TL_EVENT_SIZE = 10; // bytes per event: ts(4) x(2) y(2) new(1) old(1) — little endian
+let tlState = null; // { events: DataView, count, startGrid: Uint8Array, w, h, t0, tEnd, idx, playing, speed }
+let tlAnimFrame = null;
+
+async function checkTimelapseAvailable() {
+  if (!currentLobbyId) return false;
+  try {
+    const res = await fetch(BACKEND + '/api/lobbies/timelapse?id=' + encodeURIComponent(currentLobbyId), { method: 'HEAD' });
+    return res.headers.get('X-Full-24h') === '1';
+  } catch { return false; }
+}
+
+async function updateTimelapseButton() {
+  const btn = document.getElementById('btn-timelapse');
+  if (!currentLobbyId || isGuest) { btn.style.display = 'none'; return; }
+  const available = await checkTimelapseAvailable();
+  btn.style.display = available ? '' : 'none';
+}
+
+async function openTimelapse() {
+  const modal = document.getElementById('timelapse-modal');
+  const info = document.getElementById('timelapse-info');
+  modal.style.display = 'flex';
+  info.textContent = 'Loading...';
+  let res;
+  try {
+    res = await fetch(BACKEND + '/api/lobbies/timelapse?id=' + encodeURIComponent(currentLobbyId));
+  } catch (e) { info.textContent = 'Failed to load.'; return; }
+  if (!res.ok) { info.textContent = 'No timelapse data.'; return; }
+  const w = parseInt(res.headers.get('X-Width') || '256');
+  const h = parseInt(res.headers.get('X-Height') || '256');
+  const buf = await res.arrayBuffer();
+  const events = new DataView(buf);
+  const count = Math.floor(buf.byteLength / TL_EVENT_SIZE);
+  if (count === 0) { info.textContent = 'No pixel changes recorded yet.'; return; }
+  // Compute the start state by reverse-applying events from the current grid
+  const startGrid = new Uint8Array(grid); // current grid
+  for (let i = count - 1; i >= 0; i--) {
+    const o = i * TL_EVENT_SIZE;
+    const x = events.getUint16(o + 4, true);
+    const y = events.getUint16(o + 6, true);
+    const oldC = events.getUint8(o + 9);
+    if (x < w && y < h) startGrid[y * w + x] = oldC;
+  }
+  const t0 = events.getUint32(0, true);
+  const tEnd = events.getUint32((count - 1) * TL_EVENT_SIZE, true);
+  tlState = { events, count, startGrid, w, h, t0, tEnd, idx: 0, playing: false, speed: parseFloat(document.getElementById('timelapse-speed').value) };
+  // Set up canvas
+  const tlCvs = document.getElementById('timelapse-canvas');
+  tlCvs.width = w; tlCvs.height = h;
+  const tlCtx = tlCvs.getContext('2d');
+  const imageData = tlCtx.createImageData(w, h);
+  tlState.imageData = imageData;
+  tlState.tlCtx = tlCtx;
+  // Render starting state
+  for (let i = 0; i < w * h; i++) {
+    const c = COLOR_BYTES[startGrid[i]] || COLOR_BYTES[0];
+    const o = i * 4;
+    imageData.data[o] = c[0]; imageData.data[o+1] = c[1]; imageData.data[o+2] = c[2]; imageData.data[o+3] = 255;
+  }
+  tlCtx.putImageData(imageData, 0, 0);
+  document.getElementById('timelapse-scrubber').value = 0;
+  updateTimelapseInfo();
+}
+
+function updateTimelapseInfo() {
+  if (!tlState) return;
+  const info = document.getElementById('timelapse-info');
+  const dur = tlState.tEnd - tlState.t0;
+  const elapsed = tlState.idx > 0 ? (tlState.events.getUint32((tlState.idx - 1) * TL_EVENT_SIZE, true) - tlState.t0) : 0;
+  const hrs = Math.floor(dur / 3600), mins = Math.floor((dur % 3600) / 60);
+  info.textContent = `${tlState.idx} / ${tlState.count} placements  —  ${Math.floor(elapsed / 60)}min into ${hrs}h ${mins}m of activity`;
+}
+
+function applyEventTo(idx, imageData, w) {
+  const o = idx * TL_EVENT_SIZE;
+  const x = tlState.events.getUint16(o + 4, true);
+  const y = tlState.events.getUint16(o + 6, true);
+  const newC = tlState.events.getUint8(o + 8);
+  if (x >= w || y >= tlState.h) return;
+  const c = COLOR_BYTES[newC] || COLOR_BYTES[0];
+  const po = (y * w + x) * 4;
+  imageData.data[po] = c[0]; imageData.data[po+1] = c[1]; imageData.data[po+2] = c[2]; imageData.data[po+3] = 255;
+}
+
+function rebuildToIndex(targetIdx) {
+  // Rebuild from start when scrubbing backwards
+  if (!tlState) return;
+  const { imageData, w, startGrid } = tlState;
+  for (let i = 0; i < w * tlState.h; i++) {
+    const c = COLOR_BYTES[startGrid[i]] || COLOR_BYTES[0];
+    const o = i * 4;
+    imageData.data[o] = c[0]; imageData.data[o+1] = c[1]; imageData.data[o+2] = c[2]; imageData.data[o+3] = 255;
+  }
+  for (let i = 0; i < targetIdx; i++) applyEventTo(i, imageData, w);
+  tlState.tlCtx.putImageData(imageData, 0, 0);
+  tlState.idx = targetIdx;
+  updateTimelapseInfo();
+}
+
+function tlTick() {
+  if (!tlState || !tlState.playing) { tlAnimFrame = null; return; }
+  const stepsPerFrame = Math.max(1, Math.floor(tlState.speed));
+  for (let i = 0; i < stepsPerFrame && tlState.idx < tlState.count; i++) {
+    applyEventTo(tlState.idx, tlState.imageData, tlState.w);
+    tlState.idx++;
+  }
+  tlState.tlCtx.putImageData(tlState.imageData, 0, 0);
+  document.getElementById('timelapse-scrubber').value = (tlState.idx / tlState.count) * 100;
+  updateTimelapseInfo();
+  if (tlState.idx >= tlState.count) {
+    tlState.playing = false;
+    document.getElementById('btn-timelapse-play').textContent = 'Play';
+  }
+  tlAnimFrame = requestAnimationFrame(tlTick);
+}
+
+document.getElementById('btn-timelapse').onclick = openTimelapse;
+document.getElementById('btn-timelapse-close').onclick = () => {
+  document.getElementById('timelapse-modal').style.display = 'none';
+  if (tlState) tlState.playing = false;
+  if (tlAnimFrame) { cancelAnimationFrame(tlAnimFrame); tlAnimFrame = null; }
+  tlState = null;
+};
+document.getElementById('btn-timelapse-play').onclick = () => {
+  if (!tlState) return;
+  if (tlState.idx >= tlState.count) rebuildToIndex(0);
+  tlState.playing = !tlState.playing;
+  document.getElementById('btn-timelapse-play').textContent = tlState.playing ? 'Pause' : 'Play';
+  if (tlState.playing && !tlAnimFrame) tlAnimFrame = requestAnimationFrame(tlTick);
+};
+document.getElementById('timelapse-scrubber').oninput = (e) => {
+  if (!tlState) return;
+  const target = Math.floor((parseFloat(e.target.value) / 100) * tlState.count);
+  rebuildToIndex(target);
+};
+document.getElementById('timelapse-speed').onchange = (e) => {
+  if (tlState) tlState.speed = parseFloat(e.target.value);
+};
 
 function updateCursor(sx, sy) {
   if (isPanning) { cvs.style.cursor = 'grabbing'; }
@@ -1763,6 +1962,7 @@ async function loadLobbies() {
   document.getElementById('btn-video').style.display = 'none';
   document.getElementById('btn-mute').style.display = 'none';
   document.getElementById('btn-leave-call').style.display = 'none';
+  document.getElementById('btn-timelapse').style.display = 'none';
   if (localStream) endCall();
   document.getElementById('guest-warning').style.display = 'none';
   document.getElementById('lobby-name-display').innerHTML = '';
@@ -1847,6 +2047,7 @@ document.getElementById('btn-leave-lobby').onclick = () => {
   document.getElementById('btn-video').style.display = 'none';
   document.getElementById('btn-mute').style.display = 'none';
   document.getElementById('btn-leave-call').style.display = 'none';
+  document.getElementById('btn-timelapse').style.display = 'none';
   if (localStream) endCall();
   document.getElementById('guest-warning').style.display = 'none';
   if (isGuest) {
@@ -2104,7 +2305,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; updateTimelapseButton(); render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
