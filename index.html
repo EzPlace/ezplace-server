@@ -420,7 +420,20 @@
       <button id="btn-mobile-mode" class="win-btn" style="display:none;font-size:11px;font-weight:700;">PAN</button>
     </div>
   </div>
-  <div id="palette-wrap" style="position:relative;flex-shrink:0;"><div id="palette-row"></div><div id="palette-scroll-hint">&#x276F;</div></div>
+  <div id="color-picker" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg-secondary);border-top:1px solid var(--border);flex-shrink:0;justify-content:center;">
+    <canvas id="color-wheel" width="100" height="100" style="touch-action:none;cursor:crosshair;border-radius:50%;"></canvas>
+    <div style="display:flex;flex-direction:column;align-items:stretch;gap:4px;height:100px;">
+      <span style="font-size:9px;color:var(--text-muted);text-align:center;">light</span>
+      <input id="color-lightness" type="range" min="0" max="100" value="50" style="writing-mode:bt-lr;-webkit-appearance:slider-vertical;width:24px;flex:1;accent-color:var(--accent);" orient="vertical">
+      <span style="font-size:9px;color:var(--text-muted);text-align:center;">dark</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div style="font-size:10px;color:var(--text-muted);">Picked</div>
+      <div id="color-preview-pick" style="width:36px;height:36px;border-radius:6px;background:#FF0000;border:2px solid var(--border);"></div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Used</div>
+      <div id="color-preview-snap" style="width:36px;height:36px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);"></div>
+    </div>
+  </div>
 
   <!-- Lobby browser overlay -->
   <div id="lobby-screen">
@@ -1539,24 +1552,126 @@ cvs.addEventListener('click', e => {
   if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
 });
 
-const paletteEl = document.getElementById('palette-row');
-const paletteWrap = document.getElementById('palette-wrap');
-COLORS.forEach((c, i) => {
-  const btn = document.createElement('div');
-  btn.className = 'color-btn' + (i === 3 ? ' selected' : '');
-  btn.style.background = c; btn.title = c;
-  btn.addEventListener('click', () => { document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); selectedColor = i; });
-  paletteEl.appendChild(btn);
-});
-// Hide the mobile scroll hint once the user has scrolled near the right edge
-function updatePaletteScrollState() {
-  const atEnd = paletteEl.scrollLeft + paletteEl.clientWidth >= paletteEl.scrollWidth - 8;
-  paletteWrap.classList.toggle('at-end', atEnd);
-  paletteEl.classList.toggle('at-end', atEnd);
+// === Color wheel picker ===
+// Storage stays as palette indices (1 byte/pixel). The wheel lets you pick any HSL color,
+// and we snap to the nearest of the 53 palette colors so server/network/timelapse stay compact.
+const wheelCanvas = document.getElementById('color-wheel');
+const wheelCtx = wheelCanvas.getContext('2d');
+const WHEEL_SIZE = 100;
+const WHEEL_R = WHEEL_SIZE / 2;
+
+// Pre-decoded palette as RGB triples for snapping
+const PALETTE_RGB = COLORS.map(hex => [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)]);
+
+function hslToRgb(h, s, l) {
+  // h: 0-360, s: 0-1, l: 0-1
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r, g, b;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
 }
-paletteEl.addEventListener('scroll', updatePaletteScrollState, { passive: true });
-window.addEventListener('resize', updatePaletteScrollState);
-updatePaletteScrollState();
+
+function nearestPaletteIndex(r, g, b) {
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i = 0; i < PALETTE_RGB.length; i++) {
+    const [pr, pg, pb] = PALETTE_RGB[i];
+    const dr = pr - r, dg = pg - g, db = pb - b;
+    const d = dr * dr + dg * dg + db * db;
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  return bestIdx;
+}
+
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+let pickHue = 0, pickSat = 1.0, pickLight = 0.5;
+
+function drawColorWheel(currentLight) {
+  const img = wheelCtx.createImageData(WHEEL_SIZE, WHEEL_SIZE);
+  for (let y = 0; y < WHEEL_SIZE; y++) {
+    for (let x = 0; x < WHEEL_SIZE; x++) {
+      const dx = x - WHEEL_R + 0.5, dy = y - WHEEL_R + 0.5;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const o = (y * WHEEL_SIZE + x) * 4;
+      if (dist > WHEEL_R) {
+        img.data[o] = 0; img.data[o+1] = 0; img.data[o+2] = 0; img.data[o+3] = 0;
+        continue;
+      }
+      const sat = Math.min(1, dist / WHEEL_R);
+      let h = Math.atan2(dy, dx) * 180 / Math.PI;
+      if (h < 0) h += 360;
+      const [r, g, b] = hslToRgb(h, sat, currentLight);
+      img.data[o] = r; img.data[o+1] = g; img.data[o+2] = b; img.data[o+3] = 255;
+    }
+  }
+  wheelCtx.putImageData(img, 0, 0);
+  drawPickerIndicator();
+}
+
+function drawPickerIndicator() {
+  // Draw a small ring at the current pick position
+  const dist = pickSat * WHEEL_R;
+  const rad = pickHue * Math.PI / 180;
+  const x = WHEEL_R + Math.cos(rad) * dist;
+  const y = WHEEL_R + Math.sin(rad) * dist;
+  wheelCtx.strokeStyle = '#000';
+  wheelCtx.lineWidth = 3;
+  wheelCtx.beginPath(); wheelCtx.arc(x, y, 5, 0, Math.PI * 2); wheelCtx.stroke();
+  wheelCtx.strokeStyle = '#fff';
+  wheelCtx.lineWidth = 1.5;
+  wheelCtx.beginPath(); wheelCtx.arc(x, y, 5, 0, Math.PI * 2); wheelCtx.stroke();
+}
+
+function applyPick() {
+  const [r, g, b] = hslToRgb(pickHue, pickSat, pickLight);
+  document.getElementById('color-preview-pick').style.background = rgbToHex(r, g, b);
+  selectedColor = nearestPaletteIndex(r, g, b);
+  document.getElementById('color-preview-snap').style.background = COLORS[selectedColor];
+  drawColorWheel(pickLight);
+}
+
+function pickFromEvent(e) {
+  const rect = wheelCanvas.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+  // Map from CSS pixels to canvas pixels (in case of CSS sizing)
+  const sx = cx * (WHEEL_SIZE / rect.width);
+  const sy = cy * (WHEEL_SIZE / rect.height);
+  const dx = sx - WHEEL_R, dy = sy - WHEEL_R;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > WHEEL_R + 4) return; // outside wheel
+  pickSat = Math.min(1, dist / WHEEL_R);
+  let h = Math.atan2(dy, dx) * 180 / Math.PI;
+  if (h < 0) h += 360;
+  pickHue = h;
+  applyPick();
+}
+
+let wheelDragging = false;
+wheelCanvas.addEventListener('mousedown', e => { e.preventDefault(); wheelDragging = true; pickFromEvent(e); });
+window.addEventListener('mousemove', e => { if (wheelDragging) pickFromEvent(e); });
+window.addEventListener('mouseup', () => { wheelDragging = false; });
+wheelCanvas.addEventListener('touchstart', e => { e.preventDefault(); wheelDragging = true; pickFromEvent(e); }, { passive: false });
+wheelCanvas.addEventListener('touchmove', e => { e.preventDefault(); if (wheelDragging) pickFromEvent(e); }, { passive: false });
+wheelCanvas.addEventListener('touchend', () => { wheelDragging = false; });
+
+document.getElementById('color-lightness').addEventListener('input', e => {
+  pickLight = parseFloat(e.target.value) / 100;
+  applyPick();
+});
+
+// Initialize at red
+pickHue = 0; pickSat = 1.0; pickLight = 0.5;
+applyPick();
 
 const messagesEl = document.getElementById('messages');
 const chatInput = document.getElementById('chat-input');
