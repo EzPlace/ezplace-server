@@ -45,6 +45,7 @@ vips = []
 ranks = {}  # { username_lower: { "label": "VIP", "color": "#daa520" } }
 user_ips = {}
 fake_admins = []
+brush_perms = {}  # { username_lower: { "size": int, "drag": bool } }
 lobbies = {}
 clients = {}
 social_clients = {}
@@ -160,6 +161,16 @@ async def save_vips():
 
 async def save_fake_admins():
     await db_save("store", "fake_admins", fake_admins)
+
+async def save_brush_perms():
+    await db_save("store", "brush_perms", brush_perms)
+
+def get_brush_perm(username):
+    if not username:
+        return {"size": 1, "drag": False}
+    if is_admin(username):
+        return {"size": 25, "drag": True}
+    return brush_perms.get(username.lower(), {"size": 1, "drag": False})
 
 async def save_ranks():
     await db_save("store", "ranks", ranks)
@@ -278,7 +289,7 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, dms, dm_last_seen
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, dms, dm_last_seen
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
@@ -287,6 +298,7 @@ async def load_all_data():
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
     fake_admins = await db_load("store", "fake_admins") or []
+    brush_perms = await db_load("store", "brush_perms") or {}
     dm_last_seen = await db_load("store", "dm_last_seen") or {}
     # Migrate any existing VIPs that don't already have a rank
     rank_dirty = False
@@ -1003,6 +1015,41 @@ async def admin_ranks_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"ranks": ranks})
 
+async def admin_brush_perm_set_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    size = int(data.get("size", 1))
+    drag = bool(data.get("drag", False))
+    # Clamp size to allowed values
+    allowed_sizes = [1, 3, 5, 7, 9, 15, 25]
+    if size not in allowed_sizes: size = 1
+    if size <= 1 and not drag:
+        # Both off = remove the entry entirely
+        brush_perms.pop(target.lower(), None)
+    else:
+        brush_perms[target.lower()] = {"size": size, "drag": drag}
+    await save_brush_perms()
+    # Push the new perm to that user if they're connected
+    for cws, cinfo in list(clients.items()):
+        if cinfo and cinfo.get("username", "").lower() == target.lower():
+            try: await cws.send_json({"type": "brush_perm_update", "brush_perm": get_brush_perm(target)})
+            except: pass
+    return web.json_response({"ok": True, "message": f"Set brush perm for {target}: size={size}, drag={drag}"})
+
+async def admin_brush_perm_remove_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip().lower()
+    brush_perms.pop(target, None)
+    await save_brush_perms()
+    for cws, cinfo in list(clients.items()):
+        if cinfo and cinfo.get("username", "").lower() == target:
+            try: await cws.send_json({"type": "brush_perm_update", "brush_perm": {"size": 1, "drag": False}})
+            except: pass
+    return web.json_response({"ok": True, "message": f"Removed brush perm from {target}"})
+
 async def admin_fake_admin_add_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -1139,7 +1186,7 @@ async def websocket_handler(request):
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "can_place": can_place}
                     await track_ip(username, request)
-                    grid_msg = {"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place}
+                    grid_msg = {"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                     if is_fake_admin(username): grid_msg["fake_admin"] = True
                     await ws.send_json(grid_msg)
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
@@ -1241,16 +1288,21 @@ async def websocket_handler(request):
                         await save_lobby(lobby_id)
                         await ws.send_json({"type": "system", "text": f"Unbanned {target} from this lobby"})
 
-                elif data["type"] == "admin_brush" and username and lobby_id and not is_guest and is_admin(username):
+                elif data["type"] == "admin_brush" and username and lobby_id and not is_guest:
+                    perm = get_brush_perm(username)
+                    if perm["size"] <= 1:
+                        continue  # no brush perm, ignore
                     lobby = lobbies.get(lobby_id)
                     if lobby:
                         coords = data.get("pixels", [])
                         color = data.get("color", 0)
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
+                        # Cap stamps based on the user's permitted brush size (size*size pixels max per stroke)
+                        max_stamps = perm["size"] * perm["size"]
                         if isinstance(coords, list) and 0 <= color < 53:
                             placed = 0
-                            for c in coords[:1024]:  # cap brush stamps
+                            for c in coords[:max_stamps]:
                                 if not isinstance(c, list) or len(c) != 2: continue
                                 x, y = c[0], c[1]
                                 if not (isinstance(x, int) and isinstance(y, int)): continue
@@ -1502,6 +1554,9 @@ app.router.add_post("/api/admin/vip-remove", admin_vip_remove_handler)
 app.router.add_post("/api/admin/rank-set", admin_rank_set_handler)
 app.router.add_post("/api/admin/rank-remove", admin_rank_remove_handler)
 app.router.add_get("/api/admin/ranks", admin_ranks_handler)
+app.router.add_post("/api/admin/brush-perm-set", admin_brush_perm_set_handler)
+app.router.add_post("/api/admin/brush-perm-remove", admin_brush_perm_remove_handler)
+app.router.add_get("/api/admin/brush-perms", lambda r: web.json_response({"brush_perms": brush_perms}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 app.router.add_post("/api/admin/fake-admin-add", admin_fake_admin_add_handler)
 app.router.add_post("/api/admin/fake-admin-remove", admin_fake_admin_remove_handler)
 app.router.add_get("/api/admin/fake-admins", lambda r: web.json_response({"fake_admins": fake_admins}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))

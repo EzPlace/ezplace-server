@@ -355,7 +355,7 @@
     #btn-export-grid, #btn-import-grid, #btn-manage-current { font-size: 10px; padding: 4px 8px; }
     #zoom-buttons { right: 10px; gap: 6px; }
     #zoom-buttons button { width: 44px; height: 44px; font-size: 22px; }
-    #btn-mobile-mode { display: flex !important; align-items: center; justify-content: center; }
+    #btn-mobile-mode { align-items: center; justify-content: center; }
     #btn-mobile-mode.draw { background: var(--accent) !important; color: #fff; }
     #palette-wrap { width: 100%; }
     #palette-row { gap: 6px; padding: 8px 28px 8px 8px; max-width: 100%; width: 100%; min-height: 54px; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: thin; white-space: nowrap; touch-action: pan-x; mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 36px), transparent 100%); -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 36px), transparent 100%); }
@@ -420,18 +420,27 @@
       <button id="btn-mobile-mode" class="win-btn" style="display:none;font-size:11px;font-weight:700;">PAN</button>
     </div>
   </div>
-  <div id="color-picker" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg-secondary);border-top:1px solid var(--border);flex-shrink:0;justify-content:center;">
-    <canvas id="color-wheel" width="100" height="100" style="touch-action:none;cursor:crosshair;border-radius:50%;"></canvas>
-    <div style="display:flex;flex-direction:column;align-items:stretch;gap:4px;height:100px;">
-      <span style="font-size:9px;color:var(--text-muted);text-align:center;">light</span>
-      <input id="color-lightness" type="range" min="0" max="100" value="50" style="writing-mode:bt-lr;-webkit-appearance:slider-vertical;width:24px;flex:1;accent-color:var(--accent);" orient="vertical">
-      <span style="font-size:9px;color:var(--text-muted);text-align:center;">dark</span>
+  <div id="bottom-bar" style="display:flex;align-items:stretch;gap:8px;padding:6px 8px;background:var(--bg-secondary);border-top:1px solid var(--border);flex-shrink:0;">
+    <div id="color-picker" style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+      <canvas id="color-wheel" width="80" height="80" style="touch-action:none;cursor:crosshair;border-radius:50%;"></canvas>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;height:80px;">
+        <span style="font-size:8px;color:var(--text-muted);">+</span>
+        <input id="color-lightness" type="range" min="0" max="100" value="50" style="writing-mode:bt-lr;-webkit-appearance:slider-vertical;width:20px;flex:1;accent-color:var(--accent);" orient="vertical">
+        <span style="font-size:8px;color:var(--text-muted);">-</span>
+      </div>
+      <div id="color-preview-snap" title="Color used" style="width:32px;height:32px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);align-self:center;"></div>
+      <select id="brush-size-select" class="win-input" style="display:none;font-size:11px;padding:2px 4px;align-self:center;">
+        <option value="1">1x1</option>
+        <option value="3">3x3</option>
+        <option value="5">5x5</option>
+        <option value="7">7x7</option>
+        <option value="9">9x9</option>
+        <option value="15">15x15</option>
+        <option value="25">25x25</option>
+      </select>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
-      <div style="font-size:10px;color:var(--text-muted);">Picked</div>
-      <div id="color-preview-pick" style="width:36px;height:36px;border-radius:6px;background:#FF0000;border:2px solid var(--border);"></div>
-      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Used</div>
-      <div id="color-preview-snap" style="width:36px;height:36px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);"></div>
+    <div id="palette-wrap" style="position:relative;flex:1;min-width:0;display:flex;align-items:center;">
+      <div id="palette-row" style="display:flex;gap:4px;overflow-x:auto;overflow-y:hidden;flex:1;padding:4px;scrollbar-width:thin;"></div>
     </div>
   </div>
 
@@ -678,6 +687,27 @@
         <button class="win-btn" id="btn-view-friends">Friends</button>
         <button class="win-btn" id="btn-view-lobbies">Lobbies</button>
       </div>
+      <h4>Brush Permissions</h4>
+      <div class="admin-row">
+        <input id="admin-brush-perm-user" class="win-input" type="text" placeholder="Username">
+      </div>
+      <div class="admin-row">
+        <select id="admin-brush-perm-size" class="win-input" style="flex:1;">
+          <option value="1">1x1 (default)</option>
+          <option value="3">3x3</option>
+          <option value="5">5x5</option>
+          <option value="7">7x7</option>
+          <option value="9">9x9</option>
+          <option value="15">15x15</option>
+          <option value="25">25x25</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;"><input type="checkbox" id="admin-brush-perm-drag"> Drag</label>
+      </div>
+      <div class="admin-row">
+        <button class="win-btn" id="btn-admin-brush-perm-set">Grant</button>
+        <button class="win-btn" id="btn-admin-brush-perm-remove">Revoke</button>
+        <button class="win-btn" id="btn-view-brush-perms">View All</button>
+      </div>
       <div id="fake-admin-section" style="display:none;">
         <h4>Fake Admin</h4>
         <div class="admin-row">
@@ -739,6 +769,11 @@ let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
 let canPlace = true;
+// Brush permissions granted by admin: max brush size and whether drag-to-paint is allowed.
+// Admin (toothpaste) implicitly gets full perms via isAdminUser().
+let brushPerm = { size: 1, drag: false };
+function effectiveMaxBrush() { return isAdminUser() ? 25 : (brushPerm.size || 1); }
+function canDragPaint() { return isAdminUser() || !!brushPerm.drag; }
 let isFakeAdmin = false;
 let fakeBannedUsers = new Set(); // users "banned" by fake admin — muted on their screen only
 // Remote cursors: { username_lower: { name, x, y, isGuest, lastUpdate } }
@@ -1351,8 +1386,8 @@ cvs.addEventListener('mousedown', e => {
   if (e.button === 1 || e.button === 2 || (e.button === 0 && !isOverGrid(sx, sy))) {
     isPanning = true; userHasInteracted = true; panStartX = e.clientX; panStartY = e.clientY; camStartX = camX; camStartY = camY;
     cvs.style.cursor = 'grabbing'; e.preventDefault();
-  } else if (e.button === 0 && isOverGrid(sx, sy)) {
-    // Start drag-to-paint
+  } else if (e.button === 0 && isOverGrid(sx, sy) && canDragPaint()) {
+    // Start drag-to-paint (only if user has the perm)
     const g = screenToGrid(sx, sy);
     isDrawing = true;
     drawLastX = g.x; drawLastY = g.y;
@@ -1414,10 +1449,16 @@ let touchDrawLastX = -1, touchDrawLastY = -1;
 let lastTouchDrawTime = 0;
 const modeBtn = document.getElementById('btn-mobile-mode');
 modeBtn.onclick = () => {
+  if (!canDragPaint()) return;
   mobileDrawMode = !mobileDrawMode;
   modeBtn.textContent = mobileDrawMode ? 'DRAW' : 'PAN';
   modeBtn.classList.toggle('draw', mobileDrawMode);
 };
+function updateModeBtnVisibility() {
+  // Only show the mobile draw/pan toggle if user has drag perm
+  modeBtn.style.display = canDragPaint() ? 'flex' : 'none';
+  if (!canDragPaint()) { mobileDrawMode = false; modeBtn.textContent = 'PAN'; modeBtn.classList.remove('draw'); }
+}
 
 cvs.addEventListener('touchstart', e => {
   e.preventDefault();
@@ -1519,7 +1560,7 @@ function startCooldownBar() { lastPlaceTime = Date.now(); cooldownFill.style.wid
 function isAdminUser() { return username && (username.toLowerCase() === 'toothpaste' || isFakeAdmin); }
 function isRealAdmin() { return username && username.toLowerCase() === 'toothpaste'; }
 function paintBrush(cx, cy) {
-  const size = isAdminUser() ? adminBrushSize : 1;
+  const size = (isAdminUser() || brushPerm.size > 1) ? Math.min(adminBrushSize, effectiveMaxBrush()) : 1;
   const half = Math.floor(size / 2);
   const pixels = [];
   for (let dy = -half; dy <= half; dy++) {
@@ -1534,7 +1575,7 @@ function paintBrush(cx, cy) {
   render();
   if (isFakeAdmin) return; // Fake admin: local-only brush, never sent to server
   if (ws && ws.readyState === WebSocket.OPEN) {
-    if (size > 1 && isRealAdmin()) {
+    if (size > 1 && (isRealAdmin() || brushPerm.size > 1)) {
       ws.send(JSON.stringify({ type: 'admin_brush', pixels, color: selectedColor }));
     } else if (pixels.length === 1) {
       ws.send(JSON.stringify({ type: 'pixel', x: cx, y: cy, color: selectedColor }));
@@ -1542,7 +1583,7 @@ function paintBrush(cx, cy) {
   }
 }
 
-// Click handler: shows guest/spectator/cooldown warnings (actual placement is via mousedown drag system)
+// Click handler: places a single pixel. Drag-to-paint is opt-in via brush perm (handled in mousedown).
 cvs.addEventListener('click', e => {
   if (Date.now() - touchHandledRecently < 500) return;
   if (blocked || !username || !currentLobbyId) return;
@@ -1550,6 +1591,13 @@ cvs.addEventListener('click', e => {
   if (!canPlace) { cooldownWarn.textContent = 'Spectator mode - you cannot place pixels here'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
   const now = Date.now();
   if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
+  // If the user has drag perm, mousedown already placed the pixel via the drag system. Don't double-place.
+  if (canDragPaint()) return;
+  const rect = cvs.getBoundingClientRect();
+  const g = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
+  if (g.x < 0 || g.x >= GRID_W || g.y < 0 || g.y >= GRID_H) return;
+  if (!isAdminUser()) startCooldownBar();
+  paintBrush(g.x, g.y);
 });
 
 // === Color wheel picker ===
@@ -1633,9 +1681,13 @@ function drawPickerIndicator() {
 
 function applyPick() {
   const [r, g, b] = hslToRgb(pickHue, pickSat, pickLight);
-  document.getElementById('color-preview-pick').style.background = rgbToHex(r, g, b);
   selectedColor = nearestPaletteIndex(r, g, b);
   document.getElementById('color-preview-snap').style.background = COLORS[selectedColor];
+  // Clear palette selection highlight since the wheel picked something different
+  document.querySelectorAll('#palette-row .color-btn').forEach(b => { b.style.borderColor = 'transparent'; b.classList.remove('selected'); });
+  // Highlight the matching palette swatch
+  const swatches = document.querySelectorAll('#palette-row .color-btn');
+  if (swatches[selectedColor]) { swatches[selectedColor].style.borderColor = '#fff'; swatches[selectedColor].classList.add('selected'); }
   drawColorWheel(pickLight);
 }
 
@@ -1672,6 +1724,39 @@ document.getElementById('color-lightness').addEventListener('input', e => {
 // Initialize at red
 pickHue = 0; pickSat = 1.0; pickLight = 0.5;
 applyPick();
+
+// Build palette swatches (the 53 indexed colors). Clicking sets selectedColor directly.
+const paletteEl = document.getElementById('palette-row');
+COLORS.forEach((c, i) => {
+  const btn = document.createElement('div');
+  btn.className = 'color-btn' + (i === 3 ? ' selected' : '');
+  btn.style.cssText = 'width:28px;height:28px;min-width:28px;border:2px solid transparent;border-radius:5px;cursor:pointer;flex-shrink:0;';
+  btn.style.background = c; btn.title = c;
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#palette-row .color-btn').forEach(b => { b.style.borderColor = 'transparent'; b.classList.remove('selected'); });
+    btn.style.borderColor = '#fff';
+    btn.classList.add('selected');
+    selectedColor = i;
+    document.getElementById('color-preview-snap').style.background = c;
+  });
+  paletteEl.appendChild(btn);
+});
+
+// Brush size selector
+document.getElementById('brush-size-select').addEventListener('change', e => {
+  adminBrushSize = parseInt(e.target.value) || 1;
+});
+
+function updateBrushSizeSelectVisibility() {
+  const sel = document.getElementById('brush-size-select');
+  const max = effectiveMaxBrush();
+  if (max <= 1) { sel.style.display = 'none'; return; }
+  sel.style.display = '';
+  // Hide options larger than the user's permitted max
+  for (const opt of sel.options) {
+    opt.style.display = parseInt(opt.value) <= max ? '' : 'none';
+  }
+}
 
 const messagesEl = document.getElementById('messages');
 const chatInput = document.getElementById('chat-input');
@@ -2408,6 +2493,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'cursor': if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) { remoteCursors[msg.username.toLowerCase()] = { name: msg.username, x: msg.x, y: msg.y, isGuest: !!msg.guest, lastUpdate: Date.now() }; render(); } break;
       case 'cursor_remove': if (msg.username) { delete remoteCursors[msg.username.toLowerCase()]; render(); } break;
       case 'rtc_join': case 'rtc_leave': case 'rtc_offer': case 'rtc_answer': case 'rtc_ice': handleRtcMessage(msg); break;
+      case 'brush_perm_update': brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); addSystemMsg(`Your brush perms updated: size=${brushPerm.size}, drag=${brushPerm.drag ? 'on' : 'off'}`); break;
       case 'typing': {
         if (!msg.username || msg.username.toLowerCase() === (username || '').toLowerCase()) break;
         const k = msg.username.toLowerCase();
@@ -2420,7 +2506,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; updateTimelapseButton(); render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; updateTimelapseButton(); render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
@@ -2851,6 +2937,18 @@ document.getElementById('btn-admin-rank-remove').onclick = () => {
   if (u) adminAction('/api/admin/rank-remove', { username: u });
 };
 document.getElementById('btn-view-ranks').onclick = () => adminView('/api/admin/ranks');
+document.getElementById('btn-admin-brush-perm-set').onclick = () => {
+  const u = document.getElementById('admin-brush-perm-user').value.trim();
+  if (!u) return;
+  const size = parseInt(document.getElementById('admin-brush-perm-size').value) || 1;
+  const drag = document.getElementById('admin-brush-perm-drag').checked;
+  adminAction('/api/admin/brush-perm-set', { username: u, size, drag });
+};
+document.getElementById('btn-admin-brush-perm-remove').onclick = () => {
+  const u = document.getElementById('admin-brush-perm-user').value.trim();
+  if (u) adminAction('/api/admin/brush-perm-remove', { username: u });
+};
+document.getElementById('btn-view-brush-perms').onclick = () => adminView('/api/admin/brush-perms');
 document.getElementById('btn-fakeadmin-add').onclick = () => { const u = document.getElementById('admin-fakeadmin-input').value.trim(); if (u) adminAction('/api/admin/fake-admin-add', { username: u }); };
 document.getElementById('btn-fakeadmin-remove').onclick = () => { const u = document.getElementById('admin-fakeadmin-input').value.trim(); if (u) adminAction('/api/admin/fake-admin-remove', { username: u }); };
 document.getElementById('btn-view-fakeadmins').onclick = () => adminView('/api/admin/fake-admins');
