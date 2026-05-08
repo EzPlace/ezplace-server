@@ -444,6 +444,12 @@
   <!-- Lobby browser overlay -->
   <div id="lobby-screen">
     <h2>Choose a Lobby</h2>
+    <div id="home-online" style="cursor:pointer;font-size:13px;color:var(--text-secondary);margin-bottom:8px;text-align:center;background:var(--bg-tertiary);padding:8px 12px;border-radius:var(--radius-md);max-width:480px;width:100%;">&#x1F7E2; <b id="home-online-count" style="color:var(--green)">0</b> online &mdash; click to see who</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Clans</span>
+      <button id="btn-create-clan" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--accent);color:#fff;font-weight:700;">+ Create Clan</button>
+    </div>
+    <div class="lobby-list" id="clans-list"></div>
     <div class="section-title">Public Lobbies</div>
     <div class="lobby-list" id="public-lobbies"></div>
     <div class="section-title">Your Lobbies</div>
@@ -472,6 +478,35 @@
 </div>
 
 <!-- Manage lobby modal -->
+<div id="online-list-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
+  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:360px;max-width:100%;max-height:70vh;overflow:hidden;display:flex;flex-direction:column;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;font-size:14px;">Online Players</div>
+      <button id="btn-online-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
+    </div>
+    <div id="online-list-body" style="overflow-y:auto;padding:8px;flex:1;"></div>
+  </div>
+</div>
+
+<div id="clan-create-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
+  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;padding:18px;display:flex;flex-direction:column;gap:10px;">
+    <div style="font-weight:700;font-size:15px;">Create Clan</div>
+    <div style="font-size:11px;color:var(--text-muted);">Once submitted, the site admin reviews your clan. Once approved you become the clan owner; other players can request to join and you approve them.</div>
+    <input id="clan-create-name" class="win-input" type="text" placeholder="Clan name (max 30 chars)" maxlength="30">
+    <input id="clan-create-rank" class="win-input" type="text" placeholder="Rank label, shown in chat (e.g. KNIGHTS)" maxlength="16">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:12px;">Color:</label>
+      <input id="clan-create-color" type="color" value="#7c5cfc" style="width:40px;height:32px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);">
+      <span style="font-size:11px;color:var(--text-muted);">Used for the rank tag in chat</span>
+    </div>
+    <div id="clan-create-error" style="color:var(--red);font-size:11px;min-height:14px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="btn-clan-create-cancel" class="win-btn" style="background:var(--bg-elevated);">Cancel</button>
+      <button id="btn-clan-create-submit" class="win-btn" style="background:var(--accent);color:#fff;">Submit</button>
+    </div>
+  </div>
+</div>
+
 <div id="timelapse-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:100;flex-direction:column;align-items:center;justify-content:center;padding:14px;">
   <div style="display:flex;justify-content:space-between;align-items:center;width:100%;max-width:900px;margin-bottom:8px;">
     <div style="font-weight:700;font-size:14px;color:var(--text-primary);">Flashback &mdash; up to last 24 hours</div>
@@ -705,6 +740,11 @@
         <button class="win-btn" id="btn-admin-brush-perm-remove">Revoke</button>
         <button class="win-btn" id="btn-view-brush-perms">View All</button>
       </div>
+      <h4>Clans</h4>
+      <div class="admin-row">
+        <button class="win-btn" id="btn-admin-clans-refresh">Refresh List</button>
+      </div>
+      <div id="admin-clans-list" style="font-size:11px;display:flex;flex-direction:column;gap:4px;margin:6px 0;"></div>
       <div id="fake-admin-section" style="display:none;">
         <h4>Fake Admin</h4>
         <div class="admin-row">
@@ -2095,7 +2135,120 @@ authUser.addEventListener('keydown', e => { if (e.key === 'Enter') authPass.focu
 const lobbyScreen = document.getElementById('lobby-screen');
 const lobbyError = document.getElementById('lobby-error');
 
+async function refreshHomeOnline() {
+  try {
+    const res = await fetch(BACKEND + '/api/online-summary');
+    const data = await res.json();
+    document.getElementById('home-online-count').textContent = data.total || 0;
+    homeOnlineUsers = data.users || [];
+  } catch {}
+}
+
+let homeOnlineUsers = [];
+function showOnlineListModal() {
+  const body = document.getElementById('online-list-body');
+  body.innerHTML = '';
+  if (!homeOnlineUsers.length) {
+    body.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:16px;font-size:12px;">No logged-in users online right now.</div>';
+  } else {
+    homeOnlineUsers.forEach(u => {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;display:flex;align-items:center;gap:8px;';
+      const isTP = u.toLowerCase() === 'toothpaste';
+      row.innerHTML = `<div style="width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 6px rgba(67,181,129,0.5);"></div><span class="${isTP ? 'rainbow' : ''}">${esc(u)}</span>`;
+      body.appendChild(row);
+    });
+  }
+  document.getElementById('online-list-modal').style.display = 'flex';
+}
+document.getElementById('home-online').onclick = showOnlineListModal;
+document.getElementById('btn-online-close').onclick = () => { document.getElementById('online-list-modal').style.display = 'none'; };
+
+// Clan UI
+async function loadClans() {
+  const list = document.getElementById('clans-list');
+  list.innerHTML = '';
+  try {
+    const res = await fetch(BACKEND + '/api/clans');
+    const data = await res.json();
+    let myClanInfo = null;
+    if (authToken) {
+      try { const r2 = await fetch(BACKEND + '/api/clans/my', { headers: { Authorization: authToken } }); myClanInfo = await r2.json(); } catch {}
+    }
+    if (!data.clans.length && !(myClanInfo && myClanInfo.pending_owned)) {
+      list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:6px;">No clans yet. Be the first to create one!</div>';
+    }
+    if (myClanInfo && myClanInfo.pending_owned) {
+      const card = document.createElement('div'); card.className = 'lobby-card';
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(myClanInfo.pending_owned.name)} <span style="color:${myClanInfo.pending_owned.color};font-size:10px;font-weight:700;margin-left:4px;">[${esc(myClanInfo.pending_owned.rank_label)}]</span></div><div class="lobby-meta">Your clan request — waiting for admin approval</div></div>`;
+      list.appendChild(card);
+    }
+    data.clans.forEach(c => {
+      const card = document.createElement('div'); card.className = 'lobby-card';
+      const isMember = myClanInfo && myClanInfo.my_clan && myClanInfo.my_clan.id === c.id;
+      const isOwner = isMember && myClanInfo.my_clan.owner.toLowerCase() === (username || '').toLowerCase();
+      const requested = myClanInfo && myClanInfo.join_requests && myClanInfo.join_requests.some(r => r.clan_id === c.id);
+      let actions = '';
+      if (!authToken) actions = '<span style="font-size:11px;color:var(--text-muted);">login to join</span>';
+      else if (isOwner) actions = `<button class="win-btn manage-clan" data-id="${c.id}" style="font-size:10px;">Manage</button>`;
+      else if (isMember) actions = `<button class="win-btn leave-clan" style="font-size:10px;background:var(--red);color:#fff;">Leave</button>`;
+      else if (requested) actions = '<span style="font-size:11px;color:var(--text-muted);">requested</span>';
+      else actions = `<button class="win-btn join-clan" data-id="${c.id}" style="font-size:10px;background:var(--accent);color:#fff;">Request Join</button>`;
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(c.name)} <span style="color:${c.color};font-size:10px;font-weight:700;margin-left:4px;">[${esc(c.rank_label)}]</span></div><div class="lobby-meta">Owner: ${esc(c.owner)} | ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div></div><div class="lobby-actions">${actions}</div>`;
+      const join = card.querySelector('.join-clan');
+      if (join) join.onclick = async () => { await fetch(BACKEND + '/api/clans/request-join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); loadClans(); };
+      const leave = card.querySelector('.leave-clan');
+      if (leave) leave.onclick = async () => { if (!confirm('Leave clan? You will lose your rank.')) return; await fetch(BACKEND + '/api/clans/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken } }); loadClans(); };
+      const manage = card.querySelector('.manage-clan');
+      if (manage) manage.onclick = () => openClanManage(c.id);
+      list.appendChild(card);
+    });
+  } catch {}
+}
+
+async function openClanManage(cid) {
+  // Show pending requests for this clan and let owner approve/reject
+  try {
+    const res = await fetch(BACKEND + '/api/clans/my', { headers: { Authorization: authToken } });
+    const data = await res.json();
+    if (!data.my_clan || data.my_clan.id !== cid) return;
+    const pending = data.my_clan.pending_requests || [];
+    if (!pending.length) { alert('No pending join requests.'); return; }
+    const choice = prompt('Pending requests:\n' + pending.map((p, i) => `${i + 1}. ${p}`).join('\n') + '\n\nEnter the number to approve, or prefix with "-" to reject (e.g. -2):');
+    if (!choice) return;
+    let approve = true; let idx = parseInt(choice);
+    if (choice.trim().startsWith('-')) { approve = false; idx = parseInt(choice.trim().slice(1)); }
+    if (isNaN(idx) || idx < 1 || idx > pending.length) return;
+    await fetch(BACKEND + '/api/clans/handle-request', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: cid, username: pending[idx - 1], approve }) });
+    loadClans();
+  } catch {}
+}
+
+document.getElementById('btn-create-clan').onclick = () => {
+  if (!authToken) { alert('Log in to create a clan.'); return; }
+  document.getElementById('clan-create-modal').style.display = 'flex';
+  document.getElementById('clan-create-error').textContent = '';
+};
+document.getElementById('btn-clan-create-cancel').onclick = () => { document.getElementById('clan-create-modal').style.display = 'none'; };
+document.getElementById('btn-clan-create-submit').onclick = async () => {
+  const name = document.getElementById('clan-create-name').value.trim();
+  const rank = document.getElementById('clan-create-rank').value.trim();
+  const color = document.getElementById('clan-create-color').value;
+  const err = document.getElementById('clan-create-error');
+  if (!name || !rank) { err.textContent = 'Name and rank required.'; return; }
+  try {
+    const res = await fetch(BACKEND + '/api/clans/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, rank_label: rank, color }) });
+    const data = await res.json();
+    if (data.error) { err.textContent = data.error; return; }
+    document.getElementById('clan-create-modal').style.display = 'none';
+    addSystemMsg('Clan request submitted. The site admin will review it.');
+    loadClans();
+  } catch { err.textContent = 'Server offline.'; }
+};
+
 async function loadLobbies() {
+  refreshHomeOnline();
+  loadClans();
   lobbyScreen.style.display = 'flex';
   document.getElementById('btn-leave-lobby').style.display = 'none';
   document.getElementById('btn-export-grid').style.display = 'none';
@@ -2897,6 +3050,30 @@ document.getElementById('btn-fakeadmin-add').onclick = () => { const u = documen
 document.getElementById('btn-fakeadmin-remove').onclick = () => { const u = document.getElementById('admin-fakeadmin-input').value.trim(); if (u) adminAction('/api/admin/fake-admin-remove', { username: u }); };
 document.getElementById('btn-view-fakeadmins').onclick = () => adminView('/api/admin/fake-admins');
 document.getElementById('btn-view-fakelog').onclick = () => adminView('/api/admin/fake-log');
+
+async function refreshAdminClans() {
+  const list = document.getElementById('admin-clans-list');
+  list.innerHTML = '';
+  try {
+    const res = await fetch(BACKEND + '/api/admin/clans', { headers: { Authorization: authToken } });
+    const data = await res.json();
+    if (!data.clans || !data.clans.length) { list.innerHTML = '<span style="color:var(--text-muted);">No clans</span>'; return; }
+    data.clans.forEach(c => {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:6px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);';
+      const isPending = c.status === 'pending';
+      let actions = '';
+      if (isPending) actions = `<button class="win-btn ac-approve" data-id="${c.id}" style="font-size:10px;background:var(--green);color:#fff;">Approve</button> <button class="win-btn ac-reject" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Reject</button>`;
+      else actions = `<button class="win-btn ac-disband" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Disband</button>`;
+      row.innerHTML = `<div><b>${esc(c.name)}</b> <span style="color:${c.color};">[${esc(c.rank_label)}]</span> &mdash; ${c.status} &mdash; owner: ${esc(c.owner)}, ${(c.members || []).length} members</div><div style="margin-top:4px;">${actions}</div>`;
+      const a = row.querySelector('.ac-approve'); if (a) a.onclick = async () => { await fetch(BACKEND + '/api/admin/clan-approve', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
+      const r = row.querySelector('.ac-reject'); if (r) r.onclick = async () => { await fetch(BACKEND + '/api/admin/clan-reject', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
+      const d = row.querySelector('.ac-disband'); if (d) d.onclick = async () => { if (!confirm('Disband this clan? Members lose their rank.')) return; await fetch(BACKEND + '/api/admin/clan-disband', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
+      list.appendChild(row);
+    });
+  } catch {}
+}
+document.getElementById('btn-admin-clans-refresh').onclick = refreshAdminClans;
 
 function initView() {
   resizeCanvas();
