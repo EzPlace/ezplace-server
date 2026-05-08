@@ -1620,26 +1620,26 @@ function performUndo() {
   }
   render();
   if (!isAdminUser()) startCooldownBar();
-  // Send to server. Use admin_brush style if we have brush perm + multiple pixels, else single pixel
+  // Send to server using the undo-flavored message types so the server *decrements* the
+  // leaderboard count instead of incrementing it.
   if (ws && ws.readyState === WebSocket.OPEN) {
     if (action.pixels.length === 1) {
       const p = action.pixels[0];
-      ws.send(JSON.stringify({ type: 'pixel', x: p.x, y: p.y, color: p.oldColor }));
+      ws.send(JSON.stringify({ type: 'pixel_undo', x: p.x, y: p.y, color: p.oldColor }));
     } else if (isRealAdmin() || brushPerm.size > 1) {
-      // Brush stroke undo: group by old color and send one admin_brush per color
+      // Brush stroke undo: group by old color and send one brush_undo per color
       const byColor = new Map();
       for (const p of action.pixels) {
         if (!byColor.has(p.oldColor)) byColor.set(p.oldColor, []);
         byColor.get(p.oldColor).push([p.x, p.y]);
       }
       for (const [color, pix] of byColor) {
-        ws.send(JSON.stringify({ type: 'admin_brush', pixels: pix, color }));
+        ws.send(JSON.stringify({ type: 'brush_undo', pixels: pix, color }));
       }
     } else {
       // No brush perm but multi-pixel action (shouldn't happen since paintBrush only goes >1 with perm)
-      // Send sequentially as singles, server will throttle via cooldown
       for (const p of action.pixels) {
-        ws.send(JSON.stringify({ type: 'pixel', x: p.x, y: p.y, color: p.oldColor }));
+        ws.send(JSON.stringify({ type: 'pixel_undo', x: p.x, y: p.y, color: p.oldColor }));
       }
     }
   }

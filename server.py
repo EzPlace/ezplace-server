@@ -1573,6 +1573,61 @@ async def websocket_handler(request):
                             mark_lobby_dirty(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
+                elif data["type"] == "pixel_undo" and username and lobby_id and not is_guest:
+                    # Identical to "pixel" except the leaderboard count is *decremented* (or removed if it hits 0)
+                    if not clients.get(ws, {}).get("can_place", True):
+                        continue
+                    x, y, color = data["x"], data["y"], data["color"]
+                    lobby = lobbies.get(lobby_id)
+                    now = time.time()
+                    cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
+                    if now - last_pixel < cd: continue
+                    last_pixel = now
+                    lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
+                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 53:
+                        old_color = lobby["grid"][y * lw + x]
+                        lobby["grid"][y * lw + x] = color
+                        lobby["last_activity"] = now
+                        if color != old_color:
+                            pc = lobby.setdefault("pixel_counts", {})
+                            new_count = pc.get(username, 0) - 1
+                            if new_count <= 0: pc.pop(username, None)
+                            else: pc[username] = new_count
+                            append_event(lobby, x, y, color, old_color)
+                            mark_lobby_dirty(lobby_id)
+                        await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+
+                elif data["type"] == "brush_undo" and username and lobby_id and not is_guest:
+                    perm = get_brush_perm(username)
+                    if perm["size"] <= 1: continue
+                    lobby = lobbies.get(lobby_id)
+                    if lobby:
+                        coords = data.get("pixels", [])
+                        color = data.get("color", 0)
+                        lw = lobby.get("width", 256)
+                        lh = lobby.get("height", 256)
+                        max_stamps = perm["size"] * perm["size"]
+                        if isinstance(coords, list) and 0 <= color < 53:
+                            placed = 0
+                            for c in coords[:max_stamps]:
+                                if not isinstance(c, list) or len(c) != 2: continue
+                                x, y = c[0], c[1]
+                                if not (isinstance(x, int) and isinstance(y, int)): continue
+                                if not (0 <= x < lw and 0 <= y < lh): continue
+                                old_color = lobby["grid"][y * lw + x]
+                                lobby["grid"][y * lw + x] = color
+                                if color != old_color:
+                                    pc = lobby.setdefault("pixel_counts", {})
+                                    new_count = pc.get(username, 0) - 1
+                                    if new_count <= 0: pc.pop(username, None)
+                                    else: pc[username] = new_count
+                                    append_event(lobby, x, y, color, old_color)
+                                placed += 1
+                                await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                            if placed:
+                                lobby["last_activity"] = time.time()
+                                mark_lobby_dirty(lobby_id)
+
                 elif data["type"] == "chat" and username and lobby_id:
                     text = data.get("text", "").strip()[:200]
                     if text:
