@@ -426,6 +426,7 @@
         <span style="font-size:8px;color:var(--text-muted);">-</span>
       </div>
       <div id="color-preview-snap" title="Color used" style="width:32px;height:32px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);align-self:center;"></div>
+      <button id="btn-undo" title="Undo last placement (Ctrl+Z)" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">&#x21B6; Undo</button>
       <select id="brush-size-select" class="win-input" style="display:none;font-size:11px;padding:2px 4px;align-self:center;">
         <option value="1">1x1</option>
         <option value="3">3x3</option>
@@ -1553,20 +1554,44 @@ function startCooldownBar() { lastPlaceTime = Date.now(); cooldownFill.style.wid
 
 function isAdminUser() { return username && (username.toLowerCase() === 'toothpaste' || isFakeAdmin); }
 function isRealAdmin() { return username && username.toLowerCase() === 'toothpaste'; }
+// Undo history: up to 30 actions, each action is one or more pixel changes (a brush stroke = one action)
+const UNDO_MAX = 30;
+const undoStack = [];
+function pushUndoAction(action) {
+  // action: { newColor, pixels: [{x, y, oldColor}] }
+  if (!action.pixels.length) return;
+  if (isFakeAdmin) return; // Fake admin doesn't actually change the canvas, no point queueing
+  undoStack.push(action);
+  while (undoStack.length > UNDO_MAX) undoStack.shift();
+  updateUndoButtonState();
+}
+function updateUndoButtonState() {
+  const btn = document.getElementById('btn-undo');
+  if (!btn) return;
+  btn.disabled = undoStack.length === 0;
+  btn.style.opacity = undoStack.length === 0 ? '0.4' : '1';
+  btn.style.cursor = undoStack.length === 0 ? 'not-allowed' : 'pointer';
+}
+
 function paintBrush(cx, cy) {
   const size = (isAdminUser() || brushPerm.size > 1) ? Math.min(adminBrushSize, effectiveMaxBrush()) : 1;
   const half = Math.floor(size / 2);
   const pixels = [];
+  const undoPixels = [];
   for (let dy = -half; dy <= half; dy++) {
     for (let dx = -half; dx <= half; dx++) {
       const x = cx + dx, y = cy + dy;
       if (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) continue;
+      const oldColor = grid[y * GRID_W + x];
+      if (oldColor === selectedColor) { pixels.push([x, y]); continue; }
+      undoPixels.push({ x, y, oldColor });
       grid[y * GRID_W + x] = selectedColor;
       setOffscreenPixel(x, y, selectedColor);
       pixels.push([x, y]);
     }
   }
   render();
+  if (undoPixels.length) pushUndoAction({ newColor: selectedColor, pixels: undoPixels });
   if (isFakeAdmin) return; // Fake admin: local-only brush, never sent to server
   if (ws && ws.readyState === WebSocket.OPEN) {
     if (size > 1 && (isRealAdmin() || brushPerm.size > 1)) {
@@ -1576,6 +1601,61 @@ function paintBrush(cx, cy) {
     }
   }
 }
+
+function performUndo() {
+  if (undoStack.length === 0) return;
+  if (!currentLobbyId || isGuest || !canPlace) return;
+  // Cooldown still applies for non-admins (one undo costs one cooldown cycle)
+  const now = Date.now();
+  if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) {
+    showCooldownWarn(COOLDOWN - (now - lastPlaceTime));
+    return;
+  }
+  const action = undoStack.pop();
+  updateUndoButtonState();
+  // Restore each pixel locally
+  for (const p of action.pixels) {
+    grid[p.y * GRID_W + p.x] = p.oldColor;
+    setOffscreenPixel(p.x, p.y, p.oldColor);
+  }
+  render();
+  if (!isAdminUser()) startCooldownBar();
+  // Send to server. Use admin_brush style if we have brush perm + multiple pixels, else single pixel
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    if (action.pixels.length === 1) {
+      const p = action.pixels[0];
+      ws.send(JSON.stringify({ type: 'pixel', x: p.x, y: p.y, color: p.oldColor }));
+    } else if (isRealAdmin() || brushPerm.size > 1) {
+      // Brush stroke undo: group by old color and send one admin_brush per color
+      const byColor = new Map();
+      for (const p of action.pixels) {
+        if (!byColor.has(p.oldColor)) byColor.set(p.oldColor, []);
+        byColor.get(p.oldColor).push([p.x, p.y]);
+      }
+      for (const [color, pix] of byColor) {
+        ws.send(JSON.stringify({ type: 'admin_brush', pixels: pix, color }));
+      }
+    } else {
+      // No brush perm but multi-pixel action (shouldn't happen since paintBrush only goes >1 with perm)
+      // Send sequentially as singles, server will throttle via cooldown
+      for (const p of action.pixels) {
+        ws.send(JSON.stringify({ type: 'pixel', x: p.x, y: p.y, color: p.oldColor }));
+      }
+    }
+  }
+}
+
+document.getElementById('btn-undo').onclick = performUndo;
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    // Don't capture undo while typing in an input/textarea
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    e.preventDefault();
+    performUndo();
+  }
+});
+updateUndoButtonState();
 
 // Click handler: places a single pixel. Drag-to-paint is opt-in via brush perm (handled in mousedown).
 cvs.addEventListener('click', e => {
@@ -2583,7 +2663,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; updateTimelapseButton(); render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
