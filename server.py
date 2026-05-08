@@ -9,6 +9,7 @@ import string
 import struct
 import time
 from aiohttp import web
+import aiohttp
 import motor.motor_asyncio
 
 MAX_LOBBIES_PER_USER = 5
@@ -765,6 +766,53 @@ async def dm_unread_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     return web.json_response({"senders": get_unread_dm_summary(user)})
+
+async def upload_image_handler(request):
+    """Browser-CORS-safe image upload proxy. Forwards the file to catbox.moe and returns the URL.
+    The image bytes pass through this server in transit but are NOT stored anywhere — neither on
+    disk nor in MongoDB. Only the resulting catbox URL is later persisted in DM/group history."""
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if is_banned(user) or is_ip_banned(request):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    try:
+        reader = await request.multipart()
+    except Exception:
+        return web.json_response({"error": "Invalid multipart"}, status=400)
+    field = await reader.next()
+    if field is None or field.name != "file":
+        return web.json_response({"error": "Missing file field"}, status=400)
+    # Read up to 6 MB (catbox accepts larger but the client already compresses to ~1-2 MB)
+    MAX = 6 * 1024 * 1024
+    chunks = []
+    total = 0
+    while True:
+        chunk = await field.read_chunk(64 * 1024)
+        if not chunk: break
+        total += len(chunk)
+        if total > MAX:
+            return web.json_response({"error": "File too large (max 6 MB)"}, status=413)
+        chunks.append(chunk)
+    data = b"".join(chunks)
+    if not data:
+        return web.json_response({"error": "Empty file"}, status=400)
+    filename = field.filename or "upload.jpg"
+    # Upload to catbox from the server (server-to-server, no CORS to worry about)
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            form = aiohttp.FormData()
+            form.add_field("reqtype", "fileupload")
+            form.add_field("fileToUpload", data, filename=filename, content_type="application/octet-stream")
+            async with session.post("https://catbox.moe/user/api.php", data=form) as resp:
+                if resp.status != 200:
+                    return web.json_response({"error": f"catbox returned {resp.status}"}, status=502)
+                url = (await resp.text()).strip()
+                if not url.startswith("https://files.catbox.moe/"):
+                    return web.json_response({"error": "unexpected upload response: " + url[:100]}, status=502)
+                return web.json_response({"url": url})
+    except Exception as e:
+        return web.json_response({"error": "upload failed: " + str(e)[:200]}, status=502)
 
 async def dm_send_handler(request):
     data = await request.json()
@@ -1930,6 +1978,7 @@ app.router.add_post("/api/friends/decline", friend_decline_handler)
 app.router.add_post("/api/friends/remove", friend_remove_handler)
 app.router.add_get("/api/dm/history", dm_history_handler)
 app.router.add_post("/api/dm/send", dm_send_handler)
+app.router.add_post("/api/upload-image", upload_image_handler)
 app.router.add_get("/api/dm/unread", dm_unread_handler)
 app.router.add_get("/api/admin/accounts", admin_accounts_handler)
 app.router.add_get("/api/admin/friends", admin_friends_handler)
