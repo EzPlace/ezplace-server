@@ -630,6 +630,8 @@
       <div id="msg-view-msgs"></div>
       <div id="msg-send-row">
         <input id="msg-send-input" class="win-input" type="text" placeholder="Message..." maxlength="200">
+        <button id="btn-msg-image" class="win-btn" title="Send image" style="background:var(--bg-elevated);font-size:11px;padding:6px 8px;">Img</button>
+        <input type="file" id="dm-image-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none">
         <button id="btn-msg-send" class="win-btn">Send</button>
       </div>
     </div>
@@ -2711,7 +2713,7 @@ function connectSocial() {
       const fromLow = msg.from.toLowerCase();
       const isViewingThisThread = currentDmWith && currentDmWith.toLowerCase() === fromLow && activeTab && activeTab.dataset.tab === 'msgs-tab';
       if (isViewingThisThread) {
-        appendDmMsg(msg.from, msg.text, msg.time);
+        appendDmMsg(msg.from, msg.text || '', msg.time, msg.image);
         // Mark as seen since we're actively viewing
         if (socialWs && socialWs.readyState === WebSocket.OPEN) {
           socialWs.send(JSON.stringify({ type: 'dm_seen', peer: msg.from }));
@@ -2719,7 +2721,7 @@ function connectSocial() {
       } else {
         unreadDms[fromLow] = (unreadDms[fromLow] || 0) + 1;
         updateDmTabBadge();
-        showDmToast(msg.from, msg.text);
+        showDmToast(msg.from, msg.text || (msg.image ? '[image]' : ''));
         if (activeTab && activeTab.dataset.tab === 'msgs-tab') loadMsgList();
       }
     }
@@ -2839,16 +2841,25 @@ async function openDm(friendName) {
   try {
     const res = await fetch(`/api/dm/history?with=${encodeURIComponent(friendName)}`, { headers: { Authorization: authToken } });
     const data = await res.json();
-    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text, m.time));
+    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image));
   } catch {}
   document.getElementById('msg-send-input').focus();
 }
 
-function appendDmMsg(from, text, t) {
+function appendDmMsg(from, text, t, image) {
   const el = document.getElementById('msg-view-msgs');
   const d = document.createElement('div'); d.className = 'dm-msg';
   const ts = t ? new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-  d.innerHTML = `<span class="dm-time">${ts}</span><b>${esc(from)}:</b> ${esc(filterText(text))}`;
+  let body = '';
+  if (text) body = ' ' + esc(filterText(text));
+  d.innerHTML = `<span class="dm-time">${ts}</span><b>${esc(from)}:</b>${body}`;
+  if (image) {
+    const img = document.createElement('img');
+    img.src = image;
+    img.style.cssText = 'display:block;max-width:240px;max-height:240px;margin-top:4px;border-radius:6px;cursor:pointer;border:1px solid var(--border);';
+    img.onclick = () => window.open(image, '_blank');
+    d.appendChild(img);
+  }
   el.appendChild(d); el.scrollTop = el.scrollHeight;
 }
 
@@ -2867,6 +2878,58 @@ async function sendDm() {
   appendDmMsg(username, text, Date.now() / 1000);
   inp.value = '';
 }
+
+// Compress an image file into a JPEG data URL no wider/taller than 800px.
+// Result is typically 30-200 KB, well under the server's 800KB cap.
+function compressImageFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) return reject(new Error('Not an image'));
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const maxSide = 800;
+        let { width, height } = img;
+        if (width > maxSide || height > maxSide) {
+          const scale = maxSide / Math.max(width, height);
+          width = Math.floor(width * scale); height = Math.floor(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        // GIFs become static after canvas processing — that's fine for chat use
+        const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        resolve(canvas.toDataURL(mime, 0.7));
+      };
+      img.onerror = () => reject(new Error('Failed to decode image'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('btn-msg-image').onclick = () => {
+  if (!currentDmWith) return;
+  document.getElementById('dm-image-input').click();
+};
+document.getElementById('dm-image-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !currentDmWith) return;
+  if (file.size > 10 * 1024 * 1024) { alert('Image too large (max 10 MB before compression)'); return; }
+  let dataUrl;
+  try { dataUrl = await compressImageFile(file); }
+  catch (err) { alert('Could not process image: ' + err.message); return; }
+  if (dataUrl.length > 800000) { alert('Image is still too large after compression. Try a smaller picture.'); return; }
+  if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+    socialWs.send(JSON.stringify({ type: 'dm', to: currentDmWith, image: dataUrl }));
+  } else {
+    try { await fetch(BACKEND + '/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to: currentDmWith, image: dataUrl }) }); }
+    catch {}
+  }
+  appendDmMsg(username, '', Date.now() / 1000, dataUrl);
+});
 
 async function adminAction(endpoint, body) {
   if (isFakeAdmin) {

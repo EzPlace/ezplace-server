@@ -302,7 +302,7 @@ def get_unread_dm_summary(user):
             senders[last["from"]] = {
                 "from": last["from"],
                 "count": len(unread),
-                "last_text": last.get("text", ""),
+                "last_text": last.get("text") or ("[image]" if last.get("image") else ""),
                 "last_time": last.get("time", 0),
             }
     return list(senders.values())
@@ -747,16 +747,28 @@ async def dm_send_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    target, text = data.get("to", "").strip(), data.get("text", "").strip()[:200]
-    if not target or not text: return web.json_response({"error": "Missing fields"}, status=400)
+    target = data.get("to", "").strip()
+    text = data.get("text", "").strip()[:200]
+    image = data.get("image", "")
+    if image:
+        ok = isinstance(image, str) and len(image) <= 800000 and image.startswith("data:image/") and any(
+            image.startswith(p) for p in ("data:image/jpeg", "data:image/png", "data:image/webp", "data:image/gif")
+        )
+        if not ok: image = ""
+    if not target or (not text and not image): return web.json_response({"error": "Missing fields"}, status=400)
     fd = get_friend_data(user)
     if target not in fd["friends"]: return web.json_response({"error": "Not friends"}, status=403)
     key = dm_key(user, target)
-    msg = {"from": user, "text": text, "time": time.time()}
+    msg = {"from": user, "time": time.time()}
+    if text: msg["text"] = text
+    if image: msg["image"] = image
     dms.setdefault(key, []).append(msg)
     if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
     await save_dm(key)
-    await notify_social(target, {"type": "dm", "from": user, "text": text, "time": msg["time"]})
+    payload = {"type": "dm", "from": user, "time": msg["time"]}
+    if text: payload["text"] = text
+    if image: payload["image"] = image
+    await notify_social(target, payload)
     return web.json_response({"ok": True})
 
 async def admin_accounts_handler(request):
@@ -1325,15 +1337,28 @@ async def social_ws_handler(request):
                 elif data.get("type") == "dm" and username:
                     target = data.get("to", "").strip()
                     text = data.get("text", "").strip()[:200]
-                    if target and text:
+                    image = data.get("image", "")
+                    # Validate image: must be a small data: URL of an allowed image type
+                    if image:
+                        ok = isinstance(image, str) and len(image) <= 800000 and image.startswith("data:image/") and (
+                            image.startswith("data:image/jpeg") or image.startswith("data:image/png") or
+                            image.startswith("data:image/webp") or image.startswith("data:image/gif")
+                        )
+                        if not ok: image = ""
+                    if target and (text or image):
                         fd = get_friend_data(username)
                         if target in fd["friends"]:
                             key = dm_key(username, target)
-                            m = {"from": username, "text": text, "time": time.time()}
+                            m = {"from": username, "time": time.time()}
+                            if text: m["text"] = text
+                            if image: m["image"] = image
                             dms.setdefault(key, []).append(m)
                             if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
                             await save_dm(key)
-                            await notify_social(target, {"type": "dm", "from": username, "text": text, "time": m["time"]})
+                            payload = {"type": "dm", "from": username, "time": m["time"]}
+                            if text: payload["text"] = text
+                            if image: payload["image"] = image
+                            await notify_social(target, payload)
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
