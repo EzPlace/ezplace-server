@@ -27,7 +27,13 @@ PUBLIC_LOBBIES = [
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
 ADMIN_USER = "toothpaste"
-LOBBY_TIMEOUT = 172800
+LOBBY_TIMEOUT_PUBLIC = 48 * 60 * 60   # 48h for user-created public lobbies
+LOBBY_TIMEOUT_PRIVATE = 168 * 60 * 60 # 168h (1 week) for private lobbies
+# Kept for back-compat in any reference; default value is the longer of the two
+LOBBY_TIMEOUT = LOBBY_TIMEOUT_PRIVATE
+
+def lobby_timeout_for(lobby):
+    return LOBBY_TIMEOUT_PUBLIC if lobby.get("public") else LOBBY_TIMEOUT_PRIVATE
 
 MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/ezplace")
 mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
@@ -107,7 +113,7 @@ def lobby_info(lobby, include_code=False):
         "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN),
         "width": lobby.get("width", 256), "height": lobby.get("height", 256),
         "last_activity": lobby.get("last_activity", time.time()),
-        "expires_in": max(0, LOBBY_TIMEOUT - (time.time() - lobby.get("last_activity", time.time()))) if not lobby["id"].startswith("public_") else None,
+        "expires_in": max(0, lobby_timeout_for(lobby) - (time.time() - lobby.get("last_activity", time.time()))) if not lobby["id"].startswith("public_") else None,
     }
     if include_code and lobby.get("code"):
         info["code"] = lobby["code"]
@@ -1653,12 +1659,12 @@ async def cleanup_inactive_lobbies(app):
         to_delete = []
         for lid, lobby in list(lobbies.items()):
             if lid.startswith("public_"): continue
-            if now - lobby.get("last_activity", now) > LOBBY_TIMEOUT:
+            if now - lobby.get("last_activity", now) > lobby_timeout_for(lobby):
                 to_delete.append(lid)
         for lid in to_delete:
             for ws, info in list(clients.items()):
                 if info and info.get("lobby_id") == lid:
-                    try: await ws.send_json({"type": "kicked", "text": "Lobby deleted (48hr inactivity)"}); await ws.close()
+                    try: await ws.send_json({"type": "kicked", "text": "Lobby deleted (inactive)"}); await ws.close()
                     except: pass
             del lobbies[lid]
             await delete_lobby_db(lid)
