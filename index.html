@@ -477,6 +477,22 @@
 </div>
 
 <!-- Manage lobby modal -->
+<div id="group-create-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
+  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;max-height:80vh;display:flex;flex-direction:column;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;">New Group Chat</div>
+    <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
+      <input id="group-create-name" class="win-input" type="text" placeholder="Group name" maxlength="30">
+      <div style="font-size:11px;color:var(--text-muted);">Pick friends to add (you can add more later):</div>
+      <div id="group-create-friends" style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+      <div id="group-create-error" style="color:var(--red);font-size:11px;min-height:14px;"></div>
+    </div>
+    <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="btn-group-create-cancel" class="win-btn" style="background:var(--bg-elevated);">Cancel</button>
+      <button id="btn-group-create-submit" class="win-btn" style="background:var(--accent);color:#fff;">Create</button>
+    </div>
+  </div>
+</div>
+
 <div id="clan-create-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;padding:18px;display:flex;flex-direction:column;gap:10px;">
     <div style="font-weight:700;font-size:15px;">Create Clan</div>
@@ -620,6 +636,9 @@
   <!-- DMs tab -->
   <div id="msgs-tab" class="tab-panel">
     <div id="msg-list-view">
+      <div style="padding:6px 8px;border-bottom:1px solid var(--border);">
+        <button id="btn-create-group" class="win-btn" style="width:100%;font-size:11px;background:var(--accent);color:#fff;font-weight:700;">+ New Group Chat</button>
+      </div>
       <div id="msg-list"></div>
     </div>
     <div id="msg-view">
@@ -2713,7 +2732,7 @@ function connectSocial() {
       const fromLow = msg.from.toLowerCase();
       const isViewingThisThread = currentDmWith && currentDmWith.toLowerCase() === fromLow && activeTab && activeTab.dataset.tab === 'msgs-tab';
       if (isViewingThisThread) {
-        appendDmMsg(msg.from, msg.text || '', msg.time, msg.image);
+        appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image);
         // Mark as seen since we're actively viewing
         if (socialWs && socialWs.readyState === WebSocket.OPEN) {
           socialWs.send(JSON.stringify({ type: 'dm_seen', peer: msg.from }));
@@ -2721,7 +2740,7 @@ function connectSocial() {
       } else {
         unreadDms[fromLow] = (unreadDms[fromLow] || 0) + 1;
         updateDmTabBadge();
-        showDmToast(msg.from, msg.text || (msg.image ? '[image]' : ''));
+        showDmToast(msg.from, msg.text || ((msg.image_url || msg.image) ? '[image]' : ''));
         if (activeTab && activeTab.dataset.tab === 'msgs-tab') loadMsgList();
       }
     }
@@ -2735,6 +2754,28 @@ function connectSocial() {
       }
     }
     if (msg.type === 'friend_accepted') { loadFriendsList(); }
+    if (msg.type === 'group_msg') {
+      if (currentGroupId === msg.group_id) {
+        appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image);
+      } else {
+        showDmToast(msg.from + ' (in ' + (msg.group_name || 'group') + ')', msg.text || (msg.image_url ? '[image]' : ''));
+        const activeTab = document.querySelector('.sidebar-tab.active');
+        if (!activeTab || activeTab.dataset.tab !== 'msgs-tab') {
+          const badge = document.getElementById('dm-notif');
+          const cur = parseInt(badge.textContent) || 0;
+          badge.textContent = cur + 1; badge.style.display = '';
+        }
+      }
+    }
+    if (msg.type === 'group_added') {
+      addSystemMsg(`${msg.by} added you to group "${msg.group_name}".`);
+      const activeTab = document.querySelector('.sidebar-tab.active');
+      if (activeTab && activeTab.dataset.tab === 'msgs-tab') loadMsgList();
+    }
+    if (msg.type === 'group_dissolved') {
+      addSystemMsg(`Group "${msg.group_name}" was dissolved.`);
+      if (currentGroupId === msg.group_id) loadMsgList();
+    }
   };
   socialWs.onclose = () => { setTimeout(() => { if (authToken) connectSocial(); }, 5000); };
 }
@@ -2790,18 +2831,41 @@ document.getElementById('btn-friend-add').onclick = async () => {
 };
 
 let currentDmWith = null;
+let currentGroupId = null;
+let myFriendsCache = [];
 
 async function loadMsgList() {
   const list = document.getElementById('msg-list'); list.innerHTML = '';
   document.getElementById('msg-list-view').style.display = '';
   document.getElementById('msg-view').style.display = 'none';
-  currentDmWith = null;
+  currentDmWith = null; currentGroupId = null;
   try {
-    const res = await fetch('/api/friends', { headers: { Authorization: authToken } });
-    const data = await res.json();
-    if (!data.friends.length) { list.innerHTML = '<div style="font-size:10px;color:#999;padding:8px;">Add friends to start messaging</div>'; return; }
-    // Sort: friends with unread DMs first, then online, then offline
-    const sorted = [...data.friends].sort((a, b) => {
+    const [friendsRes, groupsRes] = await Promise.all([
+      fetch(BACKEND + '/api/friends', { headers: { Authorization: authToken } }),
+      fetch(BACKEND + '/api/groups/my', { headers: { Authorization: authToken } }),
+    ]);
+    const fdata = await friendsRes.json();
+    const gdata = await groupsRes.json();
+    myFriendsCache = fdata.friends || [];
+    const groupsArr = gdata.groups || [];
+    // Render group chats first
+    if (groupsArr.length) {
+      const hdr = document.createElement('div'); hdr.style.cssText = 'font-size:10px;color:var(--text-muted);padding:6px 8px 2px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;'; hdr.textContent = 'Group Chats';
+      list.appendChild(hdr);
+      groupsArr.forEach(g => {
+        const d = document.createElement('div'); d.className = 'msg-thread';
+        d.innerHTML = `<span style="font-weight:700;color:var(--accent);">[G]</span> ${esc(g.name)} <span style="font-size:10px;color:var(--text-muted);">${g.members.length}</span>`;
+        d.onclick = () => openGroup(g.id);
+        list.appendChild(d);
+      });
+      const sep = document.createElement('div'); sep.style.cssText = 'font-size:10px;color:var(--text-muted);padding:6px 8px 2px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;'; sep.textContent = 'Friends';
+      list.appendChild(sep);
+    }
+    if (!myFriendsCache.length) {
+      const empty = document.createElement('div'); empty.style.cssText = 'font-size:10px;color:#999;padding:8px;'; empty.textContent = 'Add friends to start messaging';
+      list.appendChild(empty); return;
+    }
+    const sorted = [...myFriendsCache].sort((a, b) => {
       const ua = unreadDms[a.name.toLowerCase()] || 0;
       const ub = unreadDms[b.name.toLowerCase()] || 0;
       if (ua !== ub) return ub - ua;
@@ -2818,6 +2882,40 @@ async function loadMsgList() {
       list.appendChild(d);
     });
   } catch {}
+}
+
+async function openGroup(gid) {
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-tab="msgs-tab"]').classList.add('active');
+  document.getElementById('msgs-tab').classList.add('active');
+  document.getElementById('sidebar').classList.add('open');
+  currentDmWith = null; currentGroupId = gid;
+  document.getElementById('msg-list-view').style.display = 'none';
+  document.getElementById('msg-view').style.display = 'flex';
+  const el = document.getElementById('msg-view-msgs'); el.innerHTML = '';
+  try {
+    const res = await fetch(BACKEND + '/api/groups/messages?id=' + encodeURIComponent(gid), { headers: { Authorization: authToken } });
+    const data = await res.json();
+    if (data.error) { addSystemMsg('Failed to load group: ' + data.error); return; }
+    document.getElementById('msg-view-title').innerHTML = `<span style="color:var(--accent);font-weight:700;">[G]</span> ${esc(data.name)} <span style="font-size:10px;color:var(--text-muted);font-weight:400;">${data.members.length} members</span> <button id="btn-group-leave" style="margin-left:8px;font-size:9px;padding:2px 6px;background:var(--red);color:#fff;border:none;border-radius:3px;cursor:pointer;">Leave</button> ${data.owner.toLowerCase() === username.toLowerCase() ? `<button id="btn-group-add" style="margin-left:4px;font-size:9px;padding:2px 6px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer;">+ Add</button>` : ''}`;
+    document.getElementById('btn-group-leave').onclick = async () => {
+      if (!confirm('Leave the group?')) return;
+      await fetch(BACKEND + '/api/groups/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ group_id: gid }) });
+      loadMsgList();
+    };
+    const addBtn = document.getElementById('btn-group-add');
+    if (addBtn) addBtn.onclick = async () => {
+      const name = prompt('Add which friend? (must be one of your friends, not already in the group)');
+      if (!name) return;
+      const res2 = await fetch(BACKEND + '/api/groups/add-member', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ group_id: gid, username: name.trim() }) });
+      const d2 = await res2.json();
+      if (d2.error) alert(d2.error);
+      else openGroup(gid);
+    };
+    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image_url || m.image));
+  } catch {}
+  document.getElementById('msg-send-input').focus();
 }
 
 async function openDm(friendName) {
@@ -2841,7 +2939,7 @@ async function openDm(friendName) {
   try {
     const res = await fetch(`/api/dm/history?with=${encodeURIComponent(friendName)}`, { headers: { Authorization: authToken } });
     const data = await res.json();
-    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image));
+    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image_url || m.image));
   } catch {}
   document.getElementById('msg-send-input').focus();
 }
@@ -2854,8 +2952,9 @@ function appendDmMsg(from, text, t, image) {
   if (text) body = ' ' + esc(filterText(text));
   d.innerHTML = `<span class="dm-time">${ts}</span><b>${esc(from)}:</b>${body}`;
   if (image) {
+    // Accept either http(s) URL (new) or data: URL (old base64 messages)
     const img = document.createElement('img');
-    img.src = image;
+    img.src = image; img.referrerPolicy = 'no-referrer';
     img.style.cssText = 'display:block;max-width:240px;max-height:240px;margin-top:4px;border-radius:6px;cursor:pointer;border:1px solid var(--border);';
     img.onclick = () => window.open(image, '_blank');
     d.appendChild(img);
@@ -2864,18 +2963,59 @@ function appendDmMsg(from, text, t, image) {
 }
 
 document.getElementById('btn-msg-back').onclick = () => loadMsgList();
+
+document.getElementById('btn-create-group').onclick = () => {
+  // Populate friend checkboxes from cache
+  const list = document.getElementById('group-create-friends');
+  list.innerHTML = '';
+  if (!myFriendsCache.length) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">Add some friends first.</div>';
+  } else {
+    myFriendsCache.forEach(f => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;';
+      row.innerHTML = `<input type="checkbox" data-name="${esc(f.name)}"><div style="width:6px;height:6px;border-radius:50%;background:${f.online ? 'var(--green)' : 'var(--text-muted)'};"></div><span>${esc(f.name)}</span>`;
+      list.appendChild(row);
+    });
+  }
+  document.getElementById('group-create-name').value = '';
+  document.getElementById('group-create-error').textContent = '';
+  document.getElementById('group-create-modal').style.display = 'flex';
+};
+document.getElementById('btn-group-create-cancel').onclick = () => { document.getElementById('group-create-modal').style.display = 'none'; };
+document.getElementById('btn-group-create-submit').onclick = async () => {
+  const name = document.getElementById('group-create-name').value.trim();
+  const err = document.getElementById('group-create-error');
+  if (!name) { err.textContent = 'Group name required.'; return; }
+  const checked = [...document.querySelectorAll('#group-create-friends input[type=checkbox]:checked')].map(c => c.dataset.name);
+  try {
+    const res = await fetch(BACKEND + '/api/groups/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, members: checked }) });
+    const d = await res.json();
+    if (d.error) { err.textContent = d.error; return; }
+    document.getElementById('group-create-modal').style.display = 'none';
+    loadMsgList();
+    openGroup(d.group_id);
+  } catch { err.textContent = 'Server offline.'; }
+};
 document.getElementById('btn-msg-send').onclick = sendDm;
 document.getElementById('msg-send-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendDm(); });
 
 async function sendDm() {
   const inp = document.getElementById('msg-send-input');
-  const text = inp.value.trim(); if (!text || !currentDmWith) return;
-  if (socialWs && socialWs.readyState === WebSocket.OPEN) {
-    socialWs.send(JSON.stringify({ type: 'dm', to: currentDmWith, text }));
-  } else {
-    await fetch('/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to: currentDmWith, text }) });
+  const text = inp.value.trim(); if (!text) return;
+  if (currentGroupId) {
+    if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+      socialWs.send(JSON.stringify({ type: 'group_msg', group_id: currentGroupId, text }));
+    }
+    appendDmMsg(username, text, Date.now() / 1000);
+  } else if (currentDmWith) {
+    if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+      socialWs.send(JSON.stringify({ type: 'dm', to: currentDmWith, text }));
+    } else {
+      await fetch(BACKEND + '/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to: currentDmWith, text }) });
+    }
+    appendDmMsg(username, text, Date.now() / 1000);
   }
-  appendDmMsg(username, text, Date.now() / 1000);
   inp.value = '';
 }
 
@@ -2909,26 +3049,79 @@ function compressImageFile(file) {
   });
 }
 
+// Compress to a Blob (not data URL) so we can upload to catbox.
+function compressImageToBlob(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) return reject(new Error('Not an image'));
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const maxSide = 1600; // catbox can host bigger files; we still cap to keep upload fast
+        let { width, height } = img;
+        if (width > maxSide || height > maxSide) {
+          const scale = maxSide / Math.max(width, height);
+          width = Math.floor(width * scale); height = Math.floor(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Encode failed')), mime, 0.85);
+      };
+      img.onerror = () => reject(new Error('Failed to decode image'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Upload to catbox.moe and return the hosted URL. No API key needed, supports CORS.
+async function uploadToCatbox(blob, filename) {
+  const fd = new FormData();
+  fd.append('reqtype', 'fileupload');
+  fd.append('fileToUpload', blob, filename || 'image.jpg');
+  const res = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: fd });
+  if (!res.ok) throw new Error('Upload failed (HTTP ' + res.status + ')');
+  const url = (await res.text()).trim();
+  if (!url.startsWith('https://files.catbox.moe/')) throw new Error('Unexpected upload response');
+  return url;
+}
+
+async function pickAndUploadImage(file) {
+  if (!file) return null;
+  if (file.size > 25 * 1024 * 1024) { alert('Image too large (max 25 MB)'); return null; }
+  let blob;
+  try { blob = await compressImageToBlob(file); }
+  catch (err) { alert('Could not process image: ' + err.message); return null; }
+  try { return await uploadToCatbox(blob, file.name); }
+  catch (err) { alert('Image upload failed: ' + err.message); return null; }
+}
+
 document.getElementById('btn-msg-image').onclick = () => {
-  if (!currentDmWith) return;
+  if (!currentDmWith && !currentGroupId) return;
   document.getElementById('dm-image-input').click();
 };
 document.getElementById('dm-image-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
-  if (!file || !currentDmWith) return;
-  if (file.size > 10 * 1024 * 1024) { alert('Image too large (max 10 MB before compression)'); return; }
-  let dataUrl;
-  try { dataUrl = await compressImageFile(file); }
-  catch (err) { alert('Could not process image: ' + err.message); return; }
-  if (dataUrl.length > 800000) { alert('Image is still too large after compression. Try a smaller picture.'); return; }
-  if (socialWs && socialWs.readyState === WebSocket.OPEN) {
-    socialWs.send(JSON.stringify({ type: 'dm', to: currentDmWith, image: dataUrl }));
-  } else {
-    try { await fetch(BACKEND + '/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to: currentDmWith, image: dataUrl }) }); }
-    catch {}
+  if (!file) return;
+  const url = await pickAndUploadImage(file);
+  if (!url) return;
+  if (currentGroupId) {
+    if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+      socialWs.send(JSON.stringify({ type: 'group_msg', group_id: currentGroupId, image_url: url }));
+    }
+    appendDmMsg(username, '', Date.now() / 1000, url);
+  } else if (currentDmWith) {
+    if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+      socialWs.send(JSON.stringify({ type: 'dm', to: currentDmWith, image_url: url }));
+    } else {
+      try { await fetch(BACKEND + '/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to: currentDmWith, image_url: url }) }); } catch {}
+    }
+    appendDmMsg(username, '', Date.now() / 1000, url);
   }
-  appendDmMsg(username, '', Date.now() / 1000, dataUrl);
 });
 
 async function adminAction(endpoint, body) {
