@@ -53,6 +53,13 @@ user_ips = {}
 fake_admins = []
 brush_perms = {}  # { username_lower: { "size": int, "drag": bool } }
 clans = {}  # { clan_id: { id, name, owner, color, rank_label, status, members, pending_requests, created_at } }
+groups = {}  # { group_id: { id, name, owner, members, created_at } }
+group_messages = {}  # { group_id: [ {from, text?, image_url?, time}, ... ] }
+
+# Whitelist of image hosts so users can't inject arbitrary URLs (which could leak IPs or load malicious content)
+ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
+def is_safe_image_url(url):
+    return isinstance(url, str) and any(url.startswith(h) for h in ALLOWED_IMAGE_HOSTS) and len(url) <= 500
 lobbies = {}
 clients = {}
 social_clients = {}
@@ -174,6 +181,13 @@ async def save_brush_perms():
 
 async def save_clans():
     await db_save("store", "clans", clans)
+
+async def save_groups():
+    await db_save("store", "groups", groups)
+
+async def save_group_messages(gid):
+    msgs = group_messages.get(gid, [])
+    await db_save("group_messages", gid, msgs)
 
 def find_clan_by_member(username):
     if not username: return None
@@ -308,7 +322,7 @@ def get_unread_dm_summary(user):
             senders[last["from"]] = {
                 "from": last["from"],
                 "count": len(unread),
-                "last_text": last.get("text") or ("[image]" if last.get("image") else ""),
+                "last_text": last.get("text") or ("[image]" if (last.get("image_url") or last.get("image")) else ""),
                 "last_time": last.get("time", 0),
             }
     return list(senders.values())
@@ -320,7 +334,7 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, dms, dm_last_seen
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, groups, group_messages, dms, dm_last_seen
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
@@ -331,6 +345,9 @@ async def load_all_data():
     fake_admins = await db_load("store", "fake_admins") or []
     brush_perms = await db_load("store", "brush_perms") or {}
     clans = await db_load("store", "clans") or {}
+    groups = await db_load("store", "groups") or {}
+    async for doc in db["group_messages"].find():
+        group_messages[doc["_id"]] = doc.get("data", [])
     dm_last_seen = await db_load("store", "dm_last_seen") or {}
     # Migrate any existing VIPs that don't already have a rank
     rank_dirty = False
@@ -755,25 +772,21 @@ async def dm_send_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     target = data.get("to", "").strip()
     text = data.get("text", "").strip()[:200]
-    image = data.get("image", "")
-    if image:
-        ok = isinstance(image, str) and len(image) <= 800000 and image.startswith("data:image/") and any(
-            image.startswith(p) for p in ("data:image/jpeg", "data:image/png", "data:image/webp", "data:image/gif")
-        )
-        if not ok: image = ""
-    if not target or (not text and not image): return web.json_response({"error": "Missing fields"}, status=400)
+    image_url = (data.get("image_url") or "").strip()[:500]
+    if image_url and not is_safe_image_url(image_url): image_url = ""
+    if not target or (not text and not image_url): return web.json_response({"error": "Missing fields"}, status=400)
     fd = get_friend_data(user)
     if target not in fd["friends"]: return web.json_response({"error": "Not friends"}, status=403)
     key = dm_key(user, target)
     msg = {"from": user, "time": time.time()}
     if text: msg["text"] = text
-    if image: msg["image"] = image
+    if image_url: msg["image_url"] = image_url
     dms.setdefault(key, []).append(msg)
     if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
     await save_dm(key)
     payload = {"type": "dm", "from": user, "time": msg["time"]}
     if text: payload["text"] = text
-    if image: payload["image"] = image
+    if image_url: payload["image_url"] = image_url
     await notify_social(target, payload)
     return web.json_response({"ok": True})
 
@@ -1215,6 +1228,91 @@ async def admin_clan_disband_handler(request):
     await save_clans()
     return web.json_response({"ok": True})
 
+async def groups_my_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    ulow = user.lower()
+    out = []
+    for g in groups.values():
+        if any(m.lower() == ulow for m in g.get("members", [])):
+            out.append({"id": g["id"], "name": g["name"], "owner": g["owner"], "members": g["members"]})
+    return web.json_response({"groups": out})
+
+async def group_create_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    name = data.get("name", "").strip()[:30]
+    invitees = data.get("members", [])
+    if not name: return web.json_response({"error": "Group name required"}, status=400)
+    if not isinstance(invitees, list): invitees = []
+    fd = get_friend_data(user)
+    friend_set = {f.lower() for f in fd["friends"]}
+    members = [user]
+    for u in invitees[:19]:  # cap total members at 20 (1 owner + 19)
+        if not isinstance(u, str): continue
+        if u.lower() in friend_set and u.lower() != user.lower() and u not in members:
+            members.append(u)
+    gid = secrets.token_hex(6)
+    groups[gid] = {"id": gid, "name": name, "owner": user, "members": members, "created_at": time.time()}
+    await save_groups()
+    # Notify each invited member
+    for m in members:
+        if m.lower() != user.lower():
+            await notify_social(m, {"type": "group_added", "group_id": gid, "group_name": name, "by": user})
+    return web.json_response({"ok": True, "group_id": gid})
+
+async def group_messages_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    gid = request.query.get("id", "")
+    g = groups.get(gid)
+    if not g: return web.json_response({"error": "Group not found"}, status=404)
+    if user.lower() not in [m.lower() for m in g.get("members", [])]:
+        return web.json_response({"error": "Not a member"}, status=403)
+    return web.json_response({"messages": group_messages.get(gid, [])[-MAX_DM_HISTORY:], "members": g["members"], "owner": g["owner"], "name": g["name"]})
+
+async def group_leave_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    gid = data.get("group_id", "")
+    g = groups.get(gid)
+    if not g: return web.json_response({"error": "Group not found"}, status=404)
+    ulow = user.lower()
+    g["members"] = [m for m in g.get("members", []) if m.lower() != ulow]
+    if not g["members"] or g["owner"].lower() == ulow:
+        # Owner leaves -> dissolve, OR no members left
+        del groups[gid]
+        group_messages.pop(gid, None)
+        await db["group_messages"].delete_one({"_id": gid})
+        await save_groups()
+        # Notify remaining members that the group dissolved
+        for m in g.get("members", []):
+            await notify_social(m, {"type": "group_dissolved", "group_id": gid, "group_name": g["name"]})
+        return web.json_response({"ok": True, "dissolved": True})
+    await save_groups()
+    return web.json_response({"ok": True})
+
+async def group_add_member_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    gid = data.get("group_id", "")
+    target = data.get("username", "").strip()
+    g = groups.get(gid)
+    if not g: return web.json_response({"error": "Group not found"}, status=404)
+    if g["owner"].lower() != user.lower(): return web.json_response({"error": "Only the owner can add"}, status=403)
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    fd = get_friend_data(user)
+    if target not in fd["friends"]: return web.json_response({"error": "You can only add friends"}, status=400)
+    if target.lower() in [m.lower() for m in g["members"]]: return web.json_response({"error": "Already a member"}, status=400)
+    if len(g["members"]) >= 20: return web.json_response({"error": "Group is full (20 max)"}, status=400)
+    g["members"].append(target)
+    await save_groups()
+    await notify_social(target, {"type": "group_added", "group_id": gid, "group_name": g["name"], "by": user})
+    return web.json_response({"ok": True})
+
 async def online_summary_handler(request):
     """Total online + per-lobby online + flat user list, for the homepage."""
     total = sum(1 for c in clients.values() if c)
@@ -1343,28 +1441,43 @@ async def social_ws_handler(request):
                 elif data.get("type") == "dm" and username:
                     target = data.get("to", "").strip()
                     text = data.get("text", "").strip()[:200]
-                    image = data.get("image", "")
-                    # Validate image: must be a small data: URL of an allowed image type
-                    if image:
-                        ok = isinstance(image, str) and len(image) <= 800000 and image.startswith("data:image/") and (
-                            image.startswith("data:image/jpeg") or image.startswith("data:image/png") or
-                            image.startswith("data:image/webp") or image.startswith("data:image/gif")
-                        )
-                        if not ok: image = ""
-                    if target and (text or image):
+                    image_url = (data.get("image_url") or "").strip()[:500]
+                    if image_url and not is_safe_image_url(image_url): image_url = ""
+                    if target and (text or image_url):
                         fd = get_friend_data(username)
                         if target in fd["friends"]:
                             key = dm_key(username, target)
                             m = {"from": username, "time": time.time()}
                             if text: m["text"] = text
-                            if image: m["image"] = image
+                            if image_url: m["image_url"] = image_url
                             dms.setdefault(key, []).append(m)
                             if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
                             await save_dm(key)
                             payload = {"type": "dm", "from": username, "time": m["time"]}
                             if text: payload["text"] = text
-                            if image: payload["image"] = image
+                            if image_url: payload["image_url"] = image_url
                             await notify_social(target, payload)
+                elif data.get("type") == "group_msg" and username:
+                    gid = data.get("group_id", "")
+                    text = data.get("text", "").strip()[:200]
+                    image_url = (data.get("image_url") or "").strip()[:500]
+                    if image_url and not is_safe_image_url(image_url): image_url = ""
+                    g = groups.get(gid)
+                    if not g: continue
+                    if username.lower() not in [m.lower() for m in g.get("members", [])]: continue
+                    if not (text or image_url): continue
+                    msg_obj = {"from": username, "time": time.time()}
+                    if text: msg_obj["text"] = text
+                    if image_url: msg_obj["image_url"] = image_url
+                    group_messages.setdefault(gid, []).append(msg_obj)
+                    if len(group_messages[gid]) > MAX_DM_HISTORY: group_messages[gid] = group_messages[gid][-MAX_DM_HISTORY:]
+                    await save_group_messages(gid)
+                    fanout = {"type": "group_msg", "group_id": gid, "from": username, "time": msg_obj["time"]}
+                    if text: fanout["text"] = text
+                    if image_url: fanout["image_url"] = image_url
+                    for member in g.get("members", []):
+                        if member.lower() != username.lower():
+                            await notify_social(member, fanout)
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
@@ -1785,6 +1898,11 @@ app.router.add_post("/api/admin/rank-set", admin_rank_set_handler)
 app.router.add_post("/api/admin/rank-remove", admin_rank_remove_handler)
 app.router.add_get("/api/admin/ranks", admin_ranks_handler)
 app.router.add_get("/api/online-summary", online_summary_handler)
+app.router.add_get("/api/groups/my", groups_my_handler)
+app.router.add_post("/api/groups/create", group_create_handler)
+app.router.add_get("/api/groups/messages", group_messages_handler)
+app.router.add_post("/api/groups/leave", group_leave_handler)
+app.router.add_post("/api/groups/add-member", group_add_member_handler)
 app.router.add_get("/api/clans", clans_list_handler)
 app.router.add_get("/api/clans/my", clan_my_handler)
 app.router.add_post("/api/clans/create", clan_create_handler)
