@@ -46,6 +46,7 @@ ranks = {}  # { username_lower: { "label": "VIP", "color": "#daa520" } }
 user_ips = {}
 fake_admins = []
 brush_perms = {}  # { username_lower: { "size": int, "drag": bool } }
+clans = {}  # { clan_id: { id, name, owner, color, rank_label, status, members, pending_requests, created_at } }
 lobbies = {}
 clients = {}
 social_clients = {}
@@ -164,6 +165,30 @@ async def save_fake_admins():
 
 async def save_brush_perms():
     await db_save("store", "brush_perms", brush_perms)
+
+async def save_clans():
+    await db_save("store", "clans", clans)
+
+def find_clan_by_member(username):
+    if not username: return None
+    ulow = username.lower()
+    for clan in clans.values():
+        if clan.get("status") != "approved": continue
+        if clan.get("owner", "").lower() == ulow: return clan
+        if any(m.lower() == ulow for m in clan.get("members", [])): return clan
+    return None
+
+async def apply_clan_rank(username, clan):
+    if not username or not clan or clan.get("status") != "approved" or is_admin(username):
+        return
+    ranks[username.lower()] = {"label": clan["rank_label"], "color": clan["color"]}
+    if username.lower() not in vips: vips.append(username.lower())
+    await save_ranks(); await save_vips()
+
+async def remove_user_clan_rank(username):
+    if not username or is_admin(username): return
+    ranks.pop(username.lower(), None)
+    await save_ranks()
 
 def get_brush_perm(username):
     if not username:
@@ -289,7 +314,7 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, dms, dm_last_seen
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, dms, dm_last_seen
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
@@ -299,6 +324,7 @@ async def load_all_data():
     ranks = await db_load("store", "ranks") or {}
     fake_admins = await db_load("store", "fake_admins") or []
     brush_perms = await db_load("store", "brush_perms") or {}
+    clans = await db_load("store", "clans") or {}
     dm_last_seen = await db_load("store", "dm_last_seen") or {}
     # Migrate any existing VIPs that don't already have a rank
     rank_dirty = False
@@ -1015,6 +1041,179 @@ async def admin_ranks_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"ranks": ranks})
 
+async def clans_list_handler(request):
+    """Public list of approved clans."""
+    out = []
+    for clan in clans.values():
+        if clan.get("status") != "approved": continue
+        out.append({
+            "id": clan["id"], "name": clan["name"], "owner": clan["owner"],
+            "color": clan["color"], "rank_label": clan["rank_label"],
+            "members": clan.get("members", []), "member_count": 1 + len(clan.get("members", [])),
+        })
+    return web.json_response({"clans": out})
+
+async def clan_my_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    ulow = user.lower()
+    my_clan = None
+    pending_owned = None
+    join_requests = []  # outgoing requests where I asked to join
+    for clan in clans.values():
+        if clan.get("owner", "").lower() == ulow:
+            if clan.get("status") == "approved": my_clan = clan
+            elif clan.get("status") == "pending": pending_owned = clan
+        elif clan.get("status") == "approved" and any(m.lower() == ulow for m in clan.get("members", [])):
+            my_clan = clan
+        if any(r.lower() == ulow for r in clan.get("pending_requests", [])):
+            join_requests.append({"clan_id": clan["id"], "clan_name": clan["name"]})
+    return web.json_response({"my_clan": my_clan, "pending_owned": pending_owned, "join_requests": join_requests})
+
+async def clan_create_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    name = data.get("name", "").strip()[:30]
+    color = data.get("color", "").strip()[:32]
+    rank_label = data.get("rank_label", "").strip()[:16]
+    if not name or not rank_label or not color:
+        return web.json_response({"error": "Name, color, and rank label required"}, status=400)
+    if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+        return web.json_response({"error": "Color must be a hex code"}, status=400)
+    # One clan per user (any status)
+    for clan in clans.values():
+        if clan.get("owner", "").lower() == user.lower():
+            return web.json_response({"error": "You already have a clan request or approved clan"}, status=400)
+    cid = secrets.token_hex(6)
+    clans[cid] = {
+        "id": cid, "name": name, "owner": user, "color": color, "rank_label": rank_label,
+        "status": "pending", "members": [], "pending_requests": [], "created_at": time.time(),
+    }
+    await save_clans()
+    return web.json_response({"ok": True, "message": "Clan request submitted, waiting for admin approval", "clan_id": cid})
+
+async def clan_request_join_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    cid = data.get("clan_id", "")
+    clan = clans.get(cid)
+    if not clan or clan.get("status") != "approved":
+        return web.json_response({"error": "Clan not found"}, status=404)
+    ulow = user.lower()
+    if clan["owner"].lower() == ulow or any(m.lower() == ulow for m in clan.get("members", [])):
+        return web.json_response({"error": "You are already in this clan"}, status=400)
+    # Can't be in another clan
+    if find_clan_by_member(user):
+        return web.json_response({"error": "Leave your current clan first"}, status=400)
+    if any(r.lower() == ulow for r in clan.get("pending_requests", [])):
+        return web.json_response({"error": "You already requested to join"}, status=400)
+    clan.setdefault("pending_requests", []).append(user)
+    await save_clans()
+    # Notify owner via social WS
+    await notify_social(clan["owner"], {"type": "clan_join_request", "clan_id": cid, "clan_name": clan["name"], "requester": user})
+    return web.json_response({"ok": True, "message": "Join request sent to clan owner"})
+
+async def clan_handle_request_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    cid = data.get("clan_id", "")
+    target = data.get("username", "").strip()
+    approve = bool(data.get("approve", False))
+    clan = clans.get(cid)
+    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
+    if clan["owner"].lower() != user.lower() and not is_admin(user):
+        return web.json_response({"error": "Only the clan owner can handle requests"}, status=403)
+    pr = clan.get("pending_requests", [])
+    found = next((r for r in pr if r.lower() == target.lower()), None)
+    if not found: return web.json_response({"error": "No such pending request"}, status=404)
+    clan["pending_requests"] = [r for r in pr if r.lower() != target.lower()]
+    if approve:
+        # Make sure they're not already in another clan
+        if not find_clan_by_member(found):
+            clan.setdefault("members", []).append(found)
+            await apply_clan_rank(found, clan)
+    await save_clans()
+    await notify_social(found, {"type": "clan_request_handled", "clan_name": clan["name"], "approved": approve})
+    return web.json_response({"ok": True, "message": ("Approved " if approve else "Rejected ") + found})
+
+async def clan_leave_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    clan = find_clan_by_member(user)
+    if not clan: return web.json_response({"error": "Not in a clan"}, status=400)
+    ulow = user.lower()
+    if clan["owner"].lower() == ulow:
+        # Owner leaves -> dissolve clan, strip ranks from all members
+        for m in clan.get("members", []):
+            await remove_user_clan_rank(m)
+        await remove_user_clan_rank(clan["owner"])
+        del clans[clan["id"]]
+    else:
+        clan["members"] = [m for m in clan.get("members", []) if m.lower() != ulow]
+        await remove_user_clan_rank(user)
+    await save_clans()
+    return web.json_response({"ok": True})
+
+async def admin_clans_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"clans": list(clans.values())})
+
+async def admin_clan_approve_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    cid = data.get("clan_id", "")
+    clan = clans.get(cid)
+    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
+    clan["status"] = "approved"
+    await save_clans()
+    await apply_clan_rank(clan["owner"], clan)
+    await notify_social(clan["owner"], {"type": "clan_approved", "clan_name": clan["name"]})
+    return web.json_response({"ok": True})
+
+async def admin_clan_reject_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    cid = data.get("clan_id", "")
+    clan = clans.get(cid)
+    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
+    owner = clan.get("owner", "")
+    del clans[cid]
+    await save_clans()
+    if owner: await notify_social(owner, {"type": "clan_rejected", "clan_name": clan["name"]})
+    return web.json_response({"ok": True})
+
+async def admin_clan_disband_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    cid = data.get("clan_id", "")
+    clan = clans.get(cid)
+    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
+    for m in clan.get("members", []): await remove_user_clan_rank(m)
+    await remove_user_clan_rank(clan.get("owner", ""))
+    del clans[cid]
+    await save_clans()
+    return web.json_response({"ok": True})
+
+async def online_summary_handler(request):
+    """Total online + per-lobby online + flat user list, for the homepage."""
+    total = sum(1 for c in clients.values() if c)
+    seen = set(); users = []
+    for info in clients.values():
+        if not info or info.get("guest"): continue
+        n = info.get("username")
+        if n and n.lower() not in seen:
+            seen.add(n.lower()); users.append(n)
+    per_lobby = {}
+    for info in clients.values():
+        if not info: continue
+        lid = info.get("lobby_id")
+        if not lid: continue
+        per_lobby[lid] = per_lobby.get(lid, 0) + 1
+    return web.json_response({"total": total, "users": users, "per_lobby": per_lobby})
+
 async def admin_brush_perm_set_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -1554,6 +1753,17 @@ app.router.add_post("/api/admin/vip-remove", admin_vip_remove_handler)
 app.router.add_post("/api/admin/rank-set", admin_rank_set_handler)
 app.router.add_post("/api/admin/rank-remove", admin_rank_remove_handler)
 app.router.add_get("/api/admin/ranks", admin_ranks_handler)
+app.router.add_get("/api/online-summary", online_summary_handler)
+app.router.add_get("/api/clans", clans_list_handler)
+app.router.add_get("/api/clans/my", clan_my_handler)
+app.router.add_post("/api/clans/create", clan_create_handler)
+app.router.add_post("/api/clans/request-join", clan_request_join_handler)
+app.router.add_post("/api/clans/handle-request", clan_handle_request_handler)
+app.router.add_post("/api/clans/leave", clan_leave_handler)
+app.router.add_get("/api/admin/clans", admin_clans_handler)
+app.router.add_post("/api/admin/clan-approve", admin_clan_approve_handler)
+app.router.add_post("/api/admin/clan-reject", admin_clan_reject_handler)
+app.router.add_post("/api/admin/clan-disband", admin_clan_disband_handler)
 app.router.add_post("/api/admin/brush-perm-set", admin_brush_perm_set_handler)
 app.router.add_post("/api/admin/brush-perm-remove", admin_brush_perm_remove_handler)
 app.router.add_get("/api/admin/brush-perms", lambda r: web.json_response({"brush_perms": brush_perms}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
