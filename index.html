@@ -3157,16 +3157,24 @@ function compressImageToBlob(file) {
   });
 }
 
-// Upload to catbox.moe and return the hosted URL. No API key needed, supports CORS.
+// Upload via our backend proxy (which forwards to catbox.moe).
+// The proxy avoids browser CORS issues; the bytes pass through Render in transit but are never stored there.
 async function uploadToCatbox(blob, filename) {
   const fd = new FormData();
-  fd.append('reqtype', 'fileupload');
-  fd.append('fileToUpload', blob, filename || 'image.jpg');
-  const res = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: fd });
-  if (!res.ok) throw new Error('Upload failed (HTTP ' + res.status + ')');
-  const url = (await res.text()).trim();
-  if (!url.startsWith('https://files.catbox.moe/')) throw new Error('Unexpected upload response');
-  return url;
+  fd.append('file', blob, filename || 'image.jpg');
+  const res = await fetch(BACKEND + '/api/upload-image', {
+    method: 'POST',
+    headers: { Authorization: authToken },
+    body: fd,
+  });
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status;
+    try { const j = await res.json(); if (j.error) msg = j.error; } catch {}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  if (!data.url) throw new Error('No URL returned');
+  return data.url;
 }
 
 async function pickAndUploadImage(file) {
