@@ -1689,7 +1689,7 @@ async def websocket_handler(request):
                     if now - last_pixel < cd:
                         continue
                     # Hard ceiling on pixels-per-second per user, even on 0-cooldown lobbies. Catches client cheating.
-                    if not check_rate_limit(username, "pixel", 30, 1):
+                    if not check_rate_limit(username, "pixel", 15, 1):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
@@ -1716,7 +1716,7 @@ async def websocket_handler(request):
                     now = time.time()
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if now - last_pixel < cd: continue
-                    if not check_rate_limit(username, "pixel", 30, 1):
+                    if not check_rate_limit(username, "pixel", 15, 1):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
@@ -1738,9 +1738,14 @@ async def websocket_handler(request):
                 elif data["type"] == "brush_undo" and username and lobby_id and not is_guest:
                     perm = get_brush_perm(username)
                     if perm["size"] <= 1: continue
-                    # Brush strokes can paint many pixels at once — cap strokes/sec and total pixels/sec
-                    if not check_rate_limit(username, "brush_stroke", 8, 1): continue
+                    # Each brush stroke counts as one cooldown cycle for non-admins (so brush perm
+                    # can't be used to bypass the lobby's pixel cooldown by painting many at once).
                     lobby = lobbies.get(lobby_id)
+                    now = time.time()
+                    cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
+                    if not is_admin(username) and now - last_pixel < cd: continue
+                    # Hard ceiling: at most 2 brush strokes per second
+                    if not check_rate_limit(username, "brush_stroke", 2, 1): continue
                     if lobby:
                         coords = data.get("pixels", [])
                         color = data.get("color", 0)
@@ -1755,7 +1760,9 @@ async def websocket_handler(request):
                                 x, y = c[0], c[1]
                                 if not (isinstance(x, int) and isinstance(y, int)): continue
                                 if not (0 <= x < lw and 0 <= y < lh): continue
-                                if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 1): break
+                                # Cap pixels/sec at ~1.5 stroke widths so a stroke fills cleanly but
+                                # continuous spam stops dead.
+                                if not check_rate_limit(username, "brush_pixel", int(max_stamps * 1.5) + 1, 1): break
                                 old_color = lobby["grid"][y * lw + x]
                                 # Skip cells another player has painted over since the original brush stroke
                                 if isinstance(from_color, int) and old_color != from_color:
@@ -1771,6 +1778,7 @@ async def websocket_handler(request):
                                 await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
                             if placed:
                                 lobby["last_activity"] = time.time()
+                                last_pixel = lobby["last_activity"]
                                 mark_lobby_dirty(lobby_id)
 
                 elif data["type"] == "chat" and username and lobby_id:
@@ -1835,10 +1843,16 @@ async def websocket_handler(request):
                     perm = get_brush_perm(username)
                     if perm["size"] <= 1:
                         continue  # no brush perm, ignore
-                    # Cap brush strokes per second so a user with a large brush can't fire continuously
-                    if not check_rate_limit(username, "brush_stroke", 8, 1):
-                        continue
+                    # For non-admin brush-perm users, each stroke = one cooldown cycle so brush
+                    # perm can't be used to bypass the lobby's pixel cooldown.
                     lobby = lobbies.get(lobby_id)
+                    now = time.time()
+                    cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
+                    if not is_admin(username) and now - last_pixel < cd:
+                        continue
+                    # Hard ceiling: at most 2 brush strokes per second
+                    if not check_rate_limit(username, "brush_stroke", 2, 1):
+                        continue
                     if lobby:
                         coords = data.get("pixels", [])
                         color = data.get("color", 0)
@@ -1853,9 +1867,9 @@ async def websocket_handler(request):
                                 x, y = c[0], c[1]
                                 if not (isinstance(x, int) and isinstance(y, int)): continue
                                 if not (0 <= x < lw and 0 <= y < lh): continue
-                                # Cap brush pixels/sec at 4x stamps. This still lets a stroke fully fill in
-                                # one frame, but prevents spam-painting at >>1 stroke/sec from cheating clients.
-                                if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 1): break
+                                # Cap pixels/sec at ~1.5 stroke widths — enough for a clean single
+                                # stroke to land instantly, but caps continuous spam dead.
+                                if not check_rate_limit(username, "brush_pixel", int(max_stamps * 1.5) + 1, 1): break
                                 old_color = lobby["grid"][y * lw + x]
                                 lobby["grid"][y * lw + x] = color
                                 if color != old_color:
@@ -1866,6 +1880,7 @@ async def websocket_handler(request):
                                 await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
                             if placed:
                                 lobby["last_activity"] = time.time()
+                                last_pixel = lobby["last_activity"]
                                 mark_lobby_dirty(lobby_id)
 
                 elif data["type"] == "import_grid" and username and lobby_id and not is_guest:
