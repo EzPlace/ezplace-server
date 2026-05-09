@@ -1426,20 +1426,30 @@ async def group_add_member_handler(request):
     return web.json_response({"ok": True})
 
 async def online_summary_handler(request):
-    """Total online + per-lobby online + flat user list, for the homepage."""
-    total = sum(1 for c in clients.values() if c)
+    """Total online + per-lobby online + flat user list, for the homepage.
+    `total` counts unique authenticated users across both lobby (clients) and
+    homepage (social_clients) WebSocket connections, plus guest connections."""
     seen = set(); users = []
+    guest_count = 0
     for info in clients.values():
-        if not info or info.get("guest"): continue
+        if not info: continue
+        if info.get("guest"):
+            guest_count += 1
+            continue
         n = info.get("username")
         if n and n.lower() not in seen:
             seen.add(n.lower()); users.append(n)
+    # Homepage users: connected to social WS but not in any lobby
+    for uname in social_clients.values():
+        if uname and uname.lower() not in seen:
+            seen.add(uname.lower()); users.append(uname)
     per_lobby = {}
     for info in clients.values():
         if not info: continue
         lid = info.get("lobby_id")
         if not lid: continue
         per_lobby[lid] = per_lobby.get(lid, 0) + 1
+    total = len(users) + guest_count
     return web.json_response({"total": total, "users": users, "per_lobby": per_lobby})
 
 async def admin_brush_perm_set_handler(request):

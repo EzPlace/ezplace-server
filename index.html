@@ -445,6 +445,7 @@
   <!-- Lobby browser overlay -->
   <div id="lobby-screen">
     <h2>Choose a Lobby</h2>
+    <div id="home-online-badge" style="font-size:12px;color:var(--text-muted);margin-top:-6px;margin-bottom:6px;display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;"></span><span id="home-online-count">0</span> online</div>
     <div class="section-title">Public Lobbies</div>
     <div class="lobby-list" id="public-lobbies"></div>
     <div class="section-title">Your Lobbies</div>
@@ -2360,8 +2361,28 @@ document.getElementById('btn-clan-create-submit').onclick = async () => {
   } catch { err.textContent = 'Server offline.'; }
 };
 
+// Poll the global online count while the homepage is visible
+let homeOnlinePollTimer = null;
+async function refreshHomeOnline() {
+  try {
+    const res = await fetch(BACKEND + '/api/online-summary');
+    const data = await res.json();
+    const el = document.getElementById('home-online-count');
+    if (el && typeof data.total === 'number') el.textContent = data.total;
+  } catch {}
+}
+function startHomeOnlinePolling() {
+  refreshHomeOnline();
+  if (homeOnlinePollTimer) clearInterval(homeOnlinePollTimer);
+  homeOnlinePollTimer = setInterval(refreshHomeOnline, 10000);
+}
+function stopHomeOnlinePolling() {
+  if (homeOnlinePollTimer) { clearInterval(homeOnlinePollTimer); homeOnlinePollTimer = null; }
+}
+
 async function loadLobbies() {
   loadClans();
+  startHomeOnlinePolling();
   lobbyScreen.style.display = 'flex';
   document.getElementById('btn-leave-lobby').style.display = 'none';
   document.getElementById('btn-export-grid').style.display = 'none';
@@ -2429,6 +2450,7 @@ function joinLobby(id, name, isPublic) {
     isGuest = false;
   }
   currentLobbyId = id; currentLobbyName = name;
+  stopHomeOnlinePolling();
   lobbyScreen.style.display = 'none';
   document.getElementById('btn-leave-lobby').style.display = '';
   document.getElementById('btn-export-grid').style.display = '';
