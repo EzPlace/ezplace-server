@@ -1705,10 +1705,13 @@ async def websocket_handler(request):
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
                 elif data["type"] == "pixel_undo" and username and lobby_id and not is_guest:
-                    # Identical to "pixel" except the leaderboard count is *decremented* (or removed if it hits 0)
+                    # Identical to "pixel" except the leaderboard count is *decremented* (or removed if it hits 0).
+                    # Skips reverting if `from_color` is provided and the cell no longer matches — prevents
+                    # stomping over another player's pixel that was placed after our original.
                     if not clients.get(ws, {}).get("can_place", True):
                         continue
                     x, y, color = data["x"], data["y"], data["color"]
+                    from_color = data.get("from_color")
                     lobby = lobbies.get(lobby_id)
                     now = time.time()
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
@@ -1719,6 +1722,8 @@ async def websocket_handler(request):
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
                     if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 53:
                         old_color = lobby["grid"][y * lw + x]
+                        if isinstance(from_color, int) and old_color != from_color:
+                            continue  # someone else painted over this pixel — don't overwrite their work
                         lobby["grid"][y * lw + x] = color
                         lobby["last_activity"] = now
                         if color != old_color:
@@ -1739,6 +1744,7 @@ async def websocket_handler(request):
                     if lobby:
                         coords = data.get("pixels", [])
                         color = data.get("color", 0)
+                        from_color = data.get("from_color")
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
                         max_stamps = perm["size"] * perm["size"]
@@ -1749,9 +1755,11 @@ async def websocket_handler(request):
                                 x, y = c[0], c[1]
                                 if not (isinstance(x, int) and isinstance(y, int)): continue
                                 if not (0 <= x < lw and 0 <= y < lh): continue
-                                # Cap brush pixels/sec at 4x stamps to prevent spam-painting via undo loop
                                 if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 1): break
                                 old_color = lobby["grid"][y * lw + x]
+                                # Skip cells another player has painted over since the original brush stroke
+                                if isinstance(from_color, int) and old_color != from_color:
+                                    continue
                                 lobby["grid"][y * lw + x] = color
                                 if color != old_color:
                                     pc = lobby.setdefault("pixel_counts", {})

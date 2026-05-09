@@ -1473,14 +1473,17 @@ const hoverInfo = document.getElementById('hover-info');
 let touchStartDist = 0;
 let touchStartZoom = 1;
 let touchPanning = false;
+let touchDrawing = false;
+let touchDrawLastX = -1, touchDrawLastY = -1;
 let touchStartX = 0, touchStartY = 0, touchCamX = 0, touchCamY = 0;
+let pinchStartMidX = 0, pinchStartMidY = 0, pinchCamX = 0, pinchCamY = 0;
 let lastTapTime = 0;
 
 function getTouchDist(t1, t2) {
   return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 }
 
-// Touch handlers: tap to place a pixel, single-finger drag pans, two-finger pinch zooms.
+// Touch handlers: tap to place a pixel, single-finger drag pans (or paints if drag perm), two-finger pinch zooms.
 function updateModeBtnVisibility() {} // no-op kept so existing callers don't error
 
 cvs.addEventListener('touchstart', e => {
@@ -1488,12 +1491,28 @@ cvs.addEventListener('touchstart', e => {
   if (e.touches.length === 2) {
     touchStartDist = getTouchDist(e.touches[0], e.touches[1]);
     touchStartZoom = zoom;
+    pinchStartMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    pinchStartMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    pinchCamX = camX; pinchCamY = camY;
     touchPanning = false;
+    // If a drag-paint was in progress, cancel it — second finger means pinch/pan.
+    if (touchDrawing) { touchDrawing = false; touchDrawLastX = -1; touchDrawLastY = -1; }
   } else if (e.touches.length === 1) {
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
-    touchPanning = true;
-    touchCamX = camX; touchCamY = camY;
+    const rect = cvs.getBoundingClientRect();
+    const sx = touchStartX - rect.left, sy = touchStartY - rect.top;
+    if (canDragPaint() && isOverGrid(sx, sy)) {
+      // Start drag-to-paint on touch (mirrors desktop mousedown behavior)
+      const g = screenToGrid(sx, sy);
+      touchDrawing = true;
+      touchPanning = false;
+      touchDrawLastX = g.x; touchDrawLastY = g.y;
+      tryPlacePixel(g.x, g.y);
+    } else {
+      touchPanning = true;
+      touchCamX = camX; touchCamY = camY;
+    }
   }
 }, { passive: false });
 
@@ -1505,7 +1524,25 @@ cvs.addEventListener('touchmove', e => {
     const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     const rect = cvs.getBoundingClientRect();
     setZoom(touchStartZoom * (dist / touchStartDist), midX - rect.left, midY - rect.top);
+    // Two-finger pan: shift camera by midpoint delta. Critical for users with drag-paint perm
+    // since they no longer get one-finger pan (single touch is reserved for painting).
+    const dx = (midX - pinchStartMidX) / zoom;
+    const dy = (midY - pinchStartMidY) / zoom;
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) userHasInteracted = true;
+    camX = pinchCamX - dx; camY = pinchCamY - dy;
+    render();
     touchPanning = false;
+  } else if (e.touches.length === 1 && touchDrawing) {
+    const rect = cvs.getBoundingClientRect();
+    const sx = e.touches[0].clientX - rect.left, sy = e.touches[0].clientY - rect.top;
+    const g = screenToGrid(sx, sy);
+    if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H && (g.x !== touchDrawLastX || g.y !== touchDrawLastY)) {
+      const now = Date.now();
+      if (isAdminUser() && now - lastDrawTime < 33) { /* throttle admin brush */ }
+      else {
+        if (tryPlacePixel(g.x, g.y)) { touchDrawLastX = g.x; touchDrawLastY = g.y; lastDrawTime = now; }
+      }
+    }
   } else if (e.touches.length === 1 && touchPanning) {
     const dx = (e.touches[0].clientX - touchStartX) / zoom;
     const dy = (e.touches[0].clientY - touchStartY) / zoom;
@@ -1518,7 +1555,11 @@ cvs.addEventListener('touchmove', e => {
 let touchHandledRecently = 0;
 cvs.addEventListener('touchend', e => {
   e.preventDefault();
-  if (e.touches.length === 0 && e.changedTouches.length === 1 && touchPanning) {
+  if (touchDrawing && e.touches.length === 0) {
+    touchHandledRecently = Date.now();
+    touchDrawing = false;
+    touchDrawLastX = -1; touchDrawLastY = -1;
+  } else if (e.touches.length === 0 && e.changedTouches.length === 1 && touchPanning) {
     const t = e.changedTouches[0];
     const dx = Math.abs(t.clientX - touchStartX);
     const dy = Math.abs(t.clientY - touchStartY);
@@ -1538,6 +1579,11 @@ cvs.addEventListener('touchend', e => {
       }
     }
   }
+  touchPanning = false;
+});
+
+cvs.addEventListener('touchcancel', e => {
+  if (touchDrawing) { touchDrawing = false; touchDrawLastX = -1; touchDrawLastY = -1; }
   touchPanning = false;
 });
 
@@ -1613,33 +1659,40 @@ function performUndo() {
   }
   const action = undoStack.pop();
   updateUndoButtonState();
-  // Restore each pixel locally
-  for (const p of action.pixels) {
+  // Skip any pixel where another player has since painted over it — we only revert pixels
+  // still showing the color we placed (action.newColor). Otherwise we'd erase someone else's work.
+  const stillOurs = action.pixels.filter(p => grid[p.y * GRID_W + p.x] === action.newColor);
+  if (stillOurs.length === 0) {
+    // Everything in this action has been painted over by other players — nothing to undo
+    return;
+  }
+  // Restore each remaining pixel locally
+  for (const p of stillOurs) {
     grid[p.y * GRID_W + p.x] = p.oldColor;
     setOffscreenPixel(p.x, p.y, p.oldColor);
   }
   render();
   if (!isAdminUser()) startCooldownBar();
   // Send to server using the undo-flavored message types so the server *decrements* the
-  // leaderboard count instead of incrementing it.
+  // leaderboard count instead of incrementing it. `from_color` lets the server verify the
+  // pixel hasn't been painted over since we placed it.
   if (ws && ws.readyState === WebSocket.OPEN) {
-    if (action.pixels.length === 1) {
-      const p = action.pixels[0];
-      ws.send(JSON.stringify({ type: 'pixel_undo', x: p.x, y: p.y, color: p.oldColor }));
+    if (stillOurs.length === 1) {
+      const p = stillOurs[0];
+      ws.send(JSON.stringify({ type: 'pixel_undo', x: p.x, y: p.y, color: p.oldColor, from_color: action.newColor }));
     } else if (isRealAdmin() || brushPerm.size > 1) {
       // Brush stroke undo: group by old color and send one brush_undo per color
       const byColor = new Map();
-      for (const p of action.pixels) {
+      for (const p of stillOurs) {
         if (!byColor.has(p.oldColor)) byColor.set(p.oldColor, []);
         byColor.get(p.oldColor).push([p.x, p.y]);
       }
       for (const [color, pix] of byColor) {
-        ws.send(JSON.stringify({ type: 'brush_undo', pixels: pix, color }));
+        ws.send(JSON.stringify({ type: 'brush_undo', pixels: pix, color, from_color: action.newColor }));
       }
     } else {
-      // No brush perm but multi-pixel action (shouldn't happen since paintBrush only goes >1 with perm)
-      for (const p of action.pixels) {
-        ws.send(JSON.stringify({ type: 'pixel_undo', x: p.x, y: p.y, color: p.oldColor }));
+      for (const p of stillOurs) {
+        ws.send(JSON.stringify({ type: 'pixel_undo', x: p.x, y: p.y, color: p.oldColor, from_color: action.newColor }));
       }
     }
   }
