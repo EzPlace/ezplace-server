@@ -232,6 +232,29 @@ def mark_lobby_dirty(lid):
     if lid and lid in lobbies:
         dirty_lobbies.add(lid)
 
+# Sliding-window rate limiter. Keys are (identity, action) tuples; identity is a username
+# for authenticated actions or an IP for anonymous/auth actions. Returns True if the action
+# is allowed (and records the timestamp); False if the caller has exceeded max_count in window_sec.
+_rate_limits = {}  # { (identity, action): [timestamp, ...] }
+
+def check_rate_limit(identity, action, max_count, window_sec):
+    if not identity:
+        return True
+    key = (str(identity).lower(), action)
+    now = time.time()
+    cutoff = now - window_sec
+    timestamps = _rate_limits.setdefault(key, [])
+    while timestamps and timestamps[0] < cutoff:
+        timestamps.pop(0)
+    if len(timestamps) >= max_count:
+        return False
+    timestamps.append(now)
+    return True
+
+def rate_limit_identity(request):
+    """Use the username if authenticated, otherwise the client IP, so anonymous abuse is also bounded."""
+    return get_auth_user(request) or get_client_ip(request)
+
 TIMELAPSE_WINDOW_SEC = 24 * 60 * 60  # 24 hours
 EVENT_STRUCT = struct.Struct('<IHHBB')  # 10 bytes: ts (uint32 sec), x (uint16), y (uint16), new_color (uint8), old_color (uint8)
 EVENT_SIZE = EVENT_STRUCT.size
@@ -287,6 +310,25 @@ async def flush_dirty_lobbies_loop(app):
             break
         except Exception as e:
             print(f"flush_dirty_lobbies_loop error: {e}")
+
+async def rate_limit_cleanup_loop(app):
+    """Periodically prune empty/expired entries from the rate limiter so it doesn't grow unbounded."""
+    while True:
+        try:
+            await asyncio.sleep(300)  # every 5 minutes
+            now = time.time()
+            # Use a generous 1-hour cutoff — anything older than the longest window we track is safe to drop
+            stale_cutoff = now - 3600
+            for key in list(_rate_limits.keys()):
+                ts = _rate_limits[key]
+                while ts and ts[0] < stale_cutoff:
+                    ts.pop(0)
+                if not ts:
+                    _rate_limits.pop(key, None)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"rate_limit_cleanup_loop error: {e}")
 
 async def delete_lobby_db(lid):
     await db["lobbies"].delete_one({"_id": lid})
@@ -462,6 +504,8 @@ async def captcha_handler(request):
 
 async def register_handler(request):
     data = await request.json()
+    if not check_rate_limit(get_client_ip(request), "register", 5, 600):
+        return web.json_response({"error": "Too many registration attempts — try again later."}, status=429)
     uname, pwd = data.get("username", "").strip(), data.get("password", "")
     cap_id, cap_ans = data.get("captcha_id", ""), data.get("captcha_answer", "")
     if not uname or not pwd:
@@ -496,6 +540,8 @@ async def auth_suggest_mode_handler(request):
 
 async def login_handler(request):
     data = await request.json()
+    if not check_rate_limit(get_client_ip(request), "login", 10, 60):
+        return web.json_response({"error": "Too many login attempts — try again in a minute."}, status=429)
     uname, pwd = data.get("username", "").strip(), data.get("password", "")
     if not uname or not pwd:
         return web.json_response({"error": "Username and password required"}, status=400)
@@ -567,6 +613,8 @@ async def create_lobby_handler(request):
     user = get_auth_user(request)
     if not user:
         return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "lobby_create", 3, 60):
+        return web.json_response({"error": "Slow down — max 3 lobby creates per minute."}, status=429)
     name = data.get("name", "").strip()[:30]
     is_public = data.get("public", False)
     wl = data.get("whitelist_enabled", False)
@@ -695,6 +743,8 @@ async def friend_add_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "friend_add", 10, 60):
+        return web.json_response({"error": "Too many friend requests — try again in a minute."}, status=429)
     target = data.get("username", "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
@@ -775,6 +825,10 @@ async def upload_image_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if is_banned(user) or is_ip_banned(request):
         return web.json_response({"error": "Forbidden"}, status=403)
+    if not check_rate_limit(user, "upload_image", 10, 60):
+        return web.json_response({"error": "Upload rate limit — max 10 images per minute."}, status=429)
+    if not check_rate_limit(get_client_ip(request), "upload_image_ip", 20, 60):
+        return web.json_response({"error": "Upload rate limit — too many uploads from your IP."}, status=429)
     try:
         reader = await request.multipart()
     except Exception:
@@ -823,6 +877,10 @@ async def dm_send_handler(request):
     image_url = (data.get("image_url") or "").strip()[:500]
     if image_url and not is_safe_image_url(image_url): image_url = ""
     if not target or (not text and not image_url): return web.json_response({"error": "Missing fields"}, status=400)
+    if not check_rate_limit(user, "dm", 5, 5):
+        return web.json_response({"error": "Rate limited — max 5 DMs per 5 seconds."}, status=429)
+    if image_url and not check_rate_limit(user, "dm_image", 5, 60):
+        return web.json_response({"error": "Image rate limit — max 5 images per minute."}, status=429)
     fd = get_friend_data(user)
     if target not in fd["friends"]: return web.json_response({"error": "Not friends"}, status=403)
     key = dm_key(user, target)
@@ -1153,6 +1211,8 @@ async def clan_create_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "clan_create", 3, 600):
+        return web.json_response({"error": "Slow down — too many clan create attempts."}, status=429)
     name = data.get("name", "").strip()[:30]
     color = data.get("color", "").strip()[:32]
     rank_label = data.get("rank_label", "").strip()[:16]
@@ -1176,6 +1236,8 @@ async def clan_request_join_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "clan_join", 5, 60):
+        return web.json_response({"error": "Too many clan join requests — try again in a minute."}, status=429)
     cid = data.get("clan_id", "")
     clan = clans.get(cid)
     if not clan or clan.get("status") != "approved":
@@ -1290,6 +1352,8 @@ async def group_create_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "group_create", 5, 300):
+        return web.json_response({"error": "Too many groups created — try again later."}, status=429)
     name = data.get("name", "").strip()[:30]
     invitees = data.get("members", [])
     if not name: return web.json_response({"error": "Group name required"}, status=400)
@@ -1491,6 +1555,14 @@ async def social_ws_handler(request):
                     text = data.get("text", "").strip()[:200]
                     image_url = (data.get("image_url") or "").strip()[:500]
                     if image_url and not is_safe_image_url(image_url): image_url = ""
+                    if not check_rate_limit(username, "dm", 5, 5):
+                        try: await ws.send_json({"type": "system", "text": "Slow down — max 5 DMs per 5 seconds."})
+                        except: pass
+                        continue
+                    if image_url and not check_rate_limit(username, "dm_image", 5, 60):
+                        try: await ws.send_json({"type": "system", "text": "Image rate limit — max 5 images per minute."})
+                        except: pass
+                        continue
                     if target and (text or image_url):
                         fd = get_friend_data(username)
                         if target in fd["friends"]:
@@ -1514,6 +1586,14 @@ async def social_ws_handler(request):
                     if not g: continue
                     if username.lower() not in [m.lower() for m in g.get("members", [])]: continue
                     if not (text or image_url): continue
+                    if not check_rate_limit(username, "group_msg", 5, 5):
+                        try: await ws.send_json({"type": "system", "text": "Slow down — max 5 group messages per 5 seconds."})
+                        except: pass
+                        continue
+                    if image_url and not check_rate_limit(username, "group_image", 5, 60):
+                        try: await ws.send_json({"type": "system", "text": "Image rate limit — max 5 images per minute."})
+                        except: pass
+                        continue
                     msg_obj = {"from": username, "time": time.time()}
                     if text: msg_obj["text"] = text
                     if image_url: msg_obj["image_url"] = image_url
@@ -1608,6 +1688,9 @@ async def websocket_handler(request):
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if now - last_pixel < cd:
                         continue
+                    # Hard ceiling on pixels-per-second per user, even on 0-cooldown lobbies. Catches client cheating.
+                    if not check_rate_limit(username, "pixel", 30, 1):
+                        continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
                     if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 53:
@@ -1630,6 +1713,8 @@ async def websocket_handler(request):
                     now = time.time()
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if now - last_pixel < cd: continue
+                    if not check_rate_limit(username, "pixel", 30, 1):
+                        continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
                     if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 53:
@@ -1648,6 +1733,8 @@ async def websocket_handler(request):
                 elif data["type"] == "brush_undo" and username and lobby_id and not is_guest:
                     perm = get_brush_perm(username)
                     if perm["size"] <= 1: continue
+                    # Brush strokes can paint many pixels at once — cap strokes/sec and total pixels/sec
+                    if not check_rate_limit(username, "brush_stroke", 8, 1): continue
                     lobby = lobbies.get(lobby_id)
                     if lobby:
                         coords = data.get("pixels", [])
@@ -1662,6 +1749,8 @@ async def websocket_handler(request):
                                 x, y = c[0], c[1]
                                 if not (isinstance(x, int) and isinstance(y, int)): continue
                                 if not (0 <= x < lw and 0 <= y < lh): continue
+                                # Cap brush pixels/sec at 4x stamps to prevent spam-painting via undo loop
+                                if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 1): break
                                 old_color = lobby["grid"][y * lw + x]
                                 lobby["grid"][y * lw + x] = color
                                 if color != old_color:
@@ -1738,6 +1827,9 @@ async def websocket_handler(request):
                     perm = get_brush_perm(username)
                     if perm["size"] <= 1:
                         continue  # no brush perm, ignore
+                    # Cap brush strokes per second so a user with a large brush can't fire continuously
+                    if not check_rate_limit(username, "brush_stroke", 8, 1):
+                        continue
                     lobby = lobbies.get(lobby_id)
                     if lobby:
                         coords = data.get("pixels", [])
@@ -1753,6 +1845,9 @@ async def websocket_handler(request):
                                 x, y = c[0], c[1]
                                 if not (isinstance(x, int) and isinstance(y, int)): continue
                                 if not (0 <= x < lw and 0 <= y < lh): continue
+                                # Cap brush pixels/sec at 4x stamps. This still lets a stroke fully fill in
+                                # one frame, but prevents spam-painting at >>1 stroke/sec from cheating clients.
+                                if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 1): break
                                 old_color = lobby["grid"][y * lw + x]
                                 lobby["grid"][y * lw + x] = color
                                 if color != old_color:
@@ -1932,11 +2027,13 @@ async def on_startup(app):
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
     app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
+    app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
 
 async def on_cleanup(app):
     app["cleanup_task"].cancel()
     app["lb_task"].cancel()
     app["flush_task"].cancel()
+    app["rl_task"].cancel()
     # Final flush of all dirty lobbies so we don't lose the last batch on shutdown
     for lid in list(dirty_lobbies):
         try: await save_lobby(lid)
