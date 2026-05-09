@@ -1553,6 +1553,7 @@ async def social_ws_handler(request):
                         unread = get_unread_dm_summary(username)
                         if unread:
                             await ws.send_json({"type": "unread_dms", "senders": unread})
+                        await broadcast_online_all_lobbies()
                     else:
                         await ws.close()
                 elif data.get("type") == "dm_seen" and username:
@@ -1619,8 +1620,11 @@ async def social_ws_handler(request):
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
+        was_authed = bool(social_clients.get(ws))
         del social_clients[ws]
         social_ips.pop(ws, None)
+        if was_authed:
+            await broadcast_online_all_lobbies()
     return ws
 
 async def notify_social(target_username, data):
@@ -1973,9 +1977,26 @@ async def broadcast_to_lobby(lobby_id, data, exclude=None):
             try: await ws.send_str(msg)
             except: pass
 
+async def broadcast_online_all_lobbies():
+    """Re-broadcast the online totals to every active lobby. Called when homepage WS
+    population changes, since the 'All' figure depends on social_clients too."""
+    active_lobbies = {info.get("lobby_id") for info in clients.values() if info and info.get("lobby_id")}
+    for lid in active_lobbies:
+        await broadcast_online_lobby(lid)
+
 async def broadcast_online_lobby(lobby_id):
     count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
-    total = sum(1 for info in clients.values() if info)
+    # Total = unique authenticated users across lobby + homepage WS, plus all guest connections
+    total_seen = set()
+    guest_count = 0
+    for info in clients.values():
+        if not info: continue
+        if info.get("guest"): guest_count += 1; continue
+        n = info.get("username")
+        if n: total_seen.add(n.lower())
+    for uname in social_clients.values():
+        if uname: total_seen.add(uname.lower())
+    total = len(total_seen) + guest_count
     # Distinct logged-in usernames in this lobby (guests excluded — they can't be @ mentioned in any meaningful way)
     seen = set()
     users = []
