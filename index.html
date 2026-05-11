@@ -500,6 +500,15 @@
       <button id="btn-clan-manage-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
     </div>
     <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Rank Tag</div>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+        <span id="clan-manage-rank-preview" style="font-size:11px;font-weight:700;letter-spacing:0.5px;">[RANK]</span>
+        <div style="flex:1;"></div>
+        <label style="font-size:11px;color:var(--text-muted);">Color:</label>
+        <input id="clan-manage-color" type="color" value="#7c5cfc" style="width:36px;height:28px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;">
+        <button id="btn-clan-manage-save-color" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;">Save</button>
+      </div>
+      <div id="clan-manage-color-msg" style="font-size:11px;color:var(--text-muted);min-height:12px;"></div>
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Pending Join Requests</div>
       <div id="clan-manage-pending" style="display:flex;flex-direction:column;gap:6px;"></div>
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Members</div>
@@ -2346,6 +2355,14 @@ async function openClanManage(cid) {
   } catch {}
 }
 function renderClanManage(clan) {
+  // Rank tag preview + color picker
+  const preview = document.getElementById('clan-manage-rank-preview');
+  const colorInput = document.getElementById('clan-manage-color');
+  preview.textContent = `[${clan.rank_label || 'RANK'}]`;
+  preview.style.color = clan.color || '#7c5cfc';
+  colorInput.value = (clan.color && /^#[0-9a-fA-F]{6}$/.test(clan.color)) ? clan.color : '#7c5cfc';
+  colorInput.oninput = () => { preview.style.color = colorInput.value; };
+  document.getElementById('clan-manage-color-msg').textContent = '';
   const pendingEl = document.getElementById('clan-manage-pending');
   const membersEl = document.getElementById('clan-manage-members');
   pendingEl.innerHTML = '';
@@ -2396,6 +2413,19 @@ async function handleClanRequest(name, approve) {
   } catch {}
 }
 document.getElementById('btn-clan-manage-close').onclick = () => { document.getElementById('clan-manage-modal').style.display = 'none'; currentManagingClan = null; };
+document.getElementById('btn-clan-manage-save-color').onclick = async () => {
+  if (!currentManagingClan) return;
+  const color = document.getElementById('clan-manage-color').value;
+  const msg = document.getElementById('clan-manage-color-msg');
+  msg.textContent = 'Saving...'; msg.style.color = 'var(--text-muted)';
+  try {
+    const res = await fetch(BACKEND + '/api/clans/update-color', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: currentManagingClan, color }) });
+    const data = await res.json();
+    if (data.error) { msg.textContent = data.error; msg.style.color = 'var(--red)'; return; }
+    msg.textContent = 'Color saved! Members\' chat tags will reflect the new color.'; msg.style.color = '#22c55e';
+    loadClans();
+  } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+};
 
 document.getElementById('btn-create-clan').onclick = () => {
   if (!authToken) { alert('Log in to create a clan.'); return; }
