@@ -8,6 +8,7 @@ import secrets
 import string
 import struct
 import time
+import zlib
 from aiohttp import web
 import aiohttp
 import motor.motor_asyncio
@@ -1972,19 +1973,29 @@ async def broadcast_to_lobby(lobby_id, data, exclude=None):
             try: await ws.send_str(msg)
             except: pass
 
+def _compress_grid(grid_bytes):
+    """zlib-compress the raw grid bytes. Mostly-empty 1024x1024 grids drop from 1MB
+    to ~5KB; dense art still drops 30-50%."""
+    return zlib.compress(bytes(grid_bytes), level=6)
+
 async def send_grid_to_ws(ws, meta_dict, grid_bytes):
-    """Send a grid as a JSON metadata frame followed immediately by a binary frame
-    holding the raw pixel bytes. ~3x smaller on the wire than the old JSON int array,
-    which matters a lot for 1024x1024 grids (1MB raw vs ~3MB JSON)."""
+    """Send a grid as a JSON metadata frame followed by a zlib-compressed binary frame.
+    Way smaller on the wire than the old JSON int array — empty 1024x1024 grids go from
+    ~3MB JSON / 1MB raw down to a few KB."""
     meta = dict(meta_dict)
     meta["binary"] = True
+    meta["compressed"] = "deflate"
+    meta["uncompressed_size"] = len(grid_bytes)
     await ws.send_json(meta)
-    await ws.send_bytes(bytes(grid_bytes))
+    await ws.send_bytes(_compress_grid(grid_bytes))
 
 async def broadcast_grid_to_lobby(lobby_id, meta_dict, grid_bytes, exclude=None):
-    meta = dict(meta_dict); meta["binary"] = True
+    meta = dict(meta_dict)
+    meta["binary"] = True
+    meta["compressed"] = "deflate"
+    meta["uncompressed_size"] = len(grid_bytes)
     meta_str = json.dumps(meta)
-    grid_b = bytes(grid_bytes)
+    grid_b = _compress_grid(grid_bytes)
     for ws, info in list(clients.items()):
         if info and info.get("lobby_id") == lobby_id and ws != exclude and not ws.closed:
             try:
