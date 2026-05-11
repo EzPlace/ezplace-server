@@ -1276,6 +1276,29 @@ async def clan_handle_request_handler(request):
     await notify_social(found, {"type": "clan_request_handled", "clan_name": clan["name"], "approved": approve})
     return web.json_response({"ok": True, "message": ("Approved " if approve else "Rejected ") + found})
 
+async def clan_update_color_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "clan_update_color", 10, 60):
+        return web.json_response({"error": "Too many color changes — slow down."}, status=429)
+    cid = data.get("clan_id", "")
+    color = (data.get("color") or "").strip()[:32]
+    if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+        return web.json_response({"error": "Color must be a hex code"}, status=400)
+    clan = clans.get(cid)
+    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
+    if clan["owner"].lower() != user.lower() and not is_admin(user):
+        return web.json_response({"error": "Only the clan owner can change the color"}, status=403)
+    clan["color"] = color
+    await save_clans()
+    # Re-apply rank to owner + all members so their chat-tag color updates immediately
+    if clan.get("status") == "approved":
+        await apply_clan_rank(clan["owner"], clan)
+        for m in clan.get("members", []):
+            await apply_clan_rank(m, clan)
+    return web.json_response({"ok": True})
+
 async def clan_leave_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
@@ -2205,6 +2228,7 @@ app.router.add_get("/api/clans/my", clan_my_handler)
 app.router.add_post("/api/clans/create", clan_create_handler)
 app.router.add_post("/api/clans/request-join", clan_request_join_handler)
 app.router.add_post("/api/clans/handle-request", clan_handle_request_handler)
+app.router.add_post("/api/clans/update-color", clan_update_color_handler)
 app.router.add_post("/api/clans/leave", clan_leave_handler)
 app.router.add_get("/api/admin/clans", admin_clans_handler)
 app.router.add_post("/api/admin/clan-approve", admin_clan_approve_handler)
