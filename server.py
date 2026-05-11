@@ -14,16 +14,11 @@ import motor.motor_asyncio
 
 MAX_LOBBIES_PER_USER = 5
 MAX_DM_HISTORY = 100
-VALID_SIZES = [(256, 256), (512, 512), (256, 512), (512, 256)]
+VALID_SIZES = [(256, 256), (512, 512), (1024, 1024)]
 PUBLIC_LOBBIES = [
-    {"name": "24/7 CHAOS 256x256", "cooldown": 0, "width": 256, "height": 256},
-    {"name": "24/7 CHAOS 512x512", "cooldown": 0, "width": 512, "height": 512},
-    {"name": "24/7 CHAOS 256x512", "cooldown": 0, "width": 256, "height": 512},
-    {"name": "24/7 CHAOS 512x256", "cooldown": 0, "width": 512, "height": 256},
-    {"name": "24/7 NORMAL SPEED 256x256", "cooldown": 0.5, "width": 256, "height": 256},
-    {"name": "24/7 NORMAL SPEED 512x512", "cooldown": 0.5, "width": 512, "height": 512},
-    {"name": "24/7 NORMAL SPEED 256x512", "cooldown": 0.5, "width": 256, "height": 512},
-    {"name": "24/7 NORMAL SPEED 512x256", "cooldown": 0.5, "width": 512, "height": 256},
+    {"name": "OFFICIAL 256x256", "cooldown": 0, "width": 256, "height": 256},
+    {"name": "OFFICIAL 512x512", "cooldown": 0, "width": 512, "height": 512},
+    {"name": "OFFICIAL 1024x1024", "cooldown": 0, "width": 1024, "height": 1024},
 ]
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
@@ -1671,9 +1666,9 @@ async def websocket_handler(request):
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "can_place": can_place}
                     await track_ip(username, request)
-                    grid_msg = {"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
+                    grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                     if is_fake_admin(username): grid_msg["fake_admin"] = True
-                    await ws.send_json(grid_msg)
+                    await send_grid_to_ws(ws, grid_msg, lobby["grid"])
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                     await broadcast_online_lobby(lobby_id)
 
@@ -1689,7 +1684,7 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "error", "text": "Guests can only join public lobbies"}); await ws.close(); break
                     username = guest_name; is_guest = True; lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True, "ip": get_client_ip(request)}
-                    await ws.send_json({"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)})
+                    await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)}, lobby["grid"])
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined (spectating)"})
                     await broadcast_online_lobby(lobby_id)
 
@@ -1915,7 +1910,7 @@ async def websocket_handler(request):
                             if isinstance(imported_owner, str) and imported_owner.strip():
                                 lobby["original_owner"] = imported_owner.strip()[:20]
                             await save_lobby(lobby_id)
-                            await broadcast_to_lobby(lobby_id, {"type": "grid", "data": list(lobby["grid"]), "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lw, "height": lh})
+                            await broadcast_grid_to_lobby(lobby_id, {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lw, "height": lh}, lobby["grid"])
                             await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
                             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"Grid imported by {username}"})
                         else:
@@ -1975,6 +1970,26 @@ async def broadcast_to_lobby(lobby_id, data, exclude=None):
     for ws, info in list(clients.items()):
         if info and info.get("lobby_id") == lobby_id and ws != exclude and not ws.closed:
             try: await ws.send_str(msg)
+            except: pass
+
+async def send_grid_to_ws(ws, meta_dict, grid_bytes):
+    """Send a grid as a JSON metadata frame followed immediately by a binary frame
+    holding the raw pixel bytes. ~3x smaller on the wire than the old JSON int array,
+    which matters a lot for 1024x1024 grids (1MB raw vs ~3MB JSON)."""
+    meta = dict(meta_dict)
+    meta["binary"] = True
+    await ws.send_json(meta)
+    await ws.send_bytes(bytes(grid_bytes))
+
+async def broadcast_grid_to_lobby(lobby_id, meta_dict, grid_bytes, exclude=None):
+    meta = dict(meta_dict); meta["binary"] = True
+    meta_str = json.dumps(meta)
+    grid_b = bytes(grid_bytes)
+    for ws, info in list(clients.items()):
+        if info and info.get("lobby_id") == lobby_id and ws != exclude and not ws.closed:
+            try:
+                await ws.send_str(meta_str)
+                await ws.send_bytes(grid_b)
             except: pass
 
 async def broadcast_online_all_lobbies():
@@ -2071,6 +2086,14 @@ async def on_startup(app):
             del lobbies[lid]
             await db["lobbies"].delete_one({"_id": lid})
             print(f"Deleted lobby: Lobba ({lid})")
+    # One-time: drop the retired public lobbies. Old layout had 256x256, 512x512, 256x512,
+    # 512x256, then 4 NORMAL SPEED variants. New layout keeps only 256x256, 512x512, 1024x1024.
+    # public_0 and public_1 retain their grids (CHAOS → OFFICIAL rename only). public_2 onward
+    # is wiped — public_2 in the new layout is a 1024x1024 lobby, the rest no longer exist.
+    for lid in ("public_2", "public_3", "public_4", "public_5", "public_6", "public_7"):
+        existed = await db["lobbies"].delete_one({"_id": lid})
+        if existed.deleted_count:
+            print(f"Deleted retired public lobby DB row: {lid}")
     # One-time: remove ASG lobbies
     for lid, lobby in list(lobbies.items()):
         if lid.startswith("public_"): continue
