@@ -2696,14 +2696,26 @@ function connectToLobby(lobbyId, lobbyName) {
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
   };
-  // Grids arrive as a JSON metadata frame followed by a binary frame with the raw pixel bytes
+  // Grids arrive as a JSON metadata frame followed by a binary frame with the pixel bytes
+  // (zlib-compressed when `compressed: "deflate"` is set on the meta — empty 1024x1024
+  // grids end up as a few KB instead of 1 MB).
   let pendingGridMeta = null;
-  ws.onmessage = e => {
+  async function decompressDeflate(arrayBuffer) {
+    const ds = new DecompressionStream('deflate');
+    const decompressed = new Response(new Blob([arrayBuffer]).stream().pipeThrough(ds));
+    return new Uint8Array(await decompressed.arrayBuffer());
+  }
+  ws.onmessage = async (e) => {
     if (e.data instanceof ArrayBuffer) {
       if (pendingGridMeta) {
         const meta = pendingGridMeta;
         pendingGridMeta = null;
-        meta.data = new Uint8Array(e.data);
+        try {
+          meta.data = meta.compressed === 'deflate' ? await decompressDeflate(e.data) : new Uint8Array(e.data);
+        } catch (err) {
+          addSystemMsg('Failed to decode grid (try refreshing).');
+          return;
+        }
         handleWsMessage(meta);
       }
       return;
