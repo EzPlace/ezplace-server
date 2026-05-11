@@ -2121,22 +2121,25 @@ async def on_startup(app):
             del lobbies[lid]
             await db["lobbies"].delete_one({"_id": lid})
             print(f"Deleted lobby: Lobba ({lid})")
-    # One-time: drop the retired public lobbies. Old layout had 256x256, 512x512, 256x512,
-    # 512x256, then 4 NORMAL SPEED variants. New layout keeps only 256x256, 512x512, 1024x1024.
-    # public_0 and public_1 retain their grids (CHAOS → OFFICIAL rename only). public_2 onward
-    # is wiped — public_2 in the new layout is a 1024x1024 lobby, the rest no longer exist.
-    for lid in ("public_2", "public_3", "public_4", "public_5", "public_6", "public_7"):
-        existed = await db["lobbies"].delete_one({"_id": lid})
-        if existed.deleted_count:
-            print(f"Deleted retired public lobby DB row: {lid}")
-        # load_all_data already overlaid pixel_counts/events from the old DB row before we
-        # deleted it. Reset that in-memory contamination so the new lobby starts truly fresh.
-        if lid in lobbies:
-            lw, lh = lobbies[lid]["width"], lobbies[lid]["height"]
-            lobbies[lid]["grid"] = bytearray(lw * lh)
-            lobbies[lid]["pixel_counts"] = {}
-            lobbies[lid]["events"] = bytearray()
-            lobbies[lid].pop("original_owner", None)
+    # One-time-only: drop the retired public lobbies (256x512/512x256 + NORMAL SPEED variants).
+    # Guarded by a migration flag in DB so this NEVER runs twice — otherwise it would wipe
+    # the new public_2 (1024x1024) grid every time the server redeployed.
+    migrations_doc = await db_load("store", "migrations") or {}
+    if not migrations_doc.get("public_lobby_v2"):
+        for lid in ("public_2", "public_3", "public_4", "public_5", "public_6", "public_7"):
+            existed = await db["lobbies"].delete_one({"_id": lid})
+            if existed.deleted_count:
+                print(f"Deleted retired public lobby DB row: {lid}")
+            # Reset in-memory state contaminated by load_all_data overlaying the old DB row
+            if lid in lobbies:
+                lw, lh = lobbies[lid]["width"], lobbies[lid]["height"]
+                lobbies[lid]["grid"] = bytearray(lw * lh)
+                lobbies[lid]["pixel_counts"] = {}
+                lobbies[lid]["events"] = bytearray()
+                lobbies[lid].pop("original_owner", None)
+        migrations_doc["public_lobby_v2"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print("Marked public_lobby_v2 migration as complete")
     # One-time: remove ASG lobbies
     for lid, lobby in list(lobbies.items()):
         if lid.startswith("public_"): continue
