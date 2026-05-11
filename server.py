@@ -1721,8 +1721,9 @@ async def websocket_handler(request):
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if now - last_pixel < cd:
                         continue
-                    # Hard ceiling on pixels-per-second per user, even on 0-cooldown lobbies. Catches client cheating.
-                    if not check_rate_limit(username, "pixel", 15, 1):
+                    # Sliding-window cap on pixels-per-2-sec. Lets real humans tap fast / drag-paint
+                    # on mobile, still catches automated spam (which sends 50+/sec).
+                    if not check_rate_limit(username, "pixel", 60, 2):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
@@ -1749,7 +1750,7 @@ async def websocket_handler(request):
                     now = time.time()
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if now - last_pixel < cd: continue
-                    if not check_rate_limit(username, "pixel", 15, 1):
+                    if not check_rate_limit(username, "pixel", 60, 2):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
@@ -1778,7 +1779,7 @@ async def websocket_handler(request):
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if not is_admin(username) and now - last_pixel < cd: continue
                     # Hard ceiling: at most 2 brush strokes per second
-                    if not check_rate_limit(username, "brush_stroke", 2, 1): continue
+                    if not check_rate_limit(username, "brush_stroke", 8, 2): continue
                     if lobby:
                         coords = data.get("pixels", [])
                         color = data.get("color", 0)
@@ -1795,7 +1796,7 @@ async def websocket_handler(request):
                                 if not (0 <= x < lw and 0 <= y < lh): continue
                                 # Cap pixels/sec at ~1.5 stroke widths so a stroke fills cleanly but
                                 # continuous spam stops dead.
-                                if not check_rate_limit(username, "brush_pixel", int(max_stamps * 1.5) + 1, 1): break
+                                if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 2): break
                                 old_color = lobby["grid"][y * lw + x]
                                 # Skip cells another player has painted over since the original brush stroke
                                 if isinstance(from_color, int) and old_color != from_color:
@@ -1884,7 +1885,7 @@ async def websocket_handler(request):
                     if not is_admin(username) and now - last_pixel < cd:
                         continue
                     # Hard ceiling: at most 2 brush strokes per second
-                    if not check_rate_limit(username, "brush_stroke", 2, 1):
+                    if not check_rate_limit(username, "brush_stroke", 8, 2):
                         continue
                     if lobby:
                         coords = data.get("pixels", [])
@@ -1902,7 +1903,7 @@ async def websocket_handler(request):
                                 if not (0 <= x < lw and 0 <= y < lh): continue
                                 # Cap pixels/sec at ~1.5 stroke widths — enough for a clean single
                                 # stroke to land instantly, but caps continuous spam dead.
-                                if not check_rate_limit(username, "brush_pixel", int(max_stamps * 1.5) + 1, 1): break
+                                if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 2): break
                                 old_color = lobby["grid"][y * lw + x]
                                 lobby["grid"][y * lw + x] = color
                                 if color != old_color:
