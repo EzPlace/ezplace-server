@@ -2105,6 +2105,14 @@ async def on_startup(app):
         existed = await db["lobbies"].delete_one({"_id": lid})
         if existed.deleted_count:
             print(f"Deleted retired public lobby DB row: {lid}")
+        # load_all_data already overlaid pixel_counts/events from the old DB row before we
+        # deleted it. Reset that in-memory contamination so the new lobby starts truly fresh.
+        if lid in lobbies:
+            lw, lh = lobbies[lid]["width"], lobbies[lid]["height"]
+            lobbies[lid]["grid"] = bytearray(lw * lh)
+            lobbies[lid]["pixel_counts"] = {}
+            lobbies[lid]["events"] = bytearray()
+            lobbies[lid].pop("original_owner", None)
     # One-time: remove ASG lobbies
     for lid, lobby in list(lobbies.items()):
         if lid.startswith("public_"): continue
