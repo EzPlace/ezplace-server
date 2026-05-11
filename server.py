@@ -2122,13 +2122,21 @@ async def on_startup(app):
             await db["lobbies"].delete_one({"_id": lid})
             print(f"Deleted lobby: Lobba ({lid})")
     # One-time-only: drop the retired public lobbies (256x512/512x256 + NORMAL SPEED variants).
-    # Guarded by a migration flag in DB so this NEVER runs twice — otherwise it would wipe
-    # the new public_2 (1024x1024) grid every time the server redeployed.
+    # Guarded by a migration flag and a dimension check — we only wipe if the stored grid is
+    # actually a stale wrong size. If the DB row for public_2 is already a valid 1024x1024
+    # grid (because someone painted it after the new code went live), leave it alone.
     migrations_doc = await db_load("store", "migrations") or {}
     if not migrations_doc.get("public_lobby_v2"):
         for lid in ("public_2", "public_3", "public_4", "public_5", "public_6", "public_7"):
-            existed = await db["lobbies"].delete_one({"_id": lid})
-            if existed.deleted_count:
+            doc = await db["lobbies"].find_one({"_id": lid})
+            expected_size = (lobbies[lid]["width"] * lobbies[lid]["height"]) if lid in lobbies else None
+            actual_size = len(doc.get("grid") or b"") if doc else 0
+            # If the DB row is already correctly sized for the current lobby layout, preserve it
+            if doc and expected_size and actual_size == expected_size:
+                print(f"Migration: keeping {lid} (grid is already correctly sized)")
+                continue
+            if doc:
+                await db["lobbies"].delete_one({"_id": lid})
                 print(f"Deleted retired public lobby DB row: {lid}")
             # Reset in-memory state contaminated by load_all_data overlaying the old DB row
             if lid in lobbies:
