@@ -467,8 +467,7 @@
       <select id="create-size" class="win-input" style="width:auto;padding:5px 8px;">
         <option value="256x256">256x256</option>
         <option value="512x512">512x512</option>
-        <option value="256x512">256x512</option>
-        <option value="512x256">512x256</option>
+        <option value="1024x1024">1024x1024</option>
       </select>
       <label style="font-size:11px;color:#333;">CD: <input id="create-cooldown" class="win-input" type="number" min="0" max="60" step="0.5" value="0" style="width:50px;">s</label>
       <button id="btn-create-lobby" class="win-btn">Create</button>
@@ -2687,6 +2686,7 @@ function connectToLobby(lobbyId, lobbyName) {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsProto = BACKEND_HOST ? 'wss' : protocol;
   try { ws = new WebSocket(`${wsProto}://${WS_HOST}/ws`); } catch { addSystemMsg('No server.'); return; }
+  ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
     if (isGuest) {
       ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, guest_name: guestName }));
@@ -2696,8 +2696,26 @@ function connectToLobby(lobbyId, lobbyName) {
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
   };
+  // Grids arrive as a JSON metadata frame followed by a binary frame with the raw pixel bytes
+  let pendingGridMeta = null;
   ws.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) {
+      if (pendingGridMeta) {
+        const meta = pendingGridMeta;
+        pendingGridMeta = null;
+        meta.data = new Uint8Array(e.data);
+        handleWsMessage(meta);
+      }
+      return;
+    }
     const msg = JSON.parse(e.data);
+    if (msg.type === 'grid' && msg.binary) {
+      pendingGridMeta = msg;
+      return;
+    }
+    handleWsMessage(msg);
+  };
+  function handleWsMessage(msg) {
     switch (msg.type) {
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; setOffscreenPixel(msg.x, msg.y, msg.color); render(); break;
       case 'cursor': if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) { remoteCursors[msg.username.toLowerCase()] = { name: msg.username, x: msg.x, y: msg.y, isGuest: !!msg.guest, lastUpdate: Date.now() }; render(); } break;
@@ -2723,7 +2741,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'client_alert': alert(msg.text); break;
       case 'client_redirect': if (typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; } break;
     }
-  };
+  }
   ws.onclose = () => { clearInterval(pingInterval); document.getElementById('ping-ms').textContent = '--'; if (!intentionalClose) { document.getElementById('disconnect-banner').style.display = ''; setTimeout(() => location.reload(), 3000); } };
   ws.onerror = () => { ws = null; clearInterval(pingInterval); if (!intentionalClose) { document.getElementById('disconnect-banner').style.display = ''; setTimeout(() => location.reload(), 3000); } };
   let pingInterval = setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping', time: Date.now() })); }, 3000);
