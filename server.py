@@ -1682,7 +1682,7 @@ async def social_ws_handler(request):
                     group_messages.setdefault(gid, []).append(msg_obj)
                     if len(group_messages[gid]) > MAX_DM_HISTORY: group_messages[gid] = group_messages[gid][-MAX_DM_HISTORY:]
                     await save_group_messages(gid)
-                    fanout = {"type": "group_msg", "group_id": gid, "from": username, "time": msg_obj["time"]}
+                    fanout = {"type": "group_msg", "group_id": gid, "group_name": g.get("name", ""), "from": username, "time": msg_obj["time"]}
                     if text: fanout["text"] = text
                     if image_url: fanout["image_url"] = image_url
                     for member in g.get("members", []):

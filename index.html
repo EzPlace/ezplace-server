@@ -3032,7 +3032,7 @@ function updateDmTabBadge() {
   }
 }
 
-function showDmToast(from, text) {
+function showDmToast(from, text, onClick) {
   const container = document.getElementById('dm-toast-container');
   const toast = document.createElement('div');
   toast.className = 'dm-toast';
@@ -3040,7 +3040,8 @@ function showDmToast(from, text) {
   toast.onclick = () => {
     toast.classList.add('closing');
     setTimeout(() => toast.remove(), 250);
-    openDm(from);
+    if (typeof onClick === 'function') onClick();
+    else openDm(from);
   };
   container.appendChild(toast);
   setTimeout(() => {
@@ -3102,7 +3103,8 @@ function connectSocial() {
       if (currentGroupId === msg.group_id) {
         appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image);
       } else {
-        showDmToast(msg.from + ' (in ' + (msg.group_name || 'group') + ')', msg.text || (msg.image_url ? '[image]' : ''));
+        const gid = msg.group_id;
+        showDmToast(msg.from + ' (in ' + (msg.group_name || 'group') + ')', msg.text || (msg.image_url ? '[image]' : ''), () => openGroup(gid));
         const activeTab = document.querySelector('.sidebar-tab.active');
         if (!activeTab || activeTab.dataset.tab !== 'msgs-tab') {
           const badge = document.getElementById('dm-notif');
