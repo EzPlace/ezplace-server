@@ -2090,6 +2090,9 @@ setInterval(() => {
 
 // === @ mention popup ===
 let lobbyUsers = [];
+// Names seen in chat in this lobby. Fallback for @-completion when the `online` broadcast
+// is stale or hasn't arrived yet — anyone who's talked is by definition still around.
+let knownChatUsers = new Set();
 let mentionActiveIndex = 0;
 let mentionMatches = [];
 let mentionAnchorStart = -1; // index in chatInput.value where the @ starts
@@ -2121,9 +2124,10 @@ function updateMentionPopup() {
   }
   mentionAnchorStart = ctx.start;
   const q = ctx.query.toLowerCase();
-  // Build candidate list: lobbyUsers from server, plus self for completeness
+  // Build candidate list: online list from server + anyone who's chatted in this lobby + self
   const all = new Set();
   lobbyUsers.forEach(u => all.add(u));
+  knownChatUsers.forEach(u => all.add(u));
   if (username) all.add(username);
   mentionMatches = [...all].filter(u => u.toLowerCase().startsWith(q) && u.toLowerCase() !== (username || '').toLowerCase()).slice(0, 8);
   // Allow mentioning yourself too if query matches
@@ -2925,9 +2929,9 @@ function connectToLobby(lobbyId, lobbyName) {
       }
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
-      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
+      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; if (msg.username && !msg.is_guest) knownChatUsers.add(msg.username); addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; knownChatUsers = new Set(); document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
