@@ -2890,28 +2890,41 @@ function connectToLobby(lobbyId, lobbyName) {
     const decompressed = new Response(new Blob([arrayBuffer]).stream().pipeThrough(ds));
     return new Uint8Array(await decompressed.arrayBuffer());
   }
-  ws.onmessage = async (e) => {
-    if (e.data instanceof ArrayBuffer) {
-      if (pendingGridMeta) {
-        const meta = pendingGridMeta;
-        pendingGridMeta = null;
-        try {
-          meta.data = meta.compressed === 'deflate' ? await decompressDeflate(e.data) : new Uint8Array(e.data);
-        } catch (err) {
-          addSystemMsg('Failed to decode grid (try refreshing).');
-          return;
+  // Strict in-order queue so the async grid decompression can't let later messages
+  // (e.g. the `online` broadcast) overtake an earlier `grid` and reset state after it.
+  const wsQueue = [];
+  let wsProcessing = false;
+  async function pumpWsQueue() {
+    if (wsProcessing) return;
+    wsProcessing = true;
+    while (wsQueue.length) {
+      const data = wsQueue.shift();
+      try {
+        if (data instanceof ArrayBuffer) {
+          if (pendingGridMeta) {
+            const meta = pendingGridMeta;
+            pendingGridMeta = null;
+            try {
+              meta.data = meta.compressed === 'deflate' ? await decompressDeflate(data) : new Uint8Array(data);
+            } catch {
+              addSystemMsg('Failed to decode grid (try refreshing).');
+              continue;
+            }
+            handleWsMessage(meta);
+          }
+          continue;
         }
-        handleWsMessage(meta);
-      }
-      return;
+        const msg = JSON.parse(data);
+        if (msg.type === 'grid' && msg.binary) {
+          pendingGridMeta = msg;
+          continue;
+        }
+        handleWsMessage(msg);
+      } catch {}
     }
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'grid' && msg.binary) {
-      pendingGridMeta = msg;
-      return;
-    }
-    handleWsMessage(msg);
-  };
+    wsProcessing = false;
+  }
+  ws.onmessage = (e) => { wsQueue.push(e.data); pumpWsQueue(); };
   function handleWsMessage(msg) {
     switch (msg.type) {
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; setOffscreenPixel(msg.x, msg.y, msg.color); render(); break;
