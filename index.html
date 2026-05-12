@@ -496,7 +496,7 @@
 <div id="clan-manage-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:420px;max-width:100%;max-height:80vh;display:flex;flex-direction:column;">
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-weight:700;font-size:14px;">Manage Clan</div>
+      <div id="clan-manage-title" style="font-weight:700;font-size:14px;">Clan</div>
       <button id="btn-clan-manage-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
     </div>
     <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
@@ -2331,31 +2331,60 @@ async function loadClans() {
       else if (isMember) actions = `<button class="win-btn leave-clan" style="font-size:10px;background:var(--red);color:#fff;">Leave</button>`;
       else if (requested) actions = '<span style="font-size:11px;color:var(--text-muted);">requested</span>';
       else actions = `<button class="win-btn join-clan" data-id="${c.id}" style="font-size:10px;background:var(--accent);color:#fff;">Request Join</button>`;
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(c.name)} <span style="color:${c.color};font-size:10px;font-weight:700;margin-left:4px;">[${esc(c.rank_label)}]</span></div><div class="lobby-meta">Owner: ${esc(c.owner)} | ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div></div><div class="lobby-actions">${actions}</div>`;
+      card.innerHTML = `<div class="lobby-info" style="cursor:pointer;"><div class="lobby-title">${esc(c.name)} <span style="color:${c.color};font-size:10px;font-weight:700;margin-left:4px;">[${esc(c.rank_label)}]</span></div><div class="lobby-meta">Owner: ${esc(c.owner)} | ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div></div><div class="lobby-actions">${actions}</div>`;
+      card.querySelector('.lobby-info').onclick = () => openClanView(c.id);
       const join = card.querySelector('.join-clan');
-      if (join) join.onclick = async () => { await fetch(BACKEND + '/api/clans/request-join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); loadClans(); };
+      if (join) join.onclick = async (ev) => { ev.stopPropagation(); await fetch(BACKEND + '/api/clans/request-join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); loadClans(); };
       const leave = card.querySelector('.leave-clan');
-      if (leave) leave.onclick = async () => { if (!confirm('Leave clan? You will lose your rank.')) return; await fetch(BACKEND + '/api/clans/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken } }); loadClans(); };
+      if (leave) leave.onclick = async (ev) => { ev.stopPropagation(); if (!confirm('Leave clan? You will lose your rank.')) return; await fetch(BACKEND + '/api/clans/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken } }); loadClans(); };
       const manage = card.querySelector('.manage-clan');
-      if (manage) manage.onclick = () => openClanManage(c.id);
+      if (manage) manage.onclick = (ev) => { ev.stopPropagation(); openClanView(c.id); };
       list.appendChild(card);
     });
   } catch {}
 }
 
 let currentManagingClan = null;
-async function openClanManage(cid) {
+let currentManagingIsOwner = false;
+async function openClanView(cid) {
   try {
-    const res = await fetch(BACKEND + '/api/clans/my', { headers: { Authorization: authToken } });
+    const res = await fetch(BACKEND + '/api/clans');
     const data = await res.json();
-    if (!data.my_clan || data.my_clan.id !== cid) return;
+    const clan = data.clans.find(c => c.id === cid);
+    if (!clan) return;
+    let isOwner = false;
+    let myClanFull = null;
+    if (authToken) {
+      try {
+        const r2 = await fetch(BACKEND + '/api/clans/my', { headers: { Authorization: authToken } });
+        const d2 = await r2.json();
+        if (d2.my_clan && d2.my_clan.id === cid && d2.my_clan.owner && username && d2.my_clan.owner.toLowerCase() === username.toLowerCase()) {
+          isOwner = true;
+          myClanFull = d2.my_clan;
+        }
+      } catch {}
+    }
     currentManagingClan = cid;
-    renderClanManage(data.my_clan);
+    currentManagingIsOwner = isOwner;
+    renderClanView(clan, isOwner, myClanFull);
     document.getElementById('clan-manage-modal').style.display = 'flex';
   } catch {}
 }
-function renderClanManage(clan) {
-  // Rank tag preview + color picker
+// Back-compat alias for any older callers
+const openClanManage = openClanView;
+
+function memberRankFor(clan, name) {
+  const ranks = clan.member_ranks || {};
+  const override = ranks[(name || '').toLowerCase()] || {};
+  return {
+    label: override.label || clan.rank_label,
+    color: override.color || clan.color,
+    overridden: !!(override.label || override.color),
+  };
+}
+function renderClanView(clan, isOwner, myClanFull) {
+  document.getElementById('clan-manage-title').textContent = (isOwner ? 'Manage: ' : '') + clan.name;
+  // Header rank preview shows the clan's DEFAULT rank
   const preview = document.getElementById('clan-manage-rank-preview');
   const colorInput = document.getElementById('clan-manage-color');
   preview.textContent = `[${clan.rank_label || 'RANK'}]`;
@@ -2363,41 +2392,105 @@ function renderClanManage(clan) {
   colorInput.value = (clan.color && /^#[0-9a-fA-F]{6}$/.test(clan.color)) ? clan.color : '#7c5cfc';
   colorInput.oninput = () => { preview.style.color = colorInput.value; };
   document.getElementById('clan-manage-color-msg').textContent = '';
+
+  // Owner-only sections: hide for non-owners
+  const colorRow = colorInput.closest('div');
+  const saveColorBtn = document.getElementById('btn-clan-manage-save-color');
+  saveColorBtn.style.display = isOwner ? '' : 'none';
+  // The color input itself is fine to leave visible read-only-ish but disable changes for non-owners
+  colorInput.disabled = !isOwner;
+
   const pendingEl = document.getElementById('clan-manage-pending');
   const membersEl = document.getElementById('clan-manage-members');
   pendingEl.innerHTML = '';
   membersEl.innerHTML = '';
-  const pending = clan.pending_requests || [];
-  if (!pending.length) {
-    pendingEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:6px;background:var(--bg-secondary);border-radius:var(--radius-sm);">No pending join requests.</div>';
+
+  // Pending requests section — owner-only
+  const pendingHeader = pendingEl.previousElementSibling;
+  if (isOwner && myClanFull) {
+    pendingHeader.style.display = '';
+    pendingEl.style.display = '';
+    const pending = myClanFull.pending_requests || [];
+    if (!pending.length) {
+      pendingEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:6px;background:var(--bg-secondary);border-radius:var(--radius-sm);">No pending join requests.</div>';
+    } else {
+      pending.forEach(name => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);';
+        row.innerHTML = `<div style="font-size:12px;font-weight:600;">${esc(name)}</div><div style="display:flex;gap:6px;"><button class="win-btn clan-approve" data-name="${esc(name)}" style="background:#22c55e;color:#fff;font-size:11px;padding:4px 10px;">Approve</button><button class="win-btn clan-reject" data-name="${esc(name)}" style="background:var(--red);color:#fff;font-size:11px;padding:4px 10px;">Reject</button></div>`;
+        pendingEl.appendChild(row);
+      });
+    }
+    pendingEl.querySelectorAll('.clan-approve').forEach(b => b.onclick = () => handleClanRequest(b.dataset.name, true));
+    pendingEl.querySelectorAll('.clan-reject').forEach(b => b.onclick = () => handleClanRequest(b.dataset.name, false));
   } else {
-    pending.forEach(name => {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);';
-      row.innerHTML = `<div style="font-size:12px;font-weight:600;">${esc(name)}</div><div style="display:flex;gap:6px;"><button class="win-btn clan-approve" data-name="${esc(name)}" style="background:#22c55e;color:#fff;font-size:11px;padding:4px 10px;">Approve</button><button class="win-btn clan-reject" data-name="${esc(name)}" style="background:var(--red);color:#fff;font-size:11px;padding:4px 10px;">Reject</button></div>`;
-      pendingEl.appendChild(row);
-    });
+    pendingHeader.style.display = 'none';
+    pendingEl.style.display = 'none';
   }
-  const members = clan.members || [];
-  const ownerRow = document.createElement('div');
-  ownerRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px;';
-  ownerRow.innerHTML = `<div style="font-weight:600;">${esc(clan.owner)}</div><div style="font-size:10px;color:var(--text-muted);">owner</div>`;
-  membersEl.appendChild(ownerRow);
-  if (!members.length) {
-    const noMems = document.createElement('div');
-    noMems.style.cssText = 'font-size:11px;color:var(--text-muted);padding:6px;';
-    noMems.textContent = 'No other members yet.';
-    membersEl.appendChild(noMems);
-  } else {
-    members.forEach(name => {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px;';
-      row.innerHTML = `<div>${esc(name)}</div>`;
-      membersEl.appendChild(row);
-    });
-  }
-  pendingEl.querySelectorAll('.clan-approve').forEach(b => b.onclick = () => handleClanRequest(b.dataset.name, true));
-  pendingEl.querySelectorAll('.clan-reject').forEach(b => b.onclick = () => handleClanRequest(b.dataset.name, false));
+
+  // Members section — visible to everyone
+  const renderMemberRow = (name, isOwnerOfClan) => {
+    const r = memberRankFor(clan, name);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px;';
+    const ownerTag = isOwnerOfClan ? '<span style="font-size:10px;color:var(--text-muted);">owner</span>' : '';
+    const overriddenDot = r.overridden ? '<span title="Custom rank set by owner" style="font-size:9px;color:var(--text-muted);">●</span>' : '';
+    const editBtn = isOwner ? `<button class="win-btn edit-rank-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;">Edit Rank</button>` : '';
+    row.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;">${esc(name)}</span><span style="color:${r.color};font-size:10px;font-weight:700;">[${esc(r.label)}]</span>${overriddenDot}${ownerTag}</div><div>${editBtn}</div>`;
+    if (isOwner) {
+      row.querySelector('.edit-rank-btn').onclick = () => openMemberRankEditor(row, name, r);
+    }
+    return row;
+  };
+  membersEl.appendChild(renderMemberRow(clan.owner, true));
+  (clan.members || []).forEach(name => membersEl.appendChild(renderMemberRow(name, false)));
+}
+
+function openMemberRankEditor(row, name, current) {
+  // Inline editor that replaces the row body
+  const editor = document.createElement('div');
+  editor.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px;';
+  editor.innerHTML = `
+    <div style="font-weight:600;">${esc(name)}</div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <input class="win-input edit-rank-label" type="text" maxlength="16" placeholder="Rank label" value="${esc(current.label)}" style="flex:1;min-width:120px;font-size:12px;padding:4px 6px;">
+      <input class="edit-rank-color" type="color" value="${current.color && /^#[0-9a-fA-F]{6}$/.test(current.color) ? current.color : '#7c5cfc'}" style="width:30px;height:26px;padding:1px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;">
+    </div>
+    <div style="display:flex;gap:6px;justify-content:flex-end;">
+      <button class="win-btn edit-rank-cancel" style="background:var(--bg-elevated);font-size:10px;padding:3px 10px;">Cancel</button>
+      <button class="win-btn edit-rank-reset" style="background:var(--red);color:#fff;font-size:10px;padding:3px 10px;">Reset to default</button>
+      <button class="win-btn edit-rank-save" style="background:var(--accent);color:#fff;font-size:10px;padding:3px 10px;">Save</button>
+    </div>
+    <div class="edit-rank-msg" style="font-size:10px;color:var(--text-muted);min-height:12px;"></div>
+  `;
+  row.replaceWith(editor);
+  editor.querySelector('.edit-rank-cancel').onclick = () => refreshClanModal();
+  editor.querySelector('.edit-rank-reset').onclick = async () => {
+    await setMemberRank(name, null, null, true, editor.querySelector('.edit-rank-msg'));
+  };
+  editor.querySelector('.edit-rank-save').onclick = async () => {
+    const label = editor.querySelector('.edit-rank-label').value.trim().slice(0, 16);
+    const color = editor.querySelector('.edit-rank-color').value;
+    if (!label && !color) { editor.querySelector('.edit-rank-msg').textContent = 'Provide a label and/or color.'; return; }
+    await setMemberRank(name, label, color, false, editor.querySelector('.edit-rank-msg'));
+  };
+}
+async function setMemberRank(name, label, color, reset, msgEl) {
+  if (!currentManagingClan) return;
+  msgEl.textContent = 'Saving...'; msgEl.style.color = 'var(--text-muted)';
+  try {
+    const body = { clan_id: currentManagingClan, username: name };
+    if (reset) body.reset = true; else { if (label) body.label = label; if (color) body.color = color; }
+    const res = await fetch(BACKEND + '/api/clans/set-member-rank', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.error) { msgEl.textContent = data.error; msgEl.style.color = 'var(--red)'; return; }
+    await refreshClanModal();
+    loadClans();
+  } catch { msgEl.textContent = 'Server offline.'; msgEl.style.color = 'var(--red)'; }
+}
+async function refreshClanModal() {
+  if (!currentManagingClan) return;
+  await openClanView(currentManagingClan);
 }
 async function handleClanRequest(name, approve) {
   if (!currentManagingClan) return;
@@ -2405,14 +2498,11 @@ async function handleClanRequest(name, approve) {
     const res = await fetch(BACKEND + '/api/clans/handle-request', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: currentManagingClan, username: name, approve }) });
     const data = await res.json();
     if (data.error) { addSystemMsg(data.error); return; }
-    // Refresh modal with latest state
-    const r2 = await fetch(BACKEND + '/api/clans/my', { headers: { Authorization: authToken } });
-    const d2 = await r2.json();
-    if (d2.my_clan && d2.my_clan.id === currentManagingClan) renderClanManage(d2.my_clan);
+    await refreshClanModal();
     loadClans();
   } catch {}
 }
-document.getElementById('btn-clan-manage-close').onclick = () => { document.getElementById('clan-manage-modal').style.display = 'none'; currentManagingClan = null; };
+document.getElementById('btn-clan-manage-close').onclick = () => { document.getElementById('clan-manage-modal').style.display = 'none'; currentManagingClan = null; currentManagingIsOwner = false; };
 document.getElementById('btn-clan-manage-save-color').onclick = async () => {
   if (!currentManagingClan) return;
   const color = document.getElementById('clan-manage-color').value;
