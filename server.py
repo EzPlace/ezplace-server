@@ -198,8 +198,13 @@ def find_clan_by_member(username):
 async def apply_clan_rank(username, clan):
     if not username or not clan or clan.get("status") != "approved" or is_admin(username):
         return
-    ranks[username.lower()] = {"label": clan["rank_label"], "color": clan["color"]}
-    if username.lower() not in vips: vips.append(username.lower())
+    ulow = username.lower()
+    # Per-member override takes precedence over the default clan rank
+    override = (clan.get("member_ranks") or {}).get(ulow) or {}
+    label = override.get("label") or clan["rank_label"]
+    color = override.get("color") or clan["color"]
+    ranks[ulow] = {"label": label, "color": color}
+    if ulow not in vips: vips.append(ulow)
     await save_ranks(); await save_vips()
 
 async def remove_user_clan_rank(username):
@@ -1182,7 +1187,9 @@ async def clans_list_handler(request):
         out.append({
             "id": clan["id"], "name": clan["name"], "owner": clan["owner"],
             "color": clan["color"], "rank_label": clan["rank_label"],
-            "members": clan.get("members", []), "member_count": 1 + len(clan.get("members", [])),
+            "members": clan.get("members", []),
+            "member_ranks": clan.get("member_ranks", {}),
+            "member_count": 1 + len(clan.get("members", [])),
         })
     return web.json_response({"clans": out})
 
@@ -1275,6 +1282,47 @@ async def clan_handle_request_handler(request):
     await save_clans()
     await notify_social(found, {"type": "clan_request_handled", "clan_name": clan["name"], "approved": approve})
     return web.json_response({"ok": True, "message": ("Approved " if approve else "Rejected ") + found})
+
+async def clan_set_member_rank_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "clan_member_rank", 20, 60):
+        return web.json_response({"error": "Too many rank changes — slow down."}, status=429)
+    cid = data.get("clan_id", "")
+    target = (data.get("username") or "").strip()
+    label = (data.get("label") or "").strip()[:16]
+    color = (data.get("color") or "").strip()[:32]
+    reset = bool(data.get("reset", False))
+    clan = clans.get(cid)
+    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
+    if clan["owner"].lower() != user.lower() and not is_admin(user):
+        return web.json_response({"error": "Only the clan owner can change member ranks"}, status=403)
+    if not target:
+        return web.json_response({"error": "Username required"}, status=400)
+    tlow = target.lower()
+    is_member = (clan["owner"].lower() == tlow) or any(m.lower() == tlow for m in clan.get("members", []))
+    if not is_member:
+        return web.json_response({"error": "Target is not a member of this clan"}, status=400)
+    member_ranks = clan.setdefault("member_ranks", {})
+    if reset:
+        member_ranks.pop(tlow, None)
+    else:
+        if color and not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+            return web.json_response({"error": "Color must be a hex code"}, status=400)
+        entry = {}
+        if label: entry["label"] = label
+        if color: entry["color"] = color
+        if not entry:
+            return web.json_response({"error": "Provide a label and/or color, or reset"}, status=400)
+        member_ranks[tlow] = entry
+    await save_clans()
+    # Re-apply the (possibly overridden) rank so chat tags update immediately
+    if clan.get("status") == "approved":
+        # Use the canonical-cased username from members/owner for the apply call
+        canonical = clan["owner"] if clan["owner"].lower() == tlow else next((m for m in clan.get("members", []) if m.lower() == tlow), target)
+        await apply_clan_rank(canonical, clan)
+    return web.json_response({"ok": True})
 
 async def clan_update_color_handler(request):
     data = await request.json()
@@ -2241,6 +2289,7 @@ app.router.add_post("/api/clans/create", clan_create_handler)
 app.router.add_post("/api/clans/request-join", clan_request_join_handler)
 app.router.add_post("/api/clans/handle-request", clan_handle_request_handler)
 app.router.add_post("/api/clans/update-color", clan_update_color_handler)
+app.router.add_post("/api/clans/set-member-rank", clan_set_member_rank_handler)
 app.router.add_post("/api/clans/leave", clan_leave_handler)
 app.router.add_get("/api/admin/clans", admin_clans_handler)
 app.router.add_post("/api/admin/clan-approve", admin_clan_approve_handler)
