@@ -521,12 +521,11 @@
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;padding:18px;display:flex;flex-direction:column;gap:10px;">
     <div style="font-weight:700;font-size:15px;">Create Clan</div>
     <div style="font-size:11px;color:var(--text-muted);">Once submitted, the site admin reviews your clan. Once approved you become the clan owner; other players can request to join and you approve them.</div>
-    <input id="clan-create-name" class="win-input" type="text" placeholder="Clan name (max 30 chars)" maxlength="30">
-    <input id="clan-create-rank" class="win-input" type="text" placeholder="Rank label, shown in chat (e.g. KNIGHTS)" maxlength="16">
+    <input id="clan-create-name" class="win-input" type="text" placeholder="Clan name (max 30 chars) — this is also your chat rank tag" maxlength="30">
     <div style="display:flex;align-items:center;gap:8px;">
       <label style="font-size:12px;">Color:</label>
       <input id="clan-create-color" type="color" value="#7c5cfc" style="width:40px;height:32px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);">
-      <span style="font-size:11px;color:var(--text-muted);">Used for the rank tag in chat</span>
+      <span style="font-size:11px;color:var(--text-muted);">Used for your clan's chat tag color</span>
     </div>
     <div id="clan-create-error" style="color:var(--red);font-size:11px;min-height:14px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -2317,7 +2316,7 @@ async function loadClans() {
     }
     if (myClanInfo && myClanInfo.pending_owned) {
       const card = document.createElement('div'); card.className = 'lobby-card';
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(myClanInfo.pending_owned.name)} <span style="color:${myClanInfo.pending_owned.color};font-size:10px;font-weight:700;margin-left:4px;">[${esc(myClanInfo.pending_owned.rank_label)}]</span></div><div class="lobby-meta">Your clan request — waiting for admin approval</div></div>`;
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title" style="color:${myClanInfo.pending_owned.color};">${esc(myClanInfo.pending_owned.name)}</div><div class="lobby-meta">Your clan request — waiting for admin approval</div></div>`;
       list.appendChild(card);
     }
     data.clans.forEach(c => {
@@ -2331,7 +2330,7 @@ async function loadClans() {
       else if (isMember) actions = `<button class="win-btn leave-clan" style="font-size:10px;background:var(--red);color:#fff;">Leave</button>`;
       else if (requested) actions = '<span style="font-size:11px;color:var(--text-muted);">requested</span>';
       else actions = `<button class="win-btn join-clan" data-id="${c.id}" style="font-size:10px;background:var(--accent);color:#fff;">Request Join</button>`;
-      card.innerHTML = `<div class="lobby-info" style="cursor:pointer;"><div class="lobby-title">${esc(c.name)} <span style="color:${c.color};font-size:10px;font-weight:700;margin-left:4px;">[${esc(c.rank_label)}]</span></div><div class="lobby-meta">Owner: ${esc(c.owner)} | ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div></div><div class="lobby-actions">${actions}</div>`;
+      card.innerHTML = `<div class="lobby-info" style="cursor:pointer;"><div class="lobby-title" style="color:${c.color};">${esc(c.name)}</div><div class="lobby-meta">Owner: ${esc(c.owner)} | ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div></div><div class="lobby-actions">${actions}</div>`;
       card.querySelector('.lobby-info').onclick = () => openClanView(c.id);
       const join = card.querySelector('.join-clan');
       if (join) join.onclick = async (ev) => { ev.stopPropagation(); await fetch(BACKEND + '/api/clans/request-join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); loadClans(); };
@@ -2447,14 +2446,15 @@ function renderClanView(clan, isOwner, myClanFull) {
 }
 
 function openMemberRankEditor(row, name, current) {
-  // Inline editor that replaces the row body
+  // Inline editor — only the color is customizable (the label is always the clan name)
   const editor = document.createElement('div');
   editor.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px;';
   editor.innerHTML = `
     <div style="font-weight:600;">${esc(name)}</div>
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-      <input class="win-input edit-rank-label" type="text" maxlength="16" placeholder="Rank label" value="${esc(current.label)}" style="flex:1;min-width:120px;font-size:12px;padding:4px 6px;">
-      <input class="edit-rank-color" type="color" value="${current.color && /^#[0-9a-fA-F]{6}$/.test(current.color) ? current.color : '#7c5cfc'}" style="width:30px;height:26px;padding:1px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <label style="font-size:11px;color:var(--text-muted);">Tag color:</label>
+      <input class="edit-rank-color" type="color" value="${current.color && /^#[0-9a-fA-F]{6}$/.test(current.color) ? current.color : '#7c5cfc'}" style="width:34px;height:28px;padding:1px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;">
+      <span class="edit-rank-preview" style="color:${current.color};font-size:10px;font-weight:700;">[${esc(current.label)}]</span>
     </div>
     <div style="display:flex;gap:6px;justify-content:flex-end;">
       <button class="win-btn edit-rank-cancel" style="background:var(--bg-elevated);font-size:10px;padding:3px 10px;">Cancel</button>
@@ -2464,23 +2464,25 @@ function openMemberRankEditor(row, name, current) {
     <div class="edit-rank-msg" style="font-size:10px;color:var(--text-muted);min-height:12px;"></div>
   `;
   row.replaceWith(editor);
+  const colorInput = editor.querySelector('.edit-rank-color');
+  const preview = editor.querySelector('.edit-rank-preview');
+  colorInput.oninput = () => { preview.style.color = colorInput.value; };
   editor.querySelector('.edit-rank-cancel').onclick = () => refreshClanModal();
   editor.querySelector('.edit-rank-reset').onclick = async () => {
-    await setMemberRank(name, null, null, true, editor.querySelector('.edit-rank-msg'));
+    await setMemberRank(name, null, true, editor.querySelector('.edit-rank-msg'));
   };
   editor.querySelector('.edit-rank-save').onclick = async () => {
-    const label = editor.querySelector('.edit-rank-label').value.trim().slice(0, 16);
-    const color = editor.querySelector('.edit-rank-color').value;
-    if (!label && !color) { editor.querySelector('.edit-rank-msg').textContent = 'Provide a label and/or color.'; return; }
-    await setMemberRank(name, label, color, false, editor.querySelector('.edit-rank-msg'));
+    const color = colorInput.value;
+    if (!color) { editor.querySelector('.edit-rank-msg').textContent = 'Pick a color.'; return; }
+    await setMemberRank(name, color, false, editor.querySelector('.edit-rank-msg'));
   };
 }
-async function setMemberRank(name, label, color, reset, msgEl) {
+async function setMemberRank(name, color, reset, msgEl) {
   if (!currentManagingClan) return;
   msgEl.textContent = 'Saving...'; msgEl.style.color = 'var(--text-muted)';
   try {
     const body = { clan_id: currentManagingClan, username: name };
-    if (reset) body.reset = true; else { if (label) body.label = label; if (color) body.color = color; }
+    if (reset) body.reset = true; else if (color) body.color = color;
     const res = await fetch(BACKEND + '/api/clans/set-member-rank', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
     const data = await res.json();
     if (data.error) { msgEl.textContent = data.error; msgEl.style.color = 'var(--red)'; return; }
@@ -2525,12 +2527,11 @@ document.getElementById('btn-create-clan').onclick = () => {
 document.getElementById('btn-clan-create-cancel').onclick = () => { document.getElementById('clan-create-modal').style.display = 'none'; };
 document.getElementById('btn-clan-create-submit').onclick = async () => {
   const name = document.getElementById('clan-create-name').value.trim();
-  const rank = document.getElementById('clan-create-rank').value.trim();
   const color = document.getElementById('clan-create-color').value;
   const err = document.getElementById('clan-create-error');
-  if (!name || !rank) { err.textContent = 'Name and rank required.'; return; }
+  if (!name) { err.textContent = 'Name required.'; return; }
   try {
-    const res = await fetch(BACKEND + '/api/clans/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, rank_label: rank, color }) });
+    const res = await fetch(BACKEND + '/api/clans/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, color }) });
     const data = await res.json();
     if (data.error) { err.textContent = data.error; return; }
     document.getElementById('clan-create-modal').style.display = 'none';

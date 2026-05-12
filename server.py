@@ -199,17 +199,24 @@ async def apply_clan_rank(username, clan):
     if not username or not clan or clan.get("status") != "approved" or is_admin(username):
         return
     ulow = username.lower()
-    # Per-member override takes precedence over the default clan rank
+    # The clan name IS the rank label. Only color is customizable (clan-wide + per-member override).
+    # Clan ranks intentionally do NOT add the user to `vips` — otherwise leaving the clan
+    # leaves them as a phantom VIP and the chat tag falls back to [VIP].
     override = (clan.get("member_ranks") or {}).get(ulow) or {}
-    label = override.get("label") or clan["rank_label"]
+    label = clan.get("name") or clan.get("rank_label") or ""
     color = override.get("color") or clan["color"]
     ranks[ulow] = {"label": label, "color": color}
-    if ulow not in vips: vips.append(ulow)
-    await save_ranks(); await save_vips()
+    await save_ranks()
 
 async def remove_user_clan_rank(username):
     if not username or is_admin(username): return
-    ranks.pop(username.lower(), None)
+    ulow = username.lower()
+    ranks.pop(ulow, None)
+    # Also strip from vips so the chat tag doesn't fall back to [VIP] after leaving a clan.
+    # Admin-granted VIPs use a different code path (admin_vip_add) and are unaffected.
+    if ulow in vips:
+        vips.remove(ulow)
+        await save_vips()
     await save_ranks()
 
 def get_brush_perm(username):
@@ -1218,9 +1225,8 @@ async def clan_create_handler(request):
         return web.json_response({"error": "Slow down — too many clan create attempts."}, status=429)
     name = data.get("name", "").strip()[:30]
     color = data.get("color", "").strip()[:32]
-    rank_label = data.get("rank_label", "").strip()[:16]
-    if not name or not rank_label or not color:
-        return web.json_response({"error": "Name, color, and rank label required"}, status=400)
+    if not name or not color:
+        return web.json_response({"error": "Name and color required"}, status=400)
     if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
         return web.json_response({"error": "Color must be a hex code"}, status=400)
     # One clan per user (any status)
@@ -1228,8 +1234,10 @@ async def clan_create_handler(request):
         if clan.get("owner", "").lower() == user.lower():
             return web.json_response({"error": "You already have a clan request or approved clan"}, status=400)
     cid = secrets.token_hex(6)
+    # rank_label is kept in the dict for back-compat with old clients/serializers, but the
+    # clan name is what's actually used as the chat rank tag (see apply_clan_rank).
     clans[cid] = {
-        "id": cid, "name": name, "owner": user, "color": color, "rank_label": rank_label,
+        "id": cid, "name": name, "owner": user, "color": color, "rank_label": name,
         "status": "pending", "members": [], "pending_requests": [], "created_at": time.time(),
     }
     await save_clans()
@@ -1291,7 +1299,6 @@ async def clan_set_member_rank_handler(request):
         return web.json_response({"error": "Too many rank changes — slow down."}, status=429)
     cid = data.get("clan_id", "")
     target = (data.get("username") or "").strip()
-    label = (data.get("label") or "").strip()[:16]
     color = (data.get("color") or "").strip()[:32]
     reset = bool(data.get("reset", False))
     clan = clans.get(cid)
@@ -1308,14 +1315,11 @@ async def clan_set_member_rank_handler(request):
     if reset:
         member_ranks.pop(tlow, None)
     else:
-        if color and not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+        if not color:
+            return web.json_response({"error": "Provide a color, or reset"}, status=400)
+        if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
             return web.json_response({"error": "Color must be a hex code"}, status=400)
-        entry = {}
-        if label: entry["label"] = label
-        if color: entry["color"] = color
-        if not entry:
-            return web.json_response({"error": "Provide a label and/or color, or reset"}, status=400)
-        member_ranks[tlow] = entry
+        member_ranks[tlow] = {"color": color}
     await save_clans()
     # Re-apply the (possibly overridden) rank so chat tags update immediately
     if clan.get("status") == "approved":
@@ -2174,6 +2178,42 @@ async def on_startup(app):
     # actually a stale wrong size. If the DB row for public_2 is already a valid 1024x1024
     # grid (because someone painted it after the new code went live), leave it alone.
     migrations_doc = await db_load("store", "migrations") or {}
+    # One-time: clan rank label is now always the clan name. Sync existing clans' rank_label
+    # to match their name, drop any custom label overrides in member_ranks.
+    if not migrations_doc.get("clan_rank_v2"):
+        any_clan_change = False
+        vips_dirty = False
+        for clan in clans.values():
+            if clan.get("rank_label") != clan.get("name"):
+                clan["rank_label"] = clan.get("name", "")
+                any_clan_change = True
+            mr = clan.get("member_ranks") or {}
+            for ulow, entry in list(mr.items()):
+                if not isinstance(entry, dict): continue
+                if "label" in entry:
+                    new_entry = {k: v for k, v in entry.items() if k != "label"}
+                    if new_entry:
+                        mr[ulow] = new_entry
+                    else:
+                        mr.pop(ulow, None)
+                    any_clan_change = True
+            # Strip clan members from vips so leaving the clan won't leave them as phantom VIPs
+            if clan.get("status") == "approved":
+                for member in [clan["owner"]] + list(clan.get("members", [])):
+                    mlow = member.lower()
+                    if mlow in vips:
+                        vips.remove(mlow)
+                        vips_dirty = True
+                await apply_clan_rank(clan["owner"], clan)
+                for m in clan.get("members", []):
+                    await apply_clan_rank(m, clan)
+        if any_clan_change:
+            await save_clans()
+        if vips_dirty:
+            await save_vips()
+        migrations_doc["clan_rank_v2"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print("Marked clan_rank_v2 migration as complete")
     if not migrations_doc.get("public_lobby_v2"):
         for lid in ("public_2", "public_3", "public_4", "public_5", "public_6", "public_7"):
             doc = await db["lobbies"].find_one({"_id": lid})
