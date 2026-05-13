@@ -335,6 +335,9 @@
   /* Mobile sidebar toggle */
   #mobile-sidebar-toggle { display: none; position: fixed; bottom: 14px; right: 14px; z-index: 20; width: 48px; height: 48px; font-size: 20px; border-radius: 50%; background: var(--accent); border: none; color: #fff; box-shadow: 0 4px 16px rgba(124,92,252,0.4); }
   #mobile-sidebar-toggle:hover { background: var(--accent-hover); }
+  /* Mobile pan/draw toggle — visible only on mobile */
+  #mobile-pan-toggle { display: none; position: fixed; bottom: 14px; left: 14px; z-index: 20; width: 48px; height: 48px; font-size: 11px; font-weight: 700; border-radius: 50%; background: var(--bg-elevated); border: 1px solid var(--accent); color: var(--accent); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+  #mobile-pan-toggle.pan { background: var(--accent); color: #fff; }
 
   /* Mobile */
   @media (max-width: 700px) {
@@ -344,6 +347,7 @@
     #sidebar { width: 100%; height: 65vh; position: fixed; bottom: 0; left: 0; right: 0; z-index: 15; transform: translateY(100%); transition: transform 0.25s ease; border-left: none; border-top: 1px solid var(--border); }
     #sidebar.open { transform: translateY(0); }
     #mobile-sidebar-toggle { display: flex; align-items: center; justify-content: center; bottom: 18px; right: 18px; width: 56px; height: 56px; font-size: 24px; }
+    #mobile-pan-toggle { display: flex; align-items: center; justify-content: center; bottom: 18px; left: 18px; width: 56px; height: 56px; font-size: 12px; }
     #mobile-chat-overlay { display: flex; }
     #header { padding: 6px 8px; }
     #header h1 { font-size: 13px; }
@@ -384,6 +388,7 @@
   <button class="win-btn" id="lm-unban" style="width:100%;background:var(--green);color:#fff;border:1px solid #5dd49a;">Unban from lobby</button>
 </div>
 <button id="mobile-sidebar-toggle" class="win-btn">&#x1F4AC;</button>
+<button id="mobile-pan-toggle" class="win-btn" title="Toggle pan / draw mode">Draw</button>
 
 <div id="canvas-wrap">
   <div id="header" class="win-titlebar">
@@ -1500,6 +1505,9 @@ let touchDrawLastX = -1, touchDrawLastY = -1;
 let touchStartX = 0, touchStartY = 0, touchCamX = 0, touchCamY = 0;
 let pinchStartMidX = 0, pinchStartMidY = 0, pinchCamX = 0, pinchCamY = 0;
 let lastTapTime = 0;
+// Mobile pan/draw mode override. When true, one-finger touch always pans (overrides
+// drag-paint), so users with brush drag perm can still navigate the canvas freely.
+let forcePanMode = false;
 
 function getTouchDist(t1, t2) {
   return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
@@ -1524,7 +1532,7 @@ cvs.addEventListener('touchstart', e => {
     touchStartY = e.touches[0].clientY;
     const rect = cvs.getBoundingClientRect();
     const sx = touchStartX - rect.left, sy = touchStartY - rect.top;
-    if (canDragPaint() && isOverGrid(sx, sy)) {
+    if (canDragPaint() && !forcePanMode && isOverGrid(sx, sy)) {
       // Start drag-to-paint on touch (mirrors desktop mousedown behavior)
       const g = screenToGrid(sx, sy);
       touchDrawing = true;
@@ -1612,6 +1620,15 @@ cvs.addEventListener('touchcancel', e => {
 document.getElementById('mobile-sidebar-toggle').onclick = () => {
   const sb = document.getElementById('sidebar');
   sb.classList.toggle('open');
+};
+
+const mobilePanToggle = document.getElementById('mobile-pan-toggle');
+mobilePanToggle.onclick = () => {
+  forcePanMode = !forcePanMode;
+  mobilePanToggle.textContent = forcePanMode ? 'Pan' : 'Draw';
+  mobilePanToggle.classList.toggle('pan', forcePanMode);
+  // Cancel any in-progress drag-paint when switching to pan
+  if (forcePanMode && touchDrawing) { touchDrawing = false; touchDrawLastX = -1; touchDrawLastY = -1; }
 };
 
 const cooldownFill = document.getElementById('cooldown-fill');
