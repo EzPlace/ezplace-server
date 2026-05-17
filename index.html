@@ -799,9 +799,10 @@
 </div>
 
 <script>
-// When served from GitHub Pages (or any external host), route API/WS to the Render backend.
-// When served from Render itself, use same-origin (empty string).
-const BACKEND_HOST = location.hostname.includes('github.io') || location.hostname.includes('is-a.dev') || location.hostname.includes('is-into.tech') || location.hostname.includes('is-pro.dev') ? 'ezplace-server.onrender.com' : '';
+// Anywhere except the Render origin itself routes API/WS to the Render backend. This makes the
+// single index.html work unchanged on github.io, Netlify, itch.io, inside an iframe, etc.
+const RENDER_HOST = 'ezplace-server.onrender.com';
+const BACKEND_HOST = location.hostname === RENDER_HOST ? '' : RENDER_HOST;
 const BACKEND = BACKEND_HOST ? 'https://' + BACKEND_HOST : '';
 const WS_HOST = BACKEND_HOST || location.host;
 // Monkey-patch fetch so all /api calls go to the backend automatically
@@ -810,6 +811,24 @@ window.fetch = function(url, ...args) {
   if (typeof url === 'string' && url.startsWith('/')) url = BACKEND + url;
   return _origFetch.call(this, url, ...args);
 };
+
+// localStorage is unavailable or partitioned in sandboxed/third-party iframes (Google Sites,
+// some embeds). Fall back to an in-memory store so login still works for the session.
+const safeStore = (function () {
+  try {
+    const k = '__ez_test__';
+    window.localStorage.setItem(k, '1');
+    window.localStorage.removeItem(k);
+    return window.localStorage;
+  } catch (e) {
+    const mem = {};
+    return {
+      getItem: (key) => (key in mem ? mem[key] : null),
+      setItem: (key, val) => { mem[key] = String(val); },
+      removeItem: (key) => { delete mem[key]; },
+    };
+  }
+})();
 
 let GRID_W = 256, GRID_H = 256;
 const COLORS = [
@@ -882,7 +901,14 @@ let camX = GRID_W / 2, camY = GRID_H / 2, zoom = 1;
 let hoverGridX = -1, hoverGridY = -1;
 let isPanning = false, panStartX = 0, panStartY = 0, camStartX = 0, camStartY = 0;
 
-const tabChannel = new BroadcastChannel('ezplace_tab');
+// BroadcastChannel throws in some sandboxed iframes. Degrade to a no-op stub: the
+// "open in another tab" guard simply won't fire, which is fine inside an embed.
+let tabChannel;
+try {
+  tabChannel = new BroadcastChannel('ezplace_tab');
+} catch (e) {
+  tabChannel = { postMessage() {}, set onmessage(_) {}, close() {} };
+}
 const tabId = Math.random().toString(36).slice(2);
 const tabWarning = document.getElementById('tab-warning');
 let blocked = false;
@@ -2212,7 +2238,7 @@ const captchaRow = document.getElementById('captcha-row');
 const captchaImg = document.getElementById('captcha-img');
 const captchaAns = document.getElementById('captcha-ans');
 const authError = document.getElementById('auth-error');
-let authToken = localStorage.getItem('ezplace_token') || '';
+let authToken = safeStore.getItem('ezplace_token') || '';
 let captchaId = '';
 let isRegisterMode = false;
 
@@ -2277,7 +2303,7 @@ async function doAuth(endpoint, needCaptcha) {
     const data = await res.json();
     if (data.error) { authError.textContent = data.error; if (needCaptcha) fetchCaptcha(); return; }
     authToken = data.token; username = data.username;
-    localStorage.setItem('ezplace_token', authToken); localStorage.setItem('ezplace_user', username);
+    safeStore.setItem('ezplace_token', authToken); safeStore.setItem('ezplace_user', username);
     showLoggedIn(); loadLobbies();
   } catch { authError.textContent = 'Server offline'; }
 }
@@ -2291,7 +2317,7 @@ function showLoggedIn() {
 }
 
 function logout() {
-  localStorage.removeItem('ezplace_token'); localStorage.removeItem('ezplace_user');
+  safeStore.removeItem('ezplace_token'); safeStore.removeItem('ezplace_user');
   authToken = ''; username = ''; currentLobbyId = null;
   isGuest = false; guestName = '';
   unreadDms = {}; updateDmTabBadge();
@@ -3595,8 +3621,8 @@ document.getElementById('btn-admin-switch-user').onclick = async () => {
     const res = await fetch('/api/admin/session-for', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) });
     const data = await res.json();
     if (data.error) { document.getElementById('admin-status').textContent = data.error; return; }
-    localStorage.setItem('ezplace_token', data.token);
-    localStorage.setItem('ezplace_user', data.username);
+    safeStore.setItem('ezplace_token', data.token);
+    safeStore.setItem('ezplace_user', data.username);
     location.reload();
   } catch { document.getElementById('admin-status').textContent = 'Server offline'; }
 };
@@ -3681,8 +3707,8 @@ function initView() {
   render();
 }
 
-if (authToken && localStorage.getItem('ezplace_user')) {
-  username = localStorage.getItem('ezplace_user');
+if (authToken && safeStore.getItem('ezplace_user')) {
+  username = safeStore.getItem('ezplace_user');
   showLoggedIn();
 } else {
   // If this IP has previously logged in, default the panel to Log In; otherwise default to Sign Up.
