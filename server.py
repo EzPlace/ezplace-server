@@ -509,6 +509,11 @@ def generate_captcha_svg(text):
 async def index_handler(request):
     return web.FileResponse("index.html")
 
+async def health_handler(request):
+    # Tiny, CORS-friendly endpoint used by the client to probe whether this
+    # host is reachable (primary vs. proxy failover).
+    return web.json_response({"ok": True})
+
 async def captcha_handler(request):
     clean_captchas()
     chars = string.ascii_uppercase.replace('O', '').replace('I', '').replace('L', '')
@@ -2300,6 +2305,7 @@ async def cors_middleware(request, handler):
 app = web.Application(middlewares=[cors_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
+app.router.add_get("/api/health", health_handler)
 app.router.add_get("/api/captcha", captcha_handler)
 app.router.add_post("/api/register", register_handler)
 app.router.add_post("/api/login", login_handler)
