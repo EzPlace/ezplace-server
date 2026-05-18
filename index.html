@@ -824,6 +824,17 @@ window.fetch = function(url, ...args) {
 // traffic. If served from the Render origin itself, stay same-origin (no probe).
 async function selectBackend() {
   if (location.hostname === RENDER_HOST) return;
+  // Manual override for testing: ?backend=proxy uses the 2nd candidate (the proxy);
+  // ?backend=<host> forces a specific host. Skips probing entirely.
+  try {
+    const forced = new URLSearchParams(location.search).get('backend');
+    if (forced) {
+      const host = forced === 'proxy' ? (BACKEND_CANDIDATES[1] || BACKEND_CANDIDATES[0])
+                 : forced === 'primary' ? BACKEND_CANDIDATES[0] : forced;
+      BACKEND_HOST = host; BACKEND = 'https://' + host; WS_HOST = host;
+      return;
+    }
+  } catch (e) {}
   for (const host of BACKEND_CANDIDATES) {
     try {
       const ctrl = new AbortController();
