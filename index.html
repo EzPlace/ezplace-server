@@ -1460,6 +1460,31 @@ let isDrawing = false;
 let drawLastX = -1, drawLastY = -1;
 let lastDrawTime = 0;
 
+// Real-admin tool: hover the same pixel for 5 seconds to see who placed it.
+let pixelOwnerTimer = null;
+let pixelOwnerCell = -1;
+let lastMouseClientX = 0, lastMouseClientY = 0;
+const pixelOwnerTip = document.createElement('div');
+pixelOwnerTip.style.cssText = 'position:fixed;z-index:80;display:none;background:var(--bg-elevated);border:1px solid var(--accent);color:var(--text-primary);font-size:11px;font-weight:600;padding:5px 9px;border-radius:6px;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.5);max-width:240px;';
+document.body.appendChild(pixelOwnerTip);
+function hidePixelOwnerTip() { pixelOwnerTip.style.display = 'none'; }
+function resetPixelOwnerLookup() {
+  pixelOwnerCell = -1;
+  if (pixelOwnerTimer) { clearTimeout(pixelOwnerTimer); pixelOwnerTimer = null; }
+  hidePixelOwnerTip();
+}
+function schedulePixelOwnerLookup(gx, gy) {
+  if (!isRealAdmin() || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const idx = gy * GRID_W + gx;
+  if (idx === pixelOwnerCell) return; // already waiting on / showing this cell
+  pixelOwnerCell = idx;
+  hidePixelOwnerTip();
+  if (pixelOwnerTimer) clearTimeout(pixelOwnerTimer);
+  pixelOwnerTimer = setTimeout(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pixel_owner', x: gx, y: gy }));
+  }, 5000);
+}
+
 function tryPlacePixel(gx, gy) {
   if (blocked || !username || !currentLobbyId) return false;
   if (isGuest) return false;
@@ -1473,6 +1498,7 @@ function tryPlacePixel(gx, gy) {
 }
 
 cvs.addEventListener('mousedown', e => {
+  resetPixelOwnerLookup();
   const rect = cvs.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   if (e.button === 1 || e.button === 2 || (e.button === 0 && !isOverGrid(sx, sy))) {
@@ -1488,7 +1514,8 @@ cvs.addEventListener('mousedown', e => {
   }
 });
 window.addEventListener('mousemove', e => {
-  if (isPanning) { camX = camStartX - (e.clientX - panStartX) / zoom; camY = camStartY - (e.clientY - panStartY) / zoom; render(); }
+  lastMouseClientX = e.clientX; lastMouseClientY = e.clientY;
+  if (isPanning) { camX = camStartX - (e.clientX - panStartX) / zoom; camY = camStartY - (e.clientY - panStartY) / zoom; render(); resetPixelOwnerLookup(); }
   const rect = cvs.getBoundingClientRect(); const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   if (sx >= 0 && sy >= 0 && sx < cvs.width && sy < cvs.height) {
     const g = screenToGrid(sx, sy);
@@ -1497,10 +1524,12 @@ window.addEventListener('mousemove', e => {
       hoverInfo.textContent = `(${g.x}, ${g.y}) - ${COLORS[grid[g.y * GRID_W + g.x]]}`;
       hoverGridX = g.x; hoverGridY = g.y;
       sendCursor(g.x, g.y);
+      if (isRealAdmin() && !isPanning && !isDrawing) schedulePixelOwnerLookup(g.x, g.y);
     } else {
       hoverInfo.innerHTML = '&nbsp;';
       if (hoverGridX !== -1) clearOwnCursor();
       hoverGridX = -1; hoverGridY = -1;
+      resetPixelOwnerLookup();
     }
     // Drag-to-paint: place pixels as the mouse moves while held
     if (isDrawing && (g.x !== drawLastX || g.y !== drawLastY)) {
@@ -1520,7 +1549,7 @@ window.addEventListener('mouseup', e => {
   if (isDrawing) { isDrawing = false; drawLastX = -1; drawLastY = -1; }
 });
 cvs.addEventListener('contextmenu', e => e.preventDefault());
-cvs.addEventListener('mouseleave', () => { hoverInfo.innerHTML = '&nbsp;'; hoverGridX = -1; hoverGridY = -1; clearOwnCursor(); render(); });
+cvs.addEventListener('mouseleave', () => { hoverInfo.innerHTML = '&nbsp;'; hoverGridX = -1; hoverGridY = -1; clearOwnCursor(); resetPixelOwnerLookup(); render(); });
 const hoverInfo = document.getElementById('hover-info');
 
 let touchStartDist = 0;
@@ -2984,6 +3013,16 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
+      case 'pixel_owner_result': {
+        if (!isRealAdmin()) break;
+        // Only show if still hovering the cell we asked about
+        if (pixelOwnerCell !== msg.y * GRID_W + msg.x) break;
+        pixelOwnerTip.textContent = msg.owner ? `Placed by: ${msg.owner}` : 'No record (not painted since last server restart)';
+        pixelOwnerTip.style.left = Math.min(lastMouseClientX + 14, window.innerWidth - 250) + 'px';
+        pixelOwnerTip.style.top = Math.min(lastMouseClientY + 16, window.innerHeight - 40) + 'px';
+        pixelOwnerTip.style.display = 'block';
+        break;
+      }
       case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;

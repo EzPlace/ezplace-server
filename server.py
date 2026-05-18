@@ -283,6 +283,13 @@ def append_event(lobby, x, y, new_color, old_color):
     if drop > 0:
         del log[:drop]
 
+def set_pixel_author(lobby, x, y, username):
+    """Record the last user to write each cell, for the admin hover-to-see-placer tool.
+    In-memory only — intentionally NOT persisted (would bloat DB/bandwidth) so it
+    resets when the server restarts."""
+    lw = lobby.get("width", 256)
+    lobby.setdefault("pixel_authors", {})[y * lw + x] = username
+
 def get_oldest_event_time(lobby):
     log = lobby.get("events")
     if not log or len(log) < EVENT_SIZE:
@@ -293,8 +300,9 @@ async def save_lobby(lid):
     lobby = lobbies.get(lid)
     if not lobby:
         return
-    # Strip grid and events from the meta dict; we save those as separate binary fields
-    data = {k: v for k, v in lobby.items() if k not in ("grid", "events")}
+    # Strip grid and events (saved as separate binary fields) and pixel_authors
+    # (in-memory admin tool only — persisting a per-pixel dict would bloat the DB).
+    data = {k: v for k, v in lobby.items() if k not in ("grid", "events", "pixel_authors")}
     grid_bytes = bytes(lobby["grid"])
     events_bytes = bytes(lobby.get("events", b""))
     await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_bytes, "events": events_bytes}}, upsert=True)
@@ -1787,6 +1795,7 @@ async def websocket_handler(request):
                             pc = lobby.setdefault("pixel_counts", {})
                             pc[username] = pc.get(username, 0) + 1
                             append_event(lobby, x, y, color, old_color)
+                            set_pixel_author(lobby, x, y, username)
                             mark_lobby_dirty(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
@@ -1818,6 +1827,7 @@ async def websocket_handler(request):
                             if new_count <= 0: pc.pop(username, None)
                             else: pc[username] = new_count
                             append_event(lobby, x, y, color, old_color)
+                            set_pixel_author(lobby, x, y, username)
                             mark_lobby_dirty(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
@@ -1860,6 +1870,7 @@ async def websocket_handler(request):
                                     if new_count <= 0: pc.pop(username, None)
                                     else: pc[username] = new_count
                                     append_event(lobby, x, y, color, old_color)
+                                    set_pixel_author(lobby, x, y, username)
                                 placed += 1
                                 await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
                             if placed:
@@ -1962,6 +1973,7 @@ async def websocket_handler(request):
                                     pc = lobby.setdefault("pixel_counts", {})
                                     pc[username] = pc.get(username, 0) + 1
                                     append_event(lobby, x, y, color, old_color)
+                                    set_pixel_author(lobby, x, y, username)
                                 placed += 1
                                 await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
                             if placed:
@@ -2027,6 +2039,20 @@ async def websocket_handler(request):
                         await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username}, exclude=ws)
                     elif isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
                         await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y, "guest": is_guest}, exclude=ws)
+
+                elif data["type"] == "pixel_owner" and username and lobby_id and is_admin(username):
+                    # Real-admin-only: look up who last placed the pixel at (x, y)
+                    lobby = lobbies.get(lobby_id)
+                    if not lobby:
+                        continue
+                    lw = lobby.get("width", 256)
+                    lh = lobby.get("height", 256)
+                    x = data.get("x")
+                    y = data.get("y")
+                    owner = None
+                    if isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
+                        owner = (lobby.get("pixel_authors") or {}).get(y * lw + x)
+                    await ws.send_json({"type": "pixel_owner_result", "x": x, "y": y, "owner": owner})
 
                 elif data["type"] == "ping":
                     await ws.send_json({"type": "pong", "time": data.get("time", 0)})
