@@ -808,7 +808,7 @@ const RENDER_HOST = 'ezplace-server.onrender.com';
 // Deploy the Cloudflare Worker (see cloudflare-worker-proxy.js), then add its host:
 const BACKEND_CANDIDATES = [
   'ezplace-server.onrender.com',
-  // 'ezplace-proxy.YOURNAME.workers.dev',  // <-- uncomment & set after deploying the Worker proxy
+  'dirty-clam-17.averagetoothpasteenjoyer.deno.net',  // Deno Deploy backup proxy
 ];
 let BACKEND_HOST = location.hostname === RENDER_HOST ? '' : BACKEND_CANDIDATES[0];
 let BACKEND = BACKEND_HOST ? 'https://' + BACKEND_HOST : '';
@@ -827,11 +827,16 @@ async function selectBackend() {
   for (const host of BACKEND_CANDIDATES) {
     try {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 4000);
-      const r = await _origFetch('https://' + host + '/api/health', { signal: ctrl.signal, cache: 'no-store' });
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      // Probe a real endpoint and confirm the body is actually our backend's JSON.
+      // A school filter's block page would resolve too, but won't contain "lobbies".
+      const r = await _origFetch('https://' + host + '/api/lobbies', { signal: ctrl.signal, cache: 'no-store' });
       clearTimeout(t);
-      if (r.ok) { BACKEND_HOST = host; BACKEND = 'https://' + host; WS_HOST = host; return; }
-    } catch (e) { /* blocked or down — try the next candidate */ }
+      if (r.ok) {
+        const txt = await r.text();
+        if (txt.includes('"lobbies"')) { BACKEND_HOST = host; BACKEND = 'https://' + host; WS_HOST = host; return; }
+      }
+    } catch (e) { /* blocked, down, or filtered — try the next candidate */ }
   }
   // None reachable: keep the default; the app will show its normal offline state.
 }
