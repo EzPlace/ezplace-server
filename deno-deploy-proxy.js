@@ -1,6 +1,11 @@
+// @ts-nocheck
 /**
  * EzPlace backup proxy — Deno Deploy
  * ----------------------------------
+ * NOTE: the `// @ts-nocheck` on line 1 is REQUIRED. The Deno Deploy playground
+ * type-checks the file; without it, untyped parameters fail the build with
+ * "implicit any" errors. Keep that line at the very top.
+ *
  * Same purpose as cloudflare-worker-proxy.js: tunnels ALL HTTP requests and
  * WebSocket connections to the real Render backend, on a different domain
  * (*.deno.dev) so a network filter that blocks the Render host can be
