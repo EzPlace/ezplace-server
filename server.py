@@ -195,18 +195,24 @@ def find_clan_by_member(username):
         if any(m.lower() == ulow for m in clan.get("members", [])): return clan
     return None
 
-async def apply_clan_rank(username, clan):
-    if not username or not clan or clan.get("status") != "approved" or is_admin(username):
-        return
+def get_clan_tag(username):
+    """The clan chip shown in chat. Computed live from membership so it's
+    independent of the `ranks` dict — a clan member who ALSO has an admin
+    rank shows BOTH: [Clan] [AdminRank]."""
+    if not username or is_admin(username):
+        return None
+    clan = find_clan_by_member(username)
+    if not clan:
+        return None
     ulow = username.lower()
-    # The clan name IS the rank label. Only color is customizable (clan-wide + per-member override).
-    # Clan ranks intentionally do NOT add the user to `vips` — otherwise leaving the clan
-    # leaves them as a phantom VIP and the chat tag falls back to [VIP].
     override = (clan.get("member_ranks") or {}).get(ulow) or {}
-    label = clan.get("name") or clan.get("rank_label") or ""
-    color = override.get("color") or clan["color"]
-    ranks[ulow] = {"label": label, "color": color}
-    await save_ranks()
+    return {"label": clan.get("name") or "", "color": override.get("color") or clan.get("color") or "#7c5cfc"}
+
+async def apply_clan_rank(username, clan):
+    # Clan tags are now computed live (get_clan_tag) and no longer occupy the
+    # `ranks` dict, so an admin-given rank can coexist with the clan chip.
+    # Kept as a no-op for the many existing call sites.
+    return
 
 async def remove_user_clan_rank(username):
     if not username or is_admin(username): return
@@ -1382,6 +1388,31 @@ async def clan_leave_handler(request):
     await save_clans()
     return web.json_response({"ok": True})
 
+async def clan_transfer_owner_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    cid = data.get("clan_id", "")
+    target = (data.get("username") or "").strip()
+    clan = clans.get(cid)
+    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
+    if clan["owner"].lower() != user.lower() and not is_admin(user):
+        return web.json_response({"error": "Only the clan owner can transfer ownership"}, status=403)
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    tlow = target.lower()
+    if tlow == clan["owner"].lower():
+        return web.json_response({"error": "That user is already the owner"}, status=400)
+    member = next((m for m in clan.get("members", []) if m.lower() == tlow), None)
+    if not member:
+        return web.json_response({"error": "New owner must be a current clan member"}, status=400)
+    old_owner = clan["owner"]
+    clan["members"] = [m for m in clan.get("members", []) if m.lower() != tlow]
+    clan["members"].append(old_owner)
+    clan["owner"] = member
+    await save_clans()
+    await notify_social(member, {"type": "clan_owner_transferred", "clan_name": clan["name"], "by": old_owner})
+    return web.json_response({"ok": True, "message": f"Ownership transferred to {member}"})
+
 async def admin_clans_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"clans": list(clans.values())})
@@ -1645,6 +1676,14 @@ async def social_ws_handler(request):
                     if peer:
                         mark_dm_seen(username, peer)
                         await save_dm_last_seen()
+                        # Tell the peer their messages to `username` were read
+                        await notify_social(peer, {"type": "dm_seen_by", "peer": username})
+                elif data.get("type") == "dm_typing" and username:
+                    peer = data.get("to", "").strip()
+                    if peer:
+                        fd = get_friend_data(username)
+                        if peer in fd["friends"]:
+                            await notify_social(peer, {"type": "dm_typing", "from": username, "typing": bool(data.get("typing"))})
                 elif data.get("type") == "dm" and username:
                     target = data.get("to", "").strip()
                     text = data.get("text", "").strip()[:200]
@@ -1658,6 +1697,13 @@ async def social_ws_handler(request):
                         try: await ws.send_json({"type": "system", "text": "Image rate limit — max 5 images per minute."})
                         except: pass
                         continue
+                    rt = data.get("reply_to")
+                    reply_obj = None
+                    if isinstance(rt, dict):
+                        rfrom = str(rt.get("from", ""))[:30]
+                        rtext = str(rt.get("text", ""))[:120]
+                        if rfrom and rtext:
+                            reply_obj = {"from": rfrom, "text": rtext}
                     if target and (text or image_url):
                         fd = get_friend_data(username)
                         if target in fd["friends"]:
@@ -1665,12 +1711,14 @@ async def social_ws_handler(request):
                             m = {"from": username, "time": time.time()}
                             if text: m["text"] = text
                             if image_url: m["image_url"] = image_url
+                            if reply_obj: m["reply_to"] = reply_obj
                             dms.setdefault(key, []).append(m)
                             if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
                             await save_dm(key)
                             payload = {"type": "dm", "from": username, "time": m["time"]}
                             if text: payload["text"] = text
                             if image_url: payload["image_url"] = image_url
+                            if reply_obj: payload["reply_to"] = reply_obj
                             await notify_social(target, payload)
                 elif data.get("type") == "group_msg" and username:
                     gid = data.get("group_id", "")
@@ -1727,6 +1775,7 @@ async def websocket_handler(request):
     is_guest = False
     last_pixel = 0
     last_cursor = 0
+    last_rate_warn = 0
     chat_times = []
     last_chat_text = ""
     clients[ws] = None
@@ -1787,8 +1836,19 @@ async def websocket_handler(request):
                     if now - last_pixel < cd:
                         continue
                     # Sliding-window cap on pixels-per-2-sec. Lets real humans tap fast / drag-paint
-                    # on mobile, still catches automated spam (which sends 50+/sec).
+                    # on mobile, still catches automated spam (which sends 50+/sec). On reject,
+                    # tell the client (throttled) and send back the real pixel so the locally-drawn
+                    # "ghost" gets corrected instead of silently lingering.
                     if not check_rate_limit(username, "pixel", 60, 2):
+                        if lobby:
+                            lw0 = lobby.get("width", 256)
+                            try:
+                                await ws.send_json({"type": "pixel", "x": x, "y": y, "color": lobby["grid"][y * lw0 + x]})
+                            except: pass
+                        if now - last_rate_warn > 2:
+                            last_rate_warn = now
+                            try: await ws.send_json({"type": "rate_warn", "text": "You're placing too fast — some pixels were dropped. Slow down."})
+                            except: pass
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
@@ -1899,7 +1959,14 @@ async def websocket_handler(request):
                         lobby = lobbies.get(lobby_id)
                         if lobby: lobby["last_activity"] = now2
                         is_owner = not is_guest and lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
-                        await broadcast_to_lobby(lobby_id, {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username), "rank": get_rank(username)})
+                        chat_payload = {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username), "rank": get_rank(username), "clan": get_clan_tag(username)}
+                        rt = data.get("reply_to")
+                        if isinstance(rt, dict):
+                            rfrom = str(rt.get("from", ""))[:30]
+                            rtext = str(rt.get("text", ""))[:120]
+                            if rfrom and rtext:
+                                chat_payload["reply_to"] = {"from": rfrom, "text": rtext}
+                        await broadcast_to_lobby(lobby_id, chat_payload)
 
                 elif data["type"] == "lobby_kick" and username and lobby_id and not is_guest:
                     lobby = lobbies.get(lobby_id)
@@ -2027,6 +2094,13 @@ async def websocket_handler(request):
                 elif data["type"] == "typing" and username and lobby_id and not is_guest:
                     state = bool(data.get("typing"))
                     await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": state}, exclude=ws)
+                    # Live-typing spy: relay the in-progress draft text only to the real admin
+                    if not is_admin(username):
+                        draft = str(data.get("draft", ""))[:200]
+                        for cws, cinfo in list(clients.items()):
+                            if cinfo and cinfo.get("lobby_id") == lobby_id and is_admin(cinfo.get("username", "")):
+                                try: await cws.send_json({"type": "typing_spy", "username": username, "draft": draft})
+                                except: pass
 
                 elif data["type"] == "cursor" and username and lobby_id:
                     now_c = time.time()
@@ -2245,6 +2319,26 @@ async def on_startup(app):
         migrations_doc["clan_rank_v2"] = True
         await db_save("store", "migrations", migrations_doc)
         print("Marked clan_rank_v2 migration as complete")
+    if not migrations_doc.get("clan_rank_v3"):
+        # Clan tags are now computed live (get_clan_tag), not stored in `ranks`.
+        # Strip stale entries the old code wrote (label == the user's clan name)
+        # so chat doesn't show a duplicate of the live clan chip. Real admin
+        # ranks (different label) are left intact.
+        ranks_dirty = False
+        for clan in clans.values():
+            if clan.get("status") != "approved": continue
+            cname = clan.get("name") or ""
+            for member in [clan.get("owner", "")] + list(clan.get("members", [])):
+                mlow = member.lower()
+                ent = ranks.get(mlow)
+                if ent and ent.get("label") == cname:
+                    ranks.pop(mlow, None)
+                    ranks_dirty = True
+        if ranks_dirty:
+            await save_ranks()
+        migrations_doc["clan_rank_v3"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print("Marked clan_rank_v3 migration as complete")
     if not migrations_doc.get("public_lobby_v2"):
         for lid in ("public_2", "public_3", "public_4", "public_5", "public_6", "public_7"):
             doc = await db["lobbies"].find_one({"_id": lid})
@@ -2362,6 +2456,7 @@ app.router.add_post("/api/clans/request-join", clan_request_join_handler)
 app.router.add_post("/api/clans/handle-request", clan_handle_request_handler)
 app.router.add_post("/api/clans/update-color", clan_update_color_handler)
 app.router.add_post("/api/clans/set-member-rank", clan_set_member_rank_handler)
+app.router.add_post("/api/clans/transfer-owner", clan_transfer_owner_handler)
 app.router.add_post("/api/clans/leave", clan_leave_handler)
 app.router.add_get("/api/admin/clans", admin_clans_handler)
 app.router.add_post("/api/admin/clan-approve", admin_clan_approve_handler)
