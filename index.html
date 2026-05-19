@@ -375,22 +375,22 @@
     #info-row { gap: 8px; padding: 3px 6px; }
   }
 
-  /* Small / kids tablets (e.g. Kidibuzz G2): the single-row scroll palette
-     hides half the colors. Stack the bottom bar and wrap the FULL palette
-     so every color is reachable without horizontal scrolling. */
-  @media (max-width: 560px) {
+  /* Mobile / small / kids tablets (e.g. Kidibuzz G2): the single-row scroll
+     palette hid colors and scrolling was unreliable on touch. Instead, stack
+     the bottom bar and wrap the FULL palette so every color is visible at
+     once with NO scrolling at all. */
+  @media (max-width: 760px) {
     #bottom-bar { flex-wrap: wrap; }
     #palette-wrap { order: -1; flex-basis: 100%; width: 100%; min-width: 0; }
     #palette-row {
       flex-wrap: wrap !important;
-      overflow-x: hidden !important;
-      overflow-y: auto;
-      max-height: 96px;
+      overflow: visible !important;
+      max-height: none !important;
       white-space: normal !important;
       justify-content: center;
       mask-image: none !important;
       -webkit-mask-image: none !important;
-      touch-action: pan-y !important;
+      touch-action: auto !important;
       padding: 6px !important;
     }
     #palette-scroll-hint { display: none !important; }
