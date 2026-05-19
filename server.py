@@ -302,16 +302,64 @@ def get_oldest_event_time(lobby):
         return None
     return EVENT_STRUCT.unpack_from(log, 0)[0]
 
+def pack_pixel_authors(authors):
+    """Compactly serialize {pixel_index: username} to bytes: a username table
+    plus 6-byte (idx, name_id) records. Stored as its own binary field so even
+    a fully-painted 1024x1024 (~6 MB) stays well under Mongo's 16 MB doc limit.
+    Never sent to clients, so it doesn't touch Render bandwidth."""
+    if not authors:
+        return b""
+    names, name_idx, recs = [], {}, bytearray()
+    for idx, uname in authors.items():
+        if not uname:
+            continue
+        ni = name_idx.get(uname)
+        if ni is None:
+            if len(names) >= 65535:
+                continue
+            ni = len(names); name_idx[uname] = ni; names.append(uname)
+        recs += struct.pack("<IH", int(idx), ni)
+    out = bytearray()
+    out += struct.pack("<I", len(names))
+    for n in names:
+        nb = n.encode("utf-8")[:255]
+        out += struct.pack("<H", len(nb)) + nb
+    out += struct.pack("<I", len(recs) // 6)
+    out += recs
+    return bytes(out)
+
+def unpack_pixel_authors(blob):
+    authors = {}
+    if not blob:
+        return authors
+    try:
+        b = bytes(blob); o = 0
+        (ncount,) = struct.unpack_from("<I", b, o); o += 4
+        names = []
+        for _ in range(ncount):
+            (ln,) = struct.unpack_from("<H", b, o); o += 2
+            names.append(b[o:o+ln].decode("utf-8", "replace")); o += ln
+        (rcount,) = struct.unpack_from("<I", b, o); o += 4
+        for _ in range(rcount):
+            idx, ni = struct.unpack_from("<IH", b, o); o += 6
+            if 0 <= ni < len(names):
+                authors[idx] = names[ni]
+    except Exception:
+        pass
+    return authors
+
 async def save_lobby(lid):
     lobby = lobbies.get(lid)
     if not lobby:
         return
-    # Strip grid and events (saved as separate binary fields) and pixel_authors
-    # (in-memory admin tool only — persisting a per-pixel dict would bloat the DB).
+    # grid/events/pixel_authors are saved as separate binary fields, not in meta.
+    # pixel_authors persists across restarts so the admin "who placed this" tool
+    # survives deploys (stored compactly; never sent to clients).
     data = {k: v for k, v in lobby.items() if k not in ("grid", "events", "pixel_authors")}
     grid_bytes = bytes(lobby["grid"])
     events_bytes = bytes(lobby.get("events", b""))
-    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_bytes, "events": events_bytes}}, upsert=True)
+    pauthors_bytes = pack_pixel_authors(lobby.get("pixel_authors") or {})
+    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_bytes, "events": events_bytes, "pauthors": pauthors_bytes}}, upsert=True)
     dirty_lobbies.discard(lid)
 
 async def save_all_lobbies():
@@ -453,6 +501,7 @@ async def load_all_data():
         events_data = doc.get("events")
         grid_ba = _to_bytearray(grid_data)
         events_ba = bytearray(events_data) if events_data else bytearray()
+        pauthors = unpack_pixel_authors(doc.get("pauthors"))
         if lid.startswith("public_") and lid in lobbies:
             expected_size = lobbies[lid]["width"] * lobbies[lid]["height"]
             if "pixel_counts" in meta:
@@ -460,6 +509,7 @@ async def load_all_data():
             if grid_ba is not None and len(grid_ba) == expected_size:
                 lobbies[lid]["grid"] = grid_ba
             lobbies[lid]["events"] = events_ba
+            lobbies[lid]["pixel_authors"] = pauthors
         elif lid.startswith("public_") and lid not in lobbies:
             continue
         else:
@@ -467,6 +517,7 @@ async def load_all_data():
             lh = meta.get("height", 256)
             meta["grid"] = grid_ba if grid_ba is not None else bytearray(lw * lh)
             meta["events"] = events_ba
+            meta["pixel_authors"] = pauthors
             if "pixel_counts" not in meta:
                 meta["pixel_counts"] = {}
             if "cooldown" not in meta:
