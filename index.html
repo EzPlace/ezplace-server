@@ -455,6 +455,7 @@
       </div>
       <div id="color-preview-snap" title="Color used" style="width:32px;height:32px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);align-self:center;"></div>
       <button id="btn-undo" title="Undo last placement (Ctrl+Z)" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">&#x21B6; Undo</button>
+      <button id="btn-palette-toggle" title="Show/hide the color palette" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">&#x1F3A8; Hide</button>
       <select id="brush-size-select" class="win-input" style="display:none;font-size:11px;padding:2px 4px;align-self:center;">
         <option value="1">1x1</option>
         <option value="3">3x3</option>
@@ -2012,6 +2013,24 @@ document.getElementById('color-lightness').addEventListener('input', e => {
 // Initialize at red
 pickHue = 0; pickSat = 1.0; pickLight = 0.5;
 applyPick();
+
+// Collapsible palette — on small screens the wrapped 53-color grid can cover
+// half the screen. This lets the user hide it and reclaim canvas space.
+function applyPaletteCollapsed(collapsed) {
+  const wrap = document.getElementById('palette-wrap');
+  const btn = document.getElementById('btn-palette-toggle');
+  if (!wrap || !btn) return;
+  wrap.style.display = collapsed ? 'none' : '';
+  btn.innerHTML = collapsed ? '&#x1F3A8; Colors' : '&#x1F3A8; Hide';
+  try { resizeCanvas(); } catch (e) {}
+}
+let paletteCollapsed = safeStore.getItem('ez_palette_collapsed') === '1';
+applyPaletteCollapsed(paletteCollapsed);
+document.getElementById('btn-palette-toggle').onclick = () => {
+  paletteCollapsed = !paletteCollapsed;
+  safeStore.setItem('ez_palette_collapsed', paletteCollapsed ? '1' : '0');
+  applyPaletteCollapsed(paletteCollapsed);
+};
 
 // Build palette swatches (the 53 indexed colors). Clicking sets selectedColor directly.
 const paletteEl = document.getElementById('palette-row');
