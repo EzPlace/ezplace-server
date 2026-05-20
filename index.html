@@ -705,7 +705,9 @@
       <div class="admin-row">
         <input id="admin-ip-unban-input" class="win-input" type="text" placeholder="IP address">
         <button class="win-btn" id="btn-admin-ip-unban">Unban IP</button>
+        <button class="win-btn" id="btn-admin-ipban-list" style="background:var(--accent);color:#fff;">Show List</button>
       </div>
+      <div id="admin-ipban-list" style="display:none;flex-direction:column;gap:3px;font-size:11px;margin:6px 0;"></div>
       <h4>Delete Account</h4>
       <div class="admin-row">
         <input id="admin-del-input" class="win-input" type="text" placeholder="Username">
@@ -3858,6 +3860,34 @@ document.getElementById('btn-admin-kick').onclick = () => {
 };
 document.getElementById('btn-admin-ipban').onclick = () => { const u = document.getElementById('admin-ban-input').value.trim(); if (u) adminAction('/api/admin/ipban', { username: u }); };
 document.getElementById('btn-admin-ip-unban').onclick = () => { const ip = document.getElementById('admin-ip-unban-input').value.trim(); if (ip) adminAction('/api/admin/ip-unban', { ip: ip }); };
+async function refreshAdminIpBanList() {
+  const list = document.getElementById('admin-ipban-list');
+  list.style.display = 'flex';
+  list.innerHTML = '<span style="color:var(--text-muted);">Loading...</span>';
+  if (isFakeAdmin) { list.innerHTML = '<span style="color:var(--text-muted);">(fake admin: no real list)</span>'; return; }
+  try {
+    const res = await fetch(BACKEND + '/api/admin/ipbans', { headers: { Authorization: authToken } });
+    const data = await res.json();
+    const ips = data.ip_bans || data.ips || [];
+    list.innerHTML = '';
+    if (!ips.length) { list.innerHTML = '<span style="color:var(--text-muted);">No banned IPs</span>'; return; }
+    ips.forEach(ip => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 8px;background:var(--bg-elevated);border-radius:var(--radius-sm);';
+      row.innerHTML = `<span style="font-family:monospace;">${esc(ip)}</span><button class="win-btn unban-one" data-ip="${esc(ip)}" style="font-size:10px;padding:3px 8px;background:var(--green);color:#fff;">Unban</button>`;
+      row.querySelector('.unban-one').onclick = async () => {
+        try {
+          const r = await fetch(BACKEND + '/api/admin/ip-unban', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ ip }) });
+          const d = await r.json();
+          document.getElementById('admin-status').textContent = d.error || d.message || `Unbanned ${ip}`;
+          refreshAdminIpBanList();
+        } catch { document.getElementById('admin-status').textContent = 'Server offline'; }
+      };
+      list.appendChild(row);
+    });
+  } catch { list.innerHTML = '<span style="color:var(--red);">Failed to load</span>'; }
+}
+document.getElementById('btn-admin-ipban-list').onclick = refreshAdminIpBanList;
 document.getElementById('btn-admin-del-account').onclick = () => {
   const u = document.getElementById('admin-del-input').value.trim();
   if (!u) return;
