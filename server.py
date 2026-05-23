@@ -1830,6 +1830,29 @@ async def _casino_payout(user, winnings):
     await save_place_bucks()
     await push_pb_update(user)
 
+async def broadcast_casino_result(user, game, bet, winnings, detail=""):
+    """If the user is currently in any lobby, post a system chat line about
+    their gamble so everyone in that lobby sees wins and losses."""
+    if not user: return
+    net = winnings - bet
+    if net > 0:
+        text = f"{user} won {net} $ at {game}"
+    elif net < 0:
+        text = f"{user} lost {-net} $ at {game}"
+    else:
+        text = f"{user} pushed at {game} (bet returned)"
+    if detail:
+        text += f" — {detail}"
+    ulow = user.lower()
+    seen = set()
+    for info in clients.values():
+        if not info: continue
+        if info.get("username", "").lower() != ulow: continue
+        lid = info.get("lobby_id")
+        if lid and lid not in seen:
+            seen.add(lid)
+            await broadcast_to_lobby(lid, {"type": "system", "text": text})
+
 async def casino_slots_handler(request):
     res, err = await _casino_open(request, "casino_slots")
     if err: return err
@@ -1846,6 +1869,8 @@ async def casino_slots_handler(request):
         if max(counts.values()) == 2:
             winnings = amount; outcome = "pair"
     await _casino_payout(user, winnings)
+    detail = " ".join(spin) + (" 🎰 JACKPOT" if outcome == "jackpot" else "")
+    await broadcast_casino_result(user, "Slots", amount, winnings, detail)
     return web.json_response({"ok": True, "spin": spin, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
 
 async def casino_roulette_handler(request):
@@ -1865,6 +1890,7 @@ async def casino_roulette_handler(request):
         else: winnings = amount * 2
         outcome = "win"
     await _casino_payout(user, winnings)
+    await broadcast_casino_result(user, "Roulette", amount, winnings, f"landed {n} {result_color} (bet {choice})")
     return web.json_response({"ok": True, "number": n, "color": result_color, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
 
 async def casino_coinflip_handler(request):
@@ -1881,6 +1907,7 @@ async def casino_coinflip_handler(request):
         winnings = int(amount * 1.95)  # ~2.5% house edge
         outcome = "win"
     await _casino_payout(user, winnings)
+    await broadcast_casino_result(user, "Coin Flip", amount, winnings, f"{flip} (called {choice})")
     return web.json_response({"ok": True, "flip": flip, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
 
 bj_games = {}  # { username_lower: {"deck", "player", "dealer", "bet", "done"} }
@@ -1923,6 +1950,8 @@ async def _bj_resolve(user, game):
     await save_place_bucks()
     await push_pb_update(user)
     game["done"] = True
+    detail = "bust" if psc > 21 else f"{psc} vs dealer {dsc}"
+    await broadcast_casino_result(user, "Blackjack", bet, winnings, detail)
     return outcome, winnings, psc, dsc
 
 async def casino_blackjack_handler(request):
@@ -1952,11 +1981,13 @@ async def casino_blackjack_handler(request):
                 # push
                 credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
                 game["done"] = True
+                await broadcast_casino_result(user, "Blackjack", amount, amount, "double 21 push")
                 return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": 21, "outcome": "push", "winnings": amount, "bet": amount, "balance": get_pb(user)})
             else:
                 pay = int(amount * 2.5)  # 3:2 natural blackjack
                 credit_pb(user, pay); await save_place_bucks(); await push_pb_update(user)
                 game["done"] = True
+                await broadcast_casino_result(user, "Blackjack", amount, pay, "NATURAL 21")
                 return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": _bj_score(dealer), "outcome": "blackjack", "winnings": pay, "bet": amount, "balance": get_pb(user)})
         return web.json_response({"ok": True, "phase": "player", "player": _bj_view(player), "dealer_up": _bj_label(dealer[0]), "player_score": psc, "dealer_up_score": dsc_up, "bet": amount, "balance": get_pb(user)})
     # hit/stand require an active game
