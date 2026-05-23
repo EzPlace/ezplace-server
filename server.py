@@ -3541,6 +3541,17 @@ async def on_startup(app):
         migrations_doc["pb_backfill_v1"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"pb_backfill_v1: credited {credited} PlaceBucks across {len(totals)} users")
+    if not migrations_doc.get("economy_reset_v1"):
+        place_bucks.clear()
+        for ulow, lp in lifetime_pixels.items():
+            try: n = int(lp)
+            except: continue
+            if n >= PB_PIXELS_PER_BUCK:
+                place_bucks[ulow] = n // PB_PIXELS_PER_BUCK
+        await save_place_bucks()
+        migrations_doc["economy_reset_v1"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"economy_reset_v1: rebalanced {len(place_bucks)} users to lifetime_pixels // {PB_PIXELS_PER_BUCK}")
     if not migrations_doc.get("public_lobby_v2"):
         for lid in ("public_2", "public_3", "public_4", "public_5", "public_6", "public_7"):
             doc = await db["lobbies"].find_one({"_id": lid})
