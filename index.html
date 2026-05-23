@@ -600,6 +600,24 @@
         </div>
 
         <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <div style="font-weight:700;">Rock Paper Scissors</div>
+          <div style="font-size:11px;color:var(--text-muted);">vs AI: win pays 1.95x · vs human: winner takes both bets, forfeit = lose</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="rps-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+            <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="ai" checked> AI</label>
+            <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="human"> Human</label>
+          </div>
+          <div id="rps-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;text-align:center;">Pick a hand to start</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="win-btn rps-go" data-choice="rock" style="background:var(--accent);color:#fff;flex:1;">Rock</button>
+            <button class="win-btn rps-go" data-choice="paper" style="background:var(--accent);color:#fff;flex:1;">Paper</button>
+            <button class="win-btn rps-go" data-choice="scissors" style="background:var(--accent);color:#fff;flex:1;">Scissors</button>
+          </div>
+          <button id="btn-rps-cancel" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);display:none;">Cancel queue (refund)</button>
+          <div id="rps-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
           <div style="font-weight:700;">Flappy Bird</div>
           <div style="font-size:11px;color:var(--text-muted);">Earn 1 $ per pipe passed. Hard mode. No bet, no loss.</div>
           <button id="btn-flappy-open" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
@@ -2895,6 +2913,102 @@ document.querySelectorAll('.roulette-go').forEach(b => {
     });
   };
 });
+// Rock Paper Scissors — solo (vs AI) is instant; human matches with another player at the same bet
+let rpsGameId = null;
+let rpsPollTimer = null;
+function rpsMode() { const r = document.querySelector('input[name="rps-mode"]:checked'); return r ? r.value : 'ai'; }
+function rpsBet() { return parseInt(document.getElementById('rps-bet').value) || 0; }
+function rpsSetMsg(t, color) { const m = document.getElementById('rps-msg'); m.textContent = t; m.style.color = color || 'var(--text-muted)'; }
+function rpsSetResult(t) { document.getElementById('rps-result').textContent = t; }
+function rpsApplyBalance(d) { if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; } }
+function rpsButtonsEnabled(on) { document.querySelectorAll('.rps-go').forEach(b => b.disabled = !on); }
+function rpsCancelBtn(show) { document.getElementById('btn-rps-cancel').style.display = show ? '' : 'none'; }
+function rpsStopPolling() { if (rpsPollTimer) { clearInterval(rpsPollTimer); rpsPollTimer = null; } }
+function rpsRenderDone(d) {
+  rpsStopPolling(); rpsGameId = null; rpsButtonsEnabled(true); rpsCancelBtn(false);
+  const labels = { win: 'You win!', lose: 'You lose', tie: 'Tie (push)' };
+  rpsSetResult((d.you || '?') + ' vs ' + (d.opponent || '?') + (d.opponent_name ? ' (' + d.opponent_name + ')' : ''));
+  if (d.outcome === 'win') rpsSetMsg(labels.win + ' +' + d.winnings + ' $' + (d.timeout ? ' (opponent forfeited)' : ''), '#22c55e');
+  else if (d.outcome === 'tie') rpsSetMsg(labels.tie, 'var(--text-muted)');
+  else rpsSetMsg(labels.lose + ' −' + d.bet + ' $' + (d.timeout ? ' (you forfeited)' : ''), 'var(--red)');
+  rpsApplyBalance(d);
+}
+async function rpsSolo(choice) {
+  const amount = rpsBet();
+  if (amount < 1) { rpsSetMsg('Pick a bet ≥ 1.', 'var(--red)'); return; }
+  rpsButtonsEnabled(false); rpsSetMsg('Playing...', 'var(--text-muted)');
+  try {
+    const r = await fetch(BACKEND + '/api/casino/rps/solo', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ amount, choice }) });
+    const d = await r.json();
+    if (d.error) { rpsSetMsg(d.error, 'var(--red)'); rpsButtonsEnabled(true); return; }
+    d.opponent_name = 'AI';
+    rpsRenderDone(d);
+  } catch { rpsSetMsg('Server offline.', 'var(--red)'); rpsButtonsEnabled(true); }
+}
+async function rpsQueueOrPlay(choice) {
+  if (rpsGameId) { // already matched, this click is your move
+    rpsButtonsEnabled(false); rpsSetMsg('Locking in ' + choice + '...', 'var(--text-muted)');
+    try {
+      const r = await fetch(BACKEND + '/api/casino/rps/play', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ game_id: rpsGameId, choice }) });
+      const d = await r.json();
+      if (d.error) { rpsSetMsg(d.error, 'var(--red)'); rpsButtonsEnabled(true); return; }
+      if (d.phase === 'done') rpsRenderDone(d);
+      else { rpsSetMsg('Waiting for opponent...', 'var(--text-muted)'); rpsButtonsEnabled(false); }
+    } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
+    return;
+  }
+  const amount = rpsBet();
+  if (amount < 1) { rpsSetMsg('Pick a bet ≥ 1.', 'var(--red)'); return; }
+  rpsButtonsEnabled(false); rpsSetMsg('Joining queue for ' + amount + ' $...', 'var(--text-muted)');
+  try {
+    const r = await fetch(BACKEND + '/api/casino/rps/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ amount }) });
+    const d = await r.json();
+    if (d.error) { rpsSetMsg(d.error, 'var(--red)'); rpsButtonsEnabled(true); return; }
+    rpsApplyBalance(d);
+    if (d.matched) {
+      rpsGameId = d.game_id;
+      rpsSetResult('Matched with ' + d.opponent + '! Pick your hand to play.');
+      rpsSetMsg('Bet ' + d.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
+      rpsButtonsEnabled(true); rpsCancelBtn(false);
+      // Start poll in case opponent plays/forfeits faster than we do
+      rpsStartPolling();
+    } else {
+      rpsSetResult('Waiting for an opponent at ' + amount + ' $...');
+      rpsSetMsg('Bet held in escrow. Cancel to refund.', 'var(--text-muted)');
+      rpsCancelBtn(true);
+    }
+  } catch { rpsSetMsg('Server offline.', 'var(--red)'); rpsButtonsEnabled(true); }
+}
+function rpsStartPolling() {
+  rpsStopPolling();
+  rpsPollTimer = setInterval(async () => {
+    if (!rpsGameId) { rpsStopPolling(); return; }
+    try {
+      const r = await fetch(BACKEND + '/api/casino/rps/status?game_id=' + encodeURIComponent(rpsGameId), { headers: { Authorization: authToken } });
+      const d = await r.json();
+      if (d.phase === 'done') rpsRenderDone(d);
+      else if (d.phase === 'gone') { rpsStopPolling(); rpsGameId = null; }
+    } catch {}
+  }, 2500);
+}
+document.querySelectorAll('.rps-go').forEach(b => {
+  b.onclick = () => {
+    if (rpsMode() === 'ai') rpsSolo(b.dataset.choice);
+    else rpsQueueOrPlay(b.dataset.choice);
+  };
+});
+document.getElementById('btn-rps-cancel').onclick = async () => {
+  try {
+    const r = await fetch(BACKEND + '/api/casino/rps/cancel', { method: 'POST', headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) { rpsSetMsg(d.error, 'var(--red)'); return; }
+    rpsApplyBalance(d);
+    rpsSetResult('Pick a hand to start');
+    rpsSetMsg('Queue cancelled, refunded ' + d.refunded + ' $.', '#22c55e');
+    rpsCancelBtn(false); rpsButtonsEnabled(true);
+  } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
+};
+
 // Blackjack
 async function bjCall(action, body) {
   const msg = document.getElementById('bj-msg');
@@ -3869,6 +3983,14 @@ function connectSocial() {
       applyPbState();
       const fromName = msg.from;
       showDmToast('PlaceBucks', `+${msg.amount} $ from ${fromName}`, () => openDm(fromName));
+    }
+    if (msg.type === 'rps_matched') {
+      // We were waiting in the queue; an opponent just joined.
+      rpsGameId = msg.game_id;
+      rpsSetResult('Matched with ' + msg.opponent + '! Pick your hand to play.');
+      rpsSetMsg('Bet ' + msg.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
+      rpsButtonsEnabled(true); rpsCancelBtn(false);
+      rpsStartPolling();
     }
     if (msg.type === 'clan_removed') {
       addSystemMsg(`You were removed from clan "${msg.clan_name}" by ${msg.by}.`);
