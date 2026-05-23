@@ -58,6 +58,8 @@ group_messages = {}  # { group_id: [ {from, text?, image_url?, time}, ... ] }
 place_bucks = {}      # { username_lower: int }
 lifetime_pixels = {}  # { username_lower: int }
 purchases = {}        # { username_lower: { "custom_wheel": bool, "vip": bool } }
+stay_seconds = {}     # { username_lower: int }  — accumulates while user is online; 1 PB per 900s
+IDLE_REWARD_SECONDS = 900  # 15 minutes
 PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"custom_wheel": 5, "vip": 50, "custom_rank": 70}
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
@@ -253,6 +255,8 @@ async def save_lifetime_pixels():
     await db_save("store", "lifetime_pixels", lifetime_pixels)
 async def save_purchases():
     await db_save("store", "purchases", purchases)
+async def save_stay_seconds():
+    await db_save("store", "stay_seconds", stay_seconds)
 
 PB_UNLIMITED = 10 ** 9  # sentinel "balance" reported for the real admin
 
@@ -448,6 +452,38 @@ async def flush_dirty_lobbies_loop(app):
         except Exception as e:
             print(f"flush_dirty_lobbies_loop error: {e}")
 
+async def idle_reward_loop(app):
+    """Every minute, add 60 to each online user's stay_seconds. Credit 1 PB per
+    900 (15 min) accumulated. Admins are skipped (unlimited balance anyway)."""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            online_users = set()
+            for info in clients.values():
+                if not info or info.get("guest"): continue
+                n = info.get("username")
+                if n and not is_admin(n): online_users.add(n)
+            for uname in social_clients.values():
+                if uname and not is_admin(uname): online_users.add(uname)
+            if not online_users: continue
+            credited_anything = False
+            for uname in online_users:
+                ulow = uname.lower()
+                stay_seconds[ulow] = int(stay_seconds.get(ulow, 0)) + 60
+                if stay_seconds[ulow] >= IDLE_REWARD_SECONDS:
+                    rewards = stay_seconds[ulow] // IDLE_REWARD_SECONDS
+                    stay_seconds[ulow] = stay_seconds[ulow] % IDLE_REWARD_SECONDS
+                    credit_pb(uname, rewards)
+                    await push_pb_update(uname)
+                    credited_anything = True
+            if credited_anything:
+                await save_place_bucks()
+            await save_stay_seconds()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"idle_reward_loop error: {e}")
+
 async def rate_limit_cleanup_loop(app):
     """Periodically prune empty/expired entries from the rate limiter so it doesn't grow unbounded."""
     while True:
@@ -514,7 +550,7 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, groups, group_messages, dms, dm_last_seen, place_bucks, lifetime_pixels, purchases
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, groups, group_messages, dms, dm_last_seen, place_bucks, lifetime_pixels, purchases, stay_seconds
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
@@ -532,6 +568,7 @@ async def load_all_data():
     place_bucks = await db_load("store", "place_bucks") or {}
     lifetime_pixels = await db_load("store", "lifetime_pixels") or {}
     purchases = await db_load("store", "purchases") or {}
+    stay_seconds = await db_load("store", "stay_seconds") or {}
     user_ips = await db_load("store", "user_ips") or {}
 
     for i, pl in enumerate(PUBLIC_LOBBIES):
@@ -1774,19 +1811,15 @@ async def pb_transfer_handler(request):
     await notify_social(found, {"type": "pb_received", "from": user, "amount": amount})
     return web.json_response({"ok": True, "balance": get_pb(user)})
 
-CASINO_MAX_BET = 100
-
 async def _casino_open(request, rate_key):
-    """Common gambling-game prelude: auth, rate-limit, bet validation, deduct."""
+    """Auth, bet validation, deduct. No rate limit, no max bet — user's call."""
     data = await request.json()
     user = get_auth_user(request)
     if not user: return None, web.json_response({"error": "Not authenticated"}, status=401)
-    if not check_rate_limit(user, rate_key, 20, 60):
-        return None, web.json_response({"error": "Slow down — too many plays."}, status=429)
     try: amount = int(data.get("amount", 0))
     except: return None, web.json_response({"error": "Invalid bet"}, status=400)
-    if amount < 1 or amount > CASINO_MAX_BET:
-        return None, web.json_response({"error": f"Bet must be between 1 and {CASINO_MAX_BET} $"}, status=400)
+    if amount < 1:
+        return None, web.json_response({"error": "Bet must be at least 1 $"}, status=400)
     if not spend_pb(user, amount):
         return None, web.json_response({"error": "Not enough PlaceBucks"}, status=400)
     return (user, amount, data), None
@@ -1849,6 +1882,19 @@ async def casino_coinflip_handler(request):
         outcome = "win"
     await _casino_payout(user, winnings)
     return web.json_response({"ok": True, "flip": flip, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
+
+async def flappy_pass_handler(request):
+    """Award 1 PB for each pipe passed in the Flappy game. Soft anti-cheat:
+    capped at 6/sec which is faster than any real flappy run can produce."""
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "flappy_pass", 6, 1):
+        # Don't surface as an error to the user — just no payout this tick.
+        return web.json_response({"ok": True, "balance": get_pb(user), "skipped": True})
+    credit_pb(user, 1)
+    await save_place_bucks()
+    await push_pb_update(user)
+    return web.json_response({"ok": True, "balance": get_pb(user)})
 
 async def global_leaderboard_handler(request):
     """Top placers across ALL lobbies combined. Toothpaste excluded."""
@@ -2753,12 +2799,14 @@ async def on_startup(app):
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
     app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
+    app["idle_task"] = asyncio.create_task(idle_reward_loop(app))
 
 async def on_cleanup(app):
     app["cleanup_task"].cancel()
     app["lb_task"].cancel()
     app["flush_task"].cancel()
     app["rl_task"].cancel()
+    app["idle_task"].cancel()
     # Final flush of all dirty lobbies so we don't lose the last batch on shutdown
     for lid in list(dirty_lobbies):
         try: await save_lobby(lid)
@@ -2831,6 +2879,7 @@ app.router.add_post("/api/pb/transfer", pb_transfer_handler)
 app.router.add_post("/api/casino/slots", casino_slots_handler)
 app.router.add_post("/api/casino/roulette", casino_roulette_handler)
 app.router.add_post("/api/casino/coinflip", casino_coinflip_handler)
+app.router.add_post("/api/flappy/pass", flappy_pass_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
 app.router.add_get("/api/groups/my", groups_my_handler)
