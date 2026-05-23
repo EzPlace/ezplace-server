@@ -543,6 +543,17 @@
       <div style="font-size:11px;color:var(--text-muted);">You earn 1 $ per 100 pixels placed.</div>
       <div id="shop-item-wheel" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">Custom Color Wheel</div><div style="font-size:11px;color:var(--text-muted);">Unlock the color wheel + lightness slider so you can pick any shade (snapped to the nearest palette color).</div></div><button class="win-btn shop-buy" data-item="custom_wheel" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">5 $</button></div>
       <div id="shop-item-vip" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">VIP Rank</div><div style="font-size:11px;color:var(--text-muted);">Adds a [VIP] gold tag to your name in chat.</div></div><button class="win-btn shop-buy" data-item="vip" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">50 $</button></div>
+      <div id="shop-item-custom-rank" style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <div><div style="font-weight:700;">Custom Rank</div><div style="font-size:11px;color:var(--text-muted);">Pick your own rank label and color. Pay once, edit anytime free.</div></div>
+          <button id="btn-buy-custom-rank" class="win-btn" style="background:var(--accent);color:#fff;flex-shrink:0;">70 $</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <input id="custom-rank-label" class="win-input" type="text" maxlength="16" placeholder="Rank label (max 16)" style="flex:1;min-width:120px;font-size:12px;padding:4px 6px;">
+          <input id="custom-rank-color" type="color" value="#ee5a52" style="width:36px;height:28px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;">
+          <span id="custom-rank-preview" style="font-size:10px;font-weight:700;color:#ee5a52;">[PREVIEW]</span>
+        </div>
+      </div>
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Transfer PlaceBucks</div>
       <div style="display:flex;gap:6px;align-items:center;">
         <input id="pb-xfer-to" class="win-input" type="text" placeholder="Recipient username" style="flex:1;" maxlength="20">
@@ -2589,6 +2600,47 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
     } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
   };
 });
+// Custom rank: buy once, then free edits. The button label changes to "Save" once owned.
+(function setupCustomRankUI() {
+  const labelEl = document.getElementById('custom-rank-label');
+  const colorEl = document.getElementById('custom-rank-color');
+  const preview = document.getElementById('custom-rank-preview');
+  const btn = document.getElementById('btn-buy-custom-rank');
+  function refreshPreview() {
+    preview.textContent = '[' + (labelEl.value.trim() || 'PREVIEW') + ']';
+    preview.style.color = colorEl.value;
+  }
+  labelEl.addEventListener('input', refreshPreview);
+  colorEl.addEventListener('input', refreshPreview);
+  btn.onclick = async () => {
+    const label = labelEl.value.trim();
+    const color = colorEl.value;
+    const msg = document.getElementById('shop-msg');
+    if (!label) { msg.textContent = 'Pick a rank label.'; msg.style.color = 'var(--red)'; return; }
+    msg.textContent = 'Saving...'; msg.style.color = 'var(--text-muted)';
+    try {
+      const r = await fetch(BACKEND + '/api/shop/buy', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ item: 'custom_rank', label, color }) });
+      const d = await r.json();
+      if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return; }
+      msg.textContent = myPurchases.custom_rank ? 'Rank updated!' : 'Custom rank unlocked! Your chat tag is now ' + '[' + label + ']'; msg.style.color = '#22c55e';
+      myBalance = d.balance || 0;
+      myPurchases = d.purchases || myPurchases;
+      applyPbState();
+      openShop();
+    } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+  };
+  // When the shop opens, refresh button label to "Save" if already owned
+  const origOpen = openShop;
+  openShop = function() {
+    origOpen();
+    btn.textContent = (myUnlimited || myPurchases.custom_rank) ? 'Save' : '70 $';
+    btn.disabled = false;
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#fff';
+    refreshPreview();
+  };
+})();
+
 document.getElementById('btn-pb-xfer').onclick = async () => {
   const to = document.getElementById('pb-xfer-to').value.trim();
   const amount = parseInt(document.getElementById('pb-xfer-amt').value);
