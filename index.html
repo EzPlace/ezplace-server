@@ -533,6 +533,32 @@
   </div>
 </div>
 
+<div id="uno-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(4px);z-index:85;flex-direction:column;padding:10px;gap:8px;color:var(--text-primary);">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+    <div style="font-weight:700;font-size:14px;">UNO <span id="uno-room-info" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></div>
+    <div style="display:flex;gap:6px;">
+      <button id="btn-uno-start-game" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;display:none;">Start Game</button>
+      <button id="btn-uno-leave" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;padding:4px 10px;">Leave</button>
+    </div>
+  </div>
+  <div id="uno-opponents" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;"></div>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;">
+    <div id="uno-discard" style="width:80px;height:120px;border-radius:8px;background:#222;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;color:#fff;border:3px solid #fff;">?</div>
+    <div id="uno-turn-info" style="font-size:13px;color:var(--text-muted);min-height:18px;"></div>
+    <button id="btn-uno-draw" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:12px;padding:6px 14px;display:none;">Draw</button>
+  </div>
+  <div id="uno-hand" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;padding:6px;max-height:200px;overflow-y:auto;"></div>
+  <div id="uno-color-picker" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-tertiary);border:1px solid var(--border);border-radius:10px;padding:14px;z-index:86;text-align:center;">
+    <div style="margin-bottom:8px;font-weight:700;">Pick a color</div>
+    <div style="display:flex;gap:6px;">
+      <button class="uno-color-btn" data-c="r" style="width:50px;height:50px;background:#e63946;border:none;border-radius:6px;cursor:pointer;"></button>
+      <button class="uno-color-btn" data-c="y" style="width:50px;height:50px;background:#ffd23f;border:none;border-radius:6px;cursor:pointer;"></button>
+      <button class="uno-color-btn" data-c="g" style="width:50px;height:50px;background:#2a9d8f;border:none;border-radius:6px;cursor:pointer;"></button>
+      <button class="uno-color-btn" data-c="b" style="width:50px;height:50px;background:#1d3557;border:none;border-radius:6px;cursor:pointer;"></button>
+    </div>
+  </div>
+</div>
+
 <div id="flappy-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);z-index:80;align-items:center;justify-content:center;padding:14px;flex-direction:column;gap:8px;">
   <div style="display:flex;align-items:center;gap:14px;color:var(--text-primary);font-size:13px;font-weight:700;">
     <span>Score: <span id="flappy-score" style="color:var(--accent);">0</span></span>
@@ -609,26 +635,42 @@
           </div>
         </details>
 
-        <details class="game-acc"><summary>Rock Paper Scissors <span class="game-hint">vs AI, random human, or pick a player</span></summary>
+        <details class="game-acc"><summary>Rock Paper Scissors <span class="game-hint">vs AI, or invite a player (10s to lock in)</span></summary>
           <div class="game-body">
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <input id="rps-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
               <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="ai" checked> AI</label>
-              <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="human"> Random Human</label>
-              <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="challenge"> Challenge</label>
+              <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="player"> vs Player</label>
             </div>
             <div id="rps-challenge-row" style="display:none;gap:6px;align-items:center;">
               <input id="rps-challenge-user" class="win-input" type="text" maxlength="20" placeholder="Opponent username" style="flex:1;font-size:12px;padding:4px 6px;">
-              <button id="btn-rps-challenge" class="win-btn" style="background:var(--accent);color:#fff;">Send Challenge</button>
+              <button id="btn-rps-challenge" class="win-btn" style="background:var(--accent);color:#fff;">Invite</button>
             </div>
             <div id="rps-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;text-align:center;">Pick a hand to start</div>
+            <div id="rps-countdown" style="display:none;text-align:center;font-weight:700;color:var(--accent);font-size:13px;">Reveal in <span id="rps-clock">10</span>s</div>
             <div style="display:flex;gap:6px;align-items:center;">
               <button class="win-btn rps-go" data-choice="rock" style="background:var(--accent);color:#fff;flex:1;">Rock</button>
               <button class="win-btn rps-go" data-choice="paper" style="background:var(--accent);color:#fff;flex:1;">Paper</button>
               <button class="win-btn rps-go" data-choice="scissors" style="background:var(--accent);color:#fff;flex:1;">Scissors</button>
             </div>
-            <button id="btn-rps-cancel" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);display:none;">Cancel queue (refund)</button>
             <div id="rps-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+          </div>
+        </details>
+
+        <details class="game-acc"><summary>UNO <span class="game-hint">2-4 players, vs AI or humans, winner takes the pot</span></summary>
+          <div class="game-body">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:11px;">Bet <input id="uno-bet" type="number" min="0" value="5" class="win-input" style="width:60px;font-size:12px;padding:2px 4px;"></label>
+              <label style="font-size:11px;">Players <select id="uno-max" class="win-input" style="font-size:12px;padding:2px;"><option>2</option><option>3</option><option>4</option></select></label>
+              <label style="font-size:11px;">AI bots <select id="uno-ai" class="win-input" style="font-size:12px;padding:2px;"><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
+              <label style="font-size:11px;"><input type="checkbox" id="uno-stack"> Stacking</label>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button id="btn-uno-create" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Create Room</button>
+              <button id="btn-uno-list" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;">Find Room</button>
+            </div>
+            <div id="uno-rooms" style="display:none;flex-direction:column;gap:4px;font-size:12px;"></div>
+            <div id="uno-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
         </details>
 
@@ -2788,6 +2830,133 @@ document.querySelectorAll('.roulette-go').forEach(b => {
     });
   };
 });
+// ===== UNO =====
+const UNO_COLORS = { r: '#e63946', y: '#ffd23f', g: '#2a9d8f', b: '#1d3557', w: '#222' };
+const UNO_LABELS = { '0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9','skip':'X','reverse':'R','draw2':'+2','wild':'W','wild4':'+4' };
+let unoRoomId = null;
+let unoState = null;
+let unoPickingCardIdx = null;
+function unoMsg(t, color) { const m = document.getElementById('uno-msg'); m.textContent = t; m.style.color = color || 'var(--text-muted)'; }
+function unoOpenModal() { document.getElementById('uno-modal').style.display = 'flex'; }
+function unoCloseModal() { document.getElementById('uno-modal').style.display = 'none'; unoRoomId = null; unoState = null; }
+function unoCardEl(card, idx, clickable) {
+  const el = document.createElement('div');
+  const bg = UNO_COLORS[card.color] || '#222';
+  el.style.cssText = 'width:54px;height:78px;border-radius:6px;background:' + bg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;border:2px solid #fff;cursor:' + (clickable ? 'pointer' : 'default') + ';box-shadow:0 2px 6px rgba(0,0,0,0.4);';
+  el.textContent = UNO_LABELS[card.value] || card.value;
+  if (clickable) el.onclick = () => unoPlayCard(idx);
+  return el;
+}
+function unoRender(state) {
+  unoState = state;
+  document.getElementById('uno-room-info').textContent = '(' + state.players.length + '/' + state.settings.max_players + ' players, bet ' + state.settings.bet + ' $)';
+  const opEl = document.getElementById('uno-opponents');
+  opEl.innerHTML = '';
+  state.players.forEach((p, i) => {
+    if (i === state.my_index) return;
+    const d = document.createElement('div');
+    const isTurn = state.phase === 'playing' && i === state.current;
+    d.style.cssText = 'padding:6px 10px;border-radius:6px;background:' + (isTurn ? 'var(--accent)' : 'var(--bg-elevated)') + ';color:' + (isTurn ? '#fff' : 'var(--text-primary)') + ';font-size:12px;font-weight:600;border:1px solid var(--border);';
+    d.textContent = p.name + (p.is_ai ? ' [AI]' : '') + ' — ' + p.hand_count + (p.connected === false ? ' (gone)' : '');
+    opEl.appendChild(d);
+  });
+  const dis = document.getElementById('uno-discard');
+  const drawBtn = document.getElementById('btn-uno-draw');
+  const startBtn = document.getElementById('btn-uno-start-game');
+  const turnInfo = document.getElementById('uno-turn-info');
+  if (state.phase === 'lobby') {
+    dis.style.background = '#222'; dis.style.color = '#fff'; dis.textContent = '?';
+    turnInfo.textContent = 'Waiting in lobby. Creator: ' + state.creator;
+    startBtn.style.display = (username && state.creator && username.toLowerCase() === state.creator.toLowerCase() && state.players.length >= 2) ? '' : 'none';
+    drawBtn.style.display = 'none';
+    document.getElementById('uno-hand').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">Cards dealt when the game starts.</div>';
+    return;
+  }
+  startBtn.style.display = 'none';
+  if (state.phase === 'done') {
+    turnInfo.textContent = state.winner ? (state.winner === username ? 'You won the pot!' : (state.winner + ' won')) : 'Game ended (no winner)';
+    drawBtn.style.display = 'none';
+    document.getElementById('uno-hand').innerHTML = '';
+    return;
+  }
+  const top = state.top;
+  if (top) {
+    dis.style.background = UNO_COLORS[state.current_color] || UNO_COLORS[top.color] || '#222';
+    dis.textContent = UNO_LABELS[top.value] || top.value;
+  }
+  const isMyTurn = state.current === state.my_index;
+  const cur = state.players[state.current];
+  turnInfo.textContent = isMyTurn ? ('Your turn' + (state.pending_draws ? ' — draw ' + state.pending_draws : '')) : ('Turn: ' + cur.name + (state.pending_draws ? ' (pending +' + state.pending_draws + ')' : ''));
+  drawBtn.style.display = isMyTurn ? '' : 'none';
+  const handEl = document.getElementById('uno-hand');
+  handEl.innerHTML = '';
+  state.my_hand.forEach((card, i) => handEl.appendChild(unoCardEl(card, i, isMyTurn)));
+}
+async function unoCall(path, body) {
+  try {
+    const r = await fetch(BACKEND + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.error) { unoMsg(d.error, 'var(--red)'); return null; }
+    if (d.state) { unoRoomId = d.state.room_id || d.room_id || unoRoomId; unoRender(d.state); }
+    return d;
+  } catch { unoMsg('Server offline.', 'var(--red)'); return null; }
+}
+document.getElementById('btn-uno-create').onclick = async () => {
+  if (!authToken) { unoMsg('Log in first.', 'var(--red)'); return; }
+  const bet = parseInt(document.getElementById('uno-bet').value) || 0;
+  const max_players = parseInt(document.getElementById('uno-max').value) || 2;
+  const ai_count = Math.min(parseInt(document.getElementById('uno-ai').value) || 0, max_players - 1);
+  const stacking = document.getElementById('uno-stack').checked;
+  unoMsg('Creating room...');
+  const d = await unoCall('/api/uno/create', { bet, max_players, ai_count, stacking });
+  if (d && d.state) { unoRoomId = d.room_id; unoOpenModal(); }
+};
+document.getElementById('btn-uno-list').onclick = async () => {
+  const list = document.getElementById('uno-rooms');
+  list.style.display = 'flex'; list.innerHTML = 'Loading...';
+  try {
+    const r = await fetch(BACKEND + '/api/uno/list');
+    const d = await r.json();
+    list.innerHTML = '';
+    if (!d.rooms || !d.rooms.length) { list.innerHTML = '<div style="color:var(--text-muted);">No open rooms. Create one!</div>'; return; }
+    d.rooms.forEach(rm => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 8px;background:var(--bg-elevated);border-radius:4px;';
+      row.innerHTML = '<span>' + esc(rm.creator) + ' — ' + rm.players.length + '/' + rm.max_players + ' · ' + rm.bet + ' $' + (rm.stacking ? ' · stack' : '') + '</span>';
+      const btn = document.createElement('button'); btn.className = 'win-btn'; btn.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:3px 8px;'; btn.textContent = 'Join';
+      btn.onclick = async () => {
+        const dd = await unoCall('/api/uno/join', { room_id: rm.room_id });
+        if (dd && dd.state) { unoRoomId = rm.room_id; unoOpenModal(); }
+      };
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
+  } catch { list.innerHTML = '<div style="color:var(--red);">Failed to load.</div>'; }
+};
+document.getElementById('btn-uno-start-game').onclick = () => unoCall('/api/uno/start', { room_id: unoRoomId });
+document.getElementById('btn-uno-draw').onclick = () => unoCall('/api/uno/draw', { room_id: unoRoomId });
+document.getElementById('btn-uno-leave').onclick = async () => {
+  if (unoRoomId) await fetch(BACKEND + '/api/uno/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: unoRoomId }) });
+  unoCloseModal();
+};
+async function unoPlayCard(idx) {
+  if (!unoState || unoState.current !== unoState.my_index) return;
+  const card = unoState.my_hand[idx];
+  if (!card) return;
+  if (card.color === 'w') {
+    unoPickingCardIdx = idx;
+    document.getElementById('uno-color-picker').style.display = 'block';
+    return;
+  }
+  await unoCall('/api/uno/play', { room_id: unoRoomId, card_idx: idx });
+}
+document.querySelectorAll('.uno-color-btn').forEach(b => b.onclick = async () => {
+  document.getElementById('uno-color-picker').style.display = 'none';
+  if (unoPickingCardIdx === null) return;
+  await unoCall('/api/uno/play', { room_id: unoRoomId, card_idx: unoPickingCardIdx, color: b.dataset.c });
+  unoPickingCardIdx = null;
+});
+
 let rpsGameId = null;
 let rpsPollTimer = null;
 function rpsMode() { const r = document.querySelector('input[name="rps-mode"]:checked'); return r ? r.value : 'ai'; }
@@ -2799,7 +2968,7 @@ function rpsButtonsEnabled(on) { document.querySelectorAll('.rps-go').forEach(b 
 function rpsCancelBtn(show) { document.getElementById('btn-rps-cancel').style.display = show ? '' : 'none'; }
 function rpsStopPolling() { if (rpsPollTimer) { clearInterval(rpsPollTimer); rpsPollTimer = null; } }
 function rpsRenderDone(d) {
-  rpsStopPolling(); rpsGameId = null; rpsButtonsEnabled(true); rpsCancelBtn(false);
+  rpsStopPolling(); rpsStopCountdown(); rpsGameId = null; rpsButtonsEnabled(true); rpsCancelBtn(false);
   const labels = { win: 'You win!', lose: 'You lose', tie: 'Tie (push)' };
   rpsSetResult((d.you || '?') + ' vs ' + (d.opponent || '?') + (d.opponent_name ? ' (' + d.opponent_name + ')' : ''));
   if (d.outcome === 'win') rpsSetMsg(labels.win + ' +' + d.winnings + ' $' + (d.timeout ? ' (opponent forfeited)' : ''), '#22c55e');
@@ -2844,6 +3013,7 @@ async function rpsQueueOrPlay(choice) {
       rpsSetResult('Matched with ' + d.opponent + '! Pick your hand to play.');
       rpsSetMsg('Bet ' + d.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
       rpsButtonsEnabled(true); rpsCancelBtn(false);
+      rpsStartCountdown(10);
       rpsStartPolling();
     } else {
       rpsSetResult('Waiting for an opponent at ' + amount + ' $...');
@@ -2865,17 +3035,37 @@ function rpsStartPolling() {
   }, 2500);
 }
 document.querySelectorAll('input[name="rps-mode"]').forEach(r => r.addEventListener('change', () => {
-  document.getElementById('rps-challenge-row').style.display = (rpsMode() === 'challenge') ? 'flex' : 'none';
+  document.getElementById('rps-challenge-row').style.display = (rpsMode() === 'player') ? 'flex' : 'none';
 }));
 document.querySelectorAll('.rps-go').forEach(b => {
   b.onclick = () => {
     const mode = rpsMode();
     if (mode === 'ai') rpsSolo(b.dataset.choice);
-    else if (mode === 'human') rpsQueueOrPlay(b.dataset.choice);
     else if (rpsGameId) rpsQueueOrPlay(b.dataset.choice);
-    else rpsSetMsg('Send a challenge first.', 'var(--text-muted)');
+    else rpsSetMsg('Invite a player first.', 'var(--text-muted)');
   };
 });
+
+let rpsCountdownTimer = null;
+function rpsStartCountdown(seconds) {
+  const cd = document.getElementById('rps-countdown');
+  const clock = document.getElementById('rps-clock');
+  cd.style.display = '';
+  let s = seconds;
+  clock.textContent = s;
+  if (rpsCountdownTimer) clearInterval(rpsCountdownTimer);
+  rpsCountdownTimer = setInterval(() => {
+    s -= 1;
+    if (s <= 0) {
+      clearInterval(rpsCountdownTimer); rpsCountdownTimer = null;
+      cd.style.display = 'none';
+    } else clock.textContent = s;
+  }, 1000);
+}
+function rpsStopCountdown() {
+  if (rpsCountdownTimer) { clearInterval(rpsCountdownTimer); rpsCountdownTimer = null; }
+  document.getElementById('rps-countdown').style.display = 'none';
+}
 document.getElementById('btn-rps-challenge').onclick = async () => {
   const amount = rpsBet();
   const opponent = document.getElementById('rps-challenge-user').value.trim();
@@ -3854,6 +4044,12 @@ function connectSocial() {
       const fromName = msg.from;
       showDmToast('PlaceBucks', `+${msg.amount} $ from ${fromName}`, () => openDm(fromName));
     }
+    if (msg.type === 'uno_state' && msg.state) {
+      if (unoRoomId === msg.state.room_id || !unoRoomId) {
+        unoRoomId = msg.state.room_id;
+        unoRender(msg.state);
+      }
+    }
     if (msg.type === 'rps_challenge') {
       const accept = confirm(msg.from + ' challenges you to Rock Paper Scissors for ' + msg.bet + ' $. Accept?');
       try {
@@ -3878,6 +4074,7 @@ function connectSocial() {
       rpsSetResult('Matched with ' + msg.opponent + '! Pick your hand to play.');
       rpsSetMsg('Bet ' + msg.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
       rpsButtonsEnabled(true); rpsCancelBtn(false);
+      rpsStartCountdown(10);
       rpsStartPolling();
     }
     if (msg.type === 'clan_removed') {
