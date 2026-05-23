@@ -2256,6 +2256,7 @@ def _uno_public_state(room, for_player):
     for i, p in enumerate(room["players"]):
         players_info.append({"name": p["name"], "is_ai": p["is_ai"], "hand_count": len(p["hand"]), "connected": p.get("connected", True)})
     me = next((i for i, p in enumerate(room["players"]) if p["name"].lower() == for_player.lower()), None)
+    is_spectator = me is None and for_player and any(s.lower() == for_player.lower() for s in room.get("spectators", []))
     state = {
         "room_id": room["id"], "phase": room["phase"], "players": players_info,
         "current": room["current"], "direction": room["direction"],
@@ -2266,6 +2267,9 @@ def _uno_public_state(room, for_player):
         "my_index": me,
         "my_hand": room["players"][me]["hand"] if me is not None else [],
         "winner": room.get("winner"),
+        "pool": room.get("pool", 0),
+        "spectator": is_spectator,
+        "spectator_count": len(room.get("spectators", [])),
     }
     return state
 
@@ -2274,6 +2278,10 @@ async def _uno_push_state(room):
         if p["is_ai"]: continue
         try:
             await notify_social(p["name"], {"type": "uno_state", "state": _uno_public_state(room, p["name"])})
+        except: pass
+    for sname in list(room.get("spectators", [])):
+        try:
+            await notify_social(sname, {"type": "uno_state", "state": _uno_public_state(room, sname)})
         except: pass
 
 async def _uno_ai_turn(room):
@@ -2404,6 +2412,7 @@ async def uno_create_handler(request):
         "deck": [], "discard": [], "current": 0, "direction": 1, "current_color": None,
         "pending_draws": 0, "pending_kind": None, "bet_per_human": bet, "pool": bet if bet > 0 else 0,
         "started_at": None, "last_action_at": time.time(),
+        "spectators": [],
     }
     await save_place_bucks(); await push_pb_update(user)
     return web.json_response({"ok": True, "room_id": rid, "state": _uno_public_state(uno_rooms[rid], user)})
@@ -2411,14 +2420,68 @@ async def uno_create_handler(request):
 async def uno_list_handler(request):
     out = []
     for r in uno_rooms.values():
-        if r["phase"] != "lobby": continue
+        if r["phase"] not in ("lobby", "playing"): continue
         out.append({
             "room_id": r["id"], "creator": r["creator"],
             "players": [p["name"] for p in r["players"]],
             "max_players": r["settings"]["max_players"],
             "bet": r["settings"]["bet"], "stacking": r["settings"]["stacking"],
+            "phase": r["phase"], "pool": r.get("pool", 0),
+            "spectators": len(r.get("spectators", [])),
         })
     return web.json_response({"rooms": out})
+
+async def uno_say_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    text = (data.get("text") or "").strip()[:200]
+    if not text: return web.json_response({"error": "Empty"}, status=400)
+    room = uno_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    ulow = user.lower()
+    is_player = any(p["name"].lower() == ulow for p in room["players"])
+    is_spec = any(s.lower() == ulow for s in room.get("spectators", []))
+    if not (is_player or is_spec):
+        return web.json_response({"error": "Not in this room"}, status=403)
+    if not check_rate_limit(user, "uno_say", 5, 5):
+        return web.json_response({"error": "Slow down."}, status=429)
+    chat_msg = {"from": user, "text": text, "spectator": is_spec, "time": time.time()}
+    payload = {"type": "uno_chat", "room_id": rid, "msg": chat_msg}
+    for p in room["players"]:
+        if not p["is_ai"]:
+            try: await notify_social(p["name"], payload)
+            except: pass
+    for sname in list(room.get("spectators", [])):
+        try: await notify_social(sname, payload)
+        except: pass
+    return web.json_response({"ok": True})
+
+async def uno_spectate_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = uno_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if any(p["name"].lower() == user.lower() for p in room["players"]):
+        return web.json_response({"error": "You're a player in this room, not a spectator"}, status=400)
+    if not any(s.lower() == user.lower() for s in room.get("spectators", [])):
+        room.setdefault("spectators", []).append(user)
+    await _uno_push_state(room)
+    return web.json_response({"ok": True, "state": _uno_public_state(room, user)})
+
+async def uno_unspectate_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = uno_rooms.get(rid)
+    if not room: return web.json_response({"ok": True})
+    room["spectators"] = [s for s in room.get("spectators", []) if s.lower() != user.lower()]
+    await _uno_push_state(room)
+    return web.json_response({"ok": True})
 
 async def uno_join_handler(request):
     data = await request.json()
@@ -2811,6 +2874,13 @@ async def social_ws_handler(request):
             if not still_online and disconnected_user:
                 try: await uno_forfeit(disconnected_user)
                 except Exception as e: print(f"uno_forfeit on disconnect failed: {e}")
+                try:
+                    dlow = disconnected_user.lower()
+                    for r in list(uno_rooms.values()):
+                        if any(s.lower() == dlow for s in r.get("spectators", [])):
+                            r["spectators"] = [s for s in r["spectators"] if s.lower() != dlow]
+                            await _uno_push_state(r)
+                except Exception as e: print(f"uno spectator cleanup failed: {e}")
     return ws
 
 async def notify_social(target_username, data):
@@ -3548,6 +3618,9 @@ app.router.add_post("/api/uno/play", uno_play_handler)
 app.router.add_post("/api/uno/draw", uno_draw_handler)
 app.router.add_post("/api/uno/leave", uno_leave_handler)
 app.router.add_get("/api/uno/state", uno_state_handler)
+app.router.add_post("/api/uno/spectate", uno_spectate_handler)
+app.router.add_post("/api/uno/unspectate", uno_unspectate_handler)
+app.router.add_post("/api/uno/say", uno_say_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
 app.router.add_get("/api/groups/my", groups_my_handler)

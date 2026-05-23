@@ -548,6 +548,13 @@
     <button id="btn-uno-draw" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:12px;padding:6px 14px;display:none;">Draw</button>
   </div>
   <div id="uno-hand" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;padding:6px;max-height:200px;overflow-y:auto;"></div>
+  <div id="uno-chat-wrap" style="display:flex;flex-direction:column;gap:4px;max-height:150px;border-top:1px solid var(--border);padding-top:6px;">
+    <div id="uno-chat-log" style="flex:1;overflow-y:auto;font-size:12px;line-height:1.4;background:var(--bg-secondary);border-radius:6px;padding:4px 8px;min-height:60px;max-height:100px;"></div>
+    <div style="display:flex;gap:4px;">
+      <input id="uno-chat-input" class="win-input" type="text" maxlength="200" placeholder="Say something..." style="flex:1;font-size:12px;padding:4px 8px;">
+      <button id="btn-uno-say" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;">Send</button>
+    </div>
+  </div>
   <div id="uno-color-picker" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-tertiary);border:1px solid var(--border);border-radius:10px;padding:14px;z-index:86;text-align:center;">
     <div style="margin-bottom:8px;font-weight:700;">Pick a color</div>
     <div style="display:flex;gap:6px;">
@@ -2837,7 +2844,7 @@ let unoRoomId = null;
 let unoState = null;
 let unoPickingCardIdx = null;
 function unoMsg(t, color) { const m = document.getElementById('uno-msg'); m.textContent = t; m.style.color = color || 'var(--text-muted)'; }
-function unoOpenModal() { document.getElementById('uno-modal').style.display = 'flex'; }
+function unoOpenModal() { document.getElementById('uno-modal').style.display = 'flex'; const log = document.getElementById('uno-chat-log'); if (log) log.innerHTML = ''; }
 function unoCloseModal() { document.getElementById('uno-modal').style.display = 'none'; unoRoomId = null; unoState = null; }
 function unoCardEl(card, idx, clickable) {
   const el = document.createElement('div');
@@ -2849,7 +2856,9 @@ function unoCardEl(card, idx, clickable) {
 }
 function unoRender(state) {
   unoState = state;
-  document.getElementById('uno-room-info').textContent = '(' + state.players.length + '/' + state.settings.max_players + ' players, bet ' + state.settings.bet + ' $)';
+  const specTag = state.spectator ? ' [spectating]' : '';
+  const specCount = state.spectator_count ? ' · ' + state.spectator_count + ' watching' : '';
+  document.getElementById('uno-room-info').textContent = '(' + state.players.length + '/' + state.settings.max_players + ' players · bet ' + state.settings.bet + ' $ · pot ' + (state.pool || 0) + ' $' + specCount + specTag + ')';
   const opEl = document.getElementById('uno-opponents');
   opEl.innerHTML = '';
   state.players.forEach((p, i) => {
@@ -2867,9 +2876,9 @@ function unoRender(state) {
   if (state.phase === 'lobby') {
     dis.style.background = '#222'; dis.style.color = '#fff'; dis.textContent = '?';
     turnInfo.textContent = 'Waiting in lobby. Creator: ' + state.creator;
-    startBtn.style.display = (username && state.creator && username.toLowerCase() === state.creator.toLowerCase() && state.players.length >= 2) ? '' : 'none';
+    startBtn.style.display = (!state.spectator && username && state.creator && username.toLowerCase() === state.creator.toLowerCase() && state.players.length >= 2) ? '' : 'none';
     drawBtn.style.display = 'none';
-    document.getElementById('uno-hand').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">Cards dealt when the game starts.</div>';
+    document.getElementById('uno-hand').innerHTML = state.spectator ? '<div style="color:var(--text-muted);font-size:11px;">Spectating - the game has not started.</div>' : '<div style="color:var(--text-muted);font-size:11px;">Cards dealt when the game starts.</div>';
     return;
   }
   startBtn.style.display = 'none';
@@ -2884,14 +2893,42 @@ function unoRender(state) {
     dis.style.background = UNO_COLORS[state.current_color] || UNO_COLORS[top.color] || '#222';
     dis.textContent = UNO_LABELS[top.value] || top.value;
   }
-  const isMyTurn = state.current === state.my_index;
   const cur = state.players[state.current];
-  turnInfo.textContent = isMyTurn ? ('Your turn' + (state.pending_draws ? ' — draw ' + state.pending_draws : '')) : ('Turn: ' + cur.name + (state.pending_draws ? ' (pending +' + state.pending_draws + ')' : ''));
-  drawBtn.style.display = isMyTurn ? '' : 'none';
   const handEl = document.getElementById('uno-hand');
   handEl.innerHTML = '';
+  if (state.spectator) {
+    turnInfo.textContent = 'Spectating - Turn: ' + cur.name + (state.pending_draws ? ' (pending +' + state.pending_draws + ')' : '');
+    drawBtn.style.display = 'none';
+    handEl.innerHTML = '<div style="color:var(--text-muted);font-size:11px;text-align:center;">You are spectating. Players hands are hidden.</div>';
+    return;
+  }
+  const isMyTurn = state.current === state.my_index;
+  turnInfo.textContent = isMyTurn ? ('Your turn' + (state.pending_draws ? ' - draw ' + state.pending_draws : '')) : ('Turn: ' + cur.name + (state.pending_draws ? ' (pending +' + state.pending_draws + ')' : ''));
+  drawBtn.style.display = isMyTurn ? '' : 'none';
   state.my_hand.forEach((card, i) => handEl.appendChild(unoCardEl(card, i, isMyTurn)));
 }
+function unoAppendChat(msg) {
+  const log = document.getElementById('uno-chat-log');
+  if (!log) return;
+  const d = document.createElement('div');
+  const who = (msg.from || '?') + (msg.spectator ? ' [spec]' : '');
+  d.innerHTML = '<b style="color:' + (msg.spectator ? 'var(--text-muted)' : 'var(--accent)') + ';">' + esc(who) + ':</b> ' + esc(msg.text || '');
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+async function unoSay() {
+  const inp = document.getElementById('uno-chat-input');
+  const text = inp.value.trim();
+  if (!text || !unoRoomId) return;
+  inp.value = '';
+  try {
+    const r = await fetch(BACKEND + '/api/uno/say', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: unoRoomId, text }) });
+    const d = await r.json();
+    if (d.error) unoAppendChat({ from: 'system', text: d.error, spectator: true });
+  } catch {}
+}
+document.getElementById('btn-uno-say').onclick = unoSay;
+document.getElementById('uno-chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') unoSay(); });
 async function unoCall(path, body) {
   try {
     const r = await fetch(BACKEND + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
@@ -2922,13 +2959,25 @@ document.getElementById('btn-uno-list').onclick = async () => {
     d.rooms.forEach(rm => {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 8px;background:var(--bg-elevated);border-radius:4px;';
-      row.innerHTML = '<span>' + esc(rm.creator) + ' — ' + rm.players.length + '/' + rm.max_players + ' · ' + rm.bet + ' $' + (rm.stacking ? ' · stack' : '') + '</span>';
-      const btn = document.createElement('button'); btn.className = 'win-btn'; btn.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:3px 8px;'; btn.textContent = 'Join';
-      btn.onclick = async () => {
-        const dd = await unoCall('/api/uno/join', { room_id: rm.room_id });
+      const phaseTag = rm.phase === 'playing' ? ' [in progress]' : '';
+      const specTag = rm.spectators ? ' · ' + rm.spectators + ' watching' : '';
+      row.innerHTML = '<span>' + esc(rm.creator) + ' - ' + rm.players.length + '/' + rm.max_players + ' · pot ' + (rm.pool || 0) + ' $' + (rm.stacking ? ' · stack' : '') + specTag + phaseTag + '</span>';
+      const btnRow = document.createElement('div'); btnRow.style.cssText = 'display:flex;gap:4px;';
+      if (rm.phase === 'lobby') {
+        const join = document.createElement('button'); join.className = 'win-btn'; join.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:3px 8px;'; join.textContent = 'Join';
+        join.onclick = async () => {
+          const dd = await unoCall('/api/uno/join', { room_id: rm.room_id });
+          if (dd && dd.state) { unoRoomId = rm.room_id; unoOpenModal(); }
+        };
+        btnRow.appendChild(join);
+      }
+      const spec = document.createElement('button'); spec.className = 'win-btn'; spec.style.cssText = 'background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:3px 8px;border:1px solid var(--border);'; spec.textContent = 'Spectate';
+      spec.onclick = async () => {
+        const dd = await unoCall('/api/uno/spectate', { room_id: rm.room_id });
         if (dd && dd.state) { unoRoomId = rm.room_id; unoOpenModal(); }
       };
-      row.appendChild(btn);
+      btnRow.appendChild(spec);
+      row.appendChild(btnRow);
       list.appendChild(row);
     });
   } catch { list.innerHTML = '<div style="color:var(--red);">Failed to load.</div>'; }
@@ -2936,7 +2985,10 @@ document.getElementById('btn-uno-list').onclick = async () => {
 document.getElementById('btn-uno-start-game').onclick = () => unoCall('/api/uno/start', { room_id: unoRoomId });
 document.getElementById('btn-uno-draw').onclick = () => unoCall('/api/uno/draw', { room_id: unoRoomId });
 document.getElementById('btn-uno-leave').onclick = async () => {
-  if (unoRoomId) await fetch(BACKEND + '/api/uno/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: unoRoomId }) });
+  if (unoRoomId) {
+    const path = (unoState && unoState.spectator) ? '/api/uno/unspectate' : '/api/uno/leave';
+    await fetch(BACKEND + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: unoRoomId }) });
+  }
   unoCloseModal();
 };
 async function unoPlayCard(idx) {
@@ -4047,6 +4099,9 @@ function connectSocial() {
       applyPbState();
       const fromName = msg.from;
       showDmToast('PlaceBucks', `+${msg.amount} $ from ${fromName}`, () => openDm(fromName));
+    }
+    if (msg.type === 'uno_chat' && msg.msg) {
+      if (unoRoomId === msg.room_id) unoAppendChat(msg.msg);
     }
     if (msg.type === 'uno_state' && msg.state) {
       if (unoRoomId === msg.state.room_id || !unoRoomId) {
