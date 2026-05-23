@@ -2724,7 +2724,13 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
     draw();
   }
   function flap() {
-    if (!alive) { reset(); return; }
+    if (!alive) {
+      reset();
+      // After death the animation loop had stopped — kick it back on.
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(step);
+      return;
+    }
     if (!started) started = true;
     bird.vy = FLAP;
   }
