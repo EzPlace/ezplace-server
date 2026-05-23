@@ -425,13 +425,15 @@
   </div>
   <div id="bottom-bar" style="display:flex;align-items:stretch;gap:8px;padding:6px 8px;background:var(--bg-secondary);border-top:1px solid var(--border);flex-shrink:0;">
     <div id="color-picker" style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-      <canvas id="color-wheel" width="80" height="80" style="touch-action:none;cursor:crosshair;border-radius:50%;"></canvas>
-      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;height:80px;">
-        <span style="font-size:8px;color:var(--text-muted);">+</span>
-        <input id="color-lightness" type="range" min="0" max="100" value="50" style="writing-mode:bt-lr;-webkit-appearance:slider-vertical;width:20px;flex:1;accent-color:var(--accent);" orient="vertical">
-        <span style="font-size:8px;color:var(--text-muted);">-</span>
+      <div id="wheel-group" style="display:none;align-items:center;gap:6px;">
+        <canvas id="color-wheel" width="80" height="80" style="touch-action:none;cursor:crosshair;border-radius:50%;"></canvas>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px;height:80px;">
+          <span style="font-size:8px;color:var(--text-muted);">+</span>
+          <input id="color-lightness" type="range" min="0" max="100" value="50" style="writing-mode:bt-lr;-webkit-appearance:slider-vertical;appearance:slider-vertical;width:20px;flex:1;accent-color:var(--accent);" orient="vertical">
+          <span style="font-size:8px;color:var(--text-muted);">-</span>
+        </div>
+        <div id="color-preview-snap" title="Color used" style="width:32px;height:32px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);align-self:center;"></div>
       </div>
-      <div id="color-preview-snap" title="Color used" style="width:32px;height:32px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);align-self:center;"></div>
       <button id="btn-undo" title="Undo last placement (Ctrl+Z)" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">&#x21B6; Undo</button>
       <select id="brush-size-select" class="win-input" style="display:none;font-size:11px;padding:2px 4px;align-self:center;">
         <option value="1">1x1</option>
@@ -456,6 +458,8 @@
     <div class="section-title">Your Lobbies</div>
     <div class="lobby-list" id="my-lobbies"></div>
     <div id="clan-invite-banner" style="display:none;width:100%;max-width:480px;margin:8px 0 0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(124,92,252,0.4);"></div>
+    <div class="section-title">Top Placers (All Lobbies)</div>
+    <div id="global-lb" class="lobby-list" style="font-size:12px;"></div>
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
       <span>Clans</span>
       <button id="btn-create-clan" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--accent);color:#fff;font-weight:700;">+ Create Clan</button>
@@ -472,9 +476,9 @@
       <label><input type="checkbox" id="create-public" checked> Public</label>
       <label><input type="checkbox" id="create-whitelist"> Whitelist</label>
       <select id="create-size" class="win-input" style="width:auto;padding:5px 8px;">
-        <option value="256x256">256x256</option>
-        <option value="512x512">512x512</option>
-        <option value="1024x1024">1024x1024</option>
+        <option value="256x256">256x256 (free)</option>
+        <option value="512x512">512x512 (10 🪙)</option>
+        <option value="1024x1024">1024x1024 (20 🪙)</option>
       </select>
       <label style="font-size:11px;color:#333;">CD: <input id="create-cooldown" class="win-input" type="number" min="0" max="60" step="0.5" value="0" style="width:50px;">s</label>
       <button id="btn-create-lobby" class="win-btn">Create</button>
@@ -520,6 +524,27 @@
       <div id="clan-manage-pending" style="display:flex;flex-direction:column;gap:6px;"></div>
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Members</div>
       <div id="clan-manage-members" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+  </div>
+</div>
+
+<div id="shop-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
+  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:420px;max-width:100%;max-height:85vh;display:flex;flex-direction:column;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;font-size:14px;">🪙 PlaceBucks Shop &mdash; you have <span id="shop-balance" style="color:var(--gold);">0</span></div>
+      <button id="btn-shop-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
+    </div>
+    <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
+      <div style="font-size:11px;color:var(--text-muted);">You earn 1 🪙 per 100 pixels placed.</div>
+      <div id="shop-item-wheel" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">Custom Color Wheel</div><div style="font-size:11px;color:var(--text-muted);">Unlock the color wheel + lightness slider so you can pick any shade (snapped to the nearest palette color).</div></div><button class="win-btn shop-buy" data-item="custom_wheel" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">5 🪙</button></div>
+      <div id="shop-item-vip" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">VIP Rank</div><div style="font-size:11px;color:var(--text-muted);">Adds a [VIP] gold tag to your name in chat.</div></div><button class="win-btn shop-buy" data-item="vip" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">50 🪙</button></div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Transfer PlaceBucks</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input id="pb-xfer-to" class="win-input" type="text" placeholder="Recipient username" style="flex:1;" maxlength="20">
+        <input id="pb-xfer-amt" class="win-input" type="number" placeholder="Amount" min="1" style="width:90px;">
+        <button id="btn-pb-xfer" class="win-btn" style="background:var(--accent);color:#fff;">Send</button>
+      </div>
+      <div id="shop-msg" style="font-size:11px;color:var(--text-muted);min-height:14px;"></div>
     </div>
   </div>
 </div>
@@ -611,6 +636,7 @@
   </div>
   <div id="user-bar">
     <span class="user-name" id="user-display"></span>
+    <span id="pb-balance" title="PlaceBucks — earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;cursor:pointer;">🪙 0</span>
     <button id="btn-logout" class="win-btn">Logout</button>
   </div>
   <div id="guest-bar">
@@ -2455,6 +2481,100 @@ function showLoggedIn() {
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
   if (username.toLowerCase() === 'toothpaste') { document.getElementById('admin-tab-btn').style.display = 'block'; document.getElementById('fake-admin-section').style.display = ''; }
   connectSocial();
+  refreshMe();
+}
+
+// PlaceBucks balance + purchases. Refreshed on login and on each pb_update WS push.
+let myBalance = 0;
+let myPurchases = {};
+let myUnlimited = false;
+function applyPbState() {
+  const el = document.getElementById('pb-balance');
+  if (el) el.textContent = myUnlimited ? '🪙 ∞' : ('🪙 ' + myBalance);
+  // Show/hide the custom color wheel based on the purchase
+  const wg = document.getElementById('wheel-group');
+  if (wg) wg.style.display = (myUnlimited || myPurchases.custom_wheel) ? 'flex' : 'none';
+}
+async function refreshMe() {
+  if (!authToken) return;
+  try {
+    const r = await fetch(BACKEND + '/api/me', { headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) return;
+    myBalance = d.balance || 0;
+    myPurchases = d.purchases || {};
+    myUnlimited = !!d.unlimited;
+    applyPbState();
+  } catch {}
+}
+
+// === Shop modal ===
+function openShop() {
+  if (!authToken) { alert('Log in to use the shop.'); return; }
+  document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance;
+  document.getElementById('shop-msg').textContent = '';
+  // Mark already-owned items
+  document.querySelectorAll('#shop-modal .shop-buy').forEach(b => {
+    const item = b.dataset.item;
+    if (myPurchases[item] || myUnlimited) { b.textContent = 'Owned'; b.disabled = true; b.style.background = 'var(--bg-elevated)'; b.style.color = 'var(--text-muted)'; }
+  });
+  document.getElementById('shop-modal').style.display = 'flex';
+}
+document.getElementById('pb-balance').onclick = openShop;
+document.getElementById('btn-shop-close').onclick = () => { document.getElementById('shop-modal').style.display = 'none'; };
+document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
+  btn.onclick = async () => {
+    const item = btn.dataset.item;
+    const msg = document.getElementById('shop-msg');
+    msg.textContent = 'Buying...';
+    try {
+      const r = await fetch(BACKEND + '/api/shop/buy', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ item }) });
+      const d = await r.json();
+      if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return; }
+      msg.textContent = 'Purchase complete!'; msg.style.color = '#22c55e';
+      myBalance = d.balance || 0;
+      myPurchases = d.purchases || myPurchases;
+      applyPbState();
+      openShop(); // refresh button states
+    } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+  };
+});
+document.getElementById('btn-pb-xfer').onclick = async () => {
+  const to = document.getElementById('pb-xfer-to').value.trim();
+  const amount = parseInt(document.getElementById('pb-xfer-amt').value);
+  const msg = document.getElementById('shop-msg');
+  if (!to || !amount || amount < 1) { msg.textContent = 'Enter recipient and a positive amount.'; msg.style.color = 'var(--red)'; return; }
+  msg.textContent = 'Sending...';
+  try {
+    const r = await fetch(BACKEND + '/api/pb/transfer', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ to, amount }) });
+    const d = await r.json();
+    if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return; }
+    msg.textContent = `Sent ${amount} 🪙 to ${to}`; msg.style.color = '#22c55e';
+    myBalance = d.balance || 0; applyPbState();
+    document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance;
+    document.getElementById('pb-xfer-to').value = '';
+    document.getElementById('pb-xfer-amt').value = '';
+  } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+};
+
+// === Global leaderboard on home page ===
+async function loadGlobalLeaderboard() {
+  const el = document.getElementById('global-lb');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:6px;">Loading...</div>';
+  try {
+    const r = await fetch(BACKEND + '/api/global-leaderboard');
+    const d = await r.json();
+    el.innerHTML = '';
+    if (!d.entries || !d.entries.length) { el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:6px;">No placements yet.</div>'; return; }
+    d.entries.forEach((p, i) => {
+      const row = document.createElement('div');
+      row.className = 'lb-row';
+      const medal = i === 0 ? ' 🥇' : i === 1 ? ' 🥈' : i === 2 ? ' 🥉' : '';
+      row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="lb-name">${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
+      el.appendChild(row);
+    });
+  } catch { el.innerHTML = '<div style="color:var(--red);font-size:11px;padding:6px;">Failed to load.</div>'; }
 }
 
 function logout() {
@@ -2634,7 +2754,8 @@ function renderClanView(clan, isOwner, myClanFull) {
     const overriddenDot = r.overridden ? '<span title="Custom rank set by owner" style="font-size:9px;color:var(--text-muted);">●</span>' : '';
     const editBtn = isOwner ? `<button class="win-btn edit-rank-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;">Edit Rank</button>` : '';
     const xferBtn = (isOwner && !isOwnerOfClan) ? `<button class="win-btn xfer-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;background:var(--bg-elevated);">Make Owner</button>` : '';
-    row.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;">${esc(name)}</span><span style="color:${r.color};font-size:10px;font-weight:700;">[${esc(r.label)}]</span>${overriddenDot}${ownerTag}</div><div style="display:flex;gap:4px;">${editBtn}${xferBtn}</div>`;
+    const kickBtn = (isOwner && !isOwnerOfClan) ? `<button class="win-btn kick-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;background:var(--red);color:#fff;">Kick</button>` : '';
+    row.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;">${esc(name)}</span><span style="color:${r.color};font-size:10px;font-weight:700;">[${esc(r.label)}]</span>${overriddenDot}${ownerTag}</div><div style="display:flex;gap:4px;flex-wrap:wrap;">${editBtn}${xferBtn}${kickBtn}</div>`;
     if (isOwner) {
       row.querySelector('.edit-rank-btn').onclick = () => openMemberRankEditor(row, name, r);
       const xb = row.querySelector('.xfer-btn');
@@ -2646,6 +2767,17 @@ function renderClanView(clan, isOwner, myClanFull) {
           if (dd.error) { alert(dd.error); return; }
           document.getElementById('clan-manage-modal').style.display = 'none';
           currentManagingClan = null;
+          loadClans();
+        } catch { alert('Server offline.'); }
+      };
+      const kb = row.querySelector('.kick-btn');
+      if (kb) kb.onclick = async () => {
+        if (!confirm(`Remove ${name} from the clan? They will lose the clan tag.`)) return;
+        try {
+          const res = await fetch(BACKEND + '/api/clans/remove-member', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: currentManagingClan, username: name }) });
+          const dd = await res.json();
+          if (dd.error) { alert(dd.error); return; }
+          refreshClanModal();
           loadClans();
         } catch { alert('Server offline.'); }
       };
@@ -2753,6 +2885,8 @@ document.getElementById('btn-clan-create-submit').onclick = async () => {
 
 async function loadLobbies() {
   loadClans();
+  loadGlobalLeaderboard();
+  if (authToken) refreshMe();
   lobbyScreen.style.display = 'flex';
   document.getElementById('btn-leave-lobby').style.display = 'none';
   document.getElementById('btn-export-grid').style.display = 'none';
@@ -3151,6 +3285,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank, msg.clan, msg.reply_to); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
+      case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBucks', '+' + (myBalance - wasBal) + ' 🪙 earned!'); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
@@ -3307,6 +3442,22 @@ function connectSocial() {
       updateDmTabBadge();
       const activeTab = document.querySelector('.sidebar-tab.active');
       if (activeTab && activeTab.dataset.tab === 'msgs-tab') loadMsgList();
+    }
+    if (msg.type === 'pb_update') {
+      myBalance = msg.balance || 0;
+      myPurchases = msg.purchases || myPurchases;
+      applyPbState();
+    }
+    if (msg.type === 'pb_received') {
+      myBalance += (msg.amount || 0);
+      applyPbState();
+      showDmToast('PlaceBucks', `+${msg.amount} 🪙 from ${msg.from}`);
+    }
+    if (msg.type === 'clan_removed') {
+      addSystemMsg(`You were removed from clan "${msg.clan_name}" by ${msg.by}.`);
+    }
+    if (msg.type === 'clan_owner_transferred') {
+      addSystemMsg(`You are now the owner of clan "${msg.clan_name}".`);
     }
     if (msg.type === 'dm_seen_by') {
       // The peer read our messages to them
