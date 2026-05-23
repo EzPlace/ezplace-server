@@ -3258,6 +3258,7 @@ async function loadEconomyStats() {
   const arrow = delta > 0 ? ' ▲' : (delta < 0 ? ' ▼' : '');
   totalEl.style.color = color;
   totalEl.textContent = total.toLocaleString() + ' $' + arrow + (delta ? ' (' + (delta > 0 ? '+' : '') + delta.toLocaleString() + ')' : '');
+  totalEl.dataset.last = String(total);
   // Draw graph: history with the current 'total' appended as the latest point
   const points = hist.map(h => ({ ts: h.ts, v: Number(h.total || 0) }));
   points.push({ ts: Math.floor(Date.now() / 1000), v: total });
@@ -4176,6 +4177,19 @@ function connectSocial() {
       myBalance = msg.balance || 0;
       myPurchases = msg.purchases || myPurchases;
       applyPbState();
+    }
+    if (msg.type === 'economy_total') {
+      const totalEl = document.getElementById('economy-total');
+      if (totalEl) {
+        const total = Number(msg.total || 0);
+        const prev = Number(totalEl.dataset.last || total);
+        const delta = total - prev;
+        const color = delta > 0 ? '#22c55e' : (delta < 0 ? 'var(--red)' : 'var(--text-primary)');
+        const arrow = delta > 0 ? ' ▲' : (delta < 0 ? ' ▼' : '');
+        totalEl.style.color = color;
+        totalEl.textContent = total.toLocaleString() + ' $' + arrow + (delta ? ' (' + (delta > 0 ? '+' : '') + delta.toLocaleString() + ')' : '');
+        totalEl.dataset.last = String(total);
+      }
     }
     if (msg.type === 'pb_received') {
       myBalance += (msg.amount || 0);
