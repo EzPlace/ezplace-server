@@ -3231,6 +3231,16 @@ document.getElementById('btn-pb-xfer').onclick = async () => {
   } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
 };
 
+let economyPollTimer = null;
+function startEconomyPoll() {
+  stopEconomyPoll();
+  loadEconomyStats();
+  economyPollTimer = setInterval(loadEconomyStats, 5000);
+}
+function stopEconomyPoll() {
+  if (economyPollTimer) { clearInterval(economyPollTimer); economyPollTimer = null; }
+}
+
 async function loadEconomyStats() {
   const totalEl = document.getElementById('economy-total');
   const canvas = document.getElementById('economy-graph');
@@ -3614,7 +3624,7 @@ document.getElementById('btn-clan-create-submit').onclick = async () => {
 async function loadLobbies() {
   loadClans();
   loadGlobalLeaderboard();
-  loadEconomyStats();
+  startEconomyPoll();
   if (authToken) refreshMe();
   lobbyScreen.style.display = 'flex';
   document.getElementById('btn-leave-lobby').style.display = 'none';
@@ -3683,6 +3693,7 @@ function joinLobby(id, name, isPublic) {
     isGuest = false;
   }
   currentLobbyId = id; currentLobbyName = name;
+  stopEconomyPoll();
   lobbyScreen.style.display = 'none';
   document.getElementById('btn-leave-lobby').style.display = '';
   document.getElementById('btn-export-grid').style.display = '';
