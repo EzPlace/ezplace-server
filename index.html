@@ -2965,7 +2965,7 @@ function rpsSetMsg(t, color) { const m = document.getElementById('rps-msg'); m.t
 function rpsSetResult(t) { document.getElementById('rps-result').textContent = t; }
 function rpsApplyBalance(d) { if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; } }
 function rpsButtonsEnabled(on) { document.querySelectorAll('.rps-go').forEach(b => b.disabled = !on); }
-function rpsCancelBtn(show) { document.getElementById('btn-rps-cancel').style.display = show ? '' : 'none'; }
+function rpsCancelBtn(show) { const b = document.getElementById('btn-rps-cancel'); if (b) b.style.display = show ? '' : 'none'; }
 function rpsStopPolling() { if (rpsPollTimer) { clearInterval(rpsPollTimer); rpsPollTimer = null; } }
 function rpsRenderDone(d) {
   rpsStopPolling(); rpsStopCountdown(); rpsGameId = null; rpsButtonsEnabled(true); rpsCancelBtn(false);
@@ -3079,17 +3079,21 @@ document.getElementById('btn-rps-challenge').onclick = async () => {
     rpsSetMsg('Challenge sent. Waiting up to ' + d.expires_in + 's for response.', 'var(--text-muted)');
   } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
 };
-document.getElementById('btn-rps-cancel').onclick = async () => {
-  try {
-    const r = await fetch(BACKEND + '/api/casino/rps/cancel', { method: 'POST', headers: { Authorization: authToken } });
-    const d = await r.json();
-    if (d.error) { rpsSetMsg(d.error, 'var(--red)'); return; }
-    rpsApplyBalance(d);
-    rpsSetResult('Pick a hand to start');
-    rpsSetMsg('Queue cancelled, refunded ' + d.refunded + ' $.', '#22c55e');
-    rpsCancelBtn(false); rpsButtonsEnabled(true);
-  } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
-};
+(function bindRpsCancel() {
+  const b = document.getElementById('btn-rps-cancel');
+  if (!b) return;
+  b.onclick = async () => {
+    try {
+      const r = await fetch(BACKEND + '/api/casino/rps/cancel', { method: 'POST', headers: { Authorization: authToken } });
+      const d = await r.json();
+      if (d.error) { rpsSetMsg(d.error, 'var(--red)'); return; }
+      rpsApplyBalance(d);
+      rpsSetResult('Pick a hand to start');
+      rpsSetMsg('Queue cancelled, refunded ' + d.refunded + ' $.', '#22c55e');
+      rpsCancelBtn(false); rpsButtonsEnabled(true);
+    } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
+  };
+})();
 
 async function bjCall(action, body) {
   const msg = document.getElementById('bj-msg');
