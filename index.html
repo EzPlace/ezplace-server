@@ -6,33 +6,33 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>EzPlace</title>
 <style>
-  /* === MODERN LIGHT THEME ===
-     Warm off-white background, clean white cards, coral primary, teal secondary.
-     Modern feel but distinctly NOT the prior purple/dark "SaaS-AI" look. */
+  /* === WARM DARK THEME ===
+     Modern dark, but a warm slate (not pure black, no purple). Coral + teal
+     accents keep the modern feel without the old SaaS-purple vibe. */
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
   :root {
-    --bg-primary: #f5f2eb;     /* warm off-white page */
-    --bg-secondary: #fbf9f4;
-    --bg-tertiary: #ffffff;    /* card */
-    --bg-elevated: #ffffff;
-    --bg-hover: #f0ede5;
-    --border: #e5dfd1;         /* soft warm tan rule */
-    --border-light: #d4cdb9;
-    --text-primary: #1c1c1c;
-    --text-secondary: #5a5550;
-    --text-muted: #968e7f;
+    --bg-primary: #1a1916;     /* warm near-black */
+    --bg-secondary: #22201c;
+    --bg-tertiary: #2a2723;
+    --bg-elevated: #322f2a;
+    --bg-hover: #3a3731;
+    --border: #3f3b34;
+    --border-light: #524d44;
+    --text-primary: #ece6d8;   /* warm off-white */
+    --text-secondary: #b3ad9e;
+    --text-muted: #7d7768;
     --accent: #ee5a52;         /* warm coral */
-    --accent-hover: #d44640;
-    --accent-dim: rgba(238,90,82,0.13);
-    --green: #16a34a;
-    --red: #dc2626;
-    --yellow: #ea9100;
-    --gold: #c97f1d;
-    --teal: #14b8a6;           /* secondary accent */
-    --surface: #ffffff;
-    --input-bg: #fbf9f4;
-    --scrollbar: #d4cdb9;
-    --scrollbar-hover: #b8b09c;
+    --accent-hover: #ff7068;
+    --accent-dim: rgba(238,90,82,0.18);
+    --green: #5ec27a;
+    --red: #f06464;
+    --yellow: #f0b432;
+    --gold: #e6b04d;
+    --teal: #2dd4bf;           /* secondary accent */
+    --surface: #25221e;
+    --input-bg: #1f1d19;
+    --scrollbar: #3f3b34;
+    --scrollbar-hover: #524d44;
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
@@ -323,7 +323,7 @@
   #mobile-chat-overlay { display: none; }
   @keyframes chatBubbleIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes chatBubbleOut { from { opacity: 1; } to { opacity: 0; transform: translateY(-4px); } }
-  .mobile-chat-bubble { background: rgba(255,255,255,0.92); backdrop-filter: blur(6px); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 6px 10px; font-size: 12px; color: var(--text-primary); animation: chatBubbleIn 0.2s ease; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-chat-bubble { background: rgba(22,22,29,0.88); backdrop-filter: blur(6px); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 6px 10px; font-size: 12px; color: var(--text-primary); animation: chatBubbleIn 0.2s ease; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mobile-chat-bubble.fading { animation: chatBubbleOut 0.4s ease forwards; }
   .mobile-chat-bubble .mcb-name { font-weight: 700; color: var(--accent); margin-right: 4px; }
   .mobile-chat-bubble .mcb-name.owner { color: var(--red); }
@@ -426,7 +426,7 @@
       <button id="zoom-in" class="win-btn">+</button>
       <button id="zoom-out" class="win-btn">&minus;</button>
     </div>
-    <div id="tip-banner" style="position:absolute;right:10px;top:calc(50% + 60px);z-index:4;max-width:260px;background:rgba(255,255,255,0.94);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius-md);padding:8px 12px;font-size:11px;color:var(--text-primary);box-shadow:0 4px 14px rgba(0,0,0,0.45);pointer-events:none;transition:opacity 0.4s ease;line-height:1.4;"></div>
+    <div id="tip-banner" style="position:absolute;left:0;right:0;bottom:0;z-index:4;background:rgba(22,22,29,0.85);border-top:1px solid var(--accent);padding:6px 14px;font-size:11px;color:var(--text-primary);text-align:center;letter-spacing:0.3px;pointer-events:none;transition:opacity 0.4s ease;line-height:1.4;backdrop-filter:blur(4px);"></div>
   </div>
   <div id="bottom-bar" style="display:flex;align-items:stretch;gap:8px;padding:6px 8px;background:var(--bg-secondary);border-top:1px solid var(--border);flex-shrink:0;">
     <div id="color-picker" style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
@@ -1147,7 +1147,7 @@ _renderImpl = function() {
     fitViewToGrid();
   }
   const w = cvs.width, h = cvs.height;
-  ctx.fillStyle = einkMode ? '#fff' : '#e5dfd1'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = einkMode ? '#fff' : '#1f1d19'; ctx.fillRect(0, 0, w, h);
   const left = camX - (w / 2) / zoom, top = camY - (h / 2) / zoom;
   const startX = Math.max(0, Math.floor(left)), startY = Math.max(0, Math.floor(top));
   const endX = Math.min(GRID_W, Math.ceil(left + w / zoom)), endY = Math.min(GRID_H, Math.ceil(top + h / zoom));
@@ -2197,7 +2197,7 @@ function showTypingSpy(user, draft) {
   let s = typingSpyState.get(user.toLowerCase());
   if (!s) {
     const el = document.createElement('div');
-    el.style.cssText = 'background:rgba(255,255,255,0.96);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:5px 9px;font-size:11px;color:var(--text-primary);box-shadow:0 4px 14px rgba(0,0,0,0.18);';
+    el.style.cssText = 'background:rgba(22,22,29,0.92);border:1px solid var(--accent);border-radius:6px;padding:5px 9px;font-size:11px;color:var(--text-primary);box-shadow:0 4px 14px rgba(0,0,0,0.5);';
     typingSpyBox.appendChild(el);
     s = { el, timer: null };
     typingSpyState.set(user.toLowerCase(), s);
