@@ -401,7 +401,8 @@
       <button id="btn-import-grid" class="win-btn" style="display:none">Import</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
       <button id="btn-leave-lobby" class="win-btn" style="display:none">Leave Lobby</button>
-      <div id="online">Lobby: <span id="online-count">0</span> | All: <span id="total-online">0</span></div>
+      <div id="online" title="Click to see who is online" style="cursor:pointer;">Lobby: <span id="online-count">0</span> | All: <span id="total-online">0</span></div>
+      <div id="online-panel" style="display:none;position:fixed;top:52px;right:14px;z-index:70;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.6);padding:10px 12px;min-width:220px;max-width:280px;max-height:420px;overflow-y:auto;font-size:12px;"></div>
       <div id="ping-display" style="font-size:10px;color:#ccc;">Ping: <span id="ping-ms">--</span>ms</div>
     </div>
   </div>
@@ -422,6 +423,7 @@
       <button id="zoom-in" class="win-btn">+</button>
       <button id="zoom-out" class="win-btn">&minus;</button>
     </div>
+    <div id="tip-banner" style="position:absolute;right:10px;top:calc(50% + 60px);z-index:4;max-width:260px;background:rgba(22,22,29,0.88);border:1px solid var(--accent);border-radius:var(--radius-md);padding:8px 12px;font-size:11px;color:var(--text-primary);box-shadow:0 4px 14px rgba(0,0,0,0.45);pointer-events:none;transition:opacity 0.4s ease;line-height:1.4;"></div>
   </div>
   <div id="bottom-bar" style="display:flex;align-items:stretch;gap:8px;padding:6px 8px;background:var(--bg-secondary);border-top:1px solid var(--border);flex-shrink:0;">
     <div id="color-picker" style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
@@ -903,6 +905,27 @@ const safeStore = (function () {
     };
   }
 })();
+
+// ============================================================
+// TIPS BANNER — edit this list freely. One tip is shown at a
+// time below the zoom controls, rotating every 10 seconds.
+// Add, remove, reword anything you like.
+// ============================================================
+const TIPS = [
+  "DID YOU KNOW? You can create clans, you can join them and create them on the homepage.",
+  "DID YOU KNOW? You earn 1 PLACEBUX for every 100 pixels you place.",
+  "DID YOU KNOW? Press Ctrl+Z to undo your last placement (up to 30).",
+  "DID YOU KNOW? You can reply to chats by clicking the ↩ next to the timestamp.",
+  "DID YOU KNOW? Use @username in chat to mention someone — they'll get highlighted.",
+  "DID YOU KNOW? On mobile, two-finger pan works while drag-to-paint is on.",
+  "DID YOU KNOW? Private lobbies last 168 hours (1 week) after inactivity; public ones 48 hours.",
+  "DID YOU KNOW? Click on a clan card to see its members and their ranks.",
+  "DID YOU KNOW? Owners can transfer clan ownership or kick members from the manage modal.",
+  "DID YOU KNOW? You can send images in DMs and group chats.",
+  "DID YOU KNOW? The 24h flashback button replays the last day of placements on the current lobby.",
+];
+const TIP_ROTATE_MS = 10000;
+// ============================================================
 
 let GRID_W = 256, GRID_H = 256;
 const COLORS = [
@@ -4143,6 +4166,52 @@ function initView() {
 initView();
 addSystemMsg('Welcome to EzPlace! Log in to place pixels, or join a public lobby as guest to spectate.');
 addSystemMsg('Scroll to zoom. Right-click drag to pan.');
+
+// Online panel: shows who is currently in this lobby vs anywhere on the site.
+async function toggleOnlinePanel() {
+  const p = document.getElementById('online-panel');
+  if (p.style.display === 'block') { p.style.display = 'none'; return; }
+  p.innerHTML = '<div style="color:var(--text-muted);">Loading...</div>';
+  p.style.display = 'block';
+  // Lobby list comes from the live `lobbyUsers` (kept up to date via `online` WS msg)
+  const lobbyNames = [...lobbyUsers];
+  let allUsers = [];
+  try {
+    const r = await fetch(BACKEND + '/api/online-summary');
+    const d = await r.json();
+    allUsers = Array.isArray(d.users) ? d.users : [];
+  } catch {}
+  const meLow = (username || '').toLowerCase();
+  const fmt = (name) => `<div style="padding:3px 4px;border-radius:3px;${name.toLowerCase()===meLow?'background:var(--accent-dim);color:var(--accent);font-weight:700':''}">${esc(name)}</div>`;
+  p.innerHTML = `
+    <div style="font-weight:700;color:var(--accent);margin-bottom:4px;">Lobby (${lobbyNames.length})</div>
+    <div style="margin-bottom:8px;">${lobbyNames.length ? lobbyNames.map(fmt).join('') : '<div style="color:var(--text-muted);font-size:11px;">No one (or join a lobby)</div>'}</div>
+    <div style="font-weight:700;color:var(--accent);margin-bottom:4px;border-top:1px solid var(--border);padding-top:6px;">All Online (${allUsers.length})</div>
+    <div>${allUsers.length ? allUsers.map(fmt).join('') : '<div style="color:var(--text-muted);font-size:11px;">No one</div>'}</div>
+  `;
+}
+document.getElementById('online').onclick = (e) => { e.stopPropagation(); toggleOnlinePanel(); };
+document.addEventListener('click', (e) => {
+  const p = document.getElementById('online-panel');
+  if (p && p.style.display === 'block' && !p.contains(e.target)) p.style.display = 'none';
+});
+
+// Rotate the tips banner. Defined here so TIPS / TIP_ROTATE_MS at the top of
+// the script are the single source of truth for what to display.
+(function rotateTips() {
+  const el = document.getElementById('tip-banner');
+  if (!el || !TIPS.length) return;
+  let i = Math.floor(Math.random() * TIPS.length);
+  el.textContent = TIPS[i];
+  setInterval(() => {
+    el.style.opacity = '0';
+    setTimeout(() => {
+      i = (i + 1) % TIPS.length;
+      el.textContent = TIPS[i];
+      el.style.opacity = '1';
+    }, 400);
+  }, TIP_ROTATE_MS);
+})();
 (async () => {
   await selectBackend(); // pick primary or proxy before any API/WS traffic
   if (BACKEND_HOST && BACKEND_HOST !== BACKEND_CANDIDATES[0]) addSystemMsg('Primary server unreachable — connected via backup proxy.');
