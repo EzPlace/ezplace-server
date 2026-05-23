@@ -426,7 +426,7 @@
       <button id="zoom-in" class="win-btn">+</button>
       <button id="zoom-out" class="win-btn">&minus;</button>
     </div>
-    <div id="tip-banner" style="position:absolute;left:0;right:0;bottom:0;z-index:4;background:rgba(22,22,29,0.85);border-top:1px solid var(--accent);padding:6px 14px;font-size:11px;color:var(--text-primary);text-align:center;letter-spacing:0.3px;pointer-events:none;transition:opacity 0.4s ease;line-height:1.4;backdrop-filter:blur(4px);"></div>
+    <div id="tip-banner" style="position:absolute;left:0;right:0;bottom:0;z-index:4;background:rgba(22,22,29,0.85);border-top:1px solid var(--accent);padding:6px 30px 6px 14px;font-size:11px;color:var(--text-primary);text-align:center;letter-spacing:0.3px;transition:opacity 0.4s ease;line-height:1.4;backdrop-filter:blur(4px);"><span id="tip-text" style="pointer-events:none;"></span><button id="tip-close" title="Hide tips" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--text-muted);font-size:16px;font-weight:700;cursor:pointer;padding:0 6px;line-height:1;">&times;</button></div>
   </div>
   <div id="bottom-bar" style="display:flex;align-items:stretch;gap:8px;padding:6px 8px;background:var(--bg-secondary);border-top:1px solid var(--border);flex-shrink:0;">
     <div id="color-picker" style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
@@ -926,6 +926,7 @@ const TIPS = [
   "DID YOU KNOW? Owners can transfer clan ownership or kick members from the manage modal.",
   "DID YOU KNOW? You can send images in DMs and group chats.",
   "DID YOU KNOW? The 24h flashback button replays the last day of placements on the current lobby.",
+  "DID YOU KNOW? You pull no women."
 ];
 const TIP_ROTATE_MS = 10000;
 // ============================================================
@@ -1671,6 +1672,13 @@ function getTouchDist(t1, t2) {
 // Touch handlers: tap to place a pixel, single-finger drag pans (or paints if drag perm), two-finger pinch zooms.
 function updateModeBtnVisibility() {} // no-op kept so existing callers don't error
 
+// When drag-paint is on, the first finger of a two-finger pinch would paint
+// before the second finger landed. We delay the initial paint by a short
+// window so a second finger arriving can cancel it.
+let pendingTouchPaintTimer = null;
+function cancelPendingTouchPaint() {
+  if (pendingTouchPaintTimer) { clearTimeout(pendingTouchPaintTimer); pendingTouchPaintTimer = null; }
+}
 cvs.addEventListener('touchstart', e => {
   e.preventDefault();
   if (e.touches.length === 2) {
@@ -1680,7 +1688,8 @@ cvs.addEventListener('touchstart', e => {
     pinchStartMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     pinchCamX = camX; pinchCamY = camY;
     touchPanning = false;
-    // If a drag-paint was in progress, cancel it — second finger means pinch/pan.
+    // Second finger arrived — abort any pending first-finger paint.
+    cancelPendingTouchPaint();
     if (touchDrawing) { touchDrawing = false; touchDrawLastX = -1; touchDrawLastY = -1; }
   } else if (e.touches.length === 1) {
     touchStartX = e.touches[0].clientX;
@@ -1688,12 +1697,18 @@ cvs.addEventListener('touchstart', e => {
     const rect = cvs.getBoundingClientRect();
     const sx = touchStartX - rect.left, sy = touchStartY - rect.top;
     if (canDragPaint() && !forcePanMode && isOverGrid(sx, sy)) {
-      // Start drag-to-paint on touch (mirrors desktop mousedown behavior)
       const g = screenToGrid(sx, sy);
       touchDrawing = true;
       touchPanning = false;
       touchDrawLastX = g.x; touchDrawLastY = g.y;
-      tryPlacePixel(g.x, g.y);
+      // Defer the initial paint ~110ms. If a second finger lands in that window
+      // (pinch-to-pan), cancelPendingTouchPaint above kills it. If the finger
+      // moves during the window, the touchmove handler runs paint right away.
+      cancelPendingTouchPaint();
+      pendingTouchPaintTimer = setTimeout(() => {
+        pendingTouchPaintTimer = null;
+        if (touchDrawing) tryPlacePixel(g.x, g.y);
+      }, 110);
     } else {
       touchPanning = true;
       touchCamX = camX; touchCamY = camY;
@@ -1741,6 +1756,13 @@ let touchHandledRecently = 0;
 cvs.addEventListener('touchend', e => {
   e.preventDefault();
   if (touchDrawing && e.touches.length === 0) {
+    // If the user lifted before the 110ms delay fired, paint now (so a quick
+    // tap still places). The timer's own callback would no-op since we clear
+    // touchDrawing right after.
+    if (pendingTouchPaintTimer && touchDrawLastX >= 0) {
+      cancelPendingTouchPaint();
+      tryPlacePixel(touchDrawLastX, touchDrawLastY);
+    }
     touchHandledRecently = Date.now();
     touchDrawing = false;
     touchDrawLastX = -1; touchDrawLastY = -1;
@@ -1768,6 +1790,7 @@ cvs.addEventListener('touchend', e => {
 });
 
 cvs.addEventListener('touchcancel', e => {
+  cancelPendingTouchPaint();
   if (touchDrawing) { touchDrawing = false; touchDrawLastX = -1; touchDrawLastY = -1; }
   touchPanning = false;
 });
@@ -4202,16 +4225,24 @@ document.addEventListener('click', (e) => {
 // Rotate the tips banner. Defined here so TIPS / TIP_ROTATE_MS at the top of
 // the script are the single source of truth for what to display.
 (function rotateTips() {
-  const el = document.getElementById('tip-banner');
-  if (!el || !TIPS.length) return;
+  const bar = document.getElementById('tip-banner');
+  const text = document.getElementById('tip-text');
+  const closeBtn = document.getElementById('tip-close');
+  if (!bar || !text || !TIPS.length) return;
+  if (safeStore.getItem('ez_tips_hidden') === '1') { bar.style.display = 'none'; return; }
+  if (closeBtn) closeBtn.onclick = () => {
+    bar.style.display = 'none';
+    safeStore.setItem('ez_tips_hidden', '1');
+  };
   let i = Math.floor(Math.random() * TIPS.length);
-  el.textContent = TIPS[i];
+  text.textContent = TIPS[i];
   setInterval(() => {
-    el.style.opacity = '0';
+    if (bar.style.display === 'none') return;
+    bar.style.opacity = '0';
     setTimeout(() => {
       i = (i + 1) % TIPS.length;
-      el.textContent = TIPS[i];
-      el.style.opacity = '1';
+      text.textContent = TIPS[i];
+      bar.style.opacity = '1';
     }, 400);
   }, TIP_ROTATE_MS);
 })();
