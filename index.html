@@ -636,7 +636,8 @@
   </div>
   <div id="user-bar">
     <span class="user-name" id="user-display"></span>
-    <span id="pb-balance" title="PlaceBucks — earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;cursor:pointer;">🪙 0</span>
+    <span id="pb-balance" title="PlaceBucks — earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
+    <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
     <button id="btn-logout" class="win-btn">Logout</button>
   </div>
   <div id="guest-bar">
@@ -2490,7 +2491,7 @@ let myPurchases = {};
 let myUnlimited = false;
 function applyPbState() {
   const el = document.getElementById('pb-balance');
-  if (el) el.textContent = myUnlimited ? '🪙 ∞' : ('🪙 ' + myBalance);
+  if (el) el.textContent = myUnlimited ? 'PLACEBUX: ∞' : ('PLACEBUX: ' + myBalance);
   // Show/hide the custom color wheel based on the purchase
   const wg = document.getElementById('wheel-group');
   if (wg) wg.style.display = (myUnlimited || myPurchases.custom_wheel) ? 'flex' : 'none';
@@ -2520,7 +2521,7 @@ function openShop() {
   });
   document.getElementById('shop-modal').style.display = 'flex';
 }
-document.getElementById('pb-balance').onclick = openShop;
+document.getElementById('btn-shop').onclick = openShop;
 document.getElementById('btn-shop-close').onclick = () => { document.getElementById('shop-modal').style.display = 'none'; };
 document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
   btn.onclick = async () => {
