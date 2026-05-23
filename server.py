@@ -1732,7 +1732,7 @@ async def pb_transfer_handler(request):
     except: return web.json_response({"error": "Invalid amount"}, status=400)
     if amount <= 0: return web.json_response({"error": "Amount must be at least 1"}, status=400)
     if not target: return web.json_response({"error": "Recipient required"}, status=400)
-    if target.lower() == user.lower(): return web.json_response({"error": "Can't transfer to yourself"}, status=400)
+    if target.lower() == user.lower(): return web.json_response({"error": "you can't give money to yourself, you're not a bank"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return web.json_response({"error": "User not found"}, status=404)
     # Anti-exploit: rate limit by count AND total amount per minute
