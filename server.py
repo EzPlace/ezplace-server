@@ -2009,6 +2009,162 @@ async def casino_blackjack_handler(request):
         return web.json_response({"ok": True, "phase": "done", "player": _bj_view(game["player"]), "dealer": _bj_view(game["dealer"]), "player_score": psc, "dealer_score": dsc, "outcome": outcome, "winnings": winnings, "bet": game["bet"], "balance": get_pb(user)})
     return web.json_response({"error": "Unknown action"}, status=400)
 
+rps_queue = []   # [{"user", "bet", "joined_at"}] — waiting for an opponent at matching bet
+rps_games = {}   # {game_id: {"p1", "p2", "bet", "choices": {p1l: c|None, p2l: c|None}, "started_at"}}
+RPS_GAME_TIMEOUT = 30  # seconds before a no-show forfeits
+
+def _rps_beats(a, b):
+    return (a == "rock" and b == "scissors") or (a == "paper" and b == "rock") or (a == "scissors" and b == "paper")
+
+async def casino_rps_solo_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    try: amount = int(data.get("amount", 0))
+    except: return web.json_response({"error": "Invalid bet"}, status=400)
+    if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+    choice = (data.get("choice") or "").strip().lower()
+    if choice not in ("rock", "paper", "scissors"):
+        return web.json_response({"error": "Pick rock, paper, or scissors"}, status=400)
+    if not spend_pb(user, amount):
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    ai = secrets.choice(["rock", "paper", "scissors"])
+    if choice == ai:
+        outcome = "tie"; winnings = amount  # push
+    elif _rps_beats(choice, ai):
+        outcome = "win"; winnings = int(amount * 1.95)  # ~2.5% house edge
+    else:
+        outcome = "lose"; winnings = 0
+    if winnings > 0: credit_pb(user, winnings)
+    await save_place_bucks(); await push_pb_update(user)
+    await broadcast_casino_result(user, "RPS vs AI", amount, winnings, f"{choice} vs {ai}")
+    return web.json_response({"ok": True, "you": choice, "opponent": ai, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
+
+async def casino_rps_join_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    try: amount = int(data.get("amount", 0))
+    except: return web.json_response({"error": "Invalid bet"}, status=400)
+    if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+    ulow = user.lower()
+    # Already queued or in a game?
+    for q in rps_queue:
+        if q["user"].lower() == ulow:
+            return web.json_response({"error": "Already in queue"}, status=400)
+    for gid, g in rps_games.items():
+        if ulow in g["choices"]:
+            return web.json_response({"ok": True, "matched": True, "game_id": gid, "opponent": g["p2"] if g["p1"].lower() == ulow else g["p1"], "bet": g["bet"]})
+    if not spend_pb(user, amount):
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    # Find a waiting opponent at the same bet
+    opp_idx = next((i for i, q in enumerate(rps_queue) if q["bet"] == amount and q["user"].lower() != ulow), None)
+    if opp_idx is not None:
+        opp = rps_queue.pop(opp_idx)
+        gid = secrets.token_hex(6)
+        rps_games[gid] = {"p1": opp["user"], "p2": user, "bet": amount, "choices": {opp["user"].lower(): None, ulow: None}, "started_at": time.time()}
+        await save_place_bucks(); await push_pb_update(user)
+        await notify_social(opp["user"], {"type": "rps_matched", "game_id": gid, "opponent": user, "bet": amount})
+        return web.json_response({"ok": True, "matched": True, "game_id": gid, "opponent": opp["user"], "bet": amount, "balance": get_pb(user)})
+    rps_queue.append({"user": user, "bet": amount, "joined_at": time.time()})
+    await save_place_bucks(); await push_pb_update(user)
+    return web.json_response({"ok": True, "matched": False, "waiting": True, "bet": amount, "balance": get_pb(user)})
+
+async def casino_rps_cancel_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    ulow = user.lower()
+    for i, q in enumerate(rps_queue):
+        if q["user"].lower() == ulow:
+            refund = q["bet"]
+            rps_queue.pop(i)
+            credit_pb(user, refund)
+            await save_place_bucks(); await push_pb_update(user)
+            return web.json_response({"ok": True, "refunded": refund, "balance": get_pb(user)})
+    return web.json_response({"error": "Not in queue"}, status=404)
+
+async def _rps_finish(gid, requesting_user):
+    g = rps_games.get(gid)
+    if not g: return None
+    p1, p2, bet = g["p1"], g["p2"], g["bet"]
+    p1l, p2l = p1.lower(), p2.lower()
+    c1, c2 = g["choices"][p1l], g["choices"][p2l]
+    timeout = False
+    if c1 is None or c2 is None:
+        # Forfeit on a player who never played
+        timeout = True
+        if c1 is None and c2 is None:
+            credit_pb(p1, bet); credit_pb(p2, bet); winner = None
+        elif c1 is None:
+            credit_pb(p2, bet * 2); winner = p2
+        else:
+            credit_pb(p1, bet * 2); winner = p1
+        outcome_for = lambda u: "tie" if winner is None else ("win" if u.lower() == winner.lower() else "lose")
+    else:
+        if c1 == c2:
+            credit_pb(p1, bet); credit_pb(p2, bet); winner = None
+        else:
+            winner = p1 if _rps_beats(c1, c2) else p2
+            credit_pb(winner, bet * 2)
+        outcome_for = lambda u: "tie" if winner is None else ("win" if u.lower() == winner.lower() else "lose")
+    await save_place_bucks()
+    await push_pb_update(p1); await push_pb_update(p2)
+    # Lobby broadcasts
+    for u in (p1, p2):
+        my_out = outcome_for(u)
+        opp = p2 if u.lower() == p1l else p1
+        if my_out == "tie":
+            await broadcast_casino_result(u, "RPS", bet, bet, f"tie vs {opp}")
+        elif my_out == "win":
+            await broadcast_casino_result(u, "RPS", bet, bet * 2, ("forfeit by " + opp) if timeout else f"beat {opp}")
+        else:
+            await broadcast_casino_result(u, "RPS", bet, 0, ("forfeited to " + opp) if timeout else f"lost to {opp}")
+    del rps_games[gid]
+    is_p1 = requesting_user.lower() == p1l
+    my_choice = c1 if is_p1 else c2
+    opp_choice = c2 if is_p1 else c1
+    opp_name = p2 if is_p1 else p1
+    my_out = outcome_for(requesting_user)
+    winnings = bet * 2 if my_out == "win" else (bet if my_out == "tie" else 0)
+    return {"ok": True, "phase": "done", "you": my_choice, "opponent": opp_choice, "opponent_name": opp_name, "outcome": my_out, "winnings": winnings, "bet": bet, "timeout": timeout, "balance": get_pb(requesting_user)}
+
+async def casino_rps_play_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    gid = data.get("game_id", "")
+    choice = (data.get("choice") or "").strip().lower()
+    if choice not in ("rock", "paper", "scissors"):
+        return web.json_response({"error": "Pick rock, paper, or scissors"}, status=400)
+    g = rps_games.get(gid)
+    if not g: return web.json_response({"error": "Game not found"}, status=404)
+    ulow = user.lower()
+    if ulow not in g["choices"]:
+        return web.json_response({"error": "Not your game"}, status=403)
+    if g["choices"][ulow] is not None:
+        return web.json_response({"error": "You already played"}, status=400)
+    g["choices"][ulow] = choice
+    if all(v is not None for v in g["choices"].values()):
+        result = await _rps_finish(gid, user)
+        return web.json_response(result)
+    return web.json_response({"ok": True, "phase": "waiting"})
+
+async def casino_rps_status_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    gid = request.query.get("game_id", "")
+    g = rps_games.get(gid)
+    if not g: return web.json_response({"phase": "gone"})
+    ulow = user.lower()
+    if ulow not in g["choices"]:
+        return web.json_response({"error": "Not your game"}, status=403)
+    elapsed = time.time() - g["started_at"]
+    other = next(k for k in g["choices"] if k != ulow)
+    if elapsed > RPS_GAME_TIMEOUT and not all(v is not None for v in g["choices"].values()):
+        result = await _rps_finish(gid, user)
+        return web.json_response(result)
+    return web.json_response({"ok": True, "phase": "playing", "you_played": g["choices"][ulow] is not None, "opponent_played": g["choices"][other] is not None, "elapsed": int(elapsed), "timeout": RPS_GAME_TIMEOUT})
+
 async def flappy_pass_handler(request):
     """Award 1 PB for each pipe passed in the Flappy game. Soft anti-cheat:
     capped at 6/sec which is faster than any real flappy run can produce."""
@@ -3006,6 +3162,11 @@ app.router.add_post("/api/casino/slots", casino_slots_handler)
 app.router.add_post("/api/casino/roulette", casino_roulette_handler)
 app.router.add_post("/api/casino/coinflip", casino_coinflip_handler)
 app.router.add_post("/api/casino/blackjack", casino_blackjack_handler)
+app.router.add_post("/api/casino/rps/solo", casino_rps_solo_handler)
+app.router.add_post("/api/casino/rps/join", casino_rps_join_handler)
+app.router.add_post("/api/casino/rps/cancel", casino_rps_cancel_handler)
+app.router.add_post("/api/casino/rps/play", casino_rps_play_handler)
+app.router.add_get("/api/casino/rps/status", casino_rps_status_handler)
 app.router.add_post("/api/flappy/pass", flappy_pass_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
