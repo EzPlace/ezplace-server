@@ -53,6 +53,15 @@ clans = {}  # { clan_id: { id, name, owner, color, rank_label, status, members, 
 groups = {}  # { group_id: { id, name, owner, members, created_at } }
 group_messages = {}  # { group_id: [ {from, text?, image_url?, time}, ... ] }
 
+# PlaceBucks economy: 1 PB per 100 pixels placed. Cumulative pixels are tracked
+# separately so awarding is incremental (PB given on each crossing of a 100-mark).
+place_bucks = {}      # { username_lower: int }
+lifetime_pixels = {}  # { username_lower: int }
+purchases = {}        # { username_lower: { "custom_wheel": bool, "vip": bool } }
+PB_PIXELS_PER_BUCK = 100
+SHOP_PRICES = {"custom_wheel": 5, "vip": 50}
+LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
+
 # Whitelist of image hosts so users can't inject arbitrary URLs (which could leak IPs or load malicious content)
 ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
 def is_safe_image_url(url):
@@ -237,6 +246,64 @@ async def save_ranks():
 
 async def save_user_ips():
     await db_save("store", "user_ips", user_ips)
+
+async def save_place_bucks():
+    await db_save("store", "place_bucks", place_bucks)
+async def save_lifetime_pixels():
+    await db_save("store", "lifetime_pixels", lifetime_pixels)
+async def save_purchases():
+    await db_save("store", "purchases", purchases)
+
+PB_UNLIMITED = 10 ** 9  # sentinel "balance" reported for the real admin
+
+def get_pb(user):
+    if not user: return 0
+    if is_admin(user): return PB_UNLIMITED
+    return int(place_bucks.get(user.lower(), 0))
+def spend_pb(user, amount):
+    """Returns True and deducts if successful. Real admin always succeeds, no deduction."""
+    if not user or amount <= 0: return False
+    if is_admin(user): return True
+    ulow = user.lower()
+    bal = int(place_bucks.get(ulow, 0))
+    if bal < amount: return False
+    place_bucks[ulow] = bal - amount
+    return True
+def credit_pb(user, amount):
+    if not user or amount <= 0 or is_admin(user): return
+    ulow = user.lower()
+    place_bucks[ulow] = int(place_bucks.get(ulow, 0)) + amount
+def has_purchase(user, item):
+    if not user: return False
+    if is_admin(user): return True
+    return bool((purchases.get(user.lower()) or {}).get(item))
+
+async def push_pb_update(username):
+    """Send the current balance/purchases to all live sockets for this user."""
+    if not username: return
+    payload = {"type": "pb_update", "balance": get_pb(username), "purchases": purchases.get(username.lower()) or {}}
+    ulow = username.lower()
+    for ws, info in list(clients.items()):
+        if info and info.get("username", "").lower() == ulow and not ws.closed:
+            try: await ws.send_json(payload)
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == ulow and not ws.closed:
+            try: await ws.send_json(payload)
+            except: pass
+
+async def award_pixel_placement(username, count=1):
+    """Increment lifetime pixel count and credit PlaceBucks for each new 100-mark crossed."""
+    if not username or count <= 0: return
+    ulow = username.lower()
+    old = int(lifetime_pixels.get(ulow, 0))
+    new = old + count
+    lifetime_pixels[ulow] = new
+    delta = (new // PB_PIXELS_PER_BUCK) - (old // PB_PIXELS_PER_BUCK)
+    if delta > 0:
+        place_bucks[ulow] = int(place_bucks.get(ulow, 0)) + delta
+        await save_place_bucks()
+        await push_pb_update(username)
 
 # Set of lobby IDs with unsaved changes. The background task flushes them periodically.
 # save_lobby() flushes immediately; mark_lobby_dirty() defers to the background loop.
@@ -447,7 +514,7 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, groups, group_messages, dms, dm_last_seen
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, groups, group_messages, dms, dm_last_seen, place_bucks, lifetime_pixels, purchases
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
@@ -462,15 +529,9 @@ async def load_all_data():
     async for doc in db["group_messages"].find():
         group_messages[doc["_id"]] = doc.get("data", [])
     dm_last_seen = await db_load("store", "dm_last_seen") or {}
-    # Migrate any existing VIPs that don't already have a rank
-    rank_dirty = False
-    for v in vips:
-        vlow = v.lower()
-        if vlow not in ranks:
-            ranks[vlow] = {"label": "VIP", "color": "#daa520"}
-            rank_dirty = True
-    if rank_dirty:
-        await save_ranks()
+    place_bucks = await db_load("store", "place_bucks") or {}
+    lifetime_pixels = await db_load("store", "lifetime_pixels") or {}
+    purchases = await db_load("store", "purchases") or {}
     user_ips = await db_load("store", "user_ips") or {}
 
     for i, pl in enumerate(PUBLIC_LOBBIES):
@@ -705,6 +766,13 @@ async def create_lobby_handler(request):
         return web.json_response({"error": "Lobby name required"}, status=400)
     if user_lobby_count(user) >= MAX_LOBBIES_PER_USER:
         return web.json_response({"error": f"Max {MAX_LOBBIES_PER_USER} lobbies"}, status=400)
+    # PlaceBucks cost based on lobby size (256 free, 512 = 10 PB, 1024 = 20 PB).
+    cost = LOBBY_PRICES.get((lw, lh), 0)
+    if cost > 0:
+        if not spend_pb(user, cost):
+            return web.json_response({"error": f"Need {cost} PlaceBucks for a {lw}x{lh} lobby (you have {get_pb(user)})"}, status=400)
+        await save_place_bucks()
+        await push_pb_update(user)
     lid = secrets.token_hex(6)
     code = secrets.token_hex(4).upper() if not is_public else None
     lobbies[lid] = {
@@ -1198,7 +1266,25 @@ async def admin_delete_account_handler(request):
             seen_dirty = True
     if seen_dirty:
         await save_dm_last_seen()
-    return web.json_response({"ok": True, "message": f"Deleted account {found} ({len(owned_lids)} lobbies, {len(keys_to_delete)} DM threads)"})
+    # Clan cleanup: disband any clan they owned; remove from any clan they were a member of
+    disbanded = 0
+    for cid in list(clans.keys()):
+        cl = clans[cid]
+        if cl.get("owner", "").lower() == tlow:
+            for m in cl.get("members", []):
+                await remove_user_clan_rank(m)
+            del clans[cid]
+            disbanded += 1
+        else:
+            cl["members"] = [m for m in cl.get("members", []) if m.lower() != tlow]
+            (cl.get("member_ranks") or {}).pop(tlow, None)
+            cl["pending_requests"] = [r for r in cl.get("pending_requests", []) if r.lower() != tlow]
+    await save_clans()
+    # PlaceBucks + purchases + lifetime pixels
+    if tlow in place_bucks: del place_bucks[tlow]; await save_place_bucks()
+    if tlow in lifetime_pixels: del lifetime_pixels[tlow]; await save_lifetime_pixels()
+    if tlow in purchases: del purchases[tlow]; await save_purchases()
+    return web.json_response({"ok": True, "message": f"Deleted account {found} ({len(owned_lids)} lobbies, {len(keys_to_delete)} DM threads, {disbanded} clans disbanded)"})
 
 async def admin_vip_add_handler(request):
     data = await request.json()
@@ -1591,6 +1677,111 @@ async def group_add_member_handler(request):
     await notify_social(target, {"type": "group_added", "group_id": gid, "group_name": g["name"], "by": user})
     return web.json_response({"ok": True})
 
+async def me_handler(request):
+    """Current user's balance, purchases, lifetime pixels. Real admin reports unlimited."""
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    return web.json_response({
+        "username": user,
+        "balance": get_pb(user),
+        "unlimited": bool(is_admin(user)),
+        "purchases": purchases.get(user.lower()) or {},
+        "lifetime_pixels": int(lifetime_pixels.get(user.lower(), 0)),
+        "prices": {"shop": SHOP_PRICES, "lobby": {f"{w}x{h}": p for (w, h), p in LOBBY_PRICES.items()}, "pixels_per_buck": PB_PIXELS_PER_BUCK},
+    })
+
+async def shop_buy_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "shop_buy", 10, 60):
+        return web.json_response({"error": "Too many purchases — slow down."}, status=429)
+    item = (data.get("item") or "").strip()
+    if item not in SHOP_PRICES:
+        return web.json_response({"error": "Unknown item"}, status=400)
+    if has_purchase(user, item):
+        return web.json_response({"error": "You already own that"}, status=400)
+    price = SHOP_PRICES[item]
+    if not spend_pb(user, price):
+        return web.json_response({"error": f"Not enough PlaceBucks (need {price})"}, status=400)
+    pu = purchases.setdefault(user.lower(), {})
+    pu[item] = True
+    await save_purchases()
+    await save_place_bucks()
+    # Side-effects per item
+    if item == "vip":
+        if user.lower() not in vips:
+            vips.append(user.lower())
+            await save_vips()
+        ranks[user.lower()] = {"label": "VIP", "color": "#daa520"}
+        await save_ranks()
+    await push_pb_update(user)
+    return web.json_response({"ok": True, "balance": get_pb(user), "purchases": pu})
+
+async def pb_transfer_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    target = (data.get("to") or "").strip()
+    try:
+        amount = int(data.get("amount", 0))
+    except: return web.json_response({"error": "Invalid amount"}, status=400)
+    if amount <= 0: return web.json_response({"error": "Amount must be at least 1"}, status=400)
+    if not target: return web.json_response({"error": "Recipient required"}, status=400)
+    if target.lower() == user.lower(): return web.json_response({"error": "Can't transfer to yourself"}, status=400)
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return web.json_response({"error": "User not found"}, status=404)
+    # Anti-exploit: rate limit by count AND total amount per minute
+    if not check_rate_limit(user, "pb_transfer_count", 5, 60):
+        return web.json_response({"error": "Too many transfers — try again later."}, status=429)
+    # Approximate per-minute amount cap via a per-PB-unit token bucket (each "PB" sent = one event)
+    # Cap at 200 PB/minute outbound per sender.
+    for _ in range(min(amount, 200)):
+        if not check_rate_limit(user, "pb_transfer_amount", 200, 60):
+            return web.json_response({"error": "Transfer amount cap reached for this minute."}, status=429)
+    if not spend_pb(user, amount):
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    credit_pb(found, amount)
+    await save_place_bucks()
+    await push_pb_update(user)
+    await push_pb_update(found)
+    await notify_social(found, {"type": "pb_received", "from": user, "amount": amount})
+    return web.json_response({"ok": True, "balance": get_pb(user)})
+
+async def global_leaderboard_handler(request):
+    """Top placers across ALL lobbies combined. Toothpaste excluded."""
+    totals = {}
+    for lobby in lobbies.values():
+        pc = lobby.get("pixel_counts") or {}
+        for uname, cnt in pc.items():
+            if not isinstance(cnt, (int, float)) or cnt <= 0: continue
+            if is_admin(uname): continue
+            totals[uname] = totals.get(uname, 0) + int(cnt)
+    top = sorted(totals.items(), key=lambda x: x[1], reverse=True)[:20]
+    return web.json_response({"entries": [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top]})
+
+async def clan_remove_member_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    cid = data.get("clan_id", "")
+    target = (data.get("username") or "").strip()
+    clan = clans.get(cid)
+    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
+    if clan["owner"].lower() != user.lower() and not is_admin(user):
+        return web.json_response({"error": "Only the clan owner can remove members"}, status=403)
+    tlow = target.lower()
+    if tlow == clan["owner"].lower():
+        return web.json_response({"error": "Owner can't be removed (transfer ownership first)"}, status=400)
+    member = next((m for m in clan.get("members", []) if m.lower() == tlow), None)
+    if not member: return web.json_response({"error": "Not a member of this clan"}, status=404)
+    clan["members"] = [m for m in clan.get("members", []) if m.lower() != tlow]
+    (clan.get("member_ranks") or {}).pop(tlow, None)
+    await save_clans()
+    await remove_user_clan_rank(member)
+    await notify_social(member, {"type": "clan_removed", "clan_name": clan["name"], "by": user})
+    return web.json_response({"ok": True, "message": f"Removed {member} from clan"})
+
 async def online_summary_handler(request):
     """Total online + per-lobby online + flat user list, for the homepage.
     `total` counts unique authenticated users across both lobby (clients) and
@@ -1913,6 +2104,7 @@ async def websocket_handler(request):
                             append_event(lobby, x, y, color, old_color)
                             set_pixel_author(lobby, x, y, username)
                             mark_lobby_dirty(lobby_id)
+                            await award_pixel_placement(username, 1)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
                 elif data["type"] == "pixel_undo" and username and lobby_id and not is_guest:
@@ -2082,13 +2274,12 @@ async def websocket_handler(request):
                         max_stamps = perm["size"] * perm["size"]
                         if isinstance(coords, list) and 0 <= color < 53:
                             placed = 0
+                            changed_count = 0
                             for c in coords[:max_stamps]:
                                 if not isinstance(c, list) or len(c) != 2: continue
                                 x, y = c[0], c[1]
                                 if not (isinstance(x, int) and isinstance(y, int)): continue
                                 if not (0 <= x < lw and 0 <= y < lh): continue
-                                # Cap pixels/sec at ~1.5 stroke widths — enough for a clean single
-                                # stroke to land instantly, but caps continuous spam dead.
                                 if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 2): break
                                 old_color = lobby["grid"][y * lw + x]
                                 lobby["grid"][y * lw + x] = color
@@ -2097,12 +2288,14 @@ async def websocket_handler(request):
                                     pc[username] = pc.get(username, 0) + 1
                                     append_event(lobby, x, y, color, old_color)
                                     set_pixel_author(lobby, x, y, username)
+                                    changed_count += 1
                                 placed += 1
                                 await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
                             if placed:
                                 lobby["last_activity"] = time.time()
                                 last_pixel = lobby["last_activity"]
                                 mark_lobby_dirty(lobby_id)
+                                if changed_count: await award_pixel_placement(username, changed_count)
 
                 elif data["type"] == "import_grid" and username and lobby_id and not is_guest:
                     lobby = lobbies.get(lobby_id)
@@ -2390,6 +2583,41 @@ async def on_startup(app):
         migrations_doc["clan_rank_v3"] = True
         await db_save("store", "migrations", migrations_doc)
         print("Marked clan_rank_v3 migration as complete")
+    if not migrations_doc.get("vip_reset_v1"):
+        # User asked to wipe everyone currently labeled VIP. Clears the vips list
+        # and removes any ranks entry with label=="VIP". Real admin/clan/custom
+        # ranks (different label) are untouched.
+        vips[:] = []
+        await save_vips()
+        stale = [u for u, r in ranks.items() if isinstance(r, dict) and r.get("label") == "VIP"]
+        for u in stale:
+            ranks.pop(u, None)
+        if stale: await save_ranks()
+        migrations_doc["vip_reset_v1"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"vip_reset_v1: cleared vips list, removed {len(stale)} stale VIP ranks")
+    if not migrations_doc.get("pb_backfill_v1"):
+        # Sum existing pixel_counts across every lobby to seed lifetime_pixels,
+        # then credit 1 PB per 100 lifetime pixels. One-time.
+        totals = {}
+        for lobby in lobbies.values():
+            pc = lobby.get("pixel_counts") or {}
+            for uname, cnt in pc.items():
+                if not isinstance(cnt, (int, float)) or cnt <= 0: continue
+                ulow = uname.lower()
+                totals[ulow] = totals.get(ulow, 0) + int(cnt)
+        credited = 0
+        for ulow, tot in totals.items():
+            lifetime_pixels[ulow] = max(int(lifetime_pixels.get(ulow, 0)), tot)
+            bucks = tot // PB_PIXELS_PER_BUCK
+            if bucks > 0:
+                place_bucks[ulow] = int(place_bucks.get(ulow, 0)) + bucks
+                credited += bucks
+        await save_lifetime_pixels()
+        await save_place_bucks()
+        migrations_doc["pb_backfill_v1"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"pb_backfill_v1: credited {credited} PlaceBucks across {len(totals)} users")
     if not migrations_doc.get("public_lobby_v2"):
         for lid in ("public_2", "public_3", "public_4", "public_5", "public_6", "public_7"):
             doc = await db["lobbies"].find_one({"_id": lid})
@@ -2495,6 +2723,11 @@ app.router.add_post("/api/admin/rank-set", admin_rank_set_handler)
 app.router.add_post("/api/admin/rank-remove", admin_rank_remove_handler)
 app.router.add_get("/api/admin/ranks", admin_ranks_handler)
 app.router.add_get("/api/online-summary", online_summary_handler)
+app.router.add_get("/api/me", me_handler)
+app.router.add_post("/api/shop/buy", shop_buy_handler)
+app.router.add_post("/api/pb/transfer", pb_transfer_handler)
+app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
+app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
 app.router.add_get("/api/groups/my", groups_my_handler)
 app.router.add_post("/api/groups/create", group_create_handler)
 app.router.add_get("/api/groups/messages", group_messages_handler)
