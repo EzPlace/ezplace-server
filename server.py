@@ -1817,17 +1817,18 @@ async def _casino_payout(user, winnings):
     await save_place_bucks()
     await push_pb_update(user)
 
+CASINO_BROADCAST_MIN = 1000
+
 async def broadcast_casino_result(user, game, bet, winnings, detail=""):
-    """If the user is currently in any lobby, post a system chat line about
-    their gamble so everyone in that lobby sees wins and losses."""
+    """Post a system chat line only if the net swing is at least
+    CASINO_BROADCAST_MIN PB. Small wins/losses don't spam the channel."""
     if not user: return
     net = winnings - bet
+    if abs(net) < CASINO_BROADCAST_MIN: return
     if net > 0:
         text = f"{user} won {net} $ at {game}"
-    elif net < 0:
-        text = f"{user} lost {-net} $ at {game}"
     else:
-        text = f"{user} pushed at {game} (bet returned)"
+        text = f"{user} lost {-net} $ at {game}"
     if detail:
         text += f" - {detail}"
     ulow = user.lower()
