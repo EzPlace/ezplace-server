@@ -1417,6 +1417,10 @@ async def clan_request_join_handler(request):
         return web.json_response({"error": "Leave your current clan first"}, status=400)
     if any(r.lower() == ulow for r in clan.get("pending_requests", [])):
         return web.json_response({"error": "You already requested to join"}, status=400)
+    # Only ONE outgoing pending clan-join request at a time across all clans.
+    for other in clans.values():
+        if any(r.lower() == ulow for r in other.get("pending_requests", [])):
+            return web.json_response({"error": f"You already have a pending request to join '{other.get('name', '')}'. Wait for that to be answered or cancel it first."}, status=400)
     clan.setdefault("pending_requests", []).append(user)
     await save_clans()
     # Notify owner via social WS
