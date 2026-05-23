@@ -1774,6 +1774,82 @@ async def pb_transfer_handler(request):
     await notify_social(found, {"type": "pb_received", "from": user, "amount": amount})
     return web.json_response({"ok": True, "balance": get_pb(user)})
 
+CASINO_MAX_BET = 100
+
+async def _casino_open(request, rate_key):
+    """Common gambling-game prelude: auth, rate-limit, bet validation, deduct."""
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return None, web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, rate_key, 20, 60):
+        return None, web.json_response({"error": "Slow down — too many plays."}, status=429)
+    try: amount = int(data.get("amount", 0))
+    except: return None, web.json_response({"error": "Invalid bet"}, status=400)
+    if amount < 1 or amount > CASINO_MAX_BET:
+        return None, web.json_response({"error": f"Bet must be between 1 and {CASINO_MAX_BET} $"}, status=400)
+    if not spend_pb(user, amount):
+        return None, web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    return (user, amount, data), None
+
+async def _casino_payout(user, winnings):
+    if winnings > 0:
+        credit_pb(user, winnings)
+    await save_place_bucks()
+    await push_pb_update(user)
+
+async def casino_slots_handler(request):
+    res, err = await _casino_open(request, "casino_slots")
+    if err: return err
+    user, amount, _ = res
+    symbols = ["7", "X", "A", "B", "C"]
+    spin = [secrets.choice(symbols) for _ in range(3)]
+    winnings = 0; outcome = "lose"
+    if spin[0] == spin[1] == spin[2]:
+        if spin[0] == "7": winnings = amount * 25; outcome = "jackpot"
+        else: winnings = amount * 8; outcome = "three"
+    else:
+        counts = {}
+        for s in spin: counts[s] = counts.get(s, 0) + 1
+        if max(counts.values()) == 2:
+            winnings = amount; outcome = "pair"
+    await _casino_payout(user, winnings)
+    return web.json_response({"ok": True, "spin": spin, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
+
+async def casino_roulette_handler(request):
+    res, err = await _casino_open(request, "casino_roulette")
+    if err: return err
+    user, amount, data = res
+    choice = (data.get("choice") or "").strip().lower()
+    if choice not in ("red", "black", "green"):
+        credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
+        return web.json_response({"error": "Choice must be red, black, or green"}, status=400)
+    n = secrets.randbelow(37)  # 0..36
+    if n == 0: result_color = "green"
+    else: result_color = "red" if n % 2 == 1 else "black"
+    winnings = 0; outcome = "lose"
+    if choice == result_color:
+        if result_color == "green": winnings = amount * 35
+        else: winnings = amount * 2
+        outcome = "win"
+    await _casino_payout(user, winnings)
+    return web.json_response({"ok": True, "number": n, "color": result_color, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
+
+async def casino_coinflip_handler(request):
+    res, err = await _casino_open(request, "casino_coinflip")
+    if err: return err
+    user, amount, data = res
+    choice = (data.get("choice") or "").strip().lower()
+    if choice not in ("heads", "tails"):
+        credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
+        return web.json_response({"error": "Choice must be heads or tails"}, status=400)
+    flip = "heads" if secrets.randbelow(2) == 0 else "tails"
+    winnings = 0; outcome = "lose"
+    if choice == flip:
+        winnings = int(amount * 1.95)  # ~2.5% house edge
+        outcome = "win"
+    await _casino_payout(user, winnings)
+    return web.json_response({"ok": True, "flip": flip, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
+
 async def global_leaderboard_handler(request):
     """Top placers across ALL lobbies combined. Toothpaste excluded."""
     totals = {}
@@ -2752,6 +2828,9 @@ app.router.add_get("/api/online-summary", online_summary_handler)
 app.router.add_get("/api/me", me_handler)
 app.router.add_post("/api/shop/buy", shop_buy_handler)
 app.router.add_post("/api/pb/transfer", pb_transfer_handler)
+app.router.add_post("/api/casino/slots", casino_slots_handler)
+app.router.add_post("/api/casino/roulette", casino_roulette_handler)
+app.router.add_post("/api/casino/coinflip", casino_coinflip_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
 app.router.add_get("/api/groups/my", groups_my_handler)
