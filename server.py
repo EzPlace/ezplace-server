@@ -1883,6 +1883,101 @@ async def casino_coinflip_handler(request):
     await _casino_payout(user, winnings)
     return web.json_response({"ok": True, "flip": flip, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
 
+bj_games = {}  # { username_lower: {"deck", "player", "dealer", "bet", "done"} }
+
+def _bj_score(hand):
+    total = 0; aces = 0
+    for c in hand:
+        v = c % 13 + 1
+        if v == 1: aces += 1; total += 11
+        elif v >= 10: total += 10
+        else: total += v
+    while total > 21 and aces > 0:
+        total -= 10; aces -= 1
+    return total
+
+def _bj_label(c):
+    val = c % 13 + 1
+    name = {1: 'A', 11: 'J', 12: 'Q', 13: 'K'}.get(val, str(val))
+    suit_ch = ['S', 'H', 'D', 'C'][c // 13]
+    return name + suit_ch
+
+def _bj_view(hand, hide_first=False):
+    out = [_bj_label(c) for c in hand]
+    if hide_first and out: out[1:] = out[1:]; out[0] = '??'  # show only upcard (we deal upcard at index 0? convention)
+    return out
+
+async def _bj_resolve(user, game):
+    bet = game["bet"]
+    psc = _bj_score(game["player"])
+    dsc = _bj_score(game["dealer"])
+    if psc > 21:
+        outcome = "lose"; winnings = 0
+    elif dsc > 21 or psc > dsc:
+        outcome = "win"; winnings = bet * 2
+    elif psc < dsc:
+        outcome = "lose"; winnings = 0
+    else:
+        outcome = "push"; winnings = bet  # bet returned
+    if winnings > 0: credit_pb(user, winnings)
+    await save_place_bucks()
+    await push_pb_update(user)
+    game["done"] = True
+    return outcome, winnings, psc, dsc
+
+async def casino_blackjack_handler(request):
+    """One endpoint with action=start|hit|stand."""
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    action = (data.get("action") or "").strip().lower()
+    ulow = user.lower()
+    if action == "start":
+        try: amount = int(data.get("amount", 0))
+        except: return web.json_response({"error": "Invalid bet"}, status=400)
+        if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+        if not spend_pb(user, amount):
+            return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        deck = list(range(52))
+        secrets.SystemRandom().shuffle(deck)
+        # Deal player[0], dealer[0] (upcard), player[1], dealer[1] (hole)
+        player = [deck.pop(), deck.pop()]
+        dealer = [deck.pop(), deck.pop()]
+        game = {"deck": deck, "player": player, "dealer": dealer, "bet": amount, "done": False}
+        bj_games[ulow] = game
+        psc = _bj_score(player); dsc_up = _bj_score([dealer[0]])
+        # Natural BJ check
+        if psc == 21:
+            if _bj_score(dealer) == 21:
+                # push
+                credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
+                game["done"] = True
+                return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": 21, "outcome": "push", "winnings": amount, "bet": amount, "balance": get_pb(user)})
+            else:
+                pay = int(amount * 2.5)  # 3:2 natural blackjack
+                credit_pb(user, pay); await save_place_bucks(); await push_pb_update(user)
+                game["done"] = True
+                return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": _bj_score(dealer), "outcome": "blackjack", "winnings": pay, "bet": amount, "balance": get_pb(user)})
+        return web.json_response({"ok": True, "phase": "player", "player": _bj_view(player), "dealer_up": _bj_label(dealer[0]), "player_score": psc, "dealer_up_score": dsc_up, "bet": amount, "balance": get_pb(user)})
+    # hit/stand require an active game
+    game = bj_games.get(ulow)
+    if not game or game.get("done"):
+        return web.json_response({"error": "No active blackjack game — deal first"}, status=400)
+    if action == "hit":
+        game["player"].append(game["deck"].pop())
+        psc = _bj_score(game["player"])
+        if psc > 21:
+            outcome, winnings, _, dsc = await _bj_resolve(user, game)
+            return web.json_response({"ok": True, "phase": "done", "player": _bj_view(game["player"]), "dealer": _bj_view(game["dealer"]), "player_score": psc, "dealer_score": dsc, "outcome": "bust", "winnings": 0, "bet": game["bet"], "balance": get_pb(user)})
+        return web.json_response({"ok": True, "phase": "player", "player": _bj_view(game["player"]), "dealer_up": _bj_label(game["dealer"][0]), "player_score": psc, "bet": game["bet"], "balance": get_pb(user)})
+    if action == "stand":
+        # Dealer draws until 17+
+        while _bj_score(game["dealer"]) < 17:
+            game["dealer"].append(game["deck"].pop())
+        outcome, winnings, psc, dsc = await _bj_resolve(user, game)
+        return web.json_response({"ok": True, "phase": "done", "player": _bj_view(game["player"]), "dealer": _bj_view(game["dealer"]), "player_score": psc, "dealer_score": dsc, "outcome": outcome, "winnings": winnings, "bet": game["bet"], "balance": get_pb(user)})
+    return web.json_response({"error": "Unknown action"}, status=400)
+
 async def flappy_pass_handler(request):
     """Award 1 PB for each pipe passed in the Flappy game. Soft anti-cheat:
     capped at 6/sec which is faster than any real flappy run can produce."""
@@ -2879,6 +2974,7 @@ app.router.add_post("/api/pb/transfer", pb_transfer_handler)
 app.router.add_post("/api/casino/slots", casino_slots_handler)
 app.router.add_post("/api/casino/roulette", casino_roulette_handler)
 app.router.add_post("/api/casino/coinflip", casino_coinflip_handler)
+app.router.add_post("/api/casino/blackjack", casino_blackjack_handler)
 app.router.add_post("/api/flappy/pass", flappy_pass_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)

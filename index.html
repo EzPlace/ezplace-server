@@ -549,76 +549,100 @@
       <div style="font-weight:700;font-size:14px;">$ PlaceBucks Shop &mdash; you have <span id="shop-balance" style="color:var(--gold);">0</span></div>
       <button id="btn-shop-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
     </div>
-    <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
-      <div style="font-size:11px;color:var(--text-muted);">You earn 1 $ per 100 pixels placed.</div>
-      <div id="shop-item-wheel" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">Custom Color Wheel</div><div style="font-size:11px;color:var(--text-muted);">Unlock the color wheel + lightness slider so you can pick any shade (snapped to the nearest palette color).</div></div><button class="win-btn shop-buy" data-item="custom_wheel" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">5 $</button></div>
-      <div id="shop-item-vip" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">VIP Rank</div><div style="font-size:11px;color:var(--text-muted);">Adds a [VIP] gold tag to your name in chat.</div></div><button class="win-btn shop-buy" data-item="vip" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">50 $</button></div>
-      <div id="shop-item-custom-rank" style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-          <div><div style="font-weight:700;">Custom Rank</div><div style="font-size:11px;color:var(--text-muted);">Pick your own rank label and color. Pay once, edit anytime free.</div></div>
-          <button id="btn-buy-custom-rank" class="win-btn" style="background:var(--accent);color:#fff;flex-shrink:0;">70 $</button>
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
+      <button class="shop-tab active" data-tab="buy" style="flex:1;padding:9px 0;font-size:12px;font-weight:700;background:transparent;border:none;border-bottom:2px solid var(--accent);color:var(--accent);cursor:pointer;">Buy Stuff</button>
+      <button class="shop-tab" data-tab="casino" style="flex:1;padding:9px 0;font-size:12px;font-weight:700;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;">Casino</button>
+      <button class="shop-tab" data-tab="transfer" style="flex:1;padding:9px 0;font-size:12px;font-weight:700;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;">Transfer</button>
+    </div>
+    <div style="padding:14px 16px;overflow-y:auto;">
+      <!-- BUY tab -->
+      <div class="shop-panel" data-panel="buy" style="display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11px;color:var(--text-muted);">You earn 1 $ per 100 pixels placed, 1 $ per 15 min online, and 1 $ per Flappy pipe.</div>
+        <div id="shop-item-wheel" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">Custom Color Wheel</div><div style="font-size:11px;color:var(--text-muted);">Unlock the color wheel + lightness slider so you can pick any shade (snapped to the nearest palette color).</div></div><button class="win-btn shop-buy" data-item="custom_wheel" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">5 $</button></div>
+        <div id="shop-item-vip" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">VIP Rank</div><div style="font-size:11px;color:var(--text-muted);">Adds a [VIP] gold tag to your name in chat.</div></div><button class="win-btn shop-buy" data-item="vip" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">50 $</button></div>
+        <div id="shop-item-custom-rank" style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div><div style="font-weight:700;">Custom Rank</div><div style="font-size:11px;color:var(--text-muted);">Pick your own rank label and color. Pay once, edit anytime free.</div></div>
+            <button id="btn-buy-custom-rank" class="win-btn" style="background:var(--accent);color:#fff;flex-shrink:0;">70 $</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <input id="custom-rank-label" class="win-input" type="text" maxlength="16" placeholder="Rank label (max 16)" style="flex:1;min-width:120px;font-size:12px;padding:4px 6px;">
+            <input id="custom-rank-color" type="color" value="#ee5a52" style="width:36px;height:28px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;">
+            <span id="custom-rank-preview" style="font-size:10px;font-weight:700;color:#ee5a52;">[PREVIEW]</span>
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <input id="custom-rank-label" class="win-input" type="text" maxlength="16" placeholder="Rank label (max 16)" style="flex:1;min-width:120px;font-size:12px;padding:4px 6px;">
-          <input id="custom-rank-color" type="color" value="#ee5a52" style="width:36px;height:28px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;">
-          <span id="custom-rank-preview" style="font-size:10px;font-weight:700;color:#ee5a52;">[PREVIEW]</span>
-        </div>
-      </div>
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Casino</div>
-
-      <!-- Slots -->
-      <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-        <div style="font-weight:700;">Slots</div>
-        <div style="font-size:11px;color:var(--text-muted);">3x 7 = 25x bet · 3 same = 8x · 2 same = push</div>
-        <div id="slots-reels" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;letter-spacing:14px;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">- - -</div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <input id="slots-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-          <button id="btn-slots" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Spin</button>
-        </div>
-        <div id="slots-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
       </div>
 
-      <!-- Roulette -->
-      <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-        <div style="font-weight:700;">Roulette</div>
-        <div style="font-size:11px;color:var(--text-muted);">Red/Black = 2x · Green (0) = 35x</div>
-        <div id="roulette-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">--</div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-          <input id="roulette-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-          <button class="win-btn roulette-go" data-choice="red" style="background:#c0392b;color:#fff;flex:1;">Red</button>
-          <button class="win-btn roulette-go" data-choice="black" style="background:#222;color:#fff;flex:1;">Black</button>
-          <button class="win-btn roulette-go" data-choice="green" style="background:#16a34a;color:#fff;flex:1;">Green</button>
+      <!-- CASINO tab -->
+      <div class="shop-panel" data-panel="casino" style="display:none;flex-direction:column;gap:10px;">
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <div style="font-weight:700;">Slots</div>
+          <div style="font-size:11px;color:var(--text-muted);">3x 7 = 25x bet · 3 same = 8x · 2 same = push</div>
+          <div id="slots-reels" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;letter-spacing:14px;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">- - -</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="slots-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+            <button id="btn-slots" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Spin</button>
+          </div>
+          <div id="slots-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
         </div>
-        <div id="roulette-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
-      </div>
 
-      <!-- Flappy Bird -->
-      <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-        <div style="font-weight:700;">Flappy Bird</div>
-        <div style="font-size:11px;color:var(--text-muted);">Earn 1 $ per pipe passed. Hard mode — small gap, fast scroll. No bet, no loss.</div>
-        <button id="btn-flappy-open" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
-      </div>
-
-      <!-- Coin Flip -->
-      <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-        <div style="font-weight:700;">Coin Flip</div>
-        <div style="font-size:11px;color:var(--text-muted);">Win = 1.95x bet</div>
-        <div id="coin-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">?</div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <input id="coin-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-          <button class="win-btn coin-go" data-choice="heads" style="background:var(--accent);color:#fff;flex:1;">Heads</button>
-          <button class="win-btn coin-go" data-choice="tails" style="background:var(--accent);color:#fff;flex:1;">Tails</button>
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <div style="font-weight:700;">Roulette</div>
+          <div style="font-size:11px;color:var(--text-muted);">Red/Black = 2x · Green (0) = 35x</div>
+          <div id="roulette-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">--</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <input id="roulette-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+            <button class="win-btn roulette-go" data-choice="red" style="background:#c0392b;color:#fff;flex:1;">Red</button>
+            <button class="win-btn roulette-go" data-choice="black" style="background:#222;color:#fff;flex:1;">Black</button>
+            <button class="win-btn roulette-go" data-choice="green" style="background:#16a34a;color:#fff;flex:1;">Green</button>
+          </div>
+          <div id="roulette-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
         </div>
-        <div id="coin-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <div style="font-weight:700;">Flappy Bird</div>
+          <div style="font-size:11px;color:var(--text-muted);">Earn 1 $ per pipe passed. Hard mode. No bet, no loss.</div>
+          <button id="btn-flappy-open" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <div style="font-weight:700;">Blackjack (21)</div>
+          <div style="font-size:11px;color:var(--text-muted);">Beat dealer to 21. Natural blackjack pays 3:2.</div>
+          <div id="bj-dealer-area" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;">Dealer: —</div>
+          <div id="bj-player-area" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;">You: —</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <input id="bj-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+            <button id="btn-bj-deal" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Deal</button>
+            <button id="btn-bj-hit" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;" disabled>Hit</button>
+            <button id="btn-bj-stand" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;" disabled>Stand</button>
+          </div>
+          <div id="bj-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <div style="font-weight:700;">Coin Flip</div>
+          <div style="font-size:11px;color:var(--text-muted);">Win = 1.95x bet</div>
+          <div id="coin-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">?</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="coin-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+            <button class="win-btn coin-go" data-choice="heads" style="background:var(--accent);color:#fff;flex:1;">Heads</button>
+            <button class="win-btn coin-go" data-choice="tails" style="background:var(--accent);color:#fff;flex:1;">Tails</button>
+          </div>
+          <div id="coin-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+        </div>
       </div>
 
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Transfer PlaceBucks</div>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <input id="pb-xfer-to" class="win-input" type="text" placeholder="Recipient username" style="flex:1;" maxlength="20">
-        <input id="pb-xfer-amt" class="win-input" type="number" placeholder="Amount" min="1" style="width:90px;">
-        <button id="btn-pb-xfer" class="win-btn" style="background:var(--accent);color:#fff;">Send</button>
+      <!-- TRANSFER tab -->
+      <div class="shop-panel" data-panel="transfer" style="display:none;flex-direction:column;gap:10px;">
+        <div style="font-size:11px;color:var(--text-muted);">Send PlaceBucks to another player. Max 200 $ per minute outbound; can't send to yourself.</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <input id="pb-xfer-to" class="win-input" type="text" placeholder="Recipient username" style="flex:1;min-width:140px;" maxlength="20">
+          <input id="pb-xfer-amt" class="win-input" type="number" placeholder="Amount" min="1" style="width:90px;">
+          <button id="btn-pb-xfer" class="win-btn" style="background:var(--accent);color:#fff;">Send</button>
+        </div>
       </div>
-      <div id="shop-msg" style="font-size:11px;color:var(--text-muted);min-height:14px;"></div>
+
+      <div id="shop-msg" style="font-size:11px;color:var(--text-muted);min-height:14px;margin-top:8px;"></div>
     </div>
   </div>
 </div>
@@ -2641,6 +2665,20 @@ function openShop() {
 }
 document.getElementById('btn-shop').onclick = openShop;
 document.getElementById('btn-shop-close').onclick = () => { document.getElementById('shop-modal').style.display = 'none'; };
+
+// Tab switching inside the shop modal
+function showShopTab(name) {
+  document.querySelectorAll('.shop-tab').forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('active', on);
+    b.style.color = on ? 'var(--accent)' : 'var(--text-muted)';
+    b.style.borderBottomColor = on ? 'var(--accent)' : 'transparent';
+  });
+  document.querySelectorAll('.shop-panel').forEach(p => {
+    p.style.display = (p.dataset.panel === name) ? 'flex' : 'none';
+  });
+}
+document.querySelectorAll('.shop-tab').forEach(b => b.onclick = () => showShopTab(b.dataset.tab));
 document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
   btn.onclick = async () => {
     const item = btn.dataset.item;
@@ -2675,6 +2713,10 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
     const color = colorEl.value;
     const msg = document.getElementById('shop-msg');
     if (!label) { msg.textContent = 'Pick a rank label.'; msg.style.color = 'var(--red)'; return; }
+    if (['CREATOR','ADMIN','MOD','MODERATOR'].includes(label.toUpperCase())) {
+      msg.textContent = "You can't use '" + label + "' — that's a reserved rank."; msg.style.color = 'var(--red)';
+      return;
+    }
     msg.textContent = 'Saving...'; msg.style.color = 'var(--text-muted)';
     try {
       const r = await fetch(BACKEND + '/api/shop/buy', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ item: 'custom_rank', label, color }) });
@@ -2853,6 +2895,54 @@ document.querySelectorAll('.roulette-go').forEach(b => {
     });
   };
 });
+// Blackjack
+async function bjCall(action, body) {
+  const msg = document.getElementById('bj-msg');
+  msg.textContent = '...'; msg.style.color = 'var(--text-muted)';
+  try {
+    const r = await fetch(BACKEND + '/api/casino/blackjack', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(Object.assign({ action }, body || {})) });
+    const d = await r.json();
+    if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return; }
+    if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
+    renderBj(d);
+  } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+}
+function renderBj(d) {
+  const dealerEl = document.getElementById('bj-dealer-area');
+  const playerEl = document.getElementById('bj-player-area');
+  const hit = document.getElementById('btn-bj-hit');
+  const stand = document.getElementById('btn-bj-stand');
+  const deal = document.getElementById('btn-bj-deal');
+  const msg = document.getElementById('bj-msg');
+  if (d.phase === 'player') {
+    dealerEl.textContent = 'Dealer: ' + d.dealer_up + ' ??';
+    playerEl.textContent = 'You: ' + (d.player || []).join(' ') + '  (' + d.player_score + ')';
+    hit.disabled = false; stand.disabled = false; deal.disabled = true;
+    msg.textContent = ''; msg.style.color = 'var(--text-muted)';
+  } else if (d.phase === 'done') {
+    dealerEl.textContent = 'Dealer: ' + (d.dealer || []).join(' ') + '  (' + (d.dealer_score || '') + ')';
+    playerEl.textContent = 'You: ' + (d.player || []).join(' ') + '  (' + d.player_score + ')';
+    hit.disabled = true; stand.disabled = true; deal.disabled = false;
+    const labels = { blackjack: 'BLACKJACK!', win: 'You win!', push: 'Push (bet returned)', lose: 'Dealer wins', bust: 'Bust!' };
+    if (d.winnings > 0 && d.outcome !== 'push') {
+      msg.textContent = labels[d.outcome] + ' +' + d.winnings + ' $';
+      msg.style.color = '#22c55e';
+    } else if (d.outcome === 'push') {
+      msg.textContent = labels[d.outcome];
+      msg.style.color = 'var(--text-muted)';
+    } else {
+      msg.textContent = labels[d.outcome] + ' −' + d.bet + ' $';
+      msg.style.color = 'var(--red)';
+    }
+  }
+}
+document.getElementById('btn-bj-deal').onclick = () => {
+  const amount = parseInt(document.getElementById('bj-bet').value) || 0;
+  bjCall('start', { amount });
+};
+document.getElementById('btn-bj-hit').onclick = () => bjCall('hit');
+document.getElementById('btn-bj-stand').onclick = () => bjCall('stand');
+
 document.querySelectorAll('.coin-go').forEach(b => {
   b.onclick = () => {
     const amount = parseInt(document.getElementById('coin-bet').value) || 0;
