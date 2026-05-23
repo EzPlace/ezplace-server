@@ -1998,7 +1998,8 @@ async def casino_blackjack_handler(request):
 
 rps_queue = []                                                                             
 rps_games = {}                                                                                        
-RPS_GAME_TIMEOUT = 30                                     
+RPS_GAME_TIMEOUT = 10
+
 
 def _rps_beats(a, b):
     return (a == "rock" and b == "scissors") or (a == "paper" and b == "rock") or (a == "scissors" and b == "paper")
@@ -2066,8 +2067,6 @@ async def casino_rps_challenge_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    if not check_rate_limit(user, "rps_challenge", 5, 60):
-        return web.json_response({"error": "Too many challenges - slow down."}, status=429)
     target = (data.get("opponent") or "").strip()
     try: amount = int(data.get("amount", 0))
     except: return web.json_response({"error": "Invalid bet"}, status=400)
@@ -2206,6 +2205,342 @@ async def casino_rps_status_handler(request):
         result = await _rps_finish(gid, user)
         return web.json_response(result)
     return web.json_response({"ok": True, "phase": "playing", "you_played": g["choices"][ulow] is not None, "opponent_played": g["choices"][other] is not None, "elapsed": int(elapsed), "timeout": RPS_GAME_TIMEOUT})
+
+uno_rooms = {}
+UNO_FORFEIT_SECONDS = 12
+
+def _uno_new_deck():
+    deck = []
+    for color in ("r", "y", "g", "b"):
+        deck.append({"color": color, "value": "0"})
+        for v in range(1, 10):
+            deck.append({"color": color, "value": str(v)})
+            deck.append({"color": color, "value": str(v)})
+        for a in ("skip", "reverse", "draw2"):
+            deck.append({"color": color, "value": a})
+            deck.append({"color": color, "value": a})
+    for _ in range(4):
+        deck.append({"color": "w", "value": "wild"})
+        deck.append({"color": "w", "value": "wild4"})
+    secrets.SystemRandom().shuffle(deck)
+    return deck
+
+def _uno_can_play(card, top, current_color, pending_draws, pending_kind, stacking):
+    if pending_draws > 0:
+        if not stacking: return False
+        if pending_kind == "draw2" and card["value"] == "draw2": return True
+        if pending_kind == "wild4" and card["value"] == "wild4": return True
+        return False
+    if card["color"] == "w": return True
+    if card["color"] == current_color: return True
+    if card["value"] == top["value"] and top["color"] != "w": return True
+    return False
+
+def _uno_advance(room, skip=False):
+    n = len(room["players"])
+    step = room["direction"] * (2 if skip else 1)
+    room["current"] = (room["current"] + step) % n
+
+def _uno_draw_cards(room, player_idx, n):
+    for _ in range(n):
+        if not room["deck"]:
+            if len(room["discard"]) <= 1: return
+            top = room["discard"].pop()
+            room["deck"] = room["discard"]
+            secrets.SystemRandom().shuffle(room["deck"])
+            room["discard"] = [top]
+        room["players"][player_idx]["hand"].append(room["deck"].pop())
+
+def _uno_public_state(room, for_player):
+    players_info = []
+    for i, p in enumerate(room["players"]):
+        players_info.append({"name": p["name"], "is_ai": p["is_ai"], "hand_count": len(p["hand"]), "connected": p.get("connected", True)})
+    me = next((i for i, p in enumerate(room["players"]) if p["name"].lower() == for_player.lower()), None)
+    state = {
+        "room_id": room["id"], "phase": room["phase"], "players": players_info,
+        "current": room["current"], "direction": room["direction"],
+        "current_color": room["current_color"],
+        "top": room["discard"][-1] if room["discard"] else None,
+        "pending_draws": room["pending_draws"], "pending_kind": room["pending_kind"],
+        "settings": room["settings"], "creator": room["creator"],
+        "my_index": me,
+        "my_hand": room["players"][me]["hand"] if me is not None else [],
+        "winner": room.get("winner"),
+    }
+    return state
+
+async def _uno_push_state(room):
+    for p in room["players"]:
+        if p["is_ai"]: continue
+        try:
+            await notify_social(p["name"], {"type": "uno_state", "state": _uno_public_state(room, p["name"])})
+        except: pass
+
+async def _uno_ai_turn(room):
+    while not room.get("winner") and room["players"][room["current"]]["is_ai"]:
+        p = room["players"][room["current"]]
+        top = room["discard"][-1]
+        idx = next((i for i, c in enumerate(p["hand"]) if _uno_can_play(c, top, room["current_color"], room["pending_draws"], room["pending_kind"], room["settings"].get("stacking", False))), None)
+        await asyncio.sleep(0.6)
+        if idx is None:
+            if room["pending_draws"] > 0:
+                _uno_draw_cards(room, room["current"], room["pending_draws"])
+                room["pending_draws"] = 0; room["pending_kind"] = None
+                _uno_advance(room)
+            else:
+                _uno_draw_cards(room, room["current"], 1)
+                _uno_advance(room)
+        else:
+            color = None
+            if p["hand"][idx]["color"] == "w":
+                counts = {"r": 0, "y": 0, "g": 0, "b": 0}
+                for c in p["hand"]:
+                    if c["color"] in counts: counts[c["color"]] += 1
+                color = max(counts, key=lambda k: counts[k]) if any(counts.values()) else secrets.choice(["r", "y", "g", "b"])
+            await _uno_apply_play(room, room["current"], idx, color)
+        await _uno_push_state(room)
+
+async def _uno_apply_play(room, player_idx, card_idx, chosen_color):
+    p = room["players"][player_idx]
+    card = p["hand"].pop(card_idx)
+    room["discard"].append(card)
+    room["last_action_at"] = time.time()
+    if card["color"] == "w":
+        room["current_color"] = chosen_color or "r"
+    else:
+        room["current_color"] = card["color"]
+    if len(p["hand"]) == 0:
+        room["phase"] = "done"
+        room["winner"] = p["name"]
+        await _uno_finalize(room)
+        return
+    if card["value"] == "skip":
+        _uno_advance(room, skip=True)
+    elif card["value"] == "reverse":
+        room["direction"] *= -1
+        if len(room["players"]) == 2: _uno_advance(room, skip=True)
+        else: _uno_advance(room)
+    elif card["value"] == "draw2":
+        room["pending_draws"] += 2; room["pending_kind"] = "draw2"
+        _uno_advance(room)
+    elif card["value"] == "wild4":
+        room["pending_draws"] += 4; room["pending_kind"] = "wild4"
+        _uno_advance(room)
+    else:
+        room["pending_draws"] = 0; room["pending_kind"] = None
+        _uno_advance(room)
+
+async def _uno_finalize(room):
+    pool = room.get("pool", 0)
+    winner = room.get("winner")
+    if winner and pool > 0:
+        credit_pb(winner, pool)
+        await save_place_bucks()
+        await push_pb_update(winner)
+        await broadcast_casino_result(winner, "UNO", room["bet_per_human"], pool, f"won pot of {pool}")
+    for p in room["players"]:
+        if p["is_ai"]: continue
+        if winner and p["name"].lower() != winner.lower():
+            await broadcast_casino_result(p["name"], "UNO", room["bet_per_human"], 0, f"lost to {winner}")
+    asyncio.get_event_loop().call_later(60, lambda: uno_rooms.pop(room["id"], None))
+
+async def uno_forfeit(user):
+    ulow = user.lower()
+    for rid, room in list(uno_rooms.items()):
+        if room["phase"] not in ("lobby", "playing"): continue
+        idx = next((i for i, p in enumerate(room["players"]) if not p["is_ai"] and p["name"].lower() == ulow), None)
+        if idx is None: continue
+        if room["phase"] == "lobby":
+            removed = room["players"].pop(idx)
+            if room["players"]:
+                if room["creator"].lower() == ulow:
+                    nh = next((p for p in room["players"] if not p["is_ai"]), None)
+                    if nh: room["creator"] = nh["name"]
+                    else:
+                        uno_rooms.pop(rid, None); continue
+                credit_pb(user, room["bet_per_human"])
+                await save_place_bucks(); await push_pb_update(user)
+                await _uno_push_state(room)
+            else:
+                uno_rooms.pop(rid, None)
+        else:
+            room["players"][idx]["connected"] = False
+            room["players"][idx]["forfeited"] = True
+            humans_left = [p for p in room["players"] if not p["is_ai"] and not p.get("forfeited")]
+            if len(humans_left) == 0:
+                room["phase"] = "done"; room["winner"] = None
+                uno_rooms.pop(rid, None)
+            elif len(humans_left) + sum(1 for p in room["players"] if p["is_ai"]) <= 1:
+                room["phase"] = "done"
+                room["winner"] = humans_left[0]["name"] if humans_left else None
+                await _uno_finalize(room)
+            else:
+                if room["current"] == idx:
+                    _uno_advance(room)
+                await _uno_push_state(room)
+                if room["players"][room["current"]]["is_ai"]:
+                    asyncio.create_task(_uno_ai_turn(room))
+
+async def uno_create_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    try:
+        bet = int(data.get("bet", 0))
+        max_players = max(2, min(4, int(data.get("max_players", 2))))
+        ai_count = max(0, min(max_players - 1, int(data.get("ai_count", 0))))
+        stacking = bool(data.get("stacking", False))
+    except: return web.json_response({"error": "Invalid settings"}, status=400)
+    if bet < 0: return web.json_response({"error": "Bet must be >= 0"}, status=400)
+    if bet > 0 and not spend_pb(user, bet):
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    rid = secrets.token_hex(5)
+    players = [{"name": user, "hand": [], "is_ai": False, "connected": True}]
+    for i in range(ai_count):
+        players.append({"name": f"AI Bot {i+1}", "hand": [], "is_ai": True, "connected": True})
+    uno_rooms[rid] = {
+        "id": rid, "creator": user, "players": players, "phase": "lobby",
+        "settings": {"max_players": max_players, "ai_count": ai_count, "stacking": stacking, "bet": bet},
+        "deck": [], "discard": [], "current": 0, "direction": 1, "current_color": None,
+        "pending_draws": 0, "pending_kind": None, "bet_per_human": bet, "pool": bet if bet > 0 else 0,
+        "started_at": None, "last_action_at": time.time(),
+    }
+    await save_place_bucks(); await push_pb_update(user)
+    return web.json_response({"ok": True, "room_id": rid, "state": _uno_public_state(uno_rooms[rid], user)})
+
+async def uno_list_handler(request):
+    out = []
+    for r in uno_rooms.values():
+        if r["phase"] != "lobby": continue
+        out.append({
+            "room_id": r["id"], "creator": r["creator"],
+            "players": [p["name"] for p in r["players"]],
+            "max_players": r["settings"]["max_players"],
+            "bet": r["settings"]["bet"], "stacking": r["settings"]["stacking"],
+        })
+    return web.json_response({"rooms": out})
+
+async def uno_join_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = uno_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "lobby": return web.json_response({"error": "Game already started"}, status=400)
+    if any(p["name"].lower() == user.lower() for p in room["players"]):
+        return web.json_response({"ok": True, "room_id": rid, "state": _uno_public_state(room, user)})
+    if len(room["players"]) >= room["settings"]["max_players"]:
+        return web.json_response({"error": "Room is full"}, status=400)
+    bet = room["settings"]["bet"]
+    if bet > 0 and not spend_pb(user, bet):
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    room["players"].append({"name": user, "hand": [], "is_ai": False, "connected": True})
+    room["pool"] += bet
+    await save_place_bucks(); await push_pb_update(user)
+    await _uno_push_state(room)
+    return web.json_response({"ok": True, "room_id": rid, "state": _uno_public_state(room, user)})
+
+async def uno_start_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = uno_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["creator"].lower() != user.lower():
+        return web.json_response({"error": "Only the creator can start"}, status=403)
+    if room["phase"] != "lobby": return web.json_response({"error": "Already started"}, status=400)
+    if len(room["players"]) < 2: return web.json_response({"error": "Need at least 2 players"}, status=400)
+    room["deck"] = _uno_new_deck()
+    for p in room["players"]: p["hand"] = []
+    for _ in range(7):
+        for i in range(len(room["players"])):
+            room["players"][i]["hand"].append(room["deck"].pop())
+    while True:
+        top = room["deck"].pop()
+        if top["color"] != "w" and top["value"] not in ("skip", "reverse", "draw2"):
+            room["discard"] = [top]; break
+        room["deck"].insert(0, top)
+    room["current_color"] = room["discard"][-1]["color"]
+    room["current"] = 0
+    room["direction"] = 1
+    room["pending_draws"] = 0
+    room["pending_kind"] = None
+    room["phase"] = "playing"
+    room["started_at"] = time.time()
+    room["last_action_at"] = time.time()
+    await _uno_push_state(room)
+    if room["players"][room["current"]]["is_ai"]:
+        asyncio.create_task(_uno_ai_turn(room))
+    return web.json_response({"ok": True, "state": _uno_public_state(room, user)})
+
+async def uno_play_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = uno_rooms.get(rid)
+    if not room or room["phase"] != "playing":
+        return web.json_response({"error": "Not in a playing room"}, status=400)
+    idx = next((i for i, p in enumerate(room["players"]) if p["name"].lower() == user.lower()), None)
+    if idx is None: return web.json_response({"error": "Not in room"}, status=403)
+    if idx != room["current"]: return web.json_response({"error": "Not your turn"}, status=400)
+    try: card_idx = int(data.get("card_idx", -1))
+    except: return web.json_response({"error": "Invalid card index"}, status=400)
+    hand = room["players"][idx]["hand"]
+    if card_idx < 0 or card_idx >= len(hand):
+        return web.json_response({"error": "Invalid card index"}, status=400)
+    card = hand[card_idx]
+    top = room["discard"][-1]
+    if not _uno_can_play(card, top, room["current_color"], room["pending_draws"], room["pending_kind"], room["settings"].get("stacking", False)):
+        return web.json_response({"error": "That card can't be played"}, status=400)
+    chosen_color = (data.get("color") or "").strip().lower()
+    if card["color"] == "w" and chosen_color not in ("r", "y", "g", "b"):
+        return web.json_response({"error": "Wild needs a color (r/y/g/b)"}, status=400)
+    await _uno_apply_play(room, idx, card_idx, chosen_color if card["color"] == "w" else None)
+    await _uno_push_state(room)
+    if room["phase"] == "playing" and room["players"][room["current"]]["is_ai"]:
+        asyncio.create_task(_uno_ai_turn(room))
+    return web.json_response({"ok": True, "state": _uno_public_state(room, user)})
+
+async def uno_draw_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = uno_rooms.get(rid)
+    if not room or room["phase"] != "playing":
+        return web.json_response({"error": "Not in a playing room"}, status=400)
+    idx = next((i for i, p in enumerate(room["players"]) if p["name"].lower() == user.lower()), None)
+    if idx is None or idx != room["current"]:
+        return web.json_response({"error": "Not your turn"}, status=400)
+    n = room["pending_draws"] if room["pending_draws"] > 0 else 1
+    _uno_draw_cards(room, idx, n)
+    room["pending_draws"] = 0; room["pending_kind"] = None
+    _uno_advance(room)
+    await _uno_push_state(room)
+    if room["phase"] == "playing" and room["players"][room["current"]]["is_ai"]:
+        asyncio.create_task(_uno_ai_turn(room))
+    return web.json_response({"ok": True, "state": _uno_public_state(room, user)})
+
+async def uno_leave_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    if rid not in uno_rooms:
+        return web.json_response({"ok": True})
+    await uno_forfeit(user)
+    return web.json_response({"ok": True})
+
+async def uno_state_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = request.query.get("room_id", "")
+    room = uno_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    return web.json_response({"ok": True, "state": _uno_public_state(room, user)})
 
 async def flappy_pass_handler(request):
     """Award 1 PB for each pipe passed in the Flappy game. Soft anti-cheat:
@@ -2467,10 +2802,15 @@ async def social_ws_handler(request):
                 break
     finally:
         was_authed = bool(social_clients.get(ws))
+        disconnected_user = social_clients.get(ws)
         del social_clients[ws]
         social_ips.pop(ws, None)
         if was_authed:
             await broadcast_online_all_lobbies()
+            still_online = any(uname and uname.lower() == disconnected_user.lower() for uname in social_clients.values())
+            if not still_online and disconnected_user:
+                try: await uno_forfeit(disconnected_user)
+                except Exception as e: print(f"uno_forfeit on disconnect failed: {e}")
     return ws
 
 async def notify_social(target_username, data):
@@ -3200,6 +3540,14 @@ app.router.add_post("/api/casino/rps/respond", casino_rps_respond_handler)
 app.router.add_post("/api/casino/rps/play", casino_rps_play_handler)
 app.router.add_get("/api/casino/rps/status", casino_rps_status_handler)
 app.router.add_post("/api/flappy/pass", flappy_pass_handler)
+app.router.add_post("/api/uno/create", uno_create_handler)
+app.router.add_get("/api/uno/list", uno_list_handler)
+app.router.add_post("/api/uno/join", uno_join_handler)
+app.router.add_post("/api/uno/start", uno_start_handler)
+app.router.add_post("/api/uno/play", uno_play_handler)
+app.router.add_post("/api/uno/draw", uno_draw_handler)
+app.router.add_post("/api/uno/leave", uno_leave_handler)
+app.router.add_get("/api/uno/state", uno_state_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
 app.router.add_get("/api/groups/my", groups_my_handler)
