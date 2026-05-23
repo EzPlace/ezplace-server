@@ -57,8 +57,11 @@ group_messages = {}
 place_bucks = {}                               
 lifetime_pixels = {}                           
 purchases = {}                                                                   
-stay_seconds = {}                                                                                 
-IDLE_REWARD_SECONDS = 900              
+stay_seconds = {}
+IDLE_REWARD_SECONDS = 900
+economy_history = []
+ECONOMY_SNAPSHOT_INTERVAL = 3600
+ECONOMY_HISTORY_MAX = 168
 PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70}
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
@@ -253,6 +256,8 @@ async def save_purchases():
     await db_save("store", "purchases", purchases)
 async def save_stay_seconds():
     await db_save("store", "stay_seconds", stay_seconds)
+async def save_economy_history():
+    await db_save("store", "economy_history", economy_history)
 
 PB_UNLIMITED = 10 ** 9                                                  
 
@@ -445,6 +450,25 @@ async def flush_dirty_lobbies_loop(app):
         except Exception as e:
             print(f"flush_dirty_lobbies_loop error: {e}")
 
+def _total_economy_pb():
+    return sum(int(v) for k, v in place_bucks.items() if not is_admin(k))
+
+async def economy_snapshot_loop(app):
+    while True:
+        try:
+            await asyncio.sleep(ECONOMY_SNAPSHOT_INTERVAL)
+            economy_history.append({"ts": int(time.time()), "total": _total_economy_pb()})
+            if len(economy_history) > ECONOMY_HISTORY_MAX:
+                del economy_history[:len(economy_history) - ECONOMY_HISTORY_MAX]
+            await save_economy_history()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"economy_snapshot_loop error: {e}")
+
+async def economy_stats_handler(request):
+    return web.json_response({"total": _total_economy_pb(), "history": economy_history[-ECONOMY_HISTORY_MAX:]})
+
 async def idle_reward_loop(app):
     """Every minute, add 60 to each online user's stay_seconds. Credit 1 PB per
     900 (15 min) accumulated. Admins are skipped (unlimited balance anyway)."""
@@ -562,6 +586,8 @@ async def load_all_data():
     lifetime_pixels = await db_load("store", "lifetime_pixels") or {}
     purchases = await db_load("store", "purchases") or {}
     stay_seconds = await db_load("store", "stay_seconds") or {}
+    global economy_history
+    economy_history = await db_load("store", "economy_history") or []
     user_ips = await db_load("store", "user_ips") or {}
 
     for i, pl in enumerate(PUBLIC_LOBBIES):
@@ -3523,6 +3549,10 @@ async def on_startup(app):
     app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
     app["idle_task"] = asyncio.create_task(idle_reward_loop(app))
+    app["economy_task"] = asyncio.create_task(economy_snapshot_loop(app))
+    if not economy_history:
+        economy_history.append({"ts": int(time.time()), "total": _total_economy_pb()})
+        await save_economy_history()
 
 async def on_cleanup(app):
     app["cleanup_task"].cancel()
@@ -3623,6 +3653,7 @@ app.router.add_post("/api/uno/spectate", uno_spectate_handler)
 app.router.add_post("/api/uno/unspectate", uno_unspectate_handler)
 app.router.add_post("/api/uno/say", uno_say_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
+app.router.add_get("/api/economy/stats", economy_stats_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
 app.router.add_get("/api/groups/my", groups_my_handler)
 app.router.add_post("/api/groups/create", group_create_handler)
