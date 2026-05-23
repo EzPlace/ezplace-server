@@ -59,7 +59,7 @@ place_bucks = {}      # { username_lower: int }
 lifetime_pixels = {}  # { username_lower: int }
 purchases = {}        # { username_lower: { "custom_wheel": bool, "vip": bool } }
 PB_PIXELS_PER_BUCK = 100
-SHOP_PRICES = {"custom_wheel": 5, "vip": 50}
+SHOP_PRICES = {"custom_wheel": 5, "vip": 50, "custom_rank": 70}
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
 
 # Whitelist of image hosts so users can't inject arbitrary URLs (which could leak IPs or load malicious content)
@@ -1703,6 +1703,28 @@ async def shop_buy_handler(request):
     item = (data.get("item") or "").strip()
     if item not in SHOP_PRICES:
         return web.json_response({"error": "Unknown item"}, status=400)
+    # custom_rank is special: pay 70 PB once, then edit label/color for free anytime.
+    if item == "custom_rank":
+        label = (data.get("label") or "").strip()[:16]
+        color = (data.get("color") or "").strip()[:32]
+        if not label:
+            return web.json_response({"error": "Rank label required"}, status=400)
+        if label.upper() in ("CREATOR", "ADMIN", "MODERATOR", "MOD") and not is_admin(user):
+            return web.json_response({"error": "That label is reserved"}, status=400)
+        if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+            return web.json_response({"error": "Color must be a hex code"}, status=400)
+        first_time = not has_purchase(user, "custom_rank")
+        if first_time:
+            price = SHOP_PRICES["custom_rank"]
+            if not spend_pb(user, price):
+                return web.json_response({"error": f"Not enough PlaceBucks (need {price})"}, status=400)
+            purchases.setdefault(user.lower(), {})["custom_rank"] = True
+            await save_purchases()
+            await save_place_bucks()
+        ranks[user.lower()] = {"label": label, "color": color}
+        await save_ranks()
+        await push_pb_update(user)
+        return web.json_response({"ok": True, "balance": get_pb(user), "purchases": purchases.get(user.lower()) or {}})
     if has_purchase(user, item):
         return web.json_response({"error": "You already own that"}, status=400)
     price = SHOP_PRICES[item]
