@@ -554,6 +554,47 @@
           <span id="custom-rank-preview" style="font-size:10px;font-weight:700;color:#ee5a52;">[PREVIEW]</span>
         </div>
       </div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Casino &mdash; max bet 100 $</div>
+
+      <!-- Slots -->
+      <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+        <div style="font-weight:700;">Slots</div>
+        <div style="font-size:11px;color:var(--text-muted);">3x 7 = 25x bet · 3 same = 8x · 2 same = push</div>
+        <div id="slots-reels" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;letter-spacing:14px;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">- - -</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input id="slots-bet" type="number" min="1" max="100" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+          <button id="btn-slots" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Spin</button>
+        </div>
+        <div id="slots-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+      </div>
+
+      <!-- Roulette -->
+      <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+        <div style="font-weight:700;">Roulette</div>
+        <div style="font-size:11px;color:var(--text-muted);">Red/Black = 2x · Green (0) = 35x</div>
+        <div id="roulette-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">--</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <input id="roulette-bet" type="number" min="1" max="100" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+          <button class="win-btn roulette-go" data-choice="red" style="background:#c0392b;color:#fff;flex:1;">Red</button>
+          <button class="win-btn roulette-go" data-choice="black" style="background:#222;color:#fff;flex:1;">Black</button>
+          <button class="win-btn roulette-go" data-choice="green" style="background:#16a34a;color:#fff;flex:1;">Green</button>
+        </div>
+        <div id="roulette-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+      </div>
+
+      <!-- Coin Flip -->
+      <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+        <div style="font-weight:700;">Coin Flip</div>
+        <div style="font-size:11px;color:var(--text-muted);">Win = 1.95x bet</div>
+        <div id="coin-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">?</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input id="coin-bet" type="number" min="1" max="100" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+          <button class="win-btn coin-go" data-choice="heads" style="background:var(--accent);color:#fff;flex:1;">Heads</button>
+          <button class="win-btn coin-go" data-choice="tails" style="background:var(--accent);color:#fff;flex:1;">Tails</button>
+        </div>
+        <div id="coin-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+      </div>
+
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Transfer PlaceBucks</div>
       <div style="display:flex;gap:6px;align-items:center;">
         <input id="pb-xfer-to" class="win-input" type="text" placeholder="Recipient username" style="flex:1;" maxlength="20">
@@ -2640,6 +2681,52 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
     refreshPreview();
   };
 })();
+
+// ===== Casino =====
+async function casinoPlay(endpoint, body, msgEl, onResult) {
+  msgEl.textContent = 'Playing...'; msgEl.style.color = 'var(--text-muted)';
+  try {
+    const r = await fetch(BACKEND + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.error) { msgEl.textContent = d.error; msgEl.style.color = 'var(--red)'; return; }
+    if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
+    onResult(d);
+  } catch { msgEl.textContent = 'Server offline.'; msgEl.style.color = 'var(--red)'; }
+}
+document.getElementById('btn-slots').onclick = () => {
+  const amount = parseInt(document.getElementById('slots-bet').value) || 0;
+  const msg = document.getElementById('slots-msg');
+  casinoPlay('/api/casino/slots', { amount }, msg, (d) => {
+    document.getElementById('slots-reels').textContent = (d.spin || []).join(' ');
+    const lbl = { jackpot: 'JACKPOT', three: '3-of-a-kind', pair: 'Pair (push)', lose: 'No match' }[d.outcome] || d.outcome;
+    if (d.winnings > 0) { msg.textContent = `${lbl} — +${d.winnings} $`; msg.style.color = '#22c55e'; }
+    else { msg.textContent = `${lbl} — −${d.bet} $`; msg.style.color = 'var(--red)'; }
+  });
+};
+document.querySelectorAll('.roulette-go').forEach(b => {
+  b.onclick = () => {
+    const amount = parseInt(document.getElementById('roulette-bet').value) || 0;
+    const msg = document.getElementById('roulette-msg');
+    casinoPlay('/api/casino/roulette', { amount, choice: b.dataset.choice }, msg, (d) => {
+      const out = document.getElementById('roulette-result');
+      out.textContent = d.number + ' ' + d.color;
+      out.style.color = d.color === 'red' ? '#c0392b' : d.color === 'green' ? '#16a34a' : 'var(--text-primary)';
+      if (d.winnings > 0) { msg.textContent = `Won! +${d.winnings} $`; msg.style.color = '#22c55e'; }
+      else { msg.textContent = `Lost −${d.bet} $`; msg.style.color = 'var(--red)'; }
+    });
+  };
+});
+document.querySelectorAll('.coin-go').forEach(b => {
+  b.onclick = () => {
+    const amount = parseInt(document.getElementById('coin-bet').value) || 0;
+    const msg = document.getElementById('coin-msg');
+    casinoPlay('/api/casino/coinflip', { amount, choice: b.dataset.choice }, msg, (d) => {
+      document.getElementById('coin-result').textContent = d.flip.toUpperCase();
+      if (d.winnings > 0) { msg.textContent = `${d.flip}! +${d.winnings} $`; msg.style.color = '#22c55e'; }
+      else { msg.textContent = `${d.flip} — −${d.bet} $`; msg.style.color = 'var(--red)'; }
+    });
+  };
+});
 
 document.getElementById('btn-pb-xfer').onclick = async () => {
   const to = document.getElementById('pb-xfer-to').value.trim();
