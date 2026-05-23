@@ -533,6 +533,16 @@
   </div>
 </div>
 
+<div id="flappy-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);z-index:80;align-items:center;justify-content:center;padding:14px;flex-direction:column;gap:8px;">
+  <div style="display:flex;align-items:center;gap:14px;color:var(--text-primary);font-size:13px;font-weight:700;">
+    <span>Score: <span id="flappy-score" style="color:var(--accent);">0</span></span>
+    <span>Earned: <span id="flappy-earned" style="color:var(--gold);">0</span> $</span>
+    <button id="btn-flappy-close" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:4px 10px;">Close</button>
+  </div>
+  <canvas id="flappy-canvas" width="320" height="440" style="background:#1a1916;border:1px solid var(--accent);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.6);touch-action:none;cursor:pointer;"></canvas>
+  <div id="flappy-hint" style="font-size:11px;color:var(--text-muted);">Tap / click / spacebar to flap. Avoid pipes.</div>
+</div>
+
 <div id="shop-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:420px;max-width:100%;max-height:85vh;display:flex;flex-direction:column;">
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
@@ -554,7 +564,7 @@
           <span id="custom-rank-preview" style="font-size:10px;font-weight:700;color:#ee5a52;">[PREVIEW]</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Casino &mdash; max bet 100 $</div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px;">Casino</div>
 
       <!-- Slots -->
       <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
@@ -562,7 +572,7 @@
         <div style="font-size:11px;color:var(--text-muted);">3x 7 = 25x bet · 3 same = 8x · 2 same = push</div>
         <div id="slots-reels" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;letter-spacing:14px;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">- - -</div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <input id="slots-bet" type="number" min="1" max="100" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+          <input id="slots-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
           <button id="btn-slots" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Spin</button>
         </div>
         <div id="slots-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
@@ -574,12 +584,19 @@
         <div style="font-size:11px;color:var(--text-muted);">Red/Black = 2x · Green (0) = 35x</div>
         <div id="roulette-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">--</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-          <input id="roulette-bet" type="number" min="1" max="100" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+          <input id="roulette-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
           <button class="win-btn roulette-go" data-choice="red" style="background:#c0392b;color:#fff;flex:1;">Red</button>
           <button class="win-btn roulette-go" data-choice="black" style="background:#222;color:#fff;flex:1;">Black</button>
           <button class="win-btn roulette-go" data-choice="green" style="background:#16a34a;color:#fff;flex:1;">Green</button>
         </div>
         <div id="roulette-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+      </div>
+
+      <!-- Flappy Bird -->
+      <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+        <div style="font-weight:700;">Flappy Bird</div>
+        <div style="font-size:11px;color:var(--text-muted);">Earn 1 $ per pipe passed. Hard mode — small gap, fast scroll. No bet, no loss.</div>
+        <button id="btn-flappy-open" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
       </div>
 
       <!-- Coin Flip -->
@@ -588,7 +605,7 @@
         <div style="font-size:11px;color:var(--text-muted);">Win = 1.95x bet</div>
         <div id="coin-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">?</div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <input id="coin-bet" type="number" min="1" max="100" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+          <input id="coin-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
           <button class="win-btn coin-go" data-choice="heads" style="background:var(--accent);color:#fff;flex:1;">Heads</button>
           <button class="win-btn coin-go" data-choice="tails" style="background:var(--accent);color:#fff;flex:1;">Tails</button>
         </div>
@@ -2680,6 +2697,120 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
     btn.style.color = '#fff';
     refreshPreview();
   };
+})();
+
+// ===== Flappy Bird =====
+// Hard mode: small gap, fast scroll. Each pipe passed posts to /api/flappy/pass
+// for +1 PB. Server caps awards at 6/sec which is way above real human play.
+(function setupFlappy() {
+  const modal = document.getElementById('flappy-modal');
+  const cvsF = document.getElementById('flappy-canvas');
+  const ctxF = cvsF.getContext('2d');
+  const scoreEl = document.getElementById('flappy-score');
+  const earnedEl = document.getElementById('flappy-earned');
+  const hintEl = document.getElementById('flappy-hint');
+  const W = cvsF.width, H = cvsF.height;
+  const GRAV = 0.55, FLAP = -8.2, BIRD_R = 11;
+  const PIPE_W = 50, PIPE_GAP = 88, PIPE_SPAWN = 78, PIPE_SPEED = 2.9;
+  let bird, pipes, frame, score, earned, alive, started, raf;
+
+  function reset() {
+    bird = { x: 70, y: H / 2, vy: 0 };
+    pipes = [];
+    frame = 0; score = 0; earned = 0;
+    alive = true; started = false;
+    scoreEl.textContent = '0'; earnedEl.textContent = '0';
+    hintEl.textContent = 'Tap / click / spacebar to flap.';
+    draw();
+  }
+  function flap() {
+    if (!alive) { reset(); return; }
+    if (!started) started = true;
+    bird.vy = FLAP;
+  }
+  function spawnPipe() {
+    const gapY = 60 + Math.random() * (H - 60 - PIPE_GAP - 60);
+    pipes.push({ x: W, gapY, passed: false });
+  }
+  async function awardPass() {
+    earned += 1;
+    earnedEl.textContent = earned;
+    // Optimistic local bump
+    if (!myUnlimited) { myBalance += 1; applyPbState(); }
+    try {
+      const r = await fetch(BACKEND + '/api/flappy/pass', { method: 'POST', headers: { Authorization: authToken } });
+      const d = await r.json();
+      if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); }
+    } catch {}
+  }
+  function step() {
+    if (!alive) return;
+    if (started) {
+      bird.vy += GRAV;
+      bird.y += bird.vy;
+      frame++;
+      if (frame % PIPE_SPAWN === 0) spawnPipe();
+      for (const p of pipes) p.x -= PIPE_SPEED;
+      // Collisions
+      if (bird.y - BIRD_R < 0 || bird.y + BIRD_R > H) alive = false;
+      for (const p of pipes) {
+        if (bird.x + BIRD_R > p.x && bird.x - BIRD_R < p.x + PIPE_W) {
+          if (bird.y - BIRD_R < p.gapY || bird.y + BIRD_R > p.gapY + PIPE_GAP) alive = false;
+        }
+        if (!p.passed && p.x + PIPE_W < bird.x) {
+          p.passed = true;
+          score++;
+          scoreEl.textContent = score;
+          awardPass();
+        }
+      }
+      while (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
+    }
+    draw();
+    if (alive) raf = requestAnimationFrame(step);
+    else {
+      hintEl.textContent = `Dead — score ${score}, earned ${earned} $. Click / spacebar to retry.`;
+    }
+  }
+  function draw() {
+    ctxF.fillStyle = '#1a1916'; ctxF.fillRect(0, 0, W, H);
+    // Pipes
+    ctxF.fillStyle = '#16a34a';
+    for (const p of pipes) {
+      ctxF.fillRect(p.x, 0, PIPE_W, p.gapY);
+      ctxF.fillRect(p.x, p.gapY + PIPE_GAP, PIPE_W, H - (p.gapY + PIPE_GAP));
+    }
+    // Bird
+    ctxF.fillStyle = '#ee5a52';
+    ctxF.beginPath(); ctxF.arc(bird.x, bird.y, BIRD_R, 0, Math.PI * 2); ctxF.fill();
+    ctxF.fillStyle = '#fff';
+    ctxF.beginPath(); ctxF.arc(bird.x + 3, bird.y - 3, 3, 0, Math.PI * 2); ctxF.fill();
+    // HUD
+    ctxF.fillStyle = '#fff'; ctxF.font = 'bold 24px Inter, sans-serif'; ctxF.textAlign = 'center';
+    ctxF.fillText(String(score), W / 2, 36);
+  }
+  function open() {
+    if (!authToken) { alert('Log in to play.'); return; }
+    document.getElementById('shop-modal').style.display = 'none';
+    modal.style.display = 'flex';
+    reset();
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(step);
+  }
+  function close() {
+    modal.style.display = 'none';
+    alive = false;
+    if (raf) cancelAnimationFrame(raf);
+  }
+  document.getElementById('btn-flappy-open').onclick = open;
+  document.getElementById('btn-flappy-close').onclick = close;
+  cvsF.addEventListener('mousedown', (e) => { e.preventDefault(); flap(); });
+  cvsF.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
+  window.addEventListener('keydown', (e) => {
+    if (modal.style.display !== 'flex') return;
+    if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); flap(); }
+    if (e.key === 'Escape') close();
+  });
 })();
 
 // ===== Casino =====
