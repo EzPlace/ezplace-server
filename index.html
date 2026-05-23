@@ -3241,6 +3241,71 @@ function stopEconomyPoll() {
   if (economyPollTimer) { clearInterval(economyPollTimer); economyPollTimer = null; }
 }
 
+let economyHistoryCache = [];
+let economyLiveBuf = [];
+const ECON_LIVE_MAX = 240;
+
+function renderEconomyUI(total, delta) {
+  const totalEl = document.getElementById('economy-total');
+  if (!totalEl) return;
+  const color = delta > 0 ? '#22c55e' : (delta < 0 ? 'var(--red)' : 'var(--text-primary)');
+  const arrow = delta > 0 ? ' ▲' : (delta < 0 ? ' ▼' : '');
+  totalEl.style.color = color;
+  totalEl.textContent = total.toLocaleString() + ' $' + arrow + (delta ? ' (' + (delta > 0 ? '+' : '') + delta.toLocaleString() + ')' : '');
+  totalEl.dataset.last = String(total);
+  drawEconomyGraph(color, delta);
+}
+
+function drawEconomyGraph(color, delta) {
+  const canvas = document.getElementById('economy-graph');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const points = economyHistoryCache.map(p => ({ ts: p.ts, v: Number(p.total || 0) }))
+    .concat(economyLiveBuf.map(p => ({ ts: p.ts, v: p.v })));
+  if (points.length < 2) {
+    ctx.fillStyle = '#888'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('Building history... (live updates as transactions happen)', w / 2, h / 2);
+    return;
+  }
+  const vals = points.map(p => p.v);
+  let mn = Math.min(...vals), mx = Math.max(...vals);
+  if (mx === mn) { mx = mn + 1; }
+  const pad = 8;
+  const innerW = w - pad * 2, innerH = h - pad * 2;
+  const t0 = points[0].ts, tN = points[points.length - 1].ts;
+  const dur = Math.max(1, tN - t0);
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    const y = pad + (innerH * i) / 4;
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = pad + ((p.ts - t0) / dur) * innerW;
+    const y = pad + innerH - ((p.v - mn) / (mx - mn)) * innerH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.lineTo(pad + innerW, h - pad);
+  ctx.lineTo(pad, h - pad);
+  ctx.closePath();
+  ctx.fillStyle = (delta > 0 ? 'rgba(34,197,94,0.10)' : (delta < 0 ? 'rgba(192,57,43,0.10)' : 'rgba(255,255,255,0.04)'));
+  ctx.fill();
+  ctx.fillStyle = '#888'; ctx.font = '10px Inter, sans-serif';
+  ctx.textAlign = 'left'; ctx.fillText(mx.toLocaleString(), pad + 2, pad + 10);
+  ctx.fillText(mn.toLocaleString(), pad + 2, h - pad - 2);
+}
+
+function pushEconomyLivePoint(total) {
+  economyLiveBuf.push({ ts: Math.floor(Date.now() / 1000), v: Number(total) });
+  if (economyLiveBuf.length > ECON_LIVE_MAX) economyLiveBuf.splice(0, economyLiveBuf.length - ECON_LIVE_MAX);
+}
+
 async function loadEconomyStats() {
   const totalEl = document.getElementById('economy-total');
   const canvas = document.getElementById('economy-graph');
@@ -3252,58 +3317,17 @@ async function loadEconomyStats() {
   } catch { totalEl.textContent = '? $'; return; }
   const total = Number(data.total || 0);
   const hist = Array.isArray(data.history) ? data.history : [];
-  const prev = hist.length >= 2 ? Number(hist[hist.length - 2].total || 0) : (hist.length === 1 ? Number(hist[0].total || 0) : total);
-  const delta = total - prev;
-  const color = delta > 0 ? '#22c55e' : (delta < 0 ? 'var(--red)' : 'var(--text-primary)');
-  const arrow = delta > 0 ? ' ▲' : (delta < 0 ? ' ▼' : '');
-  totalEl.style.color = color;
-  totalEl.textContent = total.toLocaleString() + ' $' + arrow + (delta ? ' (' + (delta > 0 ? '+' : '') + delta.toLocaleString() + ')' : '');
-  totalEl.dataset.last = String(total);
-  // Draw graph: history with the current 'total' appended as the latest point
-  const points = hist.map(h => ({ ts: h.ts, v: Number(h.total || 0) }));
-  points.push({ ts: Math.floor(Date.now() / 1000), v: total });
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width, h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  if (points.length < 2) {
-    ctx.fillStyle = '#888'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('Not enough history yet (gathered hourly)', w / 2, h / 2);
-    return;
+  economyHistoryCache = hist.slice();
+  // drop live points older than the newest snapshot — server's caught up
+  if (hist.length) {
+    const lastSnap = hist[hist.length - 1].ts || 0;
+    economyLiveBuf = economyLiveBuf.filter(p => p.ts > lastSnap);
   }
-  const vals = points.map(p => p.v);
-  let min = Math.min(...vals), max = Math.max(...vals);
-  if (max === min) { max = min + 1; }
-  const pad = 8;
-  const innerW = w - pad * 2, innerH = h - pad * 2;
-  const t0 = points[0].ts, tN = points[points.length - 1].ts;
-  const dur = Math.max(1, tN - t0);
-  // Baseline grid
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 1;
-  for (let i = 1; i < 4; i++) {
-    const y = pad + (innerH * i) / 4;
-    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
-  }
-  // Line
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  points.forEach((p, i) => {
-    const x = pad + ((p.ts - t0) / dur) * innerW;
-    const y = pad + innerH - ((p.v - min) / (max - min)) * innerH;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-  // Fill under
-  ctx.lineTo(pad + innerW, h - pad);
-  ctx.lineTo(pad, h - pad);
-  ctx.closePath();
-  ctx.fillStyle = (delta > 0 ? 'rgba(34,197,94,0.10)' : (delta < 0 ? 'rgba(192,57,43,0.10)' : 'rgba(255,255,255,0.04)'));
-  ctx.fill();
-  // Min/Max labels
-  ctx.fillStyle = '#888'; ctx.font = '10px Inter, sans-serif';
-  ctx.textAlign = 'left'; ctx.fillText(max.toLocaleString(), pad + 2, pad + 10);
-  ctx.fillText(min.toLocaleString(), pad + 2, h - pad - 2);
+  pushEconomyLivePoint(total);
+  const prev = economyLiveBuf.length >= 2
+    ? economyLiveBuf[economyLiveBuf.length - 2].v
+    : (hist.length ? Number(hist[hist.length - 1].total || 0) : total);
+  renderEconomyUI(total, total - prev);
 }
 
 async function loadGlobalLeaderboard() {
@@ -4183,12 +4207,8 @@ function connectSocial() {
       if (totalEl) {
         const total = Number(msg.total || 0);
         const prev = Number(totalEl.dataset.last || total);
-        const delta = total - prev;
-        const color = delta > 0 ? '#22c55e' : (delta < 0 ? 'var(--red)' : 'var(--text-primary)');
-        const arrow = delta > 0 ? ' ▲' : (delta < 0 ? ' ▼' : '');
-        totalEl.style.color = color;
-        totalEl.textContent = total.toLocaleString() + ' $' + arrow + (delta ? ' (' + (delta > 0 ? '+' : '') + delta.toLocaleString() + ')' : '');
-        totalEl.dataset.last = String(total);
+        pushEconomyLivePoint(total);
+        renderEconomyUI(total, total - prev);
       }
     }
     if (msg.type === 'pb_received') {
