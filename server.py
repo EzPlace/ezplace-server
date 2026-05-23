@@ -60,7 +60,7 @@ purchases = {}
 stay_seconds = {}                                                                                 
 IDLE_REWARD_SECONDS = 900              
 PB_PIXELS_PER_BUCK = 100
-SHOP_PRICES = {"custom_wheel": 5, "vip": 50, "custom_rank": 70}
+SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70}
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
 
 ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
