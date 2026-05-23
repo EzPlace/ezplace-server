@@ -24,9 +24,9 @@ PUBLIC_LOBBIES = [
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
 ADMIN_USER = "toothpaste"
-LOBBY_TIMEOUT_PUBLIC = 48 * 60 * 60   # 48h for user-created public lobbies
-LOBBY_TIMEOUT_PRIVATE = 168 * 60 * 60 # 168h (1 week) for private lobbies
-# Kept for back-compat in any reference; default value is the longer of the two
+LOBBY_TIMEOUT_PUBLIC = 48 * 60 * 60                                        
+LOBBY_TIMEOUT_PRIVATE = 168 * 60 * 60                                    
+                                                                               
 LOBBY_TIMEOUT = LOBBY_TIMEOUT_PRIVATE
 
 def lobby_timeout_for(lobby):
@@ -41,30 +41,28 @@ sessions = {}
 captchas = {}
 friends_data = {}
 dms = {}
-dm_last_seen = {}  # { user_lower: { peer_lower: epoch_seconds } }
+dm_last_seen = {}                                                 
 bans = []
 ip_bans = []
 vips = []
-ranks = {}  # { username_lower: { "label": "VIP", "color": "#daa520" } }
+ranks = {}                                                              
 user_ips = {}
 fake_admins = []
-brush_perms = {}  # { username_lower: { "size": int, "drag": bool } }
-clans = {}  # { clan_id: { id, name, owner, color, rank_label, status, members, pending_requests, created_at } }
-groups = {}  # { group_id: { id, name, owner, members, created_at } }
-group_messages = {}  # { group_id: [ {from, text?, image_url?, time}, ... ] }
+brush_perms = {}                                                     
+clans = {}                                                                                                      
+groups = {}                                                          
+group_messages = {}                                                          
 
-# PlaceBucks economy: 1 PB per 100 pixels placed. Cumulative pixels are tracked
-# separately so awarding is incremental (PB given on each crossing of a 100-mark).
-place_bucks = {}      # { username_lower: int }
-lifetime_pixels = {}  # { username_lower: int }
-purchases = {}        # { username_lower: { "custom_wheel": bool, "vip": bool } }
-stay_seconds = {}     # { username_lower: int }  — accumulates while user is online; 1 PB per 900s
-IDLE_REWARD_SECONDS = 900  # 15 minutes
+                                                                                  
+place_bucks = {}                               
+lifetime_pixels = {}                           
+purchases = {}                                                                   
+stay_seconds = {}                                                                                 
+IDLE_REWARD_SECONDS = 900              
 PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"custom_wheel": 5, "vip": 50, "custom_rank": 70}
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
 
-# Whitelist of image hosts so users can't inject arbitrary URLs (which could leak IPs or load malicious content)
 ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
 def is_safe_image_url(url):
     return isinstance(url, str) and any(url.startswith(h) for h in ALLOWED_IMAGE_HOSTS) and len(url) <= 500
@@ -208,7 +206,7 @@ def find_clan_by_member(username):
 
 def get_clan_tag(username):
     """The clan chip shown in chat. Computed live from membership so it's
-    independent of the `ranks` dict — a clan member who ALSO has an admin
+    independent of the `ranks` dict - a clan member who ALSO has an admin
     rank shows BOTH: [Clan] [AdminRank]."""
     if not username or is_admin(username):
         return None
@@ -220,17 +218,15 @@ def get_clan_tag(username):
     return {"label": clan.get("name") or "", "color": override.get("color") or clan.get("color") or "#7c5cfc"}
 
 async def apply_clan_rank(username, clan):
-    # Clan tags are now computed live (get_clan_tag) and no longer occupy the
-    # `ranks` dict, so an admin-given rank can coexist with the clan chip.
-    # Kept as a no-op for the many existing call sites.
+
+                                                       
     return
 
 async def remove_user_clan_rank(username):
     if not username or is_admin(username): return
     ulow = username.lower()
     ranks.pop(ulow, None)
-    # Also strip from vips so the chat tag doesn't fall back to [VIP] after leaving a clan.
-    # Admin-granted VIPs use a different code path (admin_vip_add) and are unaffected.
+
     if ulow in vips:
         vips.remove(ulow)
         await save_vips()
@@ -258,7 +254,7 @@ async def save_purchases():
 async def save_stay_seconds():
     await db_save("store", "stay_seconds", stay_seconds)
 
-PB_UNLIMITED = 10 ** 9  # sentinel "balance" reported for the real admin
+PB_UNLIMITED = 10 ** 9                                                  
 
 def get_pb(user):
     if not user: return 0
@@ -309,18 +305,16 @@ async def award_pixel_placement(username, count=1):
         await save_place_bucks()
         await push_pb_update(username)
 
-# Set of lobby IDs with unsaved changes. The background task flushes them periodically.
-# save_lobby() flushes immediately; mark_lobby_dirty() defers to the background loop.
+                                                                                     
 dirty_lobbies = set()
 
 def mark_lobby_dirty(lid):
     if lid and lid in lobbies:
         dirty_lobbies.add(lid)
 
-# Sliding-window rate limiter. Keys are (identity, action) tuples; identity is a username
-# for authenticated actions or an IP for anonymous/auth actions. Returns True if the action
-# is allowed (and records the timestamp); False if the caller has exceeded max_count in window_sec.
-_rate_limits = {}  # { (identity, action): [timestamp, ...] }
+                                                                                           
+                                                                                                   
+_rate_limits = {}                                            
 
 def check_rate_limit(identity, action, max_count, window_sec):
     if not identity:
@@ -340,8 +334,8 @@ def rate_limit_identity(request):
     """Use the username if authenticated, otherwise the client IP, so anonymous abuse is also bounded."""
     return get_auth_user(request) or get_client_ip(request)
 
-TIMELAPSE_WINDOW_SEC = 24 * 60 * 60  # 24 hours
-EVENT_STRUCT = struct.Struct('<IHHBB')  # 10 bytes: ts (uint32 sec), x (uint16), y (uint16), new_color (uint8), old_color (uint8)
+TIMELAPSE_WINDOW_SEC = 24 * 60 * 60            
+EVENT_STRUCT = struct.Struct('<IHHBB')                                                                                           
 EVENT_SIZE = EVENT_STRUCT.size
 
 def append_event(lobby, x, y, new_color, old_color):
@@ -349,7 +343,7 @@ def append_event(lobby, x, y, new_color, old_color):
     log = lobby.setdefault("events", bytearray())
     now = int(time.time())
     log.extend(EVENT_STRUCT.pack(now, x, y, new_color, old_color))
-    # Prune old events: scan from start and find first event within window
+                                                                          
     cutoff = now - TIMELAPSE_WINDOW_SEC
     drop = 0
     while drop + EVENT_SIZE <= len(log):
@@ -362,7 +356,7 @@ def append_event(lobby, x, y, new_color, old_color):
 
 def set_pixel_author(lobby, x, y, username):
     """Record the last user to write each cell, for the admin hover-to-see-placer tool.
-    In-memory only — intentionally NOT persisted (would bloat DB/bandwidth) so it
+    In-memory only - intentionally NOT persisted (would bloat DB/bandwidth) so it
     resets when the server restarts."""
     lw = lobby.get("width", 256)
     lobby.setdefault("pixel_authors", {})[y * lw + x] = username
@@ -423,9 +417,8 @@ async def save_lobby(lid):
     lobby = lobbies.get(lid)
     if not lobby:
         return
-    # grid/events/pixel_authors are saved as separate binary fields, not in meta.
-    # pixel_authors persists across restarts so the admin "who placed this" tool
-    # survives deploys (stored compactly; never sent to clients).
+
+                                                                 
     data = {k: v for k, v in lobby.items() if k not in ("grid", "events", "pixel_authors")}
     grid_bytes = bytes(lobby["grid"])
     events_bytes = bytes(lobby.get("events", b""))
@@ -488,9 +481,9 @@ async def rate_limit_cleanup_loop(app):
     """Periodically prune empty/expired entries from the rate limiter so it doesn't grow unbounded."""
     while True:
         try:
-            await asyncio.sleep(300)  # every 5 minutes
+            await asyncio.sleep(300)                   
             now = time.time()
-            # Use a generous 1-hour cutoff — anything older than the longest window we track is safe to drop
+                                                                                                            
             stale_cutoff = now - 3600
             for key in list(_rate_limits.keys()):
                 ts = _rate_limits[key]
@@ -524,8 +517,8 @@ def get_unread_dm_summary(user):
     """Return a list of {from, count, last_text, last_time} for threads with unread peer messages."""
     ulow = user.lower()
     seen_map = dm_last_seen.get(ulow, {})
-    # Find all DM threads this user is part of
-    senders = {}  # peer_display_name -> {count, last_text, last_time}
+                                              
+    senders = {}                                                      
     for key, msgs in dms.items():
         parts = key.split(":")
         if ulow not in parts:
@@ -581,12 +574,10 @@ async def load_all_data():
             "cooldown": pl["cooldown"], "width": w, "height": h
         }
 
-    # Convert whatever MongoDB gives us back (old int-list format or new bytes format) to bytearray
     def _to_bytearray(data):
         if data is None:
             return None
-        # pymongo returns BSON Binary as the `bytes` type and lists as Python lists.
-        # bytearray() accepts both so this is a one-liner, but we wrap it for clarity.
+
         try:
             return bytearray(data)
         except Exception:
@@ -665,8 +656,7 @@ async def index_handler(request):
     return web.FileResponse("index.html")
 
 async def health_handler(request):
-    # Tiny, CORS-friendly endpoint used by the client to probe whether this
-    # host is reachable (primary vs. proxy failover).
+
     return web.json_response({"ok": True})
 
 async def captcha_handler(request):
@@ -681,7 +671,7 @@ async def captcha_handler(request):
 async def register_handler(request):
     data = await request.json()
     if not check_rate_limit(get_client_ip(request), "register", 5, 600):
-        return web.json_response({"error": "Too many registration attempts — try again later."}, status=429)
+        return web.json_response({"error": "Too many registration attempts - try again later."}, status=429)
     uname, pwd = data.get("username", "").strip(), data.get("password", "")
     cap_id, cap_ans = data.get("captcha_id", ""), data.get("captcha_answer", "")
     if not uname or not pwd:
@@ -709,15 +699,14 @@ async def register_handler(request):
 
 async def auth_suggest_mode_handler(request):
     ip = get_client_ip(request)
-    # If the requesting IP has previously been seen attached to any account, default to login.
-    # Otherwise default to register. This is a UX hint only — users can still switch manually.
+
     existing = any(v == ip for v in user_ips.values()) if ip else False
     return web.json_response({"mode": "login" if existing else "register"})
 
 async def login_handler(request):
     data = await request.json()
     if not check_rate_limit(get_client_ip(request), "login", 10, 60):
-        return web.json_response({"error": "Too many login attempts — try again in a minute."}, status=429)
+        return web.json_response({"error": "Too many login attempts - try again in a minute."}, status=429)
     uname, pwd = data.get("username", "").strip(), data.get("password", "")
     if not uname or not pwd:
         return web.json_response({"error": "Username and password required"}, status=400)
@@ -758,7 +747,7 @@ async def lobby_timelapse_handler(request):
     log = lobby.get("events", b"") or b""
     oldest = get_oldest_event_time(lobby)
     now = int(time.time())
-    has_full_24h = oldest is not None and (now - oldest) >= TIMELAPSE_WINDOW_SEC - 60  # allow 1min slack
+    has_full_24h = oldest is not None and (now - oldest) >= TIMELAPSE_WINDOW_SEC - 60                    
     return web.Response(
         body=bytes(log),
         headers={
@@ -790,7 +779,7 @@ async def create_lobby_handler(request):
     if not user:
         return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "lobby_create", 3, 60):
-        return web.json_response({"error": "Slow down — max 3 lobby creates per minute."}, status=429)
+        return web.json_response({"error": "Slow down - max 3 lobby creates per minute."}, status=429)
     name = data.get("name", "").strip()[:30]
     is_public = data.get("public", False)
     wl = data.get("whitelist_enabled", False)
@@ -803,7 +792,7 @@ async def create_lobby_handler(request):
         return web.json_response({"error": "Lobby name required"}, status=400)
     if user_lobby_count(user) >= MAX_LOBBIES_PER_USER:
         return web.json_response({"error": f"Max {MAX_LOBBIES_PER_USER} lobbies"}, status=400)
-    # PlaceBucks cost based on lobby size (256 free, 512 = 10 PB, 1024 = 20 PB).
+                                                                                
     cost = LOBBY_PRICES.get((lw, lh), 0)
     if cost > 0:
         if not spend_pb(user, cost):
@@ -853,7 +842,7 @@ async def update_lobby_handler(request):
         return web.json_response({"error": "Not found"}, status=404)
     if lobby["owner"].lower() != user.lower() and not is_admin(user):
         return web.json_response({"error": "Not yours"}, status=403)
-    # Official public_ lobbies: only lobby_unban is editable
+                                                            
     if lid.startswith("public_"):
         if "lobby_unban" in data:
             n = data["lobby_unban"].strip()
@@ -927,7 +916,7 @@ async def friend_add_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "friend_add", 10, 60):
-        return web.json_response({"error": "Too many friend requests — try again in a minute."}, status=429)
+        return web.json_response({"error": "Too many friend requests - try again in a minute."}, status=429)
     target = data.get("username", "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
@@ -1002,16 +991,16 @@ async def dm_unread_handler(request):
 
 async def upload_image_handler(request):
     """Browser-CORS-safe image upload proxy. Forwards the file to catbox.moe and returns the URL.
-    The image bytes pass through this server in transit but are NOT stored anywhere — neither on
+    The image bytes pass through this server in transit but are NOT stored anywhere - neither on
     disk nor in MongoDB. Only the resulting catbox URL is later persisted in DM/group history."""
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if is_banned(user) or is_ip_banned(request):
         return web.json_response({"error": "Forbidden"}, status=403)
     if not check_rate_limit(user, "upload_image", 10, 60):
-        return web.json_response({"error": "Upload rate limit — max 10 images per minute."}, status=429)
+        return web.json_response({"error": "Upload rate limit - max 10 images per minute."}, status=429)
     if not check_rate_limit(get_client_ip(request), "upload_image_ip", 20, 60):
-        return web.json_response({"error": "Upload rate limit — too many uploads from your IP."}, status=429)
+        return web.json_response({"error": "Upload rate limit - too many uploads from your IP."}, status=429)
     try:
         reader = await request.multipart()
     except Exception:
@@ -1019,7 +1008,7 @@ async def upload_image_handler(request):
     field = await reader.next()
     if field is None or field.name != "file":
         return web.json_response({"error": "Missing file field"}, status=400)
-    # Read up to 6 MB (catbox accepts larger but the client already compresses to ~1-2 MB)
+                                                                                          
     MAX = 6 * 1024 * 1024
     chunks = []
     total = 0
@@ -1034,7 +1023,7 @@ async def upload_image_handler(request):
     if not data:
         return web.json_response({"error": "Empty file"}, status=400)
     filename = field.filename or "upload.jpg"
-    # Upload to catbox from the server (server-to-server, no CORS to worry about)
+                                                                                 
     try:
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1061,9 +1050,9 @@ async def dm_send_handler(request):
     if image_url and not is_safe_image_url(image_url): image_url = ""
     if not target or (not text and not image_url): return web.json_response({"error": "Missing fields"}, status=400)
     if not check_rate_limit(user, "dm", 5, 5):
-        return web.json_response({"error": "Rate limited — max 5 DMs per 5 seconds."}, status=429)
+        return web.json_response({"error": "Rate limited - max 5 DMs per 5 seconds."}, status=429)
     if image_url and not check_rate_limit(user, "dm_image", 5, 60):
-        return web.json_response({"error": "Image rate limit — max 5 images per minute."}, status=429)
+        return web.json_response({"error": "Image rate limit - max 5 images per minute."}, status=429)
     fd = get_friend_data(user)
     if target not in fd["friends"]: return web.json_response({"error": "Not friends"}, status=403)
     key = dm_key(user, target)
@@ -1142,7 +1131,7 @@ async def admin_ipban_handler(request):
     if ip not in ip_bans:
         ip_bans.append(ip)
         await save_ip_bans()
-    # Also account-ban and kick all connections from that IP
+                                                            
     if not is_banned(target):
         bans.append(target)
         await save_bans()
@@ -1214,7 +1203,7 @@ async def admin_redirect_handler(request):
     url = data.get("url", "").strip()[:500]
     if not target or not url:
         return web.json_response({"error": "Username and url required"}, status=400)
-    # Only allow http(s) URLs — blocks javascript:, data:, file:, etc. so this stays a redirect, not a code exec vector
+                                                                                                                       
     if not (url.startswith("http://") or url.startswith("https://")):
         return web.json_response({"error": "URL must start with http:// or https://"}, status=400)
     delivered = 0
@@ -1239,7 +1228,7 @@ async def admin_delete_account_handler(request):
     found = next((u for u in accounts if u.lower() == tlow), None)
     if not found:
         return web.json_response({"error": f"Account {target} not found"}, status=404)
-    # Disconnect any active sessions
+                                    
     for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
         del sessions[tok]
     for ws, info in list(clients.items()):
@@ -1250,10 +1239,10 @@ async def admin_delete_account_handler(request):
         if uname and uname.lower() == tlow:
             try: await ws.close()
             except: pass
-    # Remove from accounts
+                          
     del accounts[found]
     await save_accounts()
-    # Remove from friends_data (their entry + references in others)
+                                                                   
     if found in friends_data:
         del friends_data[found]
     for u, fd in list(friends_data.items()):
@@ -1261,7 +1250,7 @@ async def admin_delete_account_handler(request):
         fd["incoming"] = [f for f in fd.get("incoming", []) if f.lower() != tlow]
         fd["outgoing"] = [f for f in fd.get("outgoing", []) if f.lower() != tlow]
     await save_friends()
-    # Remove from bans, vips, user_ips
+                                      
     bans[:] = [b for b in bans if b.lower() != tlow]
     await save_bans()
     if tlow in vips:
@@ -1273,7 +1262,7 @@ async def admin_delete_account_handler(request):
     if found in user_ips:
         del user_ips[found]
         await save_user_ips()
-    # Delete their owned lobbies
+                                
     owned_lids = [lid for lid, l in list(lobbies.items()) if not lid.startswith("public_") and l.get("owner", "").lower() == tlow]
     for lid in owned_lids:
         for ws, info in list(clients.items()):
@@ -1282,17 +1271,17 @@ async def admin_delete_account_handler(request):
                 except: pass
         del lobbies[lid]
         await db["lobbies"].delete_one({"_id": lid})
-    # Remove from pixel_counts in all remaining lobbies
+                                                       
     for lid, l in lobbies.items():
         pc = l.get("pixel_counts", {})
         for k in [k for k in pc if k.lower() == tlow]:
             del pc[k]
-    # Delete DM threads involving this user
+                                           
     keys_to_delete = [k for k in dms if tlow in k.split(":")]
     for k in keys_to_delete:
         del dms[k]
         await db["dms"].delete_one({"_id": k})
-    # Remove dm_last_seen entries for and about this user
+                                                         
     seen_dirty = False
     if tlow in dm_last_seen:
         del dm_last_seen[tlow]
@@ -1303,7 +1292,7 @@ async def admin_delete_account_handler(request):
             seen_dirty = True
     if seen_dirty:
         await save_dm_last_seen()
-    # Clan cleanup: disband any clan they owned; remove from any clan they were a member of
+                                                                                           
     disbanded = 0
     for cid in list(clans.keys()):
         cl = clans[cid]
@@ -1317,7 +1306,7 @@ async def admin_delete_account_handler(request):
             (cl.get("member_ranks") or {}).pop(tlow, None)
             cl["pending_requests"] = [r for r in cl.get("pending_requests", []) if r.lower() != tlow]
     await save_clans()
-    # PlaceBucks + purchases + lifetime pixels
+                                              
     if tlow in place_bucks: del place_bucks[tlow]; await save_place_bucks()
     if tlow in lifetime_pixels: del lifetime_pixels[tlow]; await save_lifetime_pixels()
     if tlow in purchases: del purchases[tlow]; await save_purchases()
@@ -1399,7 +1388,7 @@ async def clan_my_handler(request):
     ulow = user.lower()
     my_clan = None
     pending_owned = None
-    join_requests = []  # outgoing requests where I asked to join
+    join_requests = []                                           
     for clan in clans.values():
         if clan.get("owner", "").lower() == ulow:
             if clan.get("status") == "approved": my_clan = clan
@@ -1415,20 +1404,19 @@ async def clan_create_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "clan_create", 3, 600):
-        return web.json_response({"error": "Slow down — too many clan create attempts."}, status=429)
+        return web.json_response({"error": "Slow down - too many clan create attempts."}, status=429)
     name = data.get("name", "").strip()[:30]
     color = data.get("color", "").strip()[:32]
     if not name or not color:
         return web.json_response({"error": "Name and color required"}, status=400)
     if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
         return web.json_response({"error": "Color must be a hex code"}, status=400)
-    # One clan per user (any status)
+                                    
     for clan in clans.values():
         if clan.get("owner", "").lower() == user.lower():
             return web.json_response({"error": "You already have a clan request or approved clan"}, status=400)
     cid = secrets.token_hex(6)
-    # rank_label is kept in the dict for back-compat with old clients/serializers, but the
-    # clan name is what's actually used as the chat rank tag (see apply_clan_rank).
+
     clans[cid] = {
         "id": cid, "name": name, "owner": user, "color": color, "rank_label": name,
         "status": "pending", "members": [], "pending_requests": [], "created_at": time.time(),
@@ -1441,7 +1429,7 @@ async def clan_request_join_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "clan_join", 5, 60):
-        return web.json_response({"error": "Too many clan join requests — try again in a minute."}, status=429)
+        return web.json_response({"error": "Too many clan join requests - try again in a minute."}, status=429)
     cid = data.get("clan_id", "")
     clan = clans.get(cid)
     if not clan or clan.get("status") != "approved":
@@ -1449,18 +1437,18 @@ async def clan_request_join_handler(request):
     ulow = user.lower()
     if clan["owner"].lower() == ulow or any(m.lower() == ulow for m in clan.get("members", [])):
         return web.json_response({"error": "You are already in this clan"}, status=400)
-    # Can't be in another clan
+                              
     if find_clan_by_member(user):
         return web.json_response({"error": "Leave your current clan first"}, status=400)
     if any(r.lower() == ulow for r in clan.get("pending_requests", [])):
         return web.json_response({"error": "You already requested to join"}, status=400)
-    # Only ONE outgoing pending clan-join request at a time across all clans.
+                                                                             
     for other in clans.values():
         if any(r.lower() == ulow for r in other.get("pending_requests", [])):
             return web.json_response({"error": f"You already have a pending request to join '{other.get('name', '')}'. Wait for that to be answered or cancel it first."}, status=400)
     clan.setdefault("pending_requests", []).append(user)
     await save_clans()
-    # Notify owner via social WS
+                                
     await notify_social(clan["owner"], {"type": "clan_join_request", "clan_id": cid, "clan_name": clan["name"], "requester": user})
     return web.json_response({"ok": True, "message": "Join request sent to clan owner"})
 
@@ -1480,7 +1468,7 @@ async def clan_handle_request_handler(request):
     if not found: return web.json_response({"error": "No such pending request"}, status=404)
     clan["pending_requests"] = [r for r in pr if r.lower() != target.lower()]
     if approve:
-        # Make sure they're not already in another clan
+                                                       
         if not find_clan_by_member(found):
             clan.setdefault("members", []).append(found)
             await apply_clan_rank(found, clan)
@@ -1493,7 +1481,7 @@ async def clan_set_member_rank_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "clan_member_rank", 20, 60):
-        return web.json_response({"error": "Too many rank changes — slow down."}, status=429)
+        return web.json_response({"error": "Too many rank changes - slow down."}, status=429)
     cid = data.get("clan_id", "")
     target = (data.get("username") or "").strip()
     color = (data.get("color") or "").strip()[:32]
@@ -1518,9 +1506,9 @@ async def clan_set_member_rank_handler(request):
             return web.json_response({"error": "Color must be a hex code"}, status=400)
         member_ranks[tlow] = {"color": color}
     await save_clans()
-    # Re-apply the (possibly overridden) rank so chat tags update immediately
+                                                                             
     if clan.get("status") == "approved":
-        # Use the canonical-cased username from members/owner for the apply call
+                                                                                
         canonical = clan["owner"] if clan["owner"].lower() == tlow else next((m for m in clan.get("members", []) if m.lower() == tlow), target)
         await apply_clan_rank(canonical, clan)
     return web.json_response({"ok": True})
@@ -1530,7 +1518,7 @@ async def clan_update_color_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "clan_update_color", 10, 60):
-        return web.json_response({"error": "Too many color changes — slow down."}, status=429)
+        return web.json_response({"error": "Too many color changes - slow down."}, status=429)
     cid = data.get("clan_id", "")
     color = (data.get("color") or "").strip()[:32]
     if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
@@ -1541,7 +1529,7 @@ async def clan_update_color_handler(request):
         return web.json_response({"error": "Only the clan owner can change the color"}, status=403)
     clan["color"] = color
     await save_clans()
-    # Re-apply rank to owner + all members so their chat-tag color updates immediately
+                                                                                      
     if clan.get("status") == "approved":
         await apply_clan_rank(clan["owner"], clan)
         for m in clan.get("members", []):
@@ -1555,7 +1543,7 @@ async def clan_leave_handler(request):
     if not clan: return web.json_response({"error": "Not in a clan"}, status=400)
     ulow = user.lower()
     if clan["owner"].lower() == ulow:
-        # Owner leaves -> dissolve clan, strip ranks from all members
+                                                                     
         for m in clan.get("members", []):
             await remove_user_clan_rank(m)
         await remove_user_clan_rank(clan["owner"])
@@ -1646,7 +1634,7 @@ async def group_create_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "group_create", 5, 300):
-        return web.json_response({"error": "Too many groups created — try again later."}, status=429)
+        return web.json_response({"error": "Too many groups created - try again later."}, status=429)
     name = data.get("name", "").strip()[:30]
     invitees = data.get("members", [])
     if not name: return web.json_response({"error": "Group name required"}, status=400)
@@ -1654,14 +1642,14 @@ async def group_create_handler(request):
     fd = get_friend_data(user)
     friend_set = {f.lower() for f in fd["friends"]}
     members = [user]
-    for u in invitees[:19]:  # cap total members at 20 (1 owner + 19)
+    for u in invitees[:19]:                                          
         if not isinstance(u, str): continue
         if u.lower() in friend_set and u.lower() != user.lower() and u not in members:
             members.append(u)
     gid = secrets.token_hex(6)
     groups[gid] = {"id": gid, "name": name, "owner": user, "members": members, "created_at": time.time()}
     await save_groups()
-    # Notify each invited member
+                                
     for m in members:
         if m.lower() != user.lower():
             await notify_social(m, {"type": "group_added", "group_id": gid, "group_name": name, "by": user})
@@ -1687,12 +1675,12 @@ async def group_leave_handler(request):
     ulow = user.lower()
     g["members"] = [m for m in g.get("members", []) if m.lower() != ulow]
     if not g["members"] or g["owner"].lower() == ulow:
-        # Owner leaves -> dissolve, OR no members left
+                                                      
         del groups[gid]
         group_messages.pop(gid, None)
         await db["group_messages"].delete_one({"_id": gid})
         await save_groups()
-        # Notify remaining members that the group dissolved
+                                                           
         for m in g.get("members", []):
             await notify_social(m, {"type": "group_dissolved", "group_id": gid, "group_name": g["name"]})
         return web.json_response({"ok": True, "dissolved": True})
@@ -1736,11 +1724,11 @@ async def shop_buy_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "shop_buy", 10, 60):
-        return web.json_response({"error": "Too many purchases — slow down."}, status=429)
+        return web.json_response({"error": "Too many purchases - slow down."}, status=429)
     item = (data.get("item") or "").strip()
     if item not in SHOP_PRICES:
         return web.json_response({"error": "Unknown item"}, status=400)
-    # custom_rank is special: pay 70 PB once, then edit label/color for free anytime.
+                                                                                     
     if item == "custom_rank":
         label = (data.get("label") or "").strip()[:16]
         color = (data.get("color") or "").strip()[:32]
@@ -1771,7 +1759,7 @@ async def shop_buy_handler(request):
     pu[item] = True
     await save_purchases()
     await save_place_bucks()
-    # Side-effects per item
+                           
     if item == "vip":
         if user.lower() not in vips:
             vips.append(user.lower())
@@ -1794,11 +1782,10 @@ async def pb_transfer_handler(request):
     if target.lower() == user.lower(): return web.json_response({"error": "you can't give money to yourself, you're not a bank"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return web.json_response({"error": "User not found"}, status=404)
-    # Anti-exploit: rate limit by count AND total amount per minute
+                                                                   
     if not check_rate_limit(user, "pb_transfer_count", 5, 60):
-        return web.json_response({"error": "Too many transfers — try again later."}, status=429)
-    # Approximate per-minute amount cap via a per-PB-unit token bucket (each "PB" sent = one event)
-    # Cap at 200 PB/minute outbound per sender.
+        return web.json_response({"error": "Too many transfers - try again later."}, status=429)
+
     for _ in range(min(amount, 200)):
         if not check_rate_limit(user, "pb_transfer_amount", 200, 60):
             return web.json_response({"error": "Transfer amount cap reached for this minute."}, status=429)
@@ -1812,7 +1799,7 @@ async def pb_transfer_handler(request):
     return web.json_response({"ok": True, "balance": get_pb(user)})
 
 async def _casino_open(request, rate_key):
-    """Auth, bet validation, deduct. No rate limit, no max bet — user's call."""
+    """Auth, bet validation, deduct. No rate limit, no max bet - user's call."""
     data = await request.json()
     user = get_auth_user(request)
     if not user: return None, web.json_response({"error": "Not authenticated"}, status=401)
@@ -1842,7 +1829,7 @@ async def broadcast_casino_result(user, game, bet, winnings, detail=""):
     else:
         text = f"{user} pushed at {game} (bet returned)"
     if detail:
-        text += f" — {detail}"
+        text += f" - {detail}"
     ulow = user.lower()
     seen = set()
     for info in clients.values():
@@ -1881,7 +1868,7 @@ async def casino_roulette_handler(request):
     if choice not in ("red", "black", "green"):
         credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
         return web.json_response({"error": "Choice must be red, black, or green"}, status=400)
-    n = secrets.randbelow(37)  # 0..36
+    n = secrets.randbelow(37)         
     if n == 0: result_color = "green"
     else: result_color = "red" if n % 2 == 1 else "black"
     winnings = 0; outcome = "lose"
@@ -1904,13 +1891,13 @@ async def casino_coinflip_handler(request):
     flip = "heads" if secrets.randbelow(2) == 0 else "tails"
     winnings = 0; outcome = "lose"
     if choice == flip:
-        winnings = int(amount * 1.95)  # ~2.5% house edge
+        winnings = int(amount * 1.95)                    
         outcome = "win"
     await _casino_payout(user, winnings)
     await broadcast_casino_result(user, "Coin Flip", amount, winnings, f"{flip} (called {choice})")
     return web.json_response({"ok": True, "flip": flip, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
 
-bj_games = {}  # { username_lower: {"deck", "player", "dealer", "bet", "done"} }
+bj_games = {}                                                                   
 
 def _bj_score(hand):
     total = 0; aces = 0
@@ -1931,7 +1918,7 @@ def _bj_label(c):
 
 def _bj_view(hand, hide_first=False):
     out = [_bj_label(c) for c in hand]
-    if hide_first and out: out[1:] = out[1:]; out[0] = '??'  # show only upcard (we deal upcard at index 0? convention)
+    if hide_first and out: out[1:] = out[1:]; out[0] = '??'                                                            
     return out
 
 async def _bj_resolve(user, game):
@@ -1945,7 +1932,7 @@ async def _bj_resolve(user, game):
     elif psc < dsc:
         outcome = "lose"; winnings = 0
     else:
-        outcome = "push"; winnings = bet  # bet returned
+        outcome = "push"; winnings = bet                
     if winnings > 0: credit_pb(user, winnings)
     await save_place_bucks()
     await push_pb_update(user)
@@ -1969,31 +1956,31 @@ async def casino_blackjack_handler(request):
             return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
         deck = list(range(52))
         secrets.SystemRandom().shuffle(deck)
-        # Deal player[0], dealer[0] (upcard), player[1], dealer[1] (hole)
+                                                                         
         player = [deck.pop(), deck.pop()]
         dealer = [deck.pop(), deck.pop()]
         game = {"deck": deck, "player": player, "dealer": dealer, "bet": amount, "done": False}
         bj_games[ulow] = game
         psc = _bj_score(player); dsc_up = _bj_score([dealer[0]])
-        # Natural BJ check
+                          
         if psc == 21:
             if _bj_score(dealer) == 21:
-                # push
+                      
                 credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
                 game["done"] = True
                 await broadcast_casino_result(user, "Blackjack", amount, amount, "double 21 push")
                 return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": 21, "outcome": "push", "winnings": amount, "bet": amount, "balance": get_pb(user)})
             else:
-                pay = int(amount * 2.5)  # 3:2 natural blackjack
+                pay = int(amount * 2.5)                         
                 credit_pb(user, pay); await save_place_bucks(); await push_pb_update(user)
                 game["done"] = True
                 await broadcast_casino_result(user, "Blackjack", amount, pay, "NATURAL 21")
                 return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": _bj_score(dealer), "outcome": "blackjack", "winnings": pay, "bet": amount, "balance": get_pb(user)})
         return web.json_response({"ok": True, "phase": "player", "player": _bj_view(player), "dealer_up": _bj_label(dealer[0]), "player_score": psc, "dealer_up_score": dsc_up, "bet": amount, "balance": get_pb(user)})
-    # hit/stand require an active game
+                                      
     game = bj_games.get(ulow)
     if not game or game.get("done"):
-        return web.json_response({"error": "No active blackjack game — deal first"}, status=400)
+        return web.json_response({"error": "No active blackjack game - deal first"}, status=400)
     if action == "hit":
         game["player"].append(game["deck"].pop())
         psc = _bj_score(game["player"])
@@ -2002,16 +1989,16 @@ async def casino_blackjack_handler(request):
             return web.json_response({"ok": True, "phase": "done", "player": _bj_view(game["player"]), "dealer": _bj_view(game["dealer"]), "player_score": psc, "dealer_score": dsc, "outcome": "bust", "winnings": 0, "bet": game["bet"], "balance": get_pb(user)})
         return web.json_response({"ok": True, "phase": "player", "player": _bj_view(game["player"]), "dealer_up": _bj_label(game["dealer"][0]), "player_score": psc, "bet": game["bet"], "balance": get_pb(user)})
     if action == "stand":
-        # Dealer draws until 17+
+                                
         while _bj_score(game["dealer"]) < 17:
             game["dealer"].append(game["deck"].pop())
         outcome, winnings, psc, dsc = await _bj_resolve(user, game)
         return web.json_response({"ok": True, "phase": "done", "player": _bj_view(game["player"]), "dealer": _bj_view(game["dealer"]), "player_score": psc, "dealer_score": dsc, "outcome": outcome, "winnings": winnings, "bet": game["bet"], "balance": get_pb(user)})
     return web.json_response({"error": "Unknown action"}, status=400)
 
-rps_queue = []   # [{"user", "bet", "joined_at"}] — waiting for an opponent at matching bet
-rps_games = {}   # {game_id: {"p1", "p2", "bet", "choices": {p1l: c|None, p2l: c|None}, "started_at"}}
-RPS_GAME_TIMEOUT = 30  # seconds before a no-show forfeits
+rps_queue = []                                                                             
+rps_games = {}                                                                                        
+RPS_GAME_TIMEOUT = 30                                     
 
 def _rps_beats(a, b):
     return (a == "rock" and b == "scissors") or (a == "paper" and b == "rock") or (a == "scissors" and b == "paper")
@@ -2030,9 +2017,9 @@ async def casino_rps_solo_handler(request):
         return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
     ai = secrets.choice(["rock", "paper", "scissors"])
     if choice == ai:
-        outcome = "tie"; winnings = amount  # push
+        outcome = "tie"; winnings = amount        
     elif _rps_beats(choice, ai):
-        outcome = "win"; winnings = int(amount * 1.95)  # ~2.5% house edge
+        outcome = "win"; winnings = int(amount * 1.95)                    
     else:
         outcome = "lose"; winnings = 0
     if winnings > 0: credit_pb(user, winnings)
@@ -2048,7 +2035,7 @@ async def casino_rps_join_handler(request):
     except: return web.json_response({"error": "Invalid bet"}, status=400)
     if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
     ulow = user.lower()
-    # Already queued or in a game?
+                                  
     for q in rps_queue:
         if q["user"].lower() == ulow:
             return web.json_response({"error": "Already in queue"}, status=400)
@@ -2057,7 +2044,7 @@ async def casino_rps_join_handler(request):
             return web.json_response({"ok": True, "matched": True, "game_id": gid, "opponent": g["p2"] if g["p1"].lower() == ulow else g["p1"], "bet": g["bet"]})
     if not spend_pb(user, amount):
         return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
-    # Find a waiting opponent at the same bet
+                                             
     opp_idx = next((i for i, q in enumerate(rps_queue) if q["bet"] == amount and q["user"].lower() != ulow), None)
     if opp_idx is not None:
         opp = rps_queue.pop(opp_idx)
@@ -2069,6 +2056,67 @@ async def casino_rps_join_handler(request):
     rps_queue.append({"user": user, "bet": amount, "joined_at": time.time()})
     await save_place_bucks(); await push_pb_update(user)
     return web.json_response({"ok": True, "matched": False, "waiting": True, "bet": amount, "balance": get_pb(user)})
+
+rps_challenges = {}                                                                   
+RPS_CHALLENGE_TTL = 60           
+
+async def casino_rps_challenge_handler(request):
+    """Challenge a specific player to RPS. Bets are NOT escrowed until the
+    opponent accepts; the challenge expires after RPS_CHALLENGE_TTL seconds."""
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "rps_challenge", 5, 60):
+        return web.json_response({"error": "Too many challenges - slow down."}, status=429)
+    target = (data.get("opponent") or "").strip()
+    try: amount = int(data.get("amount", 0))
+    except: return web.json_response({"error": "Invalid bet"}, status=400)
+    if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+    if not target: return web.json_response({"error": "Pick an opponent"}, status=400)
+    if target.lower() == user.lower(): return web.json_response({"error": "you can't challenge yourself, you're not a bank"}, status=400)
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return web.json_response({"error": "User not found"}, status=404)
+    if get_pb(user) < amount and not is_admin(user):
+        return web.json_response({"error": f"Not enough PlaceBucks (need {amount})"}, status=400)
+    cid = secrets.token_hex(6)
+    rps_challenges[cid] = {"challenger": user, "opponent": found, "bet": amount, "created_at": time.time()}
+    await notify_social(found, {"type": "rps_challenge", "from": user, "bet": amount, "challenge_id": cid})
+    return web.json_response({"ok": True, "challenge_id": cid, "expires_in": RPS_CHALLENGE_TTL})
+
+async def casino_rps_respond_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    cid = data.get("challenge_id", "")
+    accept = bool(data.get("accept", False))
+    ch = rps_challenges.get(cid)
+    if not ch: return web.json_response({"error": "Challenge not found or expired"}, status=404)
+    if ch["opponent"].lower() != user.lower():
+        return web.json_response({"error": "Not your challenge"}, status=403)
+    if time.time() - ch["created_at"] > RPS_CHALLENGE_TTL:
+        rps_challenges.pop(cid, None)
+        return web.json_response({"error": "Challenge expired"}, status=400)
+    if not accept:
+        rps_challenges.pop(cid, None)
+        await notify_social(ch["challenger"], {"type": "rps_challenge_declined", "by": user})
+        return web.json_response({"ok": True, "declined": True})
+                                               
+    if not spend_pb(ch["challenger"], ch["bet"]):
+        rps_challenges.pop(cid, None)
+        await notify_social(ch["challenger"], {"type": "rps_challenge_declined", "by": user, "reason": "challenger broke"})
+        return web.json_response({"error": "Challenger no longer has enough PlaceBucks"}, status=400)
+    if not spend_pb(user, ch["bet"]):
+        credit_pb(ch["challenger"], ch["bet"])
+        await save_place_bucks(); await push_pb_update(ch["challenger"])
+        rps_challenges.pop(cid, None)
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    gid = secrets.token_hex(6)
+    rps_games[gid] = {"p1": ch["challenger"], "p2": user, "bet": ch["bet"], "choices": {ch["challenger"].lower(): None, user.lower(): None}, "started_at": time.time()}
+    rps_challenges.pop(cid, None)
+    await save_place_bucks()
+    await push_pb_update(ch["challenger"]); await push_pb_update(user)
+    await notify_social(ch["challenger"], {"type": "rps_matched", "game_id": gid, "opponent": user, "bet": ch["bet"]})
+    return web.json_response({"ok": True, "game_id": gid, "opponent": ch["challenger"], "bet": ch["bet"], "balance": get_pb(user)})
 
 async def casino_rps_cancel_handler(request):
     user = get_auth_user(request)
@@ -2091,15 +2139,9 @@ async def _rps_finish(gid, requesting_user):
     c1, c2 = g["choices"][p1l], g["choices"][p2l]
     timeout = False
     if c1 is None or c2 is None:
-        # Forfeit on a player who never played
         timeout = True
-        if c1 is None and c2 is None:
-            credit_pb(p1, bet); credit_pb(p2, bet); winner = None
-        elif c1 is None:
-            credit_pb(p2, bet * 2); winner = p2
-        else:
-            credit_pb(p1, bet * 2); winner = p1
-        outcome_for = lambda u: "tie" if winner is None else ("win" if u.lower() == winner.lower() else "lose")
+        credit_pb(p1, bet); credit_pb(p2, bet); winner = None
+        outcome_for = lambda u: "tie"
     else:
         if c1 == c2:
             credit_pb(p1, bet); credit_pb(p2, bet); winner = None
@@ -2109,7 +2151,7 @@ async def _rps_finish(gid, requesting_user):
         outcome_for = lambda u: "tie" if winner is None else ("win" if u.lower() == winner.lower() else "lose")
     await save_place_bucks()
     await push_pb_update(p1); await push_pb_update(p2)
-    # Lobby broadcasts
+                      
     for u in (p1, p2):
         my_out = outcome_for(u)
         opp = p2 if u.lower() == p1l else p1
@@ -2171,7 +2213,7 @@ async def flappy_pass_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "flappy_pass", 6, 1):
-        # Don't surface as an error to the user — just no payout this tick.
+                                                                           
         return web.json_response({"ok": True, "balance": get_pb(user), "skipped": True})
     credit_pb(user, 1)
     await save_place_bucks()
@@ -2226,7 +2268,7 @@ async def online_summary_handler(request):
         n = info.get("username")
         if n and n.lower() not in seen:
             seen.add(n.lower()); users.append(n)
-    # Homepage users: connected to social WS but not in any lobby
+                                                                 
     for uname in social_clients.values():
         if uname and uname.lower() not in seen:
             seen.add(uname.lower()); users.append(uname)
@@ -2246,16 +2288,16 @@ async def admin_brush_perm_set_handler(request):
     if not target: return web.json_response({"error": "Username required"}, status=400)
     size = int(data.get("size", 1))
     drag = bool(data.get("drag", False))
-    # Clamp size to allowed values
+                                  
     allowed_sizes = [1, 3, 5, 7, 9, 15, 25]
     if size not in allowed_sizes: size = 1
     if size <= 1 and not drag:
-        # Both off = remove the entry entirely
+                                              
         brush_perms.pop(target.lower(), None)
     else:
         brush_perms[target.lower()] = {"size": size, "drag": drag}
     await save_brush_perms()
-    # Push the new perm to that user if they're connected
+                                                         
     for cws, cinfo in list(clients.items()):
         if cinfo and cinfo.get("username", "").lower() == target.lower():
             try: await cws.send_json({"type": "brush_perm_update", "brush_perm": get_brush_perm(target)})
@@ -2292,7 +2334,7 @@ async def admin_fake_admin_remove_handler(request):
     await save_fake_admins()
     return web.json_response({"ok": True, "message": f"Revoked fake admin from {target}"})
 
-fake_action_log = []  # [{username, action, target, detail, time}]
+fake_action_log = []                                              
 
 async def fake_action_log_handler(request):
     data = await request.json()
@@ -2305,13 +2347,13 @@ async def fake_action_log_handler(request):
         "detail": data.get("detail", ""),
         "time": time.time()
     })
-    # Cap log to last 200 entries
+                                 
     if len(fake_action_log) > 200: del fake_action_log[:len(fake_action_log) - 200]
     return web.json_response({"ok": True})
 
 async def admin_view_fake_log_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    # Return the log with human-readable timestamps
+                                                   
     entries = []
     for e in fake_action_log[-50:]:
         import datetime
@@ -2348,7 +2390,7 @@ async def social_ws_handler(request):
                     if peer:
                         mark_dm_seen(username, peer)
                         await save_dm_last_seen()
-                        # Tell the peer their messages to `username` were read
+                                                                              
                         await notify_social(peer, {"type": "dm_seen_by", "peer": username})
                 elif data.get("type") == "dm_typing" and username:
                     peer = data.get("to", "").strip()
@@ -2362,11 +2404,11 @@ async def social_ws_handler(request):
                     image_url = (data.get("image_url") or "").strip()[:500]
                     if image_url and not is_safe_image_url(image_url): image_url = ""
                     if not check_rate_limit(username, "dm", 5, 5):
-                        try: await ws.send_json({"type": "system", "text": "Slow down — max 5 DMs per 5 seconds."})
+                        try: await ws.send_json({"type": "system", "text": "Slow down - max 5 DMs per 5 seconds."})
                         except: pass
                         continue
                     if image_url and not check_rate_limit(username, "dm_image", 5, 60):
-                        try: await ws.send_json({"type": "system", "text": "Image rate limit — max 5 images per minute."})
+                        try: await ws.send_json({"type": "system", "text": "Image rate limit - max 5 images per minute."})
                         except: pass
                         continue
                     rt = data.get("reply_to")
@@ -2402,11 +2444,11 @@ async def social_ws_handler(request):
                     if username.lower() not in [m.lower() for m in g.get("members", [])]: continue
                     if not (text or image_url): continue
                     if not check_rate_limit(username, "group_msg", 5, 5):
-                        try: await ws.send_json({"type": "system", "text": "Slow down — max 5 group messages per 5 seconds."})
+                        try: await ws.send_json({"type": "system", "text": "Slow down - max 5 group messages per 5 seconds."})
                         except: pass
                         continue
                     if image_url and not check_rate_limit(username, "group_image", 5, 60):
-                        try: await ws.send_json({"type": "system", "text": "Image rate limit — max 5 images per minute."})
+                        try: await ws.send_json({"type": "system", "text": "Image rate limit - max 5 images per minute."})
                         except: pass
                         continue
                     msg_obj = {"from": username, "time": time.time()}
@@ -2507,10 +2549,9 @@ async def websocket_handler(request):
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if now - last_pixel < cd:
                         continue
-                    # Sliding-window cap on pixels-per-2-sec. Lets real humans tap fast / drag-paint
-                    # on mobile, still catches automated spam (which sends 50+/sec). On reject,
-                    # tell the client (throttled) and send back the real pixel so the locally-drawn
-                    # "ghost" gets corrected instead of silently lingering.
+
+                                                                                                   
+                                                                           
                     if not check_rate_limit(username, "pixel", 60, 2):
                         if lobby:
                             lw0 = lobby.get("width", 256)
@@ -2519,7 +2560,7 @@ async def websocket_handler(request):
                             except: pass
                         if now - last_rate_warn > 2:
                             last_rate_warn = now
-                            try: await ws.send_json({"type": "rate_warn", "text": "You're placing too fast — some pixels were dropped. Slow down."})
+                            try: await ws.send_json({"type": "rate_warn", "text": "You're placing too fast - some pixels were dropped. Slow down."})
                             except: pass
                         continue
                     last_pixel = now
@@ -2538,9 +2579,8 @@ async def websocket_handler(request):
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
                 elif data["type"] == "pixel_undo" and username and lobby_id and not is_guest:
-                    # Identical to "pixel" except the leaderboard count is *decremented* (or removed if it hits 0).
-                    # Skips reverting if `from_color` is provided and the cell no longer matches — prevents
-                    # stomping over another player's pixel that was placed after our original.
+
+                                                                                              
                     if not clients.get(ws, {}).get("can_place", True):
                         continue
                     x, y, color = data["x"], data["y"], data["color"]
@@ -2556,7 +2596,7 @@ async def websocket_handler(request):
                     if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 53:
                         old_color = lobby["grid"][y * lw + x]
                         if isinstance(from_color, int) and old_color != from_color:
-                            continue  # someone else painted over this pixel — don't overwrite their work
+                            continue                                                                     
                         lobby["grid"][y * lw + x] = color
                         lobby["last_activity"] = now
                         if color != old_color:
@@ -2572,13 +2612,12 @@ async def websocket_handler(request):
                 elif data["type"] == "brush_undo" and username and lobby_id and not is_guest:
                     perm = get_brush_perm(username)
                     if perm["size"] <= 1: continue
-                    # Each brush stroke counts as one cooldown cycle for non-admins (so brush perm
-                    # can't be used to bypass the lobby's pixel cooldown by painting many at once).
+
                     lobby = lobbies.get(lobby_id)
                     now = time.time()
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if not is_admin(username) and now - last_pixel < cd: continue
-                    # Hard ceiling: at most 2 brush strokes per second
+                                                                      
                     if not check_rate_limit(username, "brush_stroke", 8, 2): continue
                     if lobby:
                         coords = data.get("pixels", [])
@@ -2594,11 +2633,10 @@ async def websocket_handler(request):
                                 x, y = c[0], c[1]
                                 if not (isinstance(x, int) and isinstance(y, int)): continue
                                 if not (0 <= x < lw and 0 <= y < lh): continue
-                                # Cap pixels/sec at ~1.5 stroke widths so a stroke fills cleanly but
-                                # continuous spam stops dead.
+
                                 if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 2): break
                                 old_color = lobby["grid"][y * lw + x]
-                                # Skip cells another player has painted over since the original brush stroke
+                                                                                                            
                                 if isinstance(from_color, int) and old_color != from_color:
                                     continue
                                 lobby["grid"][y * lw + x] = color
@@ -2684,15 +2722,14 @@ async def websocket_handler(request):
                 elif data["type"] == "admin_brush" and username and lobby_id and not is_guest:
                     perm = get_brush_perm(username)
                     if perm["size"] <= 1:
-                        continue  # no brush perm, ignore
-                    # For non-admin brush-perm users, each stroke = one cooldown cycle so brush
-                    # perm can't be used to bypass the lobby's pixel cooldown.
+                        continue                         
+
                     lobby = lobbies.get(lobby_id)
                     now = time.time()
                     cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                     if not is_admin(username) and now - last_pixel < cd:
                         continue
-                    # Hard ceiling: at most 2 brush strokes per second
+                                                                      
                     if not check_rate_limit(username, "brush_stroke", 8, 2):
                         continue
                     if lobby:
@@ -2700,7 +2737,7 @@ async def websocket_handler(request):
                         color = data.get("color", 0)
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
-                        # Cap stamps based on the user's permitted brush size (size*size pixels max per stroke)
+                                                                                                               
                         max_stamps = perm["size"] * perm["size"]
                         if isinstance(coords, list) and 0 <= color < 53:
                             placed = 0
@@ -2752,7 +2789,7 @@ async def websocket_handler(request):
                             await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
 
                 elif data["type"] in ("rtc_join", "rtc_leave", "rtc_offer", "rtc_answer", "rtc_ice") and username and lobby_id and not is_guest:
-                    # WebRTC signaling: relay to specific peer (offer/answer/ice) or broadcast to lobby (join/leave)
+                                                                                                                    
                     msg_type = data["type"]
                     if msg_type in ("rtc_join", "rtc_leave"):
                         await broadcast_to_lobby(lobby_id, {"type": msg_type, "username": username, "video": bool(data.get("video"))}, exclude=ws)
@@ -2768,7 +2805,7 @@ async def websocket_handler(request):
                 elif data["type"] == "typing" and username and lobby_id and not is_guest:
                     state = bool(data.get("typing"))
                     await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": state}, exclude=ws)
-                    # Live-typing spy: relay the in-progress draft text only to the real admin
+                                                                                              
                     if not is_admin(username):
                         draft = str(data.get("draft", ""))[:200]
                         for cws, cinfo in list(clients.items()):
@@ -2794,7 +2831,7 @@ async def websocket_handler(request):
                         await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y, "guest": is_guest}, exclude=ws)
 
                 elif data["type"] == "pixel_owner" and username and lobby_id and is_admin(username):
-                    # Real-admin-only: look up who last placed the pixel at (x, y)
+                                                                                  
                     lobby = lobbies.get(lobby_id)
                     if not lobby:
                         continue
@@ -2835,7 +2872,7 @@ def _compress_grid(grid_bytes):
 
 async def send_grid_to_ws(ws, meta_dict, grid_bytes):
     """Send a grid as a JSON metadata frame followed by a zlib-compressed binary frame.
-    Way smaller on the wire than the old JSON int array — empty 1024x1024 grids go from
+    Way smaller on the wire than the old JSON int array - empty 1024x1024 grids go from
     ~3MB JSON / 1MB raw down to a few KB."""
     meta = dict(meta_dict)
     meta["binary"] = True
@@ -2867,7 +2904,7 @@ async def broadcast_online_all_lobbies():
 
 async def broadcast_online_lobby(lobby_id):
     count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
-    # Total = unique authenticated users across lobby + homepage WS, plus all guest connections
+                                                                                               
     total_seen = set()
     guest_count = 0
     for info in clients.values():
@@ -2878,7 +2915,7 @@ async def broadcast_online_lobby(lobby_id):
     for uname in social_clients.values():
         if uname: total_seen.add(uname.lower())
     total = len(total_seen) + guest_count
-    # Distinct logged-in usernames in this lobby (guests excluded — they can't be @ mentioned in any meaningful way)
+                                                                                                                    
     seen = set()
     users = []
     for info in clients.values():
@@ -2920,11 +2957,9 @@ async def migrate_colors_16_to_24():
     flag = await db["store"].find_one({"_id": "color_migration_done"})
     if flag:
         return
-    # Old palette -> New palette index mapping
-    # old 0:#FFFFFF->new 0, 1:#E4E4E4->1, 2:#888888->2, 3:#222222->23,
-    # 4:#FFA7D1->15, 5:#E50000->18, 6:#E59500->5, 7:#A06A42->16,
-    # 8:#E5D900->6, 9:#94E044->9, 10:#02BE01->8, 11:#00D3DD->12,
-    # 12:#0083C7->11, 13:#0000EA->10, 14:#CF6EE4->14, 15:#820080->13
+
+                                                                
+
     remap = [0, 1, 2, 23, 15, 18, 5, 16, 6, 9, 8, 12, 11, 10, 14, 13]
     count = 0
     for lid, lobby in lobbies.items():
@@ -2946,19 +2981,17 @@ async def migrate_colors_16_to_24():
 async def on_startup(app):
     await load_all_data()
     await migrate_colors_16_to_24()
-    # One-time: remove "Lobba" lobby
+                                    
     for lid, lobby in list(lobbies.items()):
         if lobby.get("name") == "Lobba":
             del lobbies[lid]
             await db["lobbies"].delete_one({"_id": lid})
             print(f"Deleted lobby: Lobba ({lid})")
-    # One-time-only: drop the retired public lobbies (256x512/512x256 + NORMAL SPEED variants).
-    # Guarded by a migration flag and a dimension check — we only wipe if the stored grid is
-    # actually a stale wrong size. If the DB row for public_2 is already a valid 1024x1024
-    # grid (because someone painted it after the new code went live), leave it alone.
+
+                                                                                          
+                                                                                     
     migrations_doc = await db_load("store", "migrations") or {}
-    # One-time: clan rank label is now always the clan name. Sync existing clans' rank_label
-    # to match their name, drop any custom label overrides in member_ranks.
+
     if not migrations_doc.get("clan_rank_v2"):
         any_clan_change = False
         vips_dirty = False
@@ -2976,7 +3009,7 @@ async def on_startup(app):
                     else:
                         mr.pop(ulow, None)
                     any_clan_change = True
-            # Strip clan members from vips so leaving the clan won't leave them as phantom VIPs
+                                                                                               
             if clan.get("status") == "approved":
                 for member in [clan["owner"]] + list(clan.get("members", [])):
                     mlow = member.lower()
@@ -2994,10 +3027,9 @@ async def on_startup(app):
         await db_save("store", "migrations", migrations_doc)
         print("Marked clan_rank_v2 migration as complete")
     if not migrations_doc.get("clan_rank_v3"):
-        # Clan tags are now computed live (get_clan_tag), not stored in `ranks`.
-        # Strip stale entries the old code wrote (label == the user's clan name)
-        # so chat doesn't show a duplicate of the live clan chip. Real admin
-        # ranks (different label) are left intact.
+
+                                                                            
+                                                  
         ranks_dirty = False
         for clan in clans.values():
             if clan.get("status") != "approved": continue
@@ -3014,9 +3046,8 @@ async def on_startup(app):
         await db_save("store", "migrations", migrations_doc)
         print("Marked clan_rank_v3 migration as complete")
     if not migrations_doc.get("vip_reset_v1"):
-        # User asked to wipe everyone currently labeled VIP. Clears the vips list
-        # and removes any ranks entry with label=="VIP". Real admin/clan/custom
-        # ranks (different label) are untouched.
+
+                                                
         vips[:] = []
         await save_vips()
         stale = [u for u, r in ranks.items() if isinstance(r, dict) and r.get("label") == "VIP"]
@@ -3027,8 +3058,7 @@ async def on_startup(app):
         await db_save("store", "migrations", migrations_doc)
         print(f"vip_reset_v1: cleared vips list, removed {len(stale)} stale VIP ranks")
     if not migrations_doc.get("pb_backfill_v1"):
-        # Sum existing pixel_counts across every lobby to seed lifetime_pixels,
-        # then credit 1 PB per 100 lifetime pixels. One-time.
+
         totals = {}
         for lobby in lobbies.values():
             pc = lobby.get("pixel_counts") or {}
@@ -3053,14 +3083,14 @@ async def on_startup(app):
             doc = await db["lobbies"].find_one({"_id": lid})
             expected_size = (lobbies[lid]["width"] * lobbies[lid]["height"]) if lid in lobbies else None
             actual_size = len(doc.get("grid") or b"") if doc else 0
-            # If the DB row is already correctly sized for the current lobby layout, preserve it
+                                                                                                
             if doc and expected_size and actual_size == expected_size:
                 print(f"Migration: keeping {lid} (grid is already correctly sized)")
                 continue
             if doc:
                 await db["lobbies"].delete_one({"_id": lid})
                 print(f"Deleted retired public lobby DB row: {lid}")
-            # Reset in-memory state contaminated by load_all_data overlaying the old DB row
+                                                                                           
             if lid in lobbies:
                 lw, lh = lobbies[lid]["width"], lobbies[lid]["height"]
                 lobbies[lid]["grid"] = bytearray(lw * lh)
@@ -3070,7 +3100,7 @@ async def on_startup(app):
         migrations_doc["public_lobby_v2"] = True
         await db_save("store", "migrations", migrations_doc)
         print("Marked public_lobby_v2 migration as complete")
-    # One-time: remove ASG lobbies
+                                  
     for lid, lobby in list(lobbies.items()):
         if lid.startswith("public_"): continue
         if "ASG" in (lobby.get("name") or ""):
@@ -3089,7 +3119,7 @@ async def on_cleanup(app):
     app["flush_task"].cancel()
     app["rl_task"].cancel()
     app["idle_task"].cancel()
-    # Final flush of all dirty lobbies so we don't lose the last batch on shutdown
+                                                                                  
     for lid in list(dirty_lobbies):
         try: await save_lobby(lid)
         except: pass
@@ -3097,7 +3127,7 @@ async def on_cleanup(app):
 
 @web.middleware
 async def cors_middleware(request, handler):
-    # Handle CORS preflight
+                           
     if request.method == 'OPTIONS':
         resp = web.Response()
     else:
@@ -3165,6 +3195,8 @@ app.router.add_post("/api/casino/blackjack", casino_blackjack_handler)
 app.router.add_post("/api/casino/rps/solo", casino_rps_solo_handler)
 app.router.add_post("/api/casino/rps/join", casino_rps_join_handler)
 app.router.add_post("/api/casino/rps/cancel", casino_rps_cancel_handler)
+app.router.add_post("/api/casino/rps/challenge", casino_rps_challenge_handler)
+app.router.add_post("/api/casino/rps/respond", casino_rps_respond_handler)
 app.router.add_post("/api/casino/rps/play", casino_rps_play_handler)
 app.router.add_get("/api/casino/rps/status", casino_rps_status_handler)
 app.router.add_post("/api/flappy/pass", flappy_pass_handler)

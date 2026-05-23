@@ -319,7 +319,7 @@
   body.eink-mode .f-status.online, body.eink-mode .lb-status.online { background: #000 !important; }
   body.eink-mode .f-status.offline, body.eink-mode .lb-status.offline { background: #fff !important; border: 1px solid #000; }
 
-  /* Mobile chat overlay — hidden on desktop */
+  /* Mobile chat overlay - hidden on desktop */
   #mobile-chat-overlay { display: none; }
   @keyframes chatBubbleIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes chatBubbleOut { from { opacity: 1; } to { opacity: 0; transform: translateY(-4px); } }
@@ -338,7 +338,7 @@
   /* Mobile sidebar toggle */
   #mobile-sidebar-toggle { display: none; position: fixed; bottom: 14px; right: 14px; z-index: 20; width: 48px; height: 48px; font-size: 20px; border-radius: 50%; background: var(--accent); border: none; color: #fff; box-shadow: 0 4px 16px rgba(238,90,82,0.4); }
   #mobile-sidebar-toggle:hover { background: var(--accent-hover); }
-  /* Mobile pan/draw toggle — visible only on mobile */
+  /* Mobile pan/draw toggle - visible only on mobile */
   #mobile-pan-toggle { display: none; position: fixed; bottom: 14px; left: 14px; z-index: 20; width: 48px; height: 48px; font-size: 11px; font-weight: 700; border-radius: 50%; background: var(--bg-elevated); border: 1px solid var(--accent); color: var(--accent); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
   #mobile-pan-toggle.pan { background: var(--accent); color: #fff; }
 
@@ -546,7 +546,7 @@
 <div id="shop-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:420px;max-width:100%;max-height:85vh;display:flex;flex-direction:column;">
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-weight:700;font-size:14px;">$ PlaceBucks Shop &mdash; you have <span id="shop-balance" style="color:var(--gold);">0</span></div>
+      <div style="font-weight:700;font-size:14px;">$ PlaceBucks Shop - you have <span id="shop-balance" style="color:var(--gold);">0</span></div>
       <button id="btn-shop-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
     </div>
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
@@ -573,81 +573,96 @@
         </div>
       </div>
 
-      <!-- CASINO tab -->
-      <div class="shop-panel" data-panel="casino" style="display:none;flex-direction:column;gap:10px;">
-        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-          <div style="font-weight:700;">Slots</div>
-          <div style="font-size:11px;color:var(--text-muted);">3x 7 = 25x bet · 3 same = 8x · 2 same = push</div>
-          <div id="slots-reels" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;letter-spacing:14px;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">- - -</div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <input id="slots-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-            <button id="btn-slots" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Spin</button>
+      <!-- CASINO tab (each game collapsed by default; click to open) -->
+      <style>
+        .game-acc { background:var(--bg-secondary); border-radius:var(--radius-sm); overflow:hidden; }
+        .game-acc summary { padding:10px 14px; cursor:pointer; font-weight:700; list-style:none; display:flex; justify-content:space-between; align-items:center; gap:8px; user-select:none; }
+        .game-acc summary::-webkit-details-marker { display:none; }
+        .game-acc summary::after { content:'+'; color:var(--accent); font-size:18px; font-weight:700; }
+        .game-acc[open] summary::after { content:'-'; }
+        .game-acc[open] summary { border-bottom:1px solid var(--border); }
+        .game-acc .game-body { padding:10px 14px; display:flex; flex-direction:column; gap:6px; }
+        .game-acc .game-hint { font-size:11px; color:var(--text-muted); font-weight:400; }
+      </style>
+      <div class="shop-panel" data-panel="casino" style="display:none;flex-direction:column;gap:8px;">
+        <details class="game-acc"><summary>Slots <span class="game-hint">3x 7 = 25x bet, 3 same = 8x, 2 same = push</span></summary>
+          <div class="game-body">
+            <div id="slots-reels" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;letter-spacing:14px;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">- - -</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input id="slots-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+              <button id="btn-slots" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Spin</button>
+            </div>
+            <div id="slots-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
-          <div id="slots-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
-        </div>
+        </details>
 
-        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-          <div style="font-weight:700;">Roulette</div>
-          <div style="font-size:11px;color:var(--text-muted);">Red/Black = 2x · Green (0) = 35x</div>
-          <div id="roulette-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">--</div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <input id="roulette-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-            <button class="win-btn roulette-go" data-choice="red" style="background:#c0392b;color:#fff;flex:1;">Red</button>
-            <button class="win-btn roulette-go" data-choice="black" style="background:#222;color:#fff;flex:1;">Black</button>
-            <button class="win-btn roulette-go" data-choice="green" style="background:#16a34a;color:#fff;flex:1;">Green</button>
+        <details class="game-acc"><summary>Roulette <span class="game-hint">Red/Black 2x, Green 35x</span></summary>
+          <div class="game-body">
+            <div id="roulette-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">--</div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <input id="roulette-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+              <button class="win-btn roulette-go" data-choice="red" style="background:#c0392b;color:#fff;flex:1;">Red</button>
+              <button class="win-btn roulette-go" data-choice="black" style="background:#222;color:#fff;flex:1;">Black</button>
+              <button class="win-btn roulette-go" data-choice="green" style="background:#16a34a;color:#fff;flex:1;">Green</button>
+            </div>
+            <div id="roulette-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
-          <div id="roulette-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
-        </div>
+        </details>
 
-        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-          <div style="font-weight:700;">Rock Paper Scissors</div>
-          <div style="font-size:11px;color:var(--text-muted);">vs AI: win pays 1.95x · vs human: winner takes both bets, forfeit = lose</div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <input id="rps-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-            <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="ai" checked> AI</label>
-            <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="human"> Human</label>
+        <details class="game-acc"><summary>Rock Paper Scissors <span class="game-hint">vs AI, random human, or pick a player</span></summary>
+          <div class="game-body">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <input id="rps-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+              <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="ai" checked> AI</label>
+              <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="human"> Random Human</label>
+              <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="challenge"> Challenge</label>
+            </div>
+            <div id="rps-challenge-row" style="display:none;gap:6px;align-items:center;">
+              <input id="rps-challenge-user" class="win-input" type="text" maxlength="20" placeholder="Opponent username" style="flex:1;font-size:12px;padding:4px 6px;">
+              <button id="btn-rps-challenge" class="win-btn" style="background:var(--accent);color:#fff;">Send Challenge</button>
+            </div>
+            <div id="rps-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;text-align:center;">Pick a hand to start</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button class="win-btn rps-go" data-choice="rock" style="background:var(--accent);color:#fff;flex:1;">Rock</button>
+              <button class="win-btn rps-go" data-choice="paper" style="background:var(--accent);color:#fff;flex:1;">Paper</button>
+              <button class="win-btn rps-go" data-choice="scissors" style="background:var(--accent);color:#fff;flex:1;">Scissors</button>
+            </div>
+            <button id="btn-rps-cancel" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);display:none;">Cancel queue (refund)</button>
+            <div id="rps-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
-          <div id="rps-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;text-align:center;">Pick a hand to start</div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <button class="win-btn rps-go" data-choice="rock" style="background:var(--accent);color:#fff;flex:1;">Rock</button>
-            <button class="win-btn rps-go" data-choice="paper" style="background:var(--accent);color:#fff;flex:1;">Paper</button>
-            <button class="win-btn rps-go" data-choice="scissors" style="background:var(--accent);color:#fff;flex:1;">Scissors</button>
-          </div>
-          <button id="btn-rps-cancel" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);display:none;">Cancel queue (refund)</button>
-          <div id="rps-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
-        </div>
+        </details>
 
-        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-          <div style="font-weight:700;">Flappy Bird</div>
-          <div style="font-size:11px;color:var(--text-muted);">Earn 1 $ per pipe passed. Hard mode. No bet, no loss.</div>
-          <button id="btn-flappy-open" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
-        </div>
-
-        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-          <div style="font-weight:700;">Blackjack (21)</div>
-          <div style="font-size:11px;color:var(--text-muted);">Beat dealer to 21. Natural blackjack pays 3:2.</div>
-          <div id="bj-dealer-area" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;">Dealer: —</div>
-          <div id="bj-player-area" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;">You: —</div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <input id="bj-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-            <button id="btn-bj-deal" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Deal</button>
-            <button id="btn-bj-hit" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;" disabled>Hit</button>
-            <button id="btn-bj-stand" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;" disabled>Stand</button>
+        <details class="game-acc"><summary>Flappy Bird <span class="game-hint">1 $ per pipe, no bet</span></summary>
+          <div class="game-body">
+            <button id="btn-flappy-open" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
           </div>
-          <div id="bj-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
-        </div>
+        </details>
 
-        <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
-          <div style="font-weight:700;">Coin Flip</div>
-          <div style="font-size:11px;color:var(--text-muted);">Win = 1.95x bet</div>
-          <div id="coin-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">?</div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <input id="coin-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-            <button class="win-btn coin-go" data-choice="heads" style="background:var(--accent);color:#fff;flex:1;">Heads</button>
-            <button class="win-btn coin-go" data-choice="tails" style="background:var(--accent);color:#fff;flex:1;">Tails</button>
+        <details class="game-acc"><summary>Blackjack (21) <span class="game-hint">Beat dealer to 21, natural pays 3:2</span></summary>
+          <div class="game-body">
+            <div id="bj-dealer-area" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;">Dealer: -</div>
+            <div id="bj-player-area" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;">You: -</div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <input id="bj-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+              <button id="btn-bj-deal" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Deal</button>
+              <button id="btn-bj-hit" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;" disabled>Hit</button>
+              <button id="btn-bj-stand" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;" disabled>Stand</button>
+            </div>
+            <div id="bj-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
-          <div id="coin-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
-        </div>
+        </details>
+
+        <details class="game-acc"><summary>Coin Flip <span class="game-hint">Win pays 1.95x</span></summary>
+          <div class="game-body">
+            <div id="coin-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:22px;font-weight:700;text-align:center;background:var(--bg-elevated);padding:6px;border-radius:4px;border:1px solid var(--border);">?</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input id="coin-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+              <button class="win-btn coin-go" data-choice="heads" style="background:var(--accent);color:#fff;flex:1;">Heads</button>
+              <button class="win-btn coin-go" data-choice="tails" style="background:var(--accent);color:#fff;flex:1;">Tails</button>
+            </div>
+            <div id="coin-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+          </div>
+        </details>
       </div>
 
       <!-- TRANSFER tab -->
@@ -669,7 +684,7 @@
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;padding:18px;display:flex;flex-direction:column;gap:10px;">
     <div style="font-weight:700;font-size:15px;">Create Clan</div>
     <div style="font-size:11px;color:var(--text-muted);">Once submitted, the site admin reviews your clan. Once approved you become the clan owner; other players can request to join and you approve them.</div>
-    <input id="clan-create-name" class="win-input" type="text" placeholder="Clan name (max 30 chars) — this is also your chat rank tag" maxlength="30">
+    <input id="clan-create-name" class="win-input" type="text" placeholder="Clan name (max 30 chars) - this is also your chat rank tag" maxlength="30">
     <div style="display:flex;align-items:center;gap:8px;">
       <label style="font-size:12px;">Color:</label>
       <input id="clan-create-color" type="color" value="#7c5cfc" style="width:40px;height:32px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);">
@@ -685,7 +700,7 @@
 
 <div id="timelapse-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:100;flex-direction:column;align-items:center;justify-content:center;padding:14px;">
   <div style="display:flex;justify-content:space-between;align-items:center;width:100%;max-width:900px;margin-bottom:8px;">
-    <div style="font-weight:700;font-size:14px;color:var(--text-primary);">Flashback &mdash; up to last 24 hours</div>
+    <div style="font-weight:700;font-size:14px;color:var(--text-primary);">Flashback - up to last 24 hours</div>
     <button id="btn-timelapse-close" class="win-btn" style="background:var(--bg-elevated);">Close</button>
   </div>
   <canvas id="timelapse-canvas" style="background:#000;max-width:100%;max-height:60vh;image-rendering:pixelated;border-radius:var(--radius-sm);"></canvas>
@@ -752,7 +767,7 @@
   </div>
   <div id="user-bar">
     <span class="user-name" id="user-display"></span>
-    <span id="pb-balance" title="PlaceBucks — earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
+    <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
     <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
     <button id="btn-logout" class="win-btn">Logout</button>
   </div>
@@ -949,13 +964,7 @@
 </div>
 
 <script>
-// Anywhere except the Render origin itself routes API/WS to the Render backend. This makes the
-// single index.html work unchanged on github.io, Netlify, itch.io, inside an iframe, etc.
 const RENDER_HOST = 'ezplace-server.onrender.com';
-// Ordered failover list. The client probes these in order and routes ALL API/WS
-// traffic through the first reachable one. If a school/work filter blocks the
-// primary Render host, it transparently falls back to the proxy (different domain).
-// Deploy the Cloudflare Worker (see cloudflare-worker-proxy.js), then add its host:
 const BACKEND_CANDIDATES = [
   'ezplace-server.onrender.com',
   'dirty-clam-17.averagetoothpasteenjoyer.deno.net',  // Deno Deploy backup proxy
@@ -963,19 +972,14 @@ const BACKEND_CANDIDATES = [
 let BACKEND_HOST = location.hostname === RENDER_HOST ? '' : BACKEND_CANDIDATES[0];
 let BACKEND = BACKEND_HOST ? 'https://' + BACKEND_HOST : '';
 let WS_HOST = BACKEND_HOST || location.host;
-// Monkey-patch fetch so all /api calls go to the backend automatically
 const _origFetch = window.fetch;
 window.fetch = function(url, ...args) {
   if (typeof url === 'string' && url.startsWith('/')) url = BACKEND + url;
   return _origFetch.call(this, url, ...args);
 };
 
-// Probe the candidate hosts and switch to the first reachable one before any real
-// traffic. If served from the Render origin itself, stay same-origin (no probe).
 async function selectBackend() {
   if (location.hostname === RENDER_HOST) return;
-  // Manual override for testing: ?backend=proxy uses the 2nd candidate (the proxy);
-  // ?backend=<host> forces a specific host. Skips probing entirely.
   try {
     const forced = new URLSearchParams(location.search).get('backend');
     if (forced) {
@@ -989,21 +993,16 @@ async function selectBackend() {
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 5000);
-      // Probe a real endpoint and confirm the body is actually our backend's JSON.
-      // A school filter's block page would resolve too, but won't contain "lobbies".
       const r = await _origFetch('https://' + host + '/api/lobbies', { signal: ctrl.signal, cache: 'no-store' });
       clearTimeout(t);
       if (r.ok) {
         const txt = await r.text();
         if (txt.includes('"lobbies"')) { BACKEND_HOST = host; BACKEND = 'https://' + host; WS_HOST = host; return; }
       }
-    } catch (e) { /* blocked, down, or filtered — try the next candidate */ }
+    } catch (e) {  }
   }
-  // None reachable: keep the default; the app will show its normal offline state.
 }
 
-// localStorage is unavailable or partitioned in sandboxed/third-party iframes (Google Sites,
-// some embeds). Fall back to an in-memory store so login still works for the session.
 const safeStore = (function () {
   try {
     const k = '__ez_test__';
@@ -1020,17 +1019,12 @@ const safeStore = (function () {
   }
 })();
 
-// ============================================================
-// TIPS BANNER — edit this list freely. One tip is shown at a
-// time below the zoom controls, rotating every 10 seconds.
-// Add, remove, reword anything you like.
-// ============================================================
 const TIPS = [
   "DID YOU KNOW? You can create clans, you can join them and create them on the homepage.",
   "DID YOU KNOW? You earn 1 PLACEBUX for every 100 pixels you place.",
   "DID YOU KNOW? Press Ctrl+Z to undo your last placement (up to 30).",
   "DID YOU KNOW? You can reply to chats by clicking the ↩ next to the timestamp.",
-  "DID YOU KNOW? Use @username in chat to mention someone — they'll get highlighted.",
+  "DID YOU KNOW? Use @username in chat to mention someone - they'll get highlighted.",
   "DID YOU KNOW? On mobile, two-finger pan works while drag-to-paint is on.",
   "DID YOU KNOW? Private lobbies last 168 hours (1 week) after inactivity; public ones 48 hours.",
   "DID YOU KNOW? Click on a clan card to see its members and their ranks.",
@@ -1040,7 +1034,6 @@ const TIPS = [
   "DID YOU KNOW? You pull no women."
 ];
 const TIP_ROTATE_MS = 10000;
-// ============================================================
 
 let GRID_W = 256, GRID_H = 256;
 const COLORS = [
@@ -1075,14 +1068,11 @@ let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
 let canPlace = true;
-// Brush permissions granted by admin: max brush size and whether drag-to-paint is allowed.
-// Admin (toothpaste) implicitly gets full perms via isAdminUser().
 let brushPerm = { size: 1, drag: false };
 function effectiveMaxBrush() { return isAdminUser() ? 25 : (brushPerm.size || 1); }
 function canDragPaint() { return isAdminUser() || !!brushPerm.drag; }
 let isFakeAdmin = false;
-let fakeBannedUsers = new Set(); // users "banned" by fake admin — muted on their screen only
-// Remote cursors: { username_lower: { name, x, y, isGuest, lastUpdate } }
+let fakeBannedUsers = new Set(); // users "banned" by fake admin - muted on their screen only
 let remoteCursors = {};
 const REMOTE_CURSOR_TIMEOUT = 6000;
 let lastSentCursorX = -1, lastSentCursorY = -1, lastSentCursorTime = 0;
@@ -1113,8 +1103,6 @@ let camX = GRID_W / 2, camY = GRID_H / 2, zoom = 1;
 let hoverGridX = -1, hoverGridY = -1;
 let isPanning = false, panStartX = 0, panStartY = 0, camStartX = 0, camStartY = 0;
 
-// BroadcastChannel throws in some sandboxed iframes. Degrade to a no-op stub: the
-// "open in another tab" guard simply won't fire, which is fine inside an embed.
 let tabChannel;
 try {
   tabChannel = new BroadcastChannel('ezplace_tab');
@@ -1142,14 +1130,10 @@ const cvs = document.getElementById('viewport');
 const ctx = cvs.getContext('2d');
 const COLOR_RGB = COLORS.map(c => c);
 
-// E-ink (Kindle Paperwhite) mode — optimizes for slow grayscale screens
 function detectEink() {
-  // Primary detection: monochrome display media query (true for e-ink, false for any color screen)
   try {
     if (window.matchMedia && window.matchMedia('(monochrome)').matches) return true;
   } catch {}
-  // Fallback: strict Kindle Paperwhite UA pattern. Only the actual e-ink Kindle browser
-  // includes "Kindle/<version>" — Kindle Fires use Silk and are explicitly NOT matched.
   const ua = navigator.userAgent || '';
   return /Kindle\/\d/i.test(ua);
 }
@@ -1161,7 +1145,6 @@ function applyEinkMode() {
   render();
 }
 
-// Pre-decoded RGBA bytes for each palette color (used for fast ImageData writes)
 let COLOR_BYTES = [];
 function rebuildColorBytes() {
   COLOR_BYTES = COLORS.map(hex => {
@@ -1169,7 +1152,6 @@ function rebuildColorBytes() {
     let g = parseInt(hex.slice(3,5), 16);
     let b = parseInt(hex.slice(5,7), 16);
     if (einkMode) {
-      // Convert to grayscale using luminance, then quantize to 5 levels for crisper e-ink rendering
       const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
       const quant = Math.round(lum / 64) * 64;
       r = g = b = Math.min(255, quant);
@@ -1179,7 +1161,6 @@ function rebuildColorBytes() {
 }
 rebuildColorBytes();
 
-// Offscreen canvas holding the raw 1:1 grid as pixels — used as a fast source for drawImage
 let offCvs = document.createElement('canvas');
 let offCtx = offCvs.getContext('2d', { willReadFrequently: true });
 let offImageData = null;
@@ -1188,7 +1169,6 @@ function resetOffscreen() {
   offCvs.width = GRID_W;
   offCvs.height = GRID_H;
   offImageData = offCtx.createImageData(GRID_W, GRID_H);
-  // Fill from current grid
   const data = offImageData.data;
   for (let i = 0; i < GRID_W * GRID_H; i++) {
     const c = COLOR_BYTES[grid[i]] || COLOR_BYTES[0];
@@ -1204,7 +1184,6 @@ function setOffscreenPixel(x, y, color) {
   const o = (y * GRID_W + x) * 4;
   const c = COLOR_BYTES[color] || COLOR_BYTES[0];
   data[o] = c[0]; data[o+1] = c[1]; data[o+2] = c[2]; data[o+3] = c[3];
-  // Update only the affected pixel on the offscreen canvas
   const single = offCtx.createImageData(1, 1);
   single.data[0] = c[0]; single.data[1] = c[1]; single.data[2] = c[2]; single.data[3] = c[3];
   offCtx.putImageData(single, x, y);
@@ -1228,13 +1207,11 @@ function fitViewToGrid() {
 }
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 200));
-// ResizeObserver catches address-bar collapse on mobile and any other layout shifts the window resize event misses
 if (typeof ResizeObserver !== 'undefined') {
   const ro = new ResizeObserver(() => resizeCanvas());
   ro.observe(document.getElementById('viewport-wrap'));
 }
 
-// In e-ink mode, debounce render to avoid hammering the screen
 let einkRenderTimer = null;
 let _renderImpl;
 function render() {
@@ -1246,9 +1223,6 @@ function render() {
   _renderImpl();
 }
 _renderImpl = function() {
-  // Until the user manually zooms/pans, always re-fit the view to the current canvas dimensions.
-  // This protects against mobile address-bar collapse, late layout, and any other timing issue
-  // that leaves cvs.width stale at the moment the grid handler ran.
   if (!userHasInteracted && currentLobbyId) {
     const wrap = document.getElementById('viewport-wrap');
     const targetW = wrap.clientWidth || window.innerWidth;
@@ -1263,8 +1237,6 @@ _renderImpl = function() {
   const left = camX - (w / 2) / zoom, top = camY - (h / 2) / zoom;
   const startX = Math.max(0, Math.floor(left)), startY = Math.max(0, Math.floor(top));
   const endX = Math.min(GRID_W, Math.ceil(left + w / zoom)), endY = Math.min(GRID_H, Math.ceil(top + h / zoom));
-  // Blit the visible region from the offscreen canvas in one drawImage call.
-  // This is dramatically faster than per-pixel fillRect, especially when zoomed out on 512x512.
   if (offImageData && endX > startX && endY > startY) {
     ctx.imageSmoothingEnabled = false;
     const dx = Math.floor((startX - left) * zoom);
@@ -1290,7 +1262,6 @@ _renderImpl = function() {
     ctx.lineWidth = 1;
     ctx.strokeRect(hx - 1, hy - 1, hs + 2, hs + 2);
   }
-  // Render remote cursors (skipped in e-ink mode to avoid screen ghosting)
   if (einkMode) return;
   const nowR = Date.now();
   ctx.font = '11px Inter, sans-serif';
@@ -1309,7 +1280,6 @@ _renderImpl = function() {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.strokeRect(cx, cy, cs, cs);
-    // Username label above the cursor
     const label = c.name;
     const padX = 4, padY = 2;
     const tw = ctx.measureText(label).width + padX * 2;
@@ -1367,7 +1337,6 @@ function clearOwnCursor() {
   lastSentCursorX = -1; lastSentCursorY = -1; lastSentCursorTime = Date.now();
   ws.send(JSON.stringify({ type: 'cursor', x: null, y: null }));
 }
-// === WebRTC voice & video chat ===
 const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
 const MAX_PEERS = 8;
 let localStream = null;
@@ -1409,7 +1378,6 @@ async function startCall(withVideo) {
   document.getElementById('btn-video').style.display = 'none';
   document.getElementById('btn-mute').style.display = '';
   document.getElementById('btn-leave-call').style.display = '';
-  // Local self tile (muted to prevent echo)
   const localTile = makeTile(username + ' (you)');
   if (withVideo) localTile.classList.remove('audio-only');
   localTile.querySelector('video').srcObject = localStream;
@@ -1420,8 +1388,6 @@ async function startCall(withVideo) {
   addSystemMsg('You joined the ' + (withVideo ? 'video' : 'voice') + ' call. Others must click ' + (withVideo ? 'Video' : 'Voice') + ' to join you.');
 }
 
-// "Perfect negotiation" pattern: the user with the alphabetically smaller username is "polite" and
-// yields on glare; the other is "impolite" and ignores incoming offers when they have one in flight.
 function isPolite(remoteName) {
   return (username || '').toLowerCase() < (remoteName || '').toLowerCase();
 }
@@ -1497,7 +1463,6 @@ document.getElementById('btn-leave-call').onclick = endCall;
 async function handleRtcMessage(msg) {
   rtcLog('recv', msg.type, 'from', msg.username);
   if (msg.type === 'rtc_join') {
-    // A new user joined the call. If we're already in voice/video, create a peer (negotiationneeded fires the offer).
     if (localStream) makePeer(msg.username);
     return;
   }
@@ -1512,7 +1477,6 @@ async function handleRtcMessage(msg) {
       peer.ignoreOffer = !peer.polite && offerCollision;
       if (peer.ignoreOffer) { rtcLog('ignoring colliding offer from', msg.username); return; }
       await pc.setRemoteDescription(msg.sdp);
-      // Flush any ICE candidates that arrived before the description
       for (const c of peer.pendingIce) try { await pc.addIceCandidate(c); } catch (e) { rtcLog('flush ice err', e); }
       peer.pendingIce = [];
       await pc.setLocalDescription();
@@ -1531,14 +1495,12 @@ async function handleRtcMessage(msg) {
   }
 }
 
-// === Timelapse / Flashback ===
-const TL_EVENT_SIZE = 10; // bytes per event: ts(4) x(2) y(2) new(1) old(1) — little endian
+const TL_EVENT_SIZE = 10; // bytes per event: ts(4) x(2) y(2) new(1) old(1) - little endian
 let tlState = null; // { events: DataView, count, startGrid: Uint8Array, w, h, t0, tEnd, idx, playing, speed }
 let tlAnimFrame = null;
 
 function updateTimelapseButton() {
   const btn = document.getElementById('btn-timelapse');
-  // Always available while in a lobby and not a guest. Modal handles the empty case gracefully.
   btn.style.display = (currentLobbyId && !isGuest) ? '' : 'none';
 }
 
@@ -1558,7 +1520,6 @@ async function openTimelapse() {
   const events = new DataView(buf);
   const count = Math.floor(buf.byteLength / TL_EVENT_SIZE);
   if (count === 0) { info.textContent = 'No pixel changes have been recorded yet. Place some pixels and come back later.'; return; }
-  // Compute the start state by reverse-applying events from the current grid
   const startGrid = new Uint8Array(grid); // current grid
   for (let i = count - 1; i >= 0; i--) {
     const o = i * TL_EVENT_SIZE;
@@ -1570,14 +1531,12 @@ async function openTimelapse() {
   const t0 = events.getUint32(0, true);
   const tEnd = events.getUint32((count - 1) * TL_EVENT_SIZE, true);
   tlState = { events, count, startGrid, w, h, t0, tEnd, idx: 0, playing: false, speed: parseFloat(document.getElementById('timelapse-speed').value) };
-  // Set up canvas
   const tlCvs = document.getElementById('timelapse-canvas');
   tlCvs.width = w; tlCvs.height = h;
   const tlCtx = tlCvs.getContext('2d');
   const imageData = tlCtx.createImageData(w, h);
   tlState.imageData = imageData;
   tlState.tlCtx = tlCtx;
-  // Render starting state
   for (let i = 0; i < w * h; i++) {
     const c = COLOR_BYTES[startGrid[i]] || COLOR_BYTES[0];
     const o = i * 4;
@@ -1594,7 +1553,7 @@ function updateTimelapseInfo() {
   const dur = tlState.tEnd - tlState.t0;
   const elapsed = tlState.idx > 0 ? (tlState.events.getUint32((tlState.idx - 1) * TL_EVENT_SIZE, true) - tlState.t0) : 0;
   const hrs = Math.floor(dur / 3600), mins = Math.floor((dur % 3600) / 60);
-  info.textContent = `${tlState.idx} / ${tlState.count} placements  —  ${Math.floor(elapsed / 60)}min into ${hrs}h ${mins}m of activity`;
+  info.textContent = `${tlState.idx} / ${tlState.count} placements  -  ${Math.floor(elapsed / 60)}min into ${hrs}h ${mins}m of activity`;
 }
 
 function applyEventTo(idx, imageData, w) {
@@ -1609,7 +1568,6 @@ function applyEventTo(idx, imageData, w) {
 }
 
 function rebuildToIndex(targetIdx) {
-  // Rebuild from start when scrubbing backwards
   if (!tlState) return;
   const { imageData, w, startGrid } = tlState;
   for (let i = 0; i < w * tlState.h; i++) {
@@ -1672,7 +1630,6 @@ let isDrawing = false;
 let drawLastX = -1, drawLastY = -1;
 let lastDrawTime = 0;
 
-// Real-admin tool: hover the same pixel for 5 seconds to see who placed it.
 let pixelOwnerTimer = null;
 let pixelOwnerCell = -1;
 let lastMouseClientX = 0, lastMouseClientY = 0;
@@ -1717,7 +1674,6 @@ cvs.addEventListener('mousedown', e => {
     isPanning = true; userHasInteracted = true; panStartX = e.clientX; panStartY = e.clientY; camStartX = camX; camStartY = camY;
     cvs.style.cursor = 'grabbing'; e.preventDefault();
   } else if (e.button === 0 && isOverGrid(sx, sy) && canDragPaint()) {
-    // Start drag-to-paint (only if user has the perm)
     const g = screenToGrid(sx, sy);
     isDrawing = true;
     drawLastX = g.x; drawLastY = g.y;
@@ -1743,11 +1699,9 @@ window.addEventListener('mousemove', e => {
       hoverGridX = -1; hoverGridY = -1;
       resetPixelOwnerLookup();
     }
-    // Drag-to-paint: place pixels as the mouse moves while held
     if (isDrawing && (g.x !== drawLastX || g.y !== drawLastY)) {
       const now = Date.now();
-      // Throttle admin brush during drag to avoid flooding (max 30fps)
-      if (isAdminUser() && now - lastDrawTime < 33) { /* skip */ }
+      if (isAdminUser() && now - lastDrawTime < 33) {  }
       else {
         if (tryPlacePixel(g.x, g.y)) { drawLastX = g.x; drawLastY = g.y; lastDrawTime = now; }
       }
@@ -1772,20 +1726,14 @@ let touchDrawLastX = -1, touchDrawLastY = -1;
 let touchStartX = 0, touchStartY = 0, touchCamX = 0, touchCamY = 0;
 let pinchStartMidX = 0, pinchStartMidY = 0, pinchCamX = 0, pinchCamY = 0;
 let lastTapTime = 0;
-// Mobile pan/draw mode override. When true, one-finger touch always pans (overrides
-// drag-paint), so users with brush drag perm can still navigate the canvas freely.
 let forcePanMode = false;
 
 function getTouchDist(t1, t2) {
   return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 }
 
-// Touch handlers: tap to place a pixel, single-finger drag pans (or paints if drag perm), two-finger pinch zooms.
 function updateModeBtnVisibility() {} // no-op kept so existing callers don't error
 
-// When drag-paint is on, the first finger of a two-finger pinch would paint
-// before the second finger landed. We delay the initial paint by a short
-// window so a second finger arriving can cancel it.
 let pendingTouchPaintTimer = null;
 function cancelPendingTouchPaint() {
   if (pendingTouchPaintTimer) { clearTimeout(pendingTouchPaintTimer); pendingTouchPaintTimer = null; }
@@ -1799,7 +1747,6 @@ cvs.addEventListener('touchstart', e => {
     pinchStartMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     pinchCamX = camX; pinchCamY = camY;
     touchPanning = false;
-    // Second finger arrived — abort any pending first-finger paint.
     cancelPendingTouchPaint();
     if (touchDrawing) { touchDrawing = false; touchDrawLastX = -1; touchDrawLastY = -1; }
   } else if (e.touches.length === 1) {
@@ -1812,9 +1759,6 @@ cvs.addEventListener('touchstart', e => {
       touchDrawing = true;
       touchPanning = false;
       touchDrawLastX = g.x; touchDrawLastY = g.y;
-      // Defer the initial paint ~110ms. If a second finger lands in that window
-      // (pinch-to-pan), cancelPendingTouchPaint above kills it. If the finger
-      // moves during the window, the touchmove handler runs paint right away.
       cancelPendingTouchPaint();
       pendingTouchPaintTimer = setTimeout(() => {
         pendingTouchPaintTimer = null;
@@ -1835,8 +1779,6 @@ cvs.addEventListener('touchmove', e => {
     const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     const rect = cvs.getBoundingClientRect();
     setZoom(touchStartZoom * (dist / touchStartDist), midX - rect.left, midY - rect.top);
-    // Two-finger pan: shift camera by midpoint delta. Critical for users with drag-paint perm
-    // since they no longer get one-finger pan (single touch is reserved for painting).
     const dx = (midX - pinchStartMidX) / zoom;
     const dy = (midY - pinchStartMidY) / zoom;
     if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) userHasInteracted = true;
@@ -1849,7 +1791,7 @@ cvs.addEventListener('touchmove', e => {
     const g = screenToGrid(sx, sy);
     if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H && (g.x !== touchDrawLastX || g.y !== touchDrawLastY)) {
       const now = Date.now();
-      if (isAdminUser() && now - lastDrawTime < 33) { /* throttle admin brush */ }
+      if (isAdminUser() && now - lastDrawTime < 33) {  }
       else {
         if (tryPlacePixel(g.x, g.y)) { touchDrawLastX = g.x; touchDrawLastY = g.y; lastDrawTime = now; }
       }
@@ -1867,9 +1809,6 @@ let touchHandledRecently = 0;
 cvs.addEventListener('touchend', e => {
   e.preventDefault();
   if (touchDrawing && e.touches.length === 0) {
-    // If the user lifted before the 110ms delay fired, paint now (so a quick
-    // tap still places). The timer's own callback would no-op since we clear
-    // touchDrawing right after.
     if (pendingTouchPaintTimer && touchDrawLastX >= 0) {
       cancelPendingTouchPaint();
       tryPlacePixel(touchDrawLastX, touchDrawLastY);
@@ -1916,7 +1855,6 @@ mobilePanToggle.onclick = () => {
   forcePanMode = !forcePanMode;
   mobilePanToggle.textContent = forcePanMode ? 'Pan' : 'Draw';
   mobilePanToggle.classList.toggle('pan', forcePanMode);
-  // Cancel any in-progress drag-paint when switching to pan
   if (forcePanMode && touchDrawing) { touchDrawing = false; touchDrawLastX = -1; touchDrawLastY = -1; }
 };
 
@@ -1928,11 +1866,9 @@ function startCooldownBar() { lastPlaceTime = Date.now(); cooldownFill.style.wid
 
 function isAdminUser() { return username && (username.toLowerCase() === 'toothpaste' || isFakeAdmin); }
 function isRealAdmin() { return username && username.toLowerCase() === 'toothpaste'; }
-// Undo history: up to 30 actions, each action is one or more pixel changes (a brush stroke = one action)
 const UNDO_MAX = 30;
 const undoStack = [];
 function pushUndoAction(action) {
-  // action: { newColor, pixels: [{x, y, oldColor}] }
   if (!action.pixels.length) return;
   if (isFakeAdmin) return; // Fake admin doesn't actually change the canvas, no point queueing
   undoStack.push(action);
@@ -1979,7 +1915,6 @@ function paintBrush(cx, cy) {
 function performUndo() {
   if (undoStack.length === 0) return;
   if (!currentLobbyId || isGuest || !canPlace) return;
-  // Cooldown still applies for non-admins (one undo costs one cooldown cycle)
   const now = Date.now();
   if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) {
     showCooldownWarn(COOLDOWN - (now - lastPlaceTime));
@@ -1987,29 +1922,21 @@ function performUndo() {
   }
   const action = undoStack.pop();
   updateUndoButtonState();
-  // Skip any pixel where another player has since painted over it — we only revert pixels
-  // still showing the color we placed (action.newColor). Otherwise we'd erase someone else's work.
   const stillOurs = action.pixels.filter(p => grid[p.y * GRID_W + p.x] === action.newColor);
   if (stillOurs.length === 0) {
-    // Everything in this action has been painted over by other players — nothing to undo
     return;
   }
-  // Restore each remaining pixel locally
   for (const p of stillOurs) {
     grid[p.y * GRID_W + p.x] = p.oldColor;
     setOffscreenPixel(p.x, p.y, p.oldColor);
   }
   render();
   if (!isAdminUser()) startCooldownBar();
-  // Send to server using the undo-flavored message types so the server *decrements* the
-  // leaderboard count instead of incrementing it. `from_color` lets the server verify the
-  // pixel hasn't been painted over since we placed it.
   if (ws && ws.readyState === WebSocket.OPEN) {
     if (stillOurs.length === 1) {
       const p = stillOurs[0];
       ws.send(JSON.stringify({ type: 'pixel_undo', x: p.x, y: p.y, color: p.oldColor, from_color: action.newColor }));
     } else if (isRealAdmin() || brushPerm.size > 1) {
-      // Brush stroke undo: group by old color and send one brush_undo per color
       const byColor = new Map();
       for (const p of stillOurs) {
         if (!byColor.has(p.oldColor)) byColor.set(p.oldColor, []);
@@ -2029,7 +1956,6 @@ function performUndo() {
 document.getElementById('btn-undo').onclick = performUndo;
 window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-    // Don't capture undo while typing in an input/textarea
     const tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
     e.preventDefault();
@@ -2038,7 +1964,6 @@ window.addEventListener('keydown', e => {
 });
 updateUndoButtonState();
 
-// Click handler: places a single pixel. Drag-to-paint is opt-in via brush perm (handled in mousedown).
 cvs.addEventListener('click', e => {
   if (Date.now() - touchHandledRecently < 500) return;
   if (blocked || !username || !currentLobbyId) return;
@@ -2046,7 +1971,6 @@ cvs.addEventListener('click', e => {
   if (!canPlace) { cooldownWarn.textContent = 'Spectator mode - you cannot place pixels here'; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2000); return; }
   const now = Date.now();
   if (!isAdminUser() && now - lastPlaceTime < COOLDOWN) { showCooldownWarn(COOLDOWN - (now - lastPlaceTime)); return; }
-  // If the user has drag perm, mousedown already placed the pixel via the drag system. Don't double-place.
   if (canDragPaint()) return;
   const rect = cvs.getBoundingClientRect();
   const g = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
@@ -2055,19 +1979,14 @@ cvs.addEventListener('click', e => {
   paintBrush(g.x, g.y);
 });
 
-// === Color wheel picker ===
-// Storage stays as palette indices (1 byte/pixel). The wheel lets you pick any HSL color,
-// and we snap to the nearest of the 53 palette colors so server/network/timelapse stay compact.
 const wheelCanvas = document.getElementById('color-wheel');
 const wheelCtx = wheelCanvas.getContext('2d');
 const WHEEL_SIZE = 100;
 const WHEEL_R = WHEEL_SIZE / 2;
 
-// Pre-decoded palette as RGB triples for snapping
 const PALETTE_RGB = COLORS.map(hex => [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)]);
 
 function hslToRgb(h, s, l) {
-  // h: 0-360, s: 0-1, l: 0-1
   const c = (1 - Math.abs(2 * l - 1)) * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = l - c / 2;
@@ -2121,7 +2040,6 @@ function drawColorWheel(currentLight) {
 }
 
 function drawPickerIndicator() {
-  // Draw a small ring at the current pick position
   const dist = pickSat * WHEEL_R;
   const rad = pickHue * Math.PI / 180;
   const x = WHEEL_R + Math.cos(rad) * dist;
@@ -2138,9 +2056,7 @@ function applyPick() {
   const [r, g, b] = hslToRgb(pickHue, pickSat, pickLight);
   selectedColor = nearestPaletteIndex(r, g, b);
   document.getElementById('color-preview-snap').style.background = COLORS[selectedColor];
-  // Clear palette selection highlight since the wheel picked something different
   document.querySelectorAll('#palette-row .color-btn').forEach(b => { b.style.borderColor = 'transparent'; b.classList.remove('selected'); });
-  // Highlight the matching palette swatch
   const swatches = document.querySelectorAll('#palette-row .color-btn');
   if (swatches[selectedColor]) { swatches[selectedColor].style.borderColor = '#fff'; swatches[selectedColor].classList.add('selected'); }
   drawColorWheel(pickLight);
@@ -2150,7 +2066,6 @@ function pickFromEvent(e) {
   const rect = wheelCanvas.getBoundingClientRect();
   const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
   const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-  // Map from CSS pixels to canvas pixels (in case of CSS sizing)
   const sx = cx * (WHEEL_SIZE / rect.width);
   const sy = cy * (WHEEL_SIZE / rect.height);
   const dx = sx - WHEEL_R, dy = sy - WHEEL_R;
@@ -2176,12 +2091,9 @@ document.getElementById('color-lightness').addEventListener('input', e => {
   applyPick();
 });
 
-// Initialize at red
 pickHue = 0; pickSat = 1.0; pickLight = 0.5;
 applyPick();
 
-
-// Build palette swatches (the 53 indexed colors). Clicking sets selectedColor directly.
 const paletteEl = document.getElementById('palette-row');
 COLORS.forEach((c, i) => {
   const btn = document.createElement('div');
@@ -2198,7 +2110,6 @@ COLORS.forEach((c, i) => {
   paletteEl.appendChild(btn);
 });
 
-// Brush size selector
 document.getElementById('brush-size-select').addEventListener('change', e => {
   adminBrushSize = parseInt(e.target.value) || 1;
 });
@@ -2208,7 +2119,6 @@ function updateBrushSizeSelectVisibility() {
   const max = effectiveMaxBrush();
   if (max <= 1) { sel.style.display = 'none'; return; }
   sel.style.display = '';
-  // Hide options larger than the user's permitted max
   for (const opt of sel.options) {
     opt.style.display = parseInt(opt.value) <= max ? '' : 'none';
   }
@@ -2224,13 +2134,11 @@ function formatExpires(secs) {
   if (secs < 3600) return `${Math.ceil(secs / 60)}min until expiration`;
   return `${Math.floor(secs / 3600)}h until expiration`;
 }
-// Mobile chat overlay: show chat messages above the canvas when sidebar is closed
 const MAX_MOBILE_BUBBLES = 4;
 const MOBILE_BUBBLE_DURATION = 5000;
 function showMobileChatBubble(name, text, isOwner, isMsgGuest) {
   const overlay = document.getElementById('mobile-chat-overlay');
   if (!overlay || getComputedStyle(overlay).display === 'none') return;
-  // Don't show if sidebar is open (user can read chat directly)
   const sidebar = document.getElementById('sidebar');
   if (sidebar && sidebar.classList.contains('open')) return;
   const bubble = document.createElement('div');
@@ -2238,11 +2146,9 @@ function showMobileChatBubble(name, text, isOwner, isMsgGuest) {
   const nameClass = isOwner ? 'mcb-name owner' : (isMsgGuest ? 'mcb-name guest' : 'mcb-name');
   bubble.innerHTML = `<span class="${nameClass}">${esc(name)}:</span> ${esc(text).slice(0, 80)}${text.length > 80 ? '...' : ''}`;
   overlay.appendChild(bubble);
-  // Cap visible bubbles
   while (overlay.children.length > MAX_MOBILE_BUBBLES) {
     overlay.removeChild(overlay.firstChild);
   }
-  // Auto-remove after duration
   setTimeout(() => {
     bubble.classList.add('fading');
     setTimeout(() => { if (bubble.parentNode) bubble.parentNode.removeChild(bubble); }, 400);
@@ -2254,7 +2160,6 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo) 
   const isTP = name.toLowerCase() === 'toothpaste';
   const crown = isOwner ? '<span class="crown">&#x1F451;</span>' : '';
   let rankBadge = '';
-  // Clan chip is independent of rank — a clan member with an admin rank shows BOTH
   let clanBadge = '';
   if (clan && clan.label) {
     const cc = /^#[0-9a-fA-F]{3,8}$/.test(clan.color) ? clan.color : '#7c5cfc';
@@ -2282,11 +2187,9 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo) 
   );
   if (canModerate) styleParts.push('cursor:pointer', 'text-decoration:underline dotted');
   const styleAttr = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
-  // Parse @mentions, highlight any tag that targets the current user, and tag the whole message if so
   const filtered = filterText(text);
   const meLow = (username || '').toLowerCase();
   let mentionsMe = false;
-  // Match @ followed by 3-20 alnum chars (matches the username rules)
   const tokens = [];
   const re = /@([A-Za-z0-9]{3,20})/g;
   let lastIdx = 0;
@@ -2321,8 +2224,6 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo) 
 function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-// Admin live-typing spy: a fixed panel in the top-right showing what users are
-// currently typing (before they hit send). Only the real admin receives the data.
 const typingSpyBox = document.createElement('div');
 typingSpyBox.style.cssText = 'position:fixed;top:10px;right:10px;z-index:96;display:none;flex-direction:column;gap:4px;max-width:280px;pointer-events:none;';
 document.body.appendChild(typingSpyBox);
@@ -2377,7 +2278,6 @@ document.getElementById('lm-unban').onclick = async (e) => {
     addSystemMsg(`Unbanned ${lobbyMenuTarget} from this lobby`);
   } catch {}
 };
-// Typing indicator state
 const typingUsers = new Map(); // username_lower -> { name, expiresAt }
 let myTypingState = false;
 let myTypingStopTimer = null;
@@ -2394,7 +2294,6 @@ function sendTyping(state) {
 }
 let lastDraftSent = 0;
 function sendDraft() {
-  // Live draft for the admin typing-spy; throttled. Server only relays it to toothpaste.
   if (isGuest || !ws || ws.readyState !== WebSocket.OPEN) return;
   const now = Date.now();
   if (now - lastDraftSent < 350) return;
@@ -2416,7 +2315,6 @@ function renderTypingIndicator() {
   const el = document.getElementById('typing-indicator');
   const txt = document.getElementById('typing-text');
   const now = Date.now();
-  // Drop expired entries
   for (const [k, v] of typingUsers) {
     if (v.expiresAt < now) typingUsers.delete(k);
   }
@@ -2433,7 +2331,6 @@ function renderTypingIndicator() {
   }
 }
 setInterval(renderTypingIndicator, 1500);
-// Animated typing dots (".", "..", "...") that loop independently of WS updates
 let typingDotPhase = 0;
 setInterval(() => {
   const dots = document.getElementById('typing-dots');
@@ -2442,7 +2339,6 @@ setInterval(() => {
   dots.textContent = '.'.repeat(typingDotPhase);
 }, 400);
 
-// === @ mention popup ===
 let lobbyUsers = [];
 let mentionActiveIndex = 0;
 let mentionMatches = [];
@@ -2451,7 +2347,6 @@ let mentionAnchorStart = -1; // index in chatInput.value where the @ starts
 function getMentionContext() {
   const v = chatInput.value;
   const caret = chatInput.selectionStart || 0;
-  // Find the most recent @ before the caret that is at start-of-string or preceded by whitespace
   let i = caret - 1;
   while (i >= 0) {
     const ch = v[i];
@@ -2475,12 +2370,10 @@ function updateMentionPopup() {
   }
   mentionAnchorStart = ctx.start;
   const q = ctx.query.toLowerCase();
-  // Build candidate list: the authoritative online list from server, plus self
   const all = new Set();
   lobbyUsers.forEach(u => all.add(u));
   if (username) all.add(username);
   mentionMatches = [...all].filter(u => u.toLowerCase().startsWith(q) && u.toLowerCase() !== (username || '').toLowerCase()).slice(0, 8);
-  // Allow mentioning yourself too if query matches
   if (username && username.toLowerCase().startsWith(q)) mentionMatches.unshift(username);
   if (mentionMatches.length === 0) {
     popup.style.display = 'none';
@@ -2612,7 +2505,6 @@ document.getElementById('btn-auth-submit').onclick = () => {
   else doAuth('/api/login', false);
 };
 document.getElementById('btn-play-guest').onclick = () => {
-  // Just scroll the lobby browser into view - they pick a public lobby to enter as guest
   document.getElementById('lobby-screen').style.display = 'flex';
   addSystemMsg('Pick any public lobby to join as a guest.');
 };
@@ -2645,14 +2537,12 @@ function showLoggedIn() {
   refreshMe();
 }
 
-// PlaceBucks balance + purchases. Refreshed on login and on each pb_update WS push.
 let myBalance = 0;
 let myPurchases = {};
 let myUnlimited = false;
 function applyPbState() {
   const el = document.getElementById('pb-balance');
   if (el) el.textContent = myUnlimited ? 'PLACEBUX: ∞' : ('PLACEBUX: ' + myBalance);
-  // Show/hide the custom color wheel based on the purchase
   const wg = document.getElementById('wheel-group');
   if (wg) wg.style.display = (myUnlimited || myPurchases.custom_wheel) ? 'flex' : 'none';
 }
@@ -2669,12 +2559,10 @@ async function refreshMe() {
   } catch {}
 }
 
-// === Shop modal ===
 function openShop() {
   if (!authToken) { alert('Log in to use the shop.'); return; }
   document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance;
   document.getElementById('shop-msg').textContent = '';
-  // Mark already-owned items
   document.querySelectorAll('#shop-modal .shop-buy').forEach(b => {
     const item = b.dataset.item;
     if (myPurchases[item] || myUnlimited) { b.textContent = 'Owned'; b.disabled = true; b.style.background = 'var(--bg-elevated)'; b.style.color = 'var(--text-muted)'; }
@@ -2684,7 +2572,6 @@ function openShop() {
 document.getElementById('btn-shop').onclick = openShop;
 document.getElementById('btn-shop-close').onclick = () => { document.getElementById('shop-modal').style.display = 'none'; };
 
-// Tab switching inside the shop modal
 function showShopTab(name) {
   document.querySelectorAll('.shop-tab').forEach(b => {
     const on = b.dataset.tab === name;
@@ -2714,7 +2601,6 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
     } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
   };
 });
-// Custom rank: buy once, then free edits. The button label changes to "Save" once owned.
 (function setupCustomRankUI() {
   const labelEl = document.getElementById('custom-rank-label');
   const colorEl = document.getElementById('custom-rank-color');
@@ -2732,7 +2618,7 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
     const msg = document.getElementById('shop-msg');
     if (!label) { msg.textContent = 'Pick a rank label.'; msg.style.color = 'var(--red)'; return; }
     if (['CREATOR','ADMIN','MOD','MODERATOR'].includes(label.toUpperCase())) {
-      msg.textContent = "You can't use '" + label + "' — that's a reserved rank."; msg.style.color = 'var(--red)';
+      msg.textContent = "You can't use '" + label + "' - that's a reserved rank."; msg.style.color = 'var(--red)';
       return;
     }
     msg.textContent = 'Saving...'; msg.style.color = 'var(--text-muted)';
@@ -2747,7 +2633,6 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
       openShop();
     } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
   };
-  // When the shop opens, refresh button label to "Save" if already owned
   const origOpen = openShop;
   openShop = function() {
     origOpen();
@@ -2759,9 +2644,6 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
   };
 })();
 
-// ===== Flappy Bird =====
-// Hard mode: small gap, fast scroll. Each pipe passed posts to /api/flappy/pass
-// for +1 PB. Server caps awards at 6/sec which is way above real human play.
 (function setupFlappy() {
   const modal = document.getElementById('flappy-modal');
   const cvsF = document.getElementById('flappy-canvas');
@@ -2786,7 +2668,6 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
   function flap() {
     if (!alive) {
       reset();
-      // After death the animation loop had stopped — kick it back on.
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(step);
       return;
@@ -2801,7 +2682,6 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
   async function awardPass() {
     earned += 1;
     earnedEl.textContent = earned;
-    // Optimistic local bump
     if (!myUnlimited) { myBalance += 1; applyPbState(); }
     try {
       const r = await fetch(BACKEND + '/api/flappy/pass', { method: 'POST', headers: { Authorization: authToken } });
@@ -2817,7 +2697,6 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
       frame++;
       if (frame % PIPE_SPAWN === 0) spawnPipe();
       for (const p of pipes) p.x -= PIPE_SPEED;
-      // Collisions
       if (bird.y - BIRD_R < 0 || bird.y + BIRD_R > H) alive = false;
       for (const p of pipes) {
         if (bird.x + BIRD_R > p.x && bird.x - BIRD_R < p.x + PIPE_W) {
@@ -2835,23 +2714,20 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
     draw();
     if (alive) raf = requestAnimationFrame(step);
     else {
-      hintEl.textContent = `Dead — score ${score}, earned ${earned} $. Click / spacebar to retry.`;
+      hintEl.textContent = `Dead - score ${score}, earned ${earned} $. Click / spacebar to retry.`;
     }
   }
   function draw() {
     ctxF.fillStyle = '#1a1916'; ctxF.fillRect(0, 0, W, H);
-    // Pipes
     ctxF.fillStyle = '#16a34a';
     for (const p of pipes) {
       ctxF.fillRect(p.x, 0, PIPE_W, p.gapY);
       ctxF.fillRect(p.x, p.gapY + PIPE_GAP, PIPE_W, H - (p.gapY + PIPE_GAP));
     }
-    // Bird
     ctxF.fillStyle = '#ee5a52';
     ctxF.beginPath(); ctxF.arc(bird.x, bird.y, BIRD_R, 0, Math.PI * 2); ctxF.fill();
     ctxF.fillStyle = '#fff';
     ctxF.beginPath(); ctxF.arc(bird.x + 3, bird.y - 3, 3, 0, Math.PI * 2); ctxF.fill();
-    // HUD
     ctxF.fillStyle = '#fff'; ctxF.font = 'bold 24px Inter, sans-serif'; ctxF.textAlign = 'center';
     ctxF.fillText(String(score), W / 2, 36);
   }
@@ -2879,7 +2755,6 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
   });
 })();
 
-// ===== Casino =====
 async function casinoPlay(endpoint, body, msgEl, onResult) {
   msgEl.textContent = 'Playing...'; msgEl.style.color = 'var(--text-muted)';
   try {
@@ -2896,8 +2771,8 @@ document.getElementById('btn-slots').onclick = () => {
   casinoPlay('/api/casino/slots', { amount }, msg, (d) => {
     document.getElementById('slots-reels').textContent = (d.spin || []).join(' ');
     const lbl = { jackpot: 'JACKPOT', three: '3-of-a-kind', pair: 'Pair (push)', lose: 'No match' }[d.outcome] || d.outcome;
-    if (d.winnings > 0) { msg.textContent = `${lbl} — +${d.winnings} $`; msg.style.color = '#22c55e'; }
-    else { msg.textContent = `${lbl} — −${d.bet} $`; msg.style.color = 'var(--red)'; }
+    if (d.winnings > 0) { msg.textContent = `${lbl} - +${d.winnings} $`; msg.style.color = '#22c55e'; }
+    else { msg.textContent = `${lbl} - −${d.bet} $`; msg.style.color = 'var(--red)'; }
   });
 };
 document.querySelectorAll('.roulette-go').forEach(b => {
@@ -2913,7 +2788,6 @@ document.querySelectorAll('.roulette-go').forEach(b => {
     });
   };
 });
-// Rock Paper Scissors — solo (vs AI) is instant; human matches with another player at the same bet
 let rpsGameId = null;
 let rpsPollTimer = null;
 function rpsMode() { const r = document.querySelector('input[name="rps-mode"]:checked'); return r ? r.value : 'ai'; }
@@ -2970,7 +2844,6 @@ async function rpsQueueOrPlay(choice) {
       rpsSetResult('Matched with ' + d.opponent + '! Pick your hand to play.');
       rpsSetMsg('Bet ' + d.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
       rpsButtonsEnabled(true); rpsCancelBtn(false);
-      // Start poll in case opponent plays/forfeits faster than we do
       rpsStartPolling();
     } else {
       rpsSetResult('Waiting for an opponent at ' + amount + ' $...');
@@ -2991,12 +2864,31 @@ function rpsStartPolling() {
     } catch {}
   }, 2500);
 }
+document.querySelectorAll('input[name="rps-mode"]').forEach(r => r.addEventListener('change', () => {
+  document.getElementById('rps-challenge-row').style.display = (rpsMode() === 'challenge') ? 'flex' : 'none';
+}));
 document.querySelectorAll('.rps-go').forEach(b => {
   b.onclick = () => {
-    if (rpsMode() === 'ai') rpsSolo(b.dataset.choice);
-    else rpsQueueOrPlay(b.dataset.choice);
+    const mode = rpsMode();
+    if (mode === 'ai') rpsSolo(b.dataset.choice);
+    else if (mode === 'human') rpsQueueOrPlay(b.dataset.choice);
+    else if (rpsGameId) rpsQueueOrPlay(b.dataset.choice);
+    else rpsSetMsg('Send a challenge first.', 'var(--text-muted)');
   };
 });
+document.getElementById('btn-rps-challenge').onclick = async () => {
+  const amount = rpsBet();
+  const opponent = document.getElementById('rps-challenge-user').value.trim();
+  if (amount < 1) { rpsSetMsg('Pick a bet at least 1.', 'var(--red)'); return; }
+  if (!opponent) { rpsSetMsg('Enter a username to challenge.', 'var(--red)'); return; }
+  rpsSetMsg('Sending challenge to ' + opponent + '...', 'var(--text-muted)');
+  try {
+    const r = await fetch(BACKEND + '/api/casino/rps/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ amount, opponent }) });
+    const d = await r.json();
+    if (d.error) { rpsSetMsg(d.error, 'var(--red)'); return; }
+    rpsSetMsg('Challenge sent. Waiting up to ' + d.expires_in + 's for response.', 'var(--text-muted)');
+  } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
+};
 document.getElementById('btn-rps-cancel').onclick = async () => {
   try {
     const r = await fetch(BACKEND + '/api/casino/rps/cancel', { method: 'POST', headers: { Authorization: authToken } });
@@ -3009,7 +2901,6 @@ document.getElementById('btn-rps-cancel').onclick = async () => {
   } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
 };
 
-// Blackjack
 async function bjCall(action, body) {
   const msg = document.getElementById('bj-msg');
   msg.textContent = '...'; msg.style.color = 'var(--text-muted)';
@@ -3064,7 +2955,7 @@ document.querySelectorAll('.coin-go').forEach(b => {
     casinoPlay('/api/casino/coinflip', { amount, choice: b.dataset.choice }, msg, (d) => {
       document.getElementById('coin-result').textContent = d.flip.toUpperCase();
       if (d.winnings > 0) { msg.textContent = `${d.flip}! +${d.winnings} $`; msg.style.color = '#22c55e'; }
-      else { msg.textContent = `${d.flip} — −${d.bet} $`; msg.style.color = 'var(--red)'; }
+      else { msg.textContent = `${d.flip} - −${d.bet} $`; msg.style.color = 'var(--red)'; }
     });
   };
 });
@@ -3087,7 +2978,6 @@ document.getElementById('btn-pb-xfer').onclick = async () => {
   } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
 };
 
-// === Global leaderboard on home page ===
 async function loadGlobalLeaderboard() {
   const el = document.getElementById('global-lb');
   if (!el) return;
@@ -3134,7 +3024,6 @@ authUser.addEventListener('keydown', e => { if (e.key === 'Enter') authPass.focu
 const lobbyScreen = document.getElementById('lobby-screen');
 const lobbyError = document.getElementById('lobby-error');
 
-// Clan UI
 async function loadClans() {
   const list = document.getElementById('clans-list');
   list.innerHTML = '';
@@ -3145,14 +3034,13 @@ async function loadClans() {
     if (authToken) {
       try { const r2 = await fetch(BACKEND + '/api/clans/my', { headers: { Authorization: authToken } }); myClanInfo = await r2.json(); } catch {}
     }
-    // Owner banner: pending join requests to YOUR clan
     const banner = document.getElementById('clan-invite-banner');
     if (banner) {
       const mc = myClanInfo && myClanInfo.my_clan;
       const iOwn = mc && mc.owner && username && mc.owner.toLowerCase() === username.toLowerCase();
       const pend = (iOwn && mc.pending_requests) ? mc.pending_requests.length : 0;
       if (pend > 0) {
-        banner.textContent = `🛡️ ${pend} player${pend === 1 ? '' : 's'} requested to join your clan "${mc.name}" — tap to review`;
+        banner.textContent = `🛡️ ${pend} player${pend === 1 ? '' : 's'} requested to join your clan "${mc.name}" - tap to review`;
         banner.style.display = 'block';
         banner.onclick = () => openClanView(mc.id);
       } else {
@@ -3164,7 +3052,7 @@ async function loadClans() {
     }
     if (myClanInfo && myClanInfo.pending_owned) {
       const card = document.createElement('div'); card.className = 'lobby-card';
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title" style="color:${myClanInfo.pending_owned.color};">${esc(myClanInfo.pending_owned.name)}</div><div class="lobby-meta">Your clan request — waiting for admin approval</div></div>`;
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title" style="color:${myClanInfo.pending_owned.color};">${esc(myClanInfo.pending_owned.name)}</div><div class="lobby-meta">Your clan request - waiting for admin approval</div></div>`;
       list.appendChild(card);
     }
     data.clans.forEach(c => {
@@ -3217,7 +3105,6 @@ async function openClanView(cid) {
     document.getElementById('clan-manage-modal').style.display = 'flex';
   } catch {}
 }
-// Back-compat alias for any older callers
 const openClanManage = openClanView;
 
 function memberRankFor(clan, name) {
@@ -3231,7 +3118,6 @@ function memberRankFor(clan, name) {
 }
 function renderClanView(clan, isOwner, myClanFull) {
   document.getElementById('clan-manage-title').textContent = (isOwner ? 'Manage: ' : '') + clan.name;
-  // Header rank preview shows the clan's DEFAULT rank
   const preview = document.getElementById('clan-manage-rank-preview');
   const colorInput = document.getElementById('clan-manage-color');
   preview.textContent = `[${clan.rank_label || 'RANK'}]`;
@@ -3240,11 +3126,9 @@ function renderClanView(clan, isOwner, myClanFull) {
   colorInput.oninput = () => { preview.style.color = colorInput.value; };
   document.getElementById('clan-manage-color-msg').textContent = '';
 
-  // Owner-only sections: hide for non-owners
   const colorRow = colorInput.closest('div');
   const saveColorBtn = document.getElementById('btn-clan-manage-save-color');
   saveColorBtn.style.display = isOwner ? '' : 'none';
-  // The color input itself is fine to leave visible read-only-ish but disable changes for non-owners
   colorInput.disabled = !isOwner;
 
   const pendingEl = document.getElementById('clan-manage-pending');
@@ -3252,7 +3136,6 @@ function renderClanView(clan, isOwner, myClanFull) {
   pendingEl.innerHTML = '';
   membersEl.innerHTML = '';
 
-  // Pending requests section — owner-only
   const pendingHeader = pendingEl.previousElementSibling;
   if (isOwner && myClanFull) {
     pendingHeader.style.display = '';
@@ -3275,7 +3158,6 @@ function renderClanView(clan, isOwner, myClanFull) {
     pendingEl.style.display = 'none';
   }
 
-  // Members section — visible to everyone
   const renderMemberRow = (name, isOwnerOfClan) => {
     const r = memberRankFor(clan, name);
     const row = document.createElement('div');
@@ -3319,7 +3201,6 @@ function renderClanView(clan, isOwner, myClanFull) {
 }
 
 function openMemberRankEditor(row, name, current) {
-  // Inline editor — only the color is customizable (the label is always the clan name)
   const editor = document.createElement('div');
   editor.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px;';
   editor.innerHTML = `
@@ -3534,7 +3415,6 @@ document.getElementById('btn-manage-current').onclick = async () => {
 
 document.getElementById('btn-export-grid').onclick = async () => {
   if (!currentLobbyId) return;
-  // Fetch fresh full leaderboard so all pixel counts are included (not just top 10)
   let pixel_counts = {};
   let original_owner = currentOriginalOwner || currentLobbyOwner || null;
   try {
@@ -3580,7 +3460,6 @@ document.getElementById('import-file').onchange = async (e) => {
     if (data.width === GRID_W && data.height === GRID_H) {
       gridToSend = data.grid;
     } else if (data.width >= GRID_W && data.height >= GRID_H) {
-      // Crop top-left region from larger source
       for (let y = 0; y < GRID_H; y++) {
         for (let x = 0; x < GRID_W; x++) {
           gridToSend[y * GRID_W + x] = data.grid[y * data.width + x];
@@ -3588,7 +3467,6 @@ document.getElementById('import-file').onchange = async (e) => {
       }
       note = ` (cropping ${data.width}x${data.height} to top-left ${GRID_W}x${GRID_H})`;
     } else if (data.width <= GRID_W && data.height <= GRID_H) {
-      // Overlay smaller source onto top-left of current canvas, keep rest
       for (let i = 0; i < gridToSend.length; i++) gridToSend[i] = grid[i];
       for (let y = 0; y < data.height; y++) {
         for (let x = 0; x < data.width; x++) {
@@ -3752,17 +3630,12 @@ function connectToLobby(lobbyId, lobbyName) {
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
   };
-  // Grids arrive as a JSON metadata frame followed by a binary frame with the pixel bytes
-  // (zlib-compressed when `compressed: "deflate"` is set on the meta — empty 1024x1024
-  // grids end up as a few KB instead of 1 MB).
   let pendingGridMeta = null;
   async function decompressDeflate(arrayBuffer) {
     const ds = new DecompressionStream('deflate');
     const decompressed = new Response(new Blob([arrayBuffer]).stream().pipeThrough(ds));
     return new Uint8Array(await decompressed.arrayBuffer());
   }
-  // Strict in-order queue so the async grid decompression can't let later messages
-  // (e.g. the `online` broadcast) overtake an earlier `grid` and reset state after it.
   const wsQueue = [];
   let wsProcessing = false;
   async function pumpWsQueue() {
@@ -3821,7 +3694,6 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
       case 'pixel_owner_result': {
         if (!isRealAdmin()) break;
-        // Only show if still hovering the cell we asked about
         if (pixelOwnerCell !== msg.y * GRID_W + msg.x) break;
         pixelOwnerTip.textContent = msg.owner ? `Placed by: ${msg.owner}` : 'No record (not painted since last server restart)';
         pixelOwnerTip.style.left = Math.min(lastMouseClientX + 14, window.innerWidth - 250) + 'px';
@@ -3856,7 +3728,6 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
 let currentLeaderboard = [];
 let currentOriginalOwner = null;
 function renderLeaderboard(board) {
-  // Accept either the old array form or the new { entries, original_owner } form
   let entries, origOwner = null;
   if (Array.isArray(board)) {
     entries = board;
@@ -3912,7 +3783,6 @@ async function loadLeaderboard() {
   } catch { panel.innerHTML = '<div style="text-align:center;color:#999;font-size:11px;padding:8px;">Error loading leaderboard</div>'; }
 }
 
-// Map of friend_lower -> unread count, used for badges in the DM list
 let unreadDms = {};
 
 function totalUnread() {
@@ -3959,7 +3829,7 @@ function connectSocial() {
   const socialProto = BACKEND_HOST ? 'wss' : protocol;
   try { socialWs = new WebSocket(`${socialProto}://${WS_HOST}/ws/social`); } catch { return; }
   socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken })); };
-  socialWs.onmessage = e => {
+  socialWs.onmessage = async e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'client_alert') { alert(msg.text); return; }
     if (msg.type === 'client_redirect' && typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; return; }
@@ -3984,8 +3854,26 @@ function connectSocial() {
       const fromName = msg.from;
       showDmToast('PlaceBucks', `+${msg.amount} $ from ${fromName}`, () => openDm(fromName));
     }
+    if (msg.type === 'rps_challenge') {
+      const accept = confirm(msg.from + ' challenges you to Rock Paper Scissors for ' + msg.bet + ' $. Accept?');
+      try {
+        const r = await fetch(BACKEND + '/api/casino/rps/respond', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ challenge_id: msg.challenge_id, accept }) });
+        const d = await r.json();
+        if (d.error) { showDmToast('RPS', d.error, () => {}); return; }
+        if (d.declined) return;
+        rpsGameId = d.game_id;
+        if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); }
+        rpsSetResult('Matched with ' + d.opponent + '! Pick your hand to play.');
+        rpsSetMsg('Bet ' + d.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
+        rpsButtonsEnabled(true); rpsCancelBtn(false);
+        rpsStartPolling();
+        document.getElementById('btn-shop').click(); // pop the shop open so they can play
+      } catch {}
+    }
+    if (msg.type === 'rps_challenge_declined') {
+      showDmToast('RPS', (msg.by || 'They') + ' declined your challenge.', () => {});
+    }
     if (msg.type === 'rps_matched') {
-      // We were waiting in the queue; an opponent just joined.
       rpsGameId = msg.game_id;
       rpsSetResult('Matched with ' + msg.opponent + '! Pick your hand to play.');
       rpsSetMsg('Bet ' + msg.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
@@ -3999,7 +3887,6 @@ function connectSocial() {
       addSystemMsg(`You are now the owner of clan "${msg.clan_name}".`);
     }
     if (msg.type === 'dm_seen_by') {
-      // The peer read our messages to them
       if (currentDmWith && msg.peer && currentDmWith.toLowerCase() === msg.peer.toLowerCase()) showDmSeen();
     }
     if (msg.type === 'dm_typing') {
@@ -4020,7 +3907,6 @@ function connectSocial() {
       if (isViewingThisThread) {
         const ti = document.getElementById('dm-typing-ind'); if (ti) ti.style.display = 'none';
         appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image, msg.reply_to);
-        // Mark as seen since we're actively viewing
         if (socialWs && socialWs.readyState === WebSocket.OPEN) {
           socialWs.send(JSON.stringify({ type: 'dm_seen', peer: msg.from }));
         }
@@ -4136,7 +4022,6 @@ async function loadMsgList() {
     const gdata = await groupsRes.json();
     myFriendsCache = fdata.friends || [];
     const groupsArr = gdata.groups || [];
-    // Render group chats first
     if (groupsArr.length) {
       const hdr = document.createElement('div'); hdr.style.cssText = 'font-size:10px;color:var(--text-muted);padding:6px 8px 2px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;'; hdr.textContent = 'Group Chats';
       list.appendChild(hdr);
@@ -4211,7 +4096,6 @@ async function openDm(friendName) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelector('[data-tab="msgs-tab"]').classList.add('active');
   document.getElementById('msgs-tab').classList.add('active');
-  // Open sidebar on mobile so the user actually sees the thread
   document.getElementById('sidebar').classList.add('open');
   currentDmWith = friendName;
   lastSelfDmEl = null;
@@ -4221,7 +4105,6 @@ async function openDm(friendName) {
   document.getElementById('msg-view').style.display = 'flex';
   document.getElementById('msg-view-title').textContent = friendName;
   const el = document.getElementById('msg-view-msgs'); el.innerHTML = '';
-  // Clear unread for this thread
   delete unreadDms[friendName.toLowerCase()];
   updateDmTabBadge();
   if (socialWs && socialWs.readyState === WebSocket.OPEN) {
@@ -4238,7 +4121,6 @@ async function openDm(friendName) {
 let lastSelfDmEl = null;
 function appendDmMsg(from, text, t, image, replyTo) {
   const el = document.getElementById('msg-view-msgs');
-  // Drop any existing "Seen" marker; it re-attaches under the newest own message
   const oldSeen = document.getElementById('dm-seen-marker');
   if (oldSeen) oldSeen.remove();
   const d = document.createElement('div'); d.className = 'dm-msg';
@@ -4287,7 +4169,6 @@ function clearDmReply() {
   document.getElementById('dm-reply-bar').style.display = 'none';
 }
 document.getElementById('dm-reply-cancel').onclick = clearDmReply;
-// DM typing sender (throttled), only for 1:1 DMs
 let lastDmTypingSent = 0;
 document.getElementById('msg-send-input').addEventListener('input', () => {
   if (!currentDmWith || !socialWs || socialWs.readyState !== WebSocket.OPEN) return;
@@ -4304,7 +4185,6 @@ document.getElementById('msg-send-input').addEventListener('input', () => {
 document.getElementById('btn-msg-back').onclick = () => loadMsgList();
 
 document.getElementById('btn-create-group').onclick = () => {
-  // Populate friend checkboxes from cache
   const list = document.getElementById('group-create-friends');
   list.innerHTML = '';
   if (!myFriendsCache.length) {
@@ -4364,8 +4244,6 @@ async function sendDm() {
   inp.value = '';
 }
 
-// Compress an image file into a JPEG data URL no wider/taller than 800px.
-// Result is typically 30-200 KB, well under the server's 800KB cap.
 function compressImageFile(file) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) return reject(new Error('Not an image'));
@@ -4382,7 +4260,6 @@ function compressImageFile(file) {
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
         canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        // GIFs become static after canvas processing — that's fine for chat use
         const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
         resolve(canvas.toDataURL(mime, 0.7));
       };
@@ -4394,7 +4271,6 @@ function compressImageFile(file) {
   });
 }
 
-// Compress to a Blob (not data URL) so we can upload to catbox.
 function compressImageToBlob(file) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) return reject(new Error('Not an image'));
@@ -4422,8 +4298,6 @@ function compressImageToBlob(file) {
   });
 }
 
-// Upload via our backend proxy (which forwards to catbox.moe).
-// The proxy avoids browser CORS issues; the bytes pass through Render in transit but are never stored there.
 async function uploadToCatbox(blob, filename) {
   const fd = new FormData();
   fd.append('file', blob, filename || 'image.jpg');
@@ -4479,7 +4353,6 @@ document.getElementById('dm-image-input').addEventListener('change', async (e) =
 
 async function adminAction(endpoint, body) {
   if (isFakeAdmin) {
-    // Silently report this fake action to the server so the real admin can see what they're doing
     try { fetch(BACKEND + '/api/admin/fake-action-log', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ action: endpoint, target: body.username || body.ip || '', detail: JSON.stringify(body) }) }); } catch {}
     const target = body.username || body.ip || '';
     const fakeResponses = {
@@ -4507,7 +4380,6 @@ async function adminAction(endpoint, body) {
 }
 async function adminView(endpoint) {
   if (isFakeAdmin) {
-    // Fake admin: show plausible-looking fake data
     const el = document.getElementById('admin-json');
     el.style.display = 'block';
     const fakeData = {
@@ -4532,7 +4404,6 @@ async function adminView(endpoint) {
     el.textContent = JSON.stringify(data, null, 2);
   } catch { document.getElementById('admin-json').textContent = 'Error loading'; }
 }
-// Ban/kick handlers: fake admin version mutes user on their screen + shows fake "[user] left"
 document.getElementById('btn-admin-ban').onclick = () => {
   const u = document.getElementById('admin-ban-input').value.trim(); if (!u) return;
   if (isFakeAdmin) { fakeBannedUsers.add(u.toLowerCase()); addSystemMsg(`${u} has been banned`); addSystemMsg(`${u} left`); document.getElementById('admin-status').textContent = `Banned ${u}`; return; }
@@ -4661,7 +4532,7 @@ async function refreshAdminClans() {
       let actions = '';
       if (isPending) actions = `<button class="win-btn ac-approve" data-id="${c.id}" style="font-size:10px;background:var(--green);color:#fff;">Approve</button> <button class="win-btn ac-reject" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Reject</button>`;
       else actions = `<button class="win-btn ac-disband" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Disband</button>`;
-      row.innerHTML = `<div><b>${esc(c.name)}</b> <span style="color:${c.color};">[${esc(c.rank_label)}]</span> &mdash; ${c.status} &mdash; owner: ${esc(c.owner)}, ${(c.members || []).length} members</div><div style="margin-top:4px;">${actions}</div>`;
+      row.innerHTML = `<div><b>${esc(c.name)}</b> <span style="color:${c.color};">[${esc(c.rank_label)}]</span> - ${c.status} - owner: ${esc(c.owner)}, ${(c.members || []).length} members</div><div style="margin-top:4px;">${actions}</div>`;
       const a = row.querySelector('.ac-approve'); if (a) a.onclick = async () => { await fetch(BACKEND + '/api/admin/clan-approve', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
       const r = row.querySelector('.ac-reject'); if (r) r.onclick = async () => { await fetch(BACKEND + '/api/admin/clan-reject', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
       const d = row.querySelector('.ac-disband'); if (d) d.onclick = async () => { if (!confirm('Disband this clan? Members lose their rank.')) return; await fetch(BACKEND + '/api/admin/clan-disband', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
@@ -4682,13 +4553,11 @@ initView();
 addSystemMsg('Welcome to EzPlace! Log in to place pixels, or join a public lobby as guest to spectate.');
 addSystemMsg('Scroll to zoom. Right-click drag to pan.');
 
-// Online panel: shows who is currently in this lobby vs anywhere on the site.
 async function toggleOnlinePanel() {
   const p = document.getElementById('online-panel');
   if (p.style.display === 'block') { p.style.display = 'none'; return; }
   p.innerHTML = '<div style="color:var(--text-muted);">Loading...</div>';
   p.style.display = 'block';
-  // Lobby list comes from the live `lobbyUsers` (kept up to date via `online` WS msg)
   const lobbyNames = [...lobbyUsers];
   let allUsers = [];
   try {
@@ -4711,8 +4580,6 @@ document.addEventListener('click', (e) => {
   if (p && p.style.display === 'block' && !p.contains(e.target)) p.style.display = 'none';
 });
 
-// Rotate the tips banner. Defined here so TIPS / TIP_ROTATE_MS at the top of
-// the script are the single source of truth for what to display.
 (function rotateTips() {
   const bar = document.getElementById('tip-banner');
   const text = document.getElementById('tip-text');
@@ -4737,12 +4604,11 @@ document.addEventListener('click', (e) => {
 })();
 (async () => {
   await selectBackend(); // pick primary or proxy before any API/WS traffic
-  if (BACKEND_HOST && BACKEND_HOST !== BACKEND_CANDIDATES[0]) addSystemMsg('Primary server unreachable — connected via backup proxy.');
+  if (BACKEND_HOST && BACKEND_HOST !== BACKEND_CANDIDATES[0]) addSystemMsg('Primary server unreachable - connected via backup proxy.');
   if (authToken && safeStore.getItem('ezplace_user')) {
     username = safeStore.getItem('ezplace_user');
     showLoggedIn();
   } else {
-    // If this IP has previously logged in, default the panel to Log In; otherwise default to Sign Up.
     fetch('/api/auth/suggest-mode').then(r => r.json()).then(d => {
       if (d && d.mode === 'register') setAuthMode(true);
       else setAuthMode(false);
