@@ -248,8 +248,34 @@ async def save_ranks():
 async def save_user_ips():
     await db_save("store", "user_ips", user_ips)
 
+_last_broadcast_total = None
+_last_broadcast_at = 0
+async def broadcast_economy_total():
+    """Push the new total to every live socket. Skips if total unchanged
+    OR if we just broadcast within the last second (anti-spam)."""
+    global _last_broadcast_total, _last_broadcast_at
+    total = _total_economy_pb()
+    now = time.time()
+    if total == _last_broadcast_total and now - _last_broadcast_at < 5:
+        return
+    if now - _last_broadcast_at < 1:
+        return
+    _last_broadcast_total = total
+    _last_broadcast_at = now
+    payload = json.dumps({"type": "economy_total", "total": total})
+    for ws, info in list(clients.items()):
+        if info and not ws.closed:
+            try: await ws.send_str(payload)
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and not ws.closed:
+            try: await ws.send_str(payload)
+            except: pass
+
 async def save_place_bucks():
     await db_save("store", "place_bucks", place_bucks)
+    try: await broadcast_economy_total()
+    except: pass
 async def save_lifetime_pixels():
     await db_save("store", "lifetime_pixels", lifetime_pixels)
 async def save_purchases():
