@@ -573,6 +573,27 @@
   </div>
 </div>
 
+<div id="battle-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(4px);z-index:85;flex-direction:column;padding:10px;gap:8px;color:var(--text-primary);overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+    <div style="font-weight:700;font-size:14px;">Battle Mode <span id="battle-room-info" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></div>
+    <div style="display:flex;gap:6px;">
+      <button id="btn-battle-start-game" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;display:none;">Start Game</button>
+      <button id="btn-battle-leave" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;padding:4px 10px;">Leave</button>
+    </div>
+  </div>
+  <div id="battle-header" style="display:flex;flex-direction:column;gap:4px;font-size:12px;text-align:center;"></div>
+  <div id="battle-roster" style="display:flex;flex-direction:column;gap:4px;font-size:12px;"></div>
+  <div id="battle-arena" style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;"></div>
+  <div id="battle-controls" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;align-items:center;"></div>
+  <div id="battle-chat-wrap" style="display:flex;flex-direction:column;gap:4px;max-height:160px;border-top:1px solid var(--border);padding-top:6px;">
+    <div id="battle-chat-log" style="flex:1;overflow-y:auto;font-size:12px;line-height:1.4;background:var(--bg-secondary);border-radius:6px;padding:4px 8px;min-height:60px;max-height:110px;"></div>
+    <div style="display:flex;gap:4px;">
+      <input id="battle-chat-input" class="win-input" type="text" maxlength="200" placeholder="Say something..." style="flex:1;font-size:12px;padding:4px 8px;">
+      <button id="btn-battle-say" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;">Send</button>
+    </div>
+  </div>
+</div>
+
 <div id="flappy-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);z-index:80;align-items:center;justify-content:center;padding:14px;flex-direction:column;gap:8px;">
   <div style="display:flex;align-items:center;gap:14px;color:var(--text-primary);font-size:13px;font-weight:700;">
     <span>Score: <span id="flappy-score" style="color:var(--accent);">0</span></span>
@@ -685,6 +706,21 @@
             </div>
             <div id="uno-rooms" style="display:none;flex-direction:column;gap:4px;font-size:12px;"></div>
             <div id="uno-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+          </div>
+        </details>
+
+        <details class="game-acc"><summary>Battle Mode <span class="game-hint">3+ players: 2 draw on 64x64 canvases, 1 judges</span></summary>
+          <div class="game-body">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:11px;">Bet <input id="battle-bet" type="number" min="0" value="10" class="win-input" style="width:60px;font-size:12px;padding:2px 4px;"></label>
+              <label style="font-size:11px;">Draw secs <input id="battle-secs" type="number" min="30" max="300" value="90" class="win-input" style="width:60px;font-size:12px;padding:2px 4px;"></label>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button id="btn-battle-create" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Create Room</button>
+              <button id="btn-battle-list" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;">Find Room</button>
+            </div>
+            <div id="battle-rooms" style="display:none;flex-direction:column;gap:4px;font-size:12px;"></div>
+            <div id="battle-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
         </details>
 
@@ -3035,6 +3071,264 @@ document.querySelectorAll('.uno-color-btn').forEach(b => b.onclick = async () =>
   unoPickingCardIdx = null;
 });
 
+let battleState = null;
+let battleRoomId = null;
+let battleSelectedColor = 4;
+let battleTimerInt = null;
+const BATTLE_GRID_SIZE = 64;
+const BATTLE_DISPLAY = 320;
+function battleMsg(t, color) { const el = document.getElementById('battle-msg'); if (el) { el.textContent = t || ''; el.style.color = color || 'var(--text-muted)'; } }
+function battleOpenModal() { document.getElementById('battle-modal').style.display = 'flex'; }
+function battleCloseModal() {
+  document.getElementById('battle-modal').style.display = 'none';
+  battleState = null; battleRoomId = null;
+  if (battleTimerInt) { clearInterval(battleTimerInt); battleTimerInt = null; }
+  document.getElementById('battle-chat-log').innerHTML = '';
+}
+function battleB64ToBytes(b64) {
+  const bin = atob(b64); const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function battleDrawCanvas(canvas, bytes) {
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(BATTLE_GRID_SIZE, BATTLE_GRID_SIZE);
+  for (let i = 0; i < BATTLE_GRID_SIZE * BATTLE_GRID_SIZE; i++) {
+    const c = bytes[i] || 0;
+    const hex = COLORS[c] || '#000000';
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    img.data[i * 4] = r; img.data[i * 4 + 1] = g; img.data[i * 4 + 2] = b; img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function battleRender(state) {
+  battleState = state;
+  battleRoomId = state.room_id;
+  const isCreator = username && state.creator && username.toLowerCase() === state.creator.toLowerCase();
+  const meLow = (username || '').toLowerCase();
+  const youAre = state.you_are;
+  document.getElementById('battle-room-info').textContent = '(' + state.phase + ' - bet ' + state.bet + ' $ - pot ' + state.pool + ' $)';
+  const startBtn = document.getElementById('btn-battle-start-game');
+  startBtn.style.display = (isCreator && state.phase === 'lobby') ? '' : 'none';
+  startBtn.disabled = !(state.drawers.length === 2 && state.judge);
+  const header = document.getElementById('battle-header');
+  if (state.phase === 'lobby') {
+    header.innerHTML = '<div style="color:var(--text-muted);">Waiting in lobby - need 2 drawers + 1 judge to start.</div>';
+  } else if (state.phase === 'drawing') {
+    header.innerHTML = '<div style="font-size:14px;font-weight:700;">Theme: <span style="color:var(--accent);">' + esc(state.theme || '?') + '</span></div><div id="battle-timer" style="color:var(--text-muted);"></div>';
+  } else if (state.phase === 'judging') {
+    header.innerHTML = '<div style="font-size:14px;font-weight:700;">Theme: <span style="color:var(--accent);">' + esc(state.theme || '?') + '</span></div><div style="color:var(--gold);">Judging time! ' + (youAre === 'judge' ? 'Pick a winner below.' : 'Waiting on judge ' + esc(state.judge || '?') + '...') + '</div><div id="battle-timer" style="color:var(--text-muted);"></div>';
+  } else if (state.phase === 'done') {
+    const wmsg = state.winner ? (state.winner.toLowerCase() === meLow ? 'You won the pot of ' + state.pool + ' $!' : esc(state.winner) + ' won the pot of ' + state.pool + ' $') : 'No winner - bets refunded.';
+    header.innerHTML = '<div style="font-size:16px;font-weight:700;color:' + (state.winner && state.winner.toLowerCase() === meLow ? 'var(--accent)' : 'var(--text-primary)') + ';">' + wmsg + '</div><div style="color:var(--text-muted);">Theme was: ' + esc(state.theme || '?') + '</div>';
+  }
+  battleStartTimer(state);
+  const roster = document.getElementById('battle-roster');
+  if (state.phase === 'lobby') {
+    const slotHtml = (label, name, role) => {
+      const taken = !!name;
+      const isMe = taken && name.toLowerCase() === meLow;
+      const btn = !taken && youAre !== role
+        ? '<button data-battle-join="' + role + '" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:2px 8px;margin-left:auto;">Take</button>'
+        : (isMe ? '<span style="margin-left:auto;font-size:11px;color:var(--text-muted);">(you)</span>' : '');
+      return '<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg-secondary);border-radius:4px;"><b>' + label + ':</b> ' + (taken ? esc(name) : '<i style="color:var(--text-muted);">empty</i>') + btn + '</div>';
+    };
+    let html = '';
+    html += slotHtml('Drawer 1', state.drawers[0], 'drawer');
+    html += slotHtml('Drawer 2', state.drawers[1], 'drawer');
+    html += slotHtml('Judge', state.judge, 'judge');
+    if (youAre !== 'spectator' && youAre !== 'drawer' && youAre !== 'judge') {
+      html += '<button data-battle-join="spectator" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:4px 10px;">Spectate</button>';
+    }
+    if (state.spectators && state.spectators.length) {
+      html += '<div style="font-size:11px;color:var(--text-muted);">Spectators: ' + state.spectators.map(esc).join(', ') + '</div>';
+    }
+    roster.innerHTML = html;
+    roster.querySelectorAll('[data-battle-join]').forEach(b => b.onclick = () => battleJoinAs(b.dataset.battleJoin));
+  } else {
+    roster.innerHTML = '<div style="font-size:11px;color:var(--text-muted);text-align:center;">Judge: ' + esc(state.judge || '-') + (state.spectators.length ? ' - Spectators: ' + state.spectators.length : '') + '</div>';
+  }
+  const arena = document.getElementById('battle-arena');
+  if (state.phase === 'lobby') {
+    arena.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Canvases appear when the game starts.</div>';
+  } else {
+    arena.innerHTML = '';
+    state.drawers.forEach(name => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;';
+      const isMine = name.toLowerCase() === meLow;
+      const submitted = state.done_flags && state.done_flags.includes(name);
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size:12px;font-weight:700;color:' + (isMine ? 'var(--accent)' : 'var(--text-primary)') + ';';
+      title.textContent = name + (isMine ? ' (you)' : '') + (submitted ? ' - submitted' : '');
+      const cv = document.createElement('canvas');
+      cv.width = BATTLE_GRID_SIZE; cv.height = BATTLE_GRID_SIZE;
+      cv.style.cssText = 'width:' + BATTLE_DISPLAY + 'px;height:' + BATTLE_DISPLAY + 'px;image-rendering:pixelated;background:#000;border:2px solid ' + (isMine ? 'var(--accent)' : 'var(--border)') + ';border-radius:4px;cursor:' + (isMine && state.phase === 'drawing' && !submitted ? 'crosshair' : 'default') + ';touch-action:none;';
+      cv.dataset.drawer = name;
+      const bytes = state.grids[name] ? battleB64ToBytes(state.grids[name]) : new Uint8Array(BATTLE_GRID_SIZE * BATTLE_GRID_SIZE);
+      battleDrawCanvas(cv, bytes);
+      if (isMine && state.phase === 'drawing' && !submitted) battleAttachPaint(cv);
+      if (youAre === 'judge' && state.phase === 'judging') {
+        const pickBtn = document.createElement('button');
+        pickBtn.className = 'win-btn'; pickBtn.textContent = 'Pick ' + name + ' as winner';
+        pickBtn.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;';
+        pickBtn.onclick = () => battlePickWinner(name);
+        wrap.appendChild(title); wrap.appendChild(cv); wrap.appendChild(pickBtn);
+      } else {
+        wrap.appendChild(title); wrap.appendChild(cv);
+      }
+      arena.appendChild(wrap);
+    });
+  }
+  const controls = document.getElementById('battle-controls');
+  controls.innerHTML = '';
+  if (state.phase === 'drawing' && youAre === 'drawer') {
+    const meName = state.drawers.find(n => n.toLowerCase() === meLow);
+    const submitted = state.done_flags && meName && state.done_flags.includes(meName);
+    if (!submitted) {
+      const pal = document.createElement('div');
+      pal.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;max-width:520px;justify-content:center;';
+      COLORS.forEach((hex, i) => {
+        const sw = document.createElement('button');
+        sw.style.cssText = 'width:22px;height:22px;border:2px solid ' + (i === battleSelectedColor ? 'var(--accent)' : 'transparent') + ';background:' + hex + ';cursor:pointer;border-radius:3px;padding:0;';
+        sw.onclick = () => { battleSelectedColor = i; battleRender(state); };
+        pal.appendChild(sw);
+      });
+      controls.appendChild(pal);
+      const submit = document.createElement('button');
+      submit.className = 'win-btn'; submit.textContent = 'Submit (done early)';
+      submit.style.cssText = 'background:var(--gold);color:#000;font-size:11px;padding:4px 10px;font-weight:700;';
+      submit.onclick = battleSubmitDone;
+      controls.appendChild(submit);
+    } else {
+      controls.innerHTML = '<div style="color:var(--text-muted);">Submitted! Waiting for opponent / timer...</div>';
+    }
+  }
+}
+function battleStartTimer(state) {
+  if (battleTimerInt) { clearInterval(battleTimerInt); battleTimerInt = null; }
+  if (!state.time_left || state.phase === 'lobby' || state.phase === 'done') return;
+  let left = state.time_left;
+  const tick = () => {
+    const el = document.getElementById('battle-timer');
+    if (!el) return;
+    if (left <= 0) { el.textContent = 'time up'; clearInterval(battleTimerInt); battleTimerInt = null; return; }
+    const m = Math.floor(left / 60), s = left % 60;
+    el.textContent = 'Time left: ' + m + ':' + String(s).padStart(2, '0');
+    left--;
+  };
+  tick();
+  battleTimerInt = setInterval(tick, 1000);
+}
+let battlePainting = false;
+function battleAttachPaint(canvas) {
+  const toCell = (clientX, clientY) => {
+    const r = canvas.getBoundingClientRect();
+    const x = Math.floor((clientX - r.left) / r.width * BATTLE_GRID_SIZE);
+    const y = Math.floor((clientY - r.top) / r.height * BATTLE_GRID_SIZE);
+    if (x < 0 || y < 0 || x >= BATTLE_GRID_SIZE || y >= BATTLE_GRID_SIZE) return null;
+    return [x, y];
+  };
+  const place = (clientX, clientY) => {
+    const c = toCell(clientX, clientY);
+    if (!c) return;
+    battlePlacePixel(c[0], c[1], battleSelectedColor);
+  };
+  canvas.addEventListener('mousedown', e => { battlePainting = true; place(e.clientX, e.clientY); });
+  canvas.addEventListener('mousemove', e => { if (battlePainting) place(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', () => { battlePainting = false; });
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); battlePainting = true; const t = e.touches[0]; place(t.clientX, t.clientY); }, { passive: false });
+  canvas.addEventListener('touchmove', e => { e.preventDefault(); if (battlePainting) { const t = e.touches[0]; place(t.clientX, t.clientY); } }, { passive: false });
+  canvas.addEventListener('touchend', e => { e.preventDefault(); battlePainting = false; }, { passive: false });
+}
+async function battlePlacePixel(x, y, color) {
+  if (!battleRoomId) return;
+  const canvas = document.querySelector('#battle-arena canvas[data-drawer="' + (username || '').replace(/"/g, '\\"') + '"]');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    const hex = COLORS[color] || '#000000';
+    ctx.fillStyle = hex; ctx.fillRect(x, y, 1, 1);
+  }
+  try { await fetch(BACKEND + '/api/battle/paint', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId, x, y, color }) }); } catch {}
+}
+async function battleSubmitDone() {
+  if (!battleRoomId) return;
+  await fetch(BACKEND + '/api/battle/done', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId }) });
+}
+async function battlePickWinner(name) {
+  if (!battleRoomId) return;
+  if (!confirm('Pick ' + name + ' as the winner?')) return;
+  const r = await fetch(BACKEND + '/api/battle/judge', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId, winner: name }) });
+  const d = await r.json(); if (d.error) alert(d.error);
+}
+async function battleJoinAs(role) {
+  if (!battleRoomId) return;
+  const r = await fetch(BACKEND + '/api/battle/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId, role }) });
+  const d = await r.json(); if (d.error) { alert(d.error); return; }
+  if (d.state) battleRender(d.state);
+}
+function battleAppendChat(msg) {
+  const log = document.getElementById('battle-chat-log');
+  const d = document.createElement('div');
+  d.innerHTML = '<b style="color:var(--accent);">' + esc(msg.from) + ':</b> ' + linkify(esc(msg.text || ''));
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+}
+async function battleSay() {
+  if (!battleRoomId) return;
+  const inp = document.getElementById('battle-chat-input');
+  const t = (inp.value || '').trim(); if (!t) return;
+  inp.value = '';
+  await fetch(BACKEND + '/api/battle/say', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId, text: t }) });
+}
+document.getElementById('btn-battle-say').onclick = battleSay;
+document.getElementById('battle-chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') battleSay(); });
+document.getElementById('btn-battle-create').onclick = async () => {
+  if (!authToken) { battleMsg('Log in first.', 'var(--red)'); return; }
+  const bet = parseInt(document.getElementById('battle-bet').value) || 0;
+  const draw_seconds = parseInt(document.getElementById('battle-secs').value) || 90;
+  battleMsg('Creating room...');
+  try {
+    const r = await fetch(BACKEND + '/api/battle/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ bet, draw_seconds }) });
+    const d = await r.json();
+    if (d.error) { battleMsg(d.error, 'var(--red)'); return; }
+    battleMsg('');
+    battleRoomId = d.room_id; battleOpenModal(); battleRender(d.state);
+  } catch { battleMsg('Server offline.', 'var(--red)'); }
+};
+document.getElementById('btn-battle-list').onclick = async () => {
+  const list = document.getElementById('battle-rooms');
+  list.style.display = 'flex'; list.innerHTML = 'Loading...';
+  try {
+    const r = await fetch(BACKEND + '/api/battle/list'); const d = await r.json();
+    list.innerHTML = '';
+    if (!d.rooms || !d.rooms.length) { list.innerHTML = '<div style="color:var(--text-muted);">No open rooms.</div>'; return; }
+    d.rooms.forEach(rm => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 8px;background:var(--bg-elevated);border-radius:4px;';
+      row.innerHTML = '<span>' + esc(rm.creator) + ' - bet ' + rm.bet + ' $ - ' + rm.drawers + '/2 drawers' + (rm.judge ? ' - judge: ' + esc(rm.judge) : ' - no judge') + '</span>';
+      const btns = document.createElement('div'); btns.style.cssText = 'display:flex;gap:4px;';
+      const join = document.createElement('button'); join.className = 'win-btn'; join.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:3px 8px;'; join.textContent = 'Join';
+      join.onclick = async () => {
+        battleRoomId = rm.room_id; battleOpenModal();
+        const role = prompt('Join as: drawer, judge, or spectator?', 'drawer') || 'spectator';
+        await battleJoinAs(role.toLowerCase().trim());
+      };
+      btns.appendChild(join); row.appendChild(btns); list.appendChild(row);
+    });
+  } catch { list.innerHTML = '<div style="color:var(--red);">Failed to load.</div>'; }
+};
+document.getElementById('btn-battle-start-game').onclick = async () => {
+  if (!battleRoomId) return;
+  const r = await fetch(BACKEND + '/api/battle/start', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId }) });
+  const d = await r.json(); if (d.error) alert(d.error);
+};
+document.getElementById('btn-battle-leave').onclick = async () => {
+  if (battleRoomId) {
+    try { await fetch(BACKEND + '/api/battle/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId }) }); } catch {}
+  }
+  battleCloseModal();
+};
+
 let rpsGameId = null;
 let rpsPollTimer = null;
 function rpsMode() { const r = document.querySelector('input[name="rps-mode"]:checked'); return r ? r.value : 'ai'; }
@@ -4238,6 +4532,27 @@ function connectSocial() {
     }
     if (msg.type === 'uno_chat' && msg.msg) {
       if (unoRoomId === msg.room_id) unoAppendChat(msg.msg);
+    }
+    if (msg.type === 'battle_state' && msg.state) {
+      if (!battleRoomId || battleRoomId === msg.state.room_id) {
+        battleRoomId = msg.state.room_id;
+        if (document.getElementById('battle-modal').style.display === 'none') battleOpenModal();
+        battleRender(msg.state);
+      }
+    }
+    if (msg.type === 'battle_pixel' && battleRoomId === msg.room_id) {
+      const meLow = (username || '').toLowerCase();
+      const isMine = msg.drawer && msg.drawer.toLowerCase() === meLow;
+      if (isMine) return;
+      const canvas = document.querySelector('#battle-arena canvas[data-drawer="' + (msg.drawer || '').replace(/"/g, '\\"') + '"]');
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        const hex = COLORS[msg.color] || '#000000';
+        ctx.fillStyle = hex; ctx.fillRect(msg.x, msg.y, 1, 1);
+      }
+    }
+    if (msg.type === 'battle_chat' && msg.msg && battleRoomId === msg.room_id) {
+      battleAppendChat(msg.msg);
     }
     if (msg.type === 'uno_state' && msg.state) {
       if (unoRoomId === msg.state.room_id || !unoRoomId) {

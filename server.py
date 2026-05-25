@@ -2682,6 +2682,316 @@ async def uno_state_handler(request):
     if not room: return web.json_response({"error": "Room not found"}, status=404)
     return web.json_response({"ok": True, "state": _uno_public_state(room, user)})
 
+BATTLE_GRID = 64
+BATTLE_DRAW_SECONDS_DEFAULT = 90
+BATTLE_DRAW_SECONDS_MIN = 30
+BATTLE_DRAW_SECONDS_MAX = 300
+BATTLE_JUDGE_TIMEOUT = 90
+BATTLE_PALETTE_SIZE = 53
+BATTLE_THEMES = [
+    "a sad cat", "the sun melting", "a haunted house", "a dancing robot",
+    "underwater city", "alien at the beach", "dragon eating pizza",
+    "lonely lighthouse", "rainbow tornado", "ghost in the kitchen",
+    "wizard's hat", "rocket to the moon", "burning forest",
+    "smiling pumpkin", "cyber samurai", "treehouse in the rain",
+    "snowman melting", "mountain at sunset", "happy slime",
+    "deep sea fish", "robot puppy", "city in the clouds",
+    "knight fighting a worm", "frog playing guitar", "bored astronaut",
+    "spider on a cake", "vampire eating ice cream", "ninja turtle in love",
+]
+
+battle_rooms = {}
+
+def _battle_grid_b64(grid_bytes):
+    return base64.b64encode(bytes(grid_bytes)).decode("ascii")
+
+def _battle_public_state(room, for_user):
+    ulow = (for_user or "").lower()
+    role = "spectator"
+    if ulow in (n.lower() for n in room["drawers"]): role = "drawer"
+    elif room["judge"] and ulow == room["judge"].lower(): role = "judge"
+    grids = {}
+    if room["phase"] in ("drawing", "judging", "done"):
+        for d in room["drawers"]:
+            grids[d] = _battle_grid_b64(room["grids"].get(d, bytearray(BATTLE_GRID * BATTLE_GRID)))
+    return {
+        "room_id": room["id"], "phase": room["phase"], "creator": room["creator"],
+        "bet": room["bet"], "pool": room["pool"],
+        "theme": room["theme"] if room["phase"] in ("drawing", "judging", "done") else None,
+        "drawers": room["drawers"], "judge": room["judge"],
+        "spectators": room["spectators"], "winner": room["winner"],
+        "time_left": max(0, int(room["end_at"] - time.time())) if room["end_at"] else 0,
+        "draw_seconds": room["draw_seconds"], "grid": BATTLE_GRID,
+        "done_flags": list(room["done_flags"]),
+        "grids": grids, "you_are": role,
+    }
+
+def _battle_participants(room):
+    seen = set()
+    for n in list(room["drawers"]) + ([room["judge"]] if room["judge"] else []) + list(room["spectators"]):
+        if n and n.lower() not in seen:
+            seen.add(n.lower()); yield n
+
+async def _battle_push_state(room):
+    for n in _battle_participants(room):
+        try: await notify_social(n, {"type": "battle_state", "state": _battle_public_state(room, n)})
+        except: pass
+
+async def _battle_finish(room, winner_name):
+    if room["phase"] == "done": return
+    room["phase"] = "done"
+    room["winner"] = winner_name
+    if winner_name and room["pool"] > 0:
+        credit_pb(winner_name, room["pool"])
+        await save_place_bucks(); await push_pb_update(winner_name)
+        await broadcast_casino_result(winner_name, "Battle", room["bet"], room["pool"], f"won pot of {room['pool']} - theme: {room['theme']}")
+    elif not winner_name:
+        for d in room["drawers"]:
+            credit_pb(d, room["bet"])
+        await save_place_bucks()
+        for d in room["drawers"]: await push_pb_update(d)
+    await _battle_push_state(room)
+    asyncio.get_event_loop().call_later(120, lambda: battle_rooms.pop(room["id"], None))
+
+async def _battle_draw_timer(room_id, seconds):
+    try: await asyncio.sleep(seconds)
+    except asyncio.CancelledError: return
+    room = battle_rooms.get(room_id)
+    if not room or room["phase"] != "drawing": return
+    await _battle_enter_judging(room)
+
+async def _battle_judge_timer(room_id, seconds):
+    try: await asyncio.sleep(seconds)
+    except asyncio.CancelledError: return
+    room = battle_rooms.get(room_id)
+    if not room or room["phase"] != "judging": return
+    await _battle_finish(room, None)
+
+async def _battle_enter_judging(room):
+    if room["phase"] != "drawing": return
+    room["phase"] = "judging"
+    room["end_at"] = time.time() + BATTLE_JUDGE_TIMEOUT
+    asyncio.create_task(_battle_judge_timer(room["id"], BATTLE_JUDGE_TIMEOUT))
+    await _battle_push_state(room)
+
+async def battle_create_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    try:
+        bet = max(0, int(data.get("bet", 0)))
+        draw_seconds = max(BATTLE_DRAW_SECONDS_MIN, min(BATTLE_DRAW_SECONDS_MAX, int(data.get("draw_seconds", BATTLE_DRAW_SECONDS_DEFAULT))))
+    except: return web.json_response({"error": "Invalid settings"}, status=400)
+    rid = secrets.token_hex(5)
+    battle_rooms[rid] = {
+        "id": rid, "creator": user, "bet": bet, "pool": 0, "theme": None,
+        "phase": "lobby", "drawers": [], "judge": user, "spectators": [],
+        "grids": {}, "winner": None, "end_at": 0, "draw_seconds": draw_seconds,
+        "done_flags": set(), "last_action_at": time.time(),
+    }
+    await _battle_push_state(battle_rooms[rid])
+    return web.json_response({"ok": True, "room_id": rid, "state": _battle_public_state(battle_rooms[rid], user)})
+
+async def battle_list_handler(request):
+    out = []
+    for r in battle_rooms.values():
+        if r["phase"] != "lobby": continue
+        out.append({"room_id": r["id"], "creator": r["creator"], "bet": r["bet"],
+                    "drawers": len(r["drawers"]), "judge": r["judge"], "spectators": len(r["spectators"]),
+                    "draw_seconds": r["draw_seconds"]})
+    return web.json_response({"ok": True, "rooms": out})
+
+async def battle_join_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    role = data.get("role", "spectator")
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "lobby" and role != "spectator":
+        return web.json_response({"error": "Game already started"}, status=400)
+    ulow = user.lower()
+    for d in list(room["drawers"]):
+        if d.lower() == ulow: room["drawers"].remove(d)
+    if room["judge"] and room["judge"].lower() == ulow: room["judge"] = None
+    room["spectators"] = [s for s in room["spectators"] if s.lower() != ulow]
+    if role == "drawer":
+        if len(room["drawers"]) >= 2: return web.json_response({"error": "Both drawer slots are full"}, status=400)
+        if room["bet"] > 0 and not spend_pb(user, room["bet"]):
+            return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        room["drawers"].append(user)
+        if room["bet"] > 0:
+            room["pool"] += room["bet"]
+            await save_place_bucks(); await push_pb_update(user)
+    elif role == "judge":
+        if room["judge"]: return web.json_response({"error": "Judge slot taken"}, status=400)
+        room["judge"] = user
+    else:
+        if user not in room["spectators"]: room["spectators"].append(user)
+    await _battle_push_state(room)
+    return web.json_response({"ok": True, "state": _battle_public_state(room, user)})
+
+async def battle_start_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["creator"].lower() != user.lower():
+        return web.json_response({"error": "Only the creator can start"}, status=403)
+    if room["phase"] != "lobby": return web.json_response({"error": "Already started"}, status=400)
+    if len(room["drawers"]) != 2: return web.json_response({"error": "Need exactly 2 drawers"}, status=400)
+    if not room["judge"]: return web.json_response({"error": "Need a judge"}, status=400)
+    room["theme"] = secrets.choice(BATTLE_THEMES)
+    room["phase"] = "drawing"
+    room["end_at"] = time.time() + room["draw_seconds"]
+    room["grids"] = {d: bytearray(BATTLE_GRID * BATTLE_GRID) for d in room["drawers"]}
+    room["done_flags"] = set()
+    asyncio.create_task(_battle_draw_timer(rid, room["draw_seconds"]))
+    await _battle_push_state(room)
+    return web.json_response({"ok": True, "state": _battle_public_state(room, user)})
+
+async def battle_paint_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "drawing": return web.json_response({"error": "Not in drawing phase"}, status=400)
+    ulow = user.lower()
+    drawer = next((d for d in room["drawers"] if d.lower() == ulow), None)
+    if not drawer: return web.json_response({"error": "Only drawers can paint"}, status=403)
+    if drawer in room["done_flags"]: return web.json_response({"error": "You already submitted"}, status=400)
+    try:
+        x = int(data.get("x", -1)); y = int(data.get("y", -1)); color = int(data.get("color", 0))
+    except: return web.json_response({"error": "Bad input"}, status=400)
+    if not (0 <= x < BATTLE_GRID and 0 <= y < BATTLE_GRID): return web.json_response({"error": "Out of bounds"}, status=400)
+    if not (0 <= color < BATTLE_PALETTE_SIZE): return web.json_response({"error": "Bad color"}, status=400)
+    if not check_rate_limit(user, "battle_paint", 60, 1):
+        return web.json_response({"error": "Painting too fast"}, status=429)
+    room["grids"][drawer][y * BATTLE_GRID + x] = color
+    room["last_action_at"] = time.time()
+    payload = {"type": "battle_pixel", "room_id": rid, "drawer": drawer, "x": x, "y": y, "color": color}
+    for n in _battle_participants(room):
+        try: await notify_social(n, payload)
+        except: pass
+    return web.json_response({"ok": True})
+
+async def battle_done_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "drawing": return web.json_response({"error": "Not in drawing phase"}, status=400)
+    ulow = user.lower()
+    drawer = next((d for d in room["drawers"] if d.lower() == ulow), None)
+    if not drawer: return web.json_response({"error": "Only drawers can submit"}, status=403)
+    room["done_flags"].add(drawer)
+    if len(room["done_flags"]) >= len(room["drawers"]):
+        await _battle_enter_judging(room)
+    else:
+        await _battle_push_state(room)
+    return web.json_response({"ok": True})
+
+async def battle_judge_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "judging": return web.json_response({"error": "Not in judging phase"}, status=400)
+    if not room["judge"] or room["judge"].lower() != user.lower():
+        return web.json_response({"error": "Only the judge can pick"}, status=403)
+    winner = (data.get("winner") or "").strip()
+    if not any(d.lower() == winner.lower() for d in room["drawers"]):
+        return web.json_response({"error": "Winner must be one of the drawers"}, status=400)
+    real = next(d for d in room["drawers"] if d.lower() == winner.lower())
+    await _battle_finish(room, real)
+    return web.json_response({"ok": True, "state": _battle_public_state(room, user)})
+
+async def battle_leave_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"ok": True})
+    ulow = user.lower()
+    if room["phase"] == "lobby":
+        for d in list(room["drawers"]):
+            if d.lower() == ulow:
+                room["drawers"].remove(d)
+                if room["bet"] > 0:
+                    credit_pb(user, room["bet"])
+                    room["pool"] = max(0, room["pool"] - room["bet"])
+                    await save_place_bucks(); await push_pb_update(user)
+        if room["judge"] and room["judge"].lower() == ulow: room["judge"] = None
+        room["spectators"] = [s for s in room["spectators"] if s.lower() != ulow]
+        if room["creator"].lower() == ulow:
+            for d in list(room["drawers"]):
+                if room["bet"] > 0:
+                    credit_pb(d, room["bet"]); await push_pb_update(d)
+            if room["bet"] > 0: await save_place_bucks()
+            battle_rooms.pop(rid, None)
+        else:
+            await _battle_push_state(room)
+    elif room["phase"] == "drawing":
+        drawer = next((d for d in room["drawers"] if d.lower() == ulow), None)
+        if drawer:
+            other = next((d for d in room["drawers"] if d.lower() != ulow), None)
+            await _battle_finish(room, other)
+        elif room["judge"] and room["judge"].lower() == ulow:
+            room["judge"] = None
+            await _battle_push_state(room)
+        else:
+            room["spectators"] = [s for s in room["spectators"] if s.lower() != ulow]
+            await _battle_push_state(room)
+    elif room["phase"] == "judging":
+        if room["judge"] and room["judge"].lower() == ulow:
+            await _battle_finish(room, None)
+        else:
+            room["spectators"] = [s for s in room["spectators"] if s.lower() != ulow]
+            await _battle_push_state(room)
+    else:
+        room["spectators"] = [s for s in room["spectators"] if s.lower() != ulow]
+    return web.json_response({"ok": True})
+
+async def battle_state_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = request.query.get("room_id", "")
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    return web.json_response({"ok": True, "state": _battle_public_state(room, user)})
+
+async def battle_say_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    text = str(data.get("text", "")).strip()[:200]
+    if not text: return web.json_response({"error": "Empty"}, status=400)
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    ulow = user.lower()
+    in_room = (ulow in (d.lower() for d in room["drawers"])
+               or (room["judge"] and room["judge"].lower() == ulow)
+               or any(s.lower() == ulow for s in room["spectators"]))
+    if not in_room: return web.json_response({"error": "Not in this room"}, status=403)
+    if not check_rate_limit(user, "battle_say", 5, 5):
+        return web.json_response({"error": "Slow down."}, status=429)
+    payload = {"type": "battle_chat", "room_id": rid, "msg": {"from": user, "text": text, "time": int(time.time())}}
+    for n in _battle_participants(room):
+        try: await notify_social(n, payload)
+        except: pass
+    return web.json_response({"ok": True})
+
 async def flappy_pass_handler(request):
     """Award 1 PB for each pipe passed in the Flappy game. Soft anti-cheat:
     capped at 6/sec which is faster than any real flappy run can produce."""
@@ -3714,6 +4024,16 @@ app.router.add_get("/api/uno/state", uno_state_handler)
 app.router.add_post("/api/uno/spectate", uno_spectate_handler)
 app.router.add_post("/api/uno/unspectate", uno_unspectate_handler)
 app.router.add_post("/api/uno/say", uno_say_handler)
+app.router.add_post("/api/battle/create", battle_create_handler)
+app.router.add_get("/api/battle/list", battle_list_handler)
+app.router.add_post("/api/battle/join", battle_join_handler)
+app.router.add_post("/api/battle/start", battle_start_handler)
+app.router.add_post("/api/battle/paint", battle_paint_handler)
+app.router.add_post("/api/battle/done", battle_done_handler)
+app.router.add_post("/api/battle/judge", battle_judge_handler)
+app.router.add_post("/api/battle/leave", battle_leave_handler)
+app.router.add_get("/api/battle/state", battle_state_handler)
+app.router.add_post("/api/battle/say", battle_say_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_get("/api/economy/stats", economy_stats_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
