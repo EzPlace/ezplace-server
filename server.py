@@ -2785,7 +2785,7 @@ async def battle_create_handler(request):
     rid = secrets.token_hex(5)
     battle_rooms[rid] = {
         "id": rid, "creator": user, "bet": bet, "pool": 0, "theme": None,
-        "phase": "lobby", "drawers": [], "judge": user, "spectators": [],
+        "phase": "lobby", "drawers": [], "judge": None, "spectators": [user],
         "grids": {}, "winner": None, "end_at": 0, "draw_seconds": draw_seconds,
         "done_flags": set(), "last_action_at": time.time(),
     }
@@ -2806,29 +2806,61 @@ async def battle_join_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     rid = data.get("room_id", "")
+    room = battle_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    ulow = user.lower()
+    already = (any(d.lower() == ulow for d in room["drawers"])
+               or (room["judge"] and room["judge"].lower() == ulow)
+               or any(s.lower() == ulow for s in room["spectators"]))
+    if not already:
+        room["spectators"].append(user)
+    await _battle_push_state(room)
+    return web.json_response({"ok": True, "state": _battle_public_state(room, user)})
+
+async def battle_assign_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    target = (data.get("username") or "").strip()
     role = data.get("role", "spectator")
     room = battle_rooms.get(rid)
     if not room: return web.json_response({"error": "Room not found"}, status=404)
-    if room["phase"] != "lobby" and role != "spectator":
+    if room["creator"].lower() != user.lower():
+        return web.json_response({"error": "Only the host can assign roles"}, status=403)
+    if room["phase"] != "lobby":
         return web.json_response({"error": "Game already started"}, status=400)
-    ulow = user.lower()
-    for d in list(room["drawers"]):
-        if d.lower() == ulow: room["drawers"].remove(d)
-    if room["judge"] and room["judge"].lower() == ulow: room["judge"] = None
-    room["spectators"] = [s for s in room["spectators"] if s.lower() != ulow]
+    tlow = target.lower()
+    in_room = (any(d.lower() == tlow for d in room["drawers"])
+               or (room["judge"] and room["judge"].lower() == tlow)
+               or any(s.lower() == tlow for s in room["spectators"]))
+    if not in_room: return web.json_response({"error": f"{target} is not in the room"}, status=400)
+    real = next((d for d in room["drawers"] if d.lower() == tlow), None) \
+        or (room["judge"] if room["judge"] and room["judge"].lower() == tlow else None) \
+        or next((s for s in room["spectators"] if s.lower() == tlow), target)
+    was_drawer = any(d.lower() == tlow for d in room["drawers"])
+    if was_drawer and room["bet"] > 0:
+        credit_pb(real, room["bet"])
+        room["pool"] = max(0, room["pool"] - room["bet"])
+        await save_place_bucks(); await push_pb_update(real)
+    room["drawers"] = [d for d in room["drawers"] if d.lower() != tlow]
+    if room["judge"] and room["judge"].lower() == tlow: room["judge"] = None
+    room["spectators"] = [s for s in room["spectators"] if s.lower() != tlow]
     if role == "drawer":
         if len(room["drawers"]) >= 2: return web.json_response({"error": "Both drawer slots are full"}, status=400)
-        if room["bet"] > 0 and not spend_pb(user, room["bet"]):
-            return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
-        room["drawers"].append(user)
+        if room["bet"] > 0 and not spend_pb(real, room["bet"]):
+            room["spectators"].append(real)
+            await _battle_push_state(room)
+            return web.json_response({"error": f"{target} doesn't have {room['bet']} $"}, status=400)
+        room["drawers"].append(real)
         if room["bet"] > 0:
             room["pool"] += room["bet"]
-            await save_place_bucks(); await push_pb_update(user)
+            await save_place_bucks(); await push_pb_update(real)
     elif role == "judge":
         if room["judge"]: return web.json_response({"error": "Judge slot taken"}, status=400)
-        room["judge"] = user
+        room["judge"] = real
     else:
-        if user not in room["spectators"]: room["spectators"].append(user)
+        room["spectators"].append(real)
     await _battle_push_state(room)
     return web.json_response({"ok": True, "state": _battle_public_state(room, user)})
 
@@ -4027,6 +4059,7 @@ app.router.add_post("/api/uno/say", uno_say_handler)
 app.router.add_post("/api/battle/create", battle_create_handler)
 app.router.add_get("/api/battle/list", battle_list_handler)
 app.router.add_post("/api/battle/join", battle_join_handler)
+app.router.add_post("/api/battle/assign", battle_assign_handler)
 app.router.add_post("/api/battle/start", battle_start_handler)
 app.router.add_post("/api/battle/paint", battle_paint_handler)
 app.router.add_post("/api/battle/done", battle_done_handler)

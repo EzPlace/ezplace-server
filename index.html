@@ -3125,26 +3125,35 @@ function battleRender(state) {
   battleStartTimer(state);
   const roster = document.getElementById('battle-roster');
   if (state.phase === 'lobby') {
-    const slotHtml = (label, name, role) => {
-      const taken = !!name;
-      const isMe = taken && name.toLowerCase() === meLow;
-      const btn = !taken && youAre !== role
-        ? '<button data-battle-join="' + role + '" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:2px 8px;margin-left:auto;">Take</button>'
-        : (isMe ? '<span style="margin-left:auto;font-size:11px;color:var(--text-muted);">(you)</span>' : '');
-      return '<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg-secondary);border-radius:4px;"><b>' + label + ':</b> ' + (taken ? esc(name) : '<i style="color:var(--text-muted);">empty</i>') + btn + '</div>';
-    };
-    let html = '';
-    html += slotHtml('Drawer 1', state.drawers[0], 'drawer');
-    html += slotHtml('Drawer 2', state.drawers[1], 'drawer');
-    html += slotHtml('Judge', state.judge, 'judge');
-    if (youAre !== 'spectator' && youAre !== 'drawer' && youAre !== 'judge') {
-      html += '<button data-battle-join="spectator" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:4px 10px;">Spectate</button>';
-    }
-    if (state.spectators && state.spectators.length) {
-      html += '<div style="font-size:11px;color:var(--text-muted);">Spectators: ' + state.spectators.map(esc).join(', ') + '</div>';
+    let html = '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+    const slot = (label, name) => '<div style="flex:1;min-width:140px;padding:6px 8px;background:var(--bg-secondary);border-radius:4px;font-size:12px;"><b>' + label + ':</b> ' + (name ? esc(name) + (name.toLowerCase() === meLow ? ' (you)' : '') : '<i style="color:var(--text-muted);">empty</i>') + '</div>';
+    html += slot('Drawer 1', state.drawers[0]);
+    html += slot('Drawer 2', state.drawers[1]);
+    html += slot('Judge', state.judge);
+    html += '</div>';
+    const allMembers = [].concat(state.drawers || [], state.judge ? [state.judge] : [], state.spectators || []);
+    if (isCreator) {
+      html += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">As host, assign roles:</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:3px;">';
+      allMembers.forEach(name => {
+        const role = state.drawers.includes(name) ? 'drawer' : (state.judge === name ? 'judge' : 'spectator');
+        const tag = role === 'drawer' ? '<span style="color:var(--accent);">[drawer]</span>' : (role === 'judge' ? '<span style="color:var(--gold);">[judge]</span>' : '<span style="color:var(--text-muted);">[watching]</span>');
+        html += '<div style="display:flex;align-items:center;gap:4px;padding:3px 6px;background:var(--bg-elevated);border-radius:3px;font-size:12px;">' + esc(name) + ' ' + tag + '<div style="flex:1;"></div>';
+        if (role !== 'drawer') html += '<button data-assign="drawer" data-user="' + esc(name) + '" class="win-btn" style="background:var(--accent);color:#fff;font-size:10px;padding:2px 6px;">Drawer</button>';
+        if (role !== 'judge') html += '<button data-assign="judge" data-user="' + esc(name) + '" class="win-btn" style="background:var(--gold);color:#000;font-size:10px;padding:2px 6px;">Judge</button>';
+        if (role !== 'spectator') html += '<button data-assign="spectator" data-user="' + esc(name) + '" class="win-btn" style="background:var(--bg-secondary);color:var(--text-primary);font-size:10px;padding:2px 6px;">Watch</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+    } else {
+      const yourRole = state.drawers.some(d => d.toLowerCase() === meLow) ? 'drawer' : (state.judge && state.judge.toLowerCase() === meLow ? 'judge' : 'spectator');
+      html += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Waiting for host (' + esc(state.creator) + ') to assign roles. You are: <b>' + yourRole + '</b></div>';
+      if (state.spectators && state.spectators.length) {
+        html += '<div style="font-size:11px;color:var(--text-muted);">Joined: ' + allMembers.map(esc).join(', ') + '</div>';
+      }
     }
     roster.innerHTML = html;
-    roster.querySelectorAll('[data-battle-join]').forEach(b => b.onclick = () => battleJoinAs(b.dataset.battleJoin));
+    roster.querySelectorAll('[data-assign]').forEach(b => b.onclick = () => battleAssign(b.dataset.user, b.dataset.assign));
   } else {
     roster.innerHTML = '<div style="font-size:11px;color:var(--text-muted);text-align:center;">Judge: ' + esc(state.judge || '-') + (state.spectators.length ? ' - Spectators: ' + state.spectators.length : '') + '</div>';
   }
@@ -3161,21 +3170,31 @@ function battleRender(state) {
       const title = document.createElement('div');
       title.style.cssText = 'font-size:12px;font-weight:700;color:' + (isMine ? 'var(--accent)' : 'var(--text-primary)') + ';';
       title.textContent = name + (isMine ? ' (you)' : '') + (submitted ? ' - submitted' : '');
+      const view = document.createElement('div');
+      view.className = 'battle-view';
+      view.style.cssText = 'width:' + BATTLE_DISPLAY + 'px;height:' + BATTLE_DISPLAY + 'px;overflow:hidden;position:relative;background:#000;border:2px solid ' + (isMine ? 'var(--accent)' : 'var(--border)') + ';border-radius:4px;touch-action:none;';
       const cv = document.createElement('canvas');
       cv.width = BATTLE_GRID_SIZE; cv.height = BATTLE_GRID_SIZE;
-      cv.style.cssText = 'width:' + BATTLE_DISPLAY + 'px;height:' + BATTLE_DISPLAY + 'px;image-rendering:pixelated;background:#000;border:2px solid ' + (isMine ? 'var(--accent)' : 'var(--border)') + ';border-radius:4px;cursor:' + (isMine && state.phase === 'drawing' && !submitted ? 'crosshair' : 'default') + ';touch-action:none;';
+      cv.style.cssText = 'width:' + BATTLE_DISPLAY + 'px;height:' + BATTLE_DISPLAY + 'px;image-rendering:pixelated;display:block;transform-origin:0 0;cursor:' + (isMine && state.phase === 'drawing' && !submitted ? 'crosshair' : 'grab') + ';';
       cv.dataset.drawer = name;
       const bytes = state.grids[name] ? battleB64ToBytes(state.grids[name]) : new Uint8Array(BATTLE_GRID_SIZE * BATTLE_GRID_SIZE);
       battleDrawCanvas(cv, bytes);
-      if (isMine && state.phase === 'drawing' && !submitted) battleAttachPaint(cv);
+      view.appendChild(cv);
+      const zoomTag = document.createElement('div');
+      zoomTag.className = 'battle-zoom-tag';
+      zoomTag.style.cssText = 'position:absolute;top:2px;right:4px;font-size:10px;color:#fff;background:rgba(0,0,0,0.55);padding:1px 5px;border-radius:3px;pointer-events:none;';
+      zoomTag.textContent = '1.0x';
+      view.appendChild(zoomTag);
+      battleAttachZoomPan(view, cv, zoomTag);
+      if (isMine && state.phase === 'drawing' && !submitted) battleAttachPaint(cv, view);
       if (youAre === 'judge' && state.phase === 'judging') {
         const pickBtn = document.createElement('button');
         pickBtn.className = 'win-btn'; pickBtn.textContent = 'Pick ' + name + ' as winner';
         pickBtn.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;';
         pickBtn.onclick = () => battlePickWinner(name);
-        wrap.appendChild(title); wrap.appendChild(cv); wrap.appendChild(pickBtn);
+        wrap.appendChild(title); wrap.appendChild(view); wrap.appendChild(pickBtn);
       } else {
-        wrap.appendChild(title); wrap.appendChild(cv);
+        wrap.appendChild(title); wrap.appendChild(view);
       }
       arena.appendChild(wrap);
     });
@@ -3190,8 +3209,12 @@ function battleRender(state) {
       pal.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;max-width:520px;justify-content:center;';
       COLORS.forEach((hex, i) => {
         const sw = document.createElement('button');
+        sw.dataset.colorIdx = i;
         sw.style.cssText = 'width:22px;height:22px;border:2px solid ' + (i === battleSelectedColor ? 'var(--accent)' : 'transparent') + ';background:' + hex + ';cursor:pointer;border-radius:3px;padding:0;';
-        sw.onclick = () => { battleSelectedColor = i; battleRender(state); };
+        sw.onclick = () => {
+          battleSelectedColor = i;
+          pal.querySelectorAll('button').forEach((b, j) => { b.style.border = '2px solid ' + (j === battleSelectedColor ? 'var(--accent)' : 'transparent'); });
+        };
         pal.appendChild(sw);
       });
       controls.appendChild(pal);
@@ -3221,7 +3244,7 @@ function battleStartTimer(state) {
   battleTimerInt = setInterval(tick, 1000);
 }
 let battlePainting = false;
-function battleAttachPaint(canvas) {
+function battleAttachPaint(canvas, view) {
   const toCell = (clientX, clientY) => {
     const r = canvas.getBoundingClientRect();
     const x = Math.floor((clientX - r.left) / r.width * BATTLE_GRID_SIZE);
@@ -3234,12 +3257,86 @@ function battleAttachPaint(canvas) {
     if (!c) return;
     battlePlacePixel(c[0], c[1], battleSelectedColor);
   };
-  canvas.addEventListener('mousedown', e => { battlePainting = true; place(e.clientX, e.clientY); });
+  canvas.addEventListener('mousedown', e => { if (e.button !== 0) return; battlePainting = true; place(e.clientX, e.clientY); });
   canvas.addEventListener('mousemove', e => { if (battlePainting) place(e.clientX, e.clientY); });
   window.addEventListener('mouseup', () => { battlePainting = false; });
-  canvas.addEventListener('touchstart', e => { e.preventDefault(); battlePainting = true; const t = e.touches[0]; place(t.clientX, t.clientY); }, { passive: false });
-  canvas.addEventListener('touchmove', e => { e.preventDefault(); if (battlePainting) { const t = e.touches[0]; place(t.clientX, t.clientY); } }, { passive: false });
-  canvas.addEventListener('touchend', e => { e.preventDefault(); battlePainting = false; }, { passive: false });
+  canvas.addEventListener('touchstart', e => {
+    if (e.touches.length > 1) { battlePainting = false; return; }
+    e.preventDefault(); battlePainting = true; const t = e.touches[0]; place(t.clientX, t.clientY);
+  }, { passive: false });
+  canvas.addEventListener('touchmove', e => {
+    if (e.touches.length > 1) { battlePainting = false; return; }
+    if (!battlePainting) return;
+    e.preventDefault(); const t = e.touches[0]; place(t.clientX, t.clientY);
+  }, { passive: false });
+  canvas.addEventListener('touchend', e => { battlePainting = false; }, { passive: false });
+}
+function battleAttachZoomPan(view, canvas, tag) {
+  let zoom = 1, panX = 0, panY = 0;
+  const minZoom = 1, maxZoom = 20;
+  const apply = () => {
+    canvas.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + zoom + ')';
+    tag.textContent = zoom.toFixed(1) + 'x';
+  };
+  const clamp = () => {
+    const w = BATTLE_DISPLAY * zoom;
+    panX = Math.min(0, Math.max(BATTLE_DISPLAY - w, panX));
+    panY = Math.min(0, Math.max(BATTLE_DISPLAY - w, panY));
+    if (zoom <= 1) { panX = 0; panY = 0; }
+  };
+  view.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = view.getBoundingClientRect();
+    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    const localX = (cx - panX) / zoom, localY = (cy - panY) / zoom;
+    const factor = e.deltaY < 0 ? 1.2 : (1 / 1.2);
+    const nz = Math.min(maxZoom, Math.max(minZoom, zoom * factor));
+    panX = cx - localX * nz; panY = cy - localY * nz; zoom = nz;
+    clamp(); apply();
+  }, { passive: false });
+  let panning = false, lastX = 0, lastY = 0;
+  view.addEventListener('mousedown', e => {
+    if (e.button !== 1 && e.button !== 2) return;
+    e.preventDefault(); panning = true; lastX = e.clientX; lastY = e.clientY;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!panning) return;
+    panX += e.clientX - lastX; panY += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    clamp(); apply();
+  });
+  window.addEventListener('mouseup', e => { if (e.button === 1 || e.button === 2) panning = false; });
+  view.addEventListener('contextmenu', e => e.preventDefault());
+  view.addEventListener('dblclick', () => { zoom = 1; panX = 0; panY = 0; apply(); });
+  let touchStart = null;
+  view.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const [t1, t2] = e.touches; const r = view.getBoundingClientRect();
+      touchStart = {
+        midX: (t1.clientX + t2.clientX) / 2 - r.left,
+        midY: (t1.clientY + t2.clientY) / 2 - r.top,
+        dist: Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY),
+        zoom, panX, panY,
+      };
+    }
+  }, { passive: false });
+  view.addEventListener('touchmove', e => {
+    if (e.touches.length !== 2 || !touchStart) return;
+    e.preventDefault();
+    const [t1, t2] = e.touches; const r = view.getBoundingClientRect();
+    const midX = (t1.clientX + t2.clientX) / 2 - r.left;
+    const midY = (t1.clientY + t2.clientY) / 2 - r.top;
+    const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    const scale = dist / touchStart.dist;
+    const nz = Math.min(maxZoom, Math.max(minZoom, touchStart.zoom * scale));
+    const localX = (touchStart.midX - touchStart.panX) / touchStart.zoom;
+    const localY = (touchStart.midY - touchStart.panY) / touchStart.zoom;
+    panX = midX - localX * nz; panY = midY - localY * nz; zoom = nz;
+    clamp(); apply();
+  }, { passive: false });
+  view.addEventListener('touchend', e => { if (e.touches.length < 2) touchStart = null; }, { passive: false });
+  apply();
 }
 async function battlePlacePixel(x, y, color) {
   if (!battleRoomId) return;
@@ -3261,11 +3358,16 @@ async function battlePickWinner(name) {
   const r = await fetch(BACKEND + '/api/battle/judge', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId, winner: name }) });
   const d = await r.json(); if (d.error) alert(d.error);
 }
-async function battleJoinAs(role) {
+async function battleJoinAs(_role) {
   if (!battleRoomId) return;
-  const r = await fetch(BACKEND + '/api/battle/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId, role }) });
+  const r = await fetch(BACKEND + '/api/battle/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId }) });
   const d = await r.json(); if (d.error) { alert(d.error); return; }
   if (d.state) battleRender(d.state);
+}
+async function battleAssign(targetUser, role) {
+  if (!battleRoomId) return;
+  const r = await fetch(BACKEND + '/api/battle/assign', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: battleRoomId, username: targetUser, role }) });
+  const d = await r.json(); if (d.error) alert(d.error);
 }
 function battleAppendChat(msg) {
   const log = document.getElementById('battle-chat-log');
@@ -3310,8 +3412,7 @@ document.getElementById('btn-battle-list').onclick = async () => {
       const join = document.createElement('button'); join.className = 'win-btn'; join.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:3px 8px;'; join.textContent = 'Join';
       join.onclick = async () => {
         battleRoomId = rm.room_id; battleOpenModal();
-        const role = prompt('Join as: drawer, judge, or spectator?', 'drawer') || 'spectator';
-        await battleJoinAs(role.toLowerCase().trim());
+        await battleJoinAs();
       };
       btns.appendChild(join); row.appendChild(btns); list.appendChild(row);
     });
@@ -4541,6 +4642,13 @@ function connectSocial() {
       }
     }
     if (msg.type === 'battle_pixel' && battleRoomId === msg.room_id) {
+      if (battleState && battleState.grids && battleState.grids[msg.drawer]) {
+        const bytes = battleState.grids[msg.drawer] instanceof Uint8Array
+          ? battleState.grids[msg.drawer]
+          : battleB64ToBytes(battleState.grids[msg.drawer]);
+        bytes[msg.y * BATTLE_GRID_SIZE + msg.x] = msg.color;
+        battleState.grids[msg.drawer] = bytes;
+      }
       const meLow = (username || '').toLowerCase();
       const isMine = msg.drawer && msg.drawer.toLowerCase() === meLow;
       if (isMine) return;
