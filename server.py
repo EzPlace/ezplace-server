@@ -2568,6 +2568,10 @@ async def uno_start_handler(request):
         return web.json_response({"error": "Only the creator can start"}, status=403)
     if room["phase"] != "lobby": return web.json_response({"error": "Already started"}, status=400)
     if len(room["players"]) < 2: return web.json_response({"error": "Need at least 2 players"}, status=400)
+    bet = room["settings"].get("bet", 0)
+    if bet > 0:
+        ai_count = sum(1 for p in room["players"] if p["is_ai"])
+        room["pool"] = room.get("pool", 0) + bet * ai_count
     room["deck"] = _uno_new_deck()
     for p in room["players"]: p["hand"] = []
     for _ in range(7):
