@@ -1248,6 +1248,26 @@ async def admin_alert_handler(request):
             except: pass
     return web.json_response({"ok": True, "message": f"Alert delivered to {delivered} connection(s) for {target}"} if delivered else {"error": f"{target} is not online"})
 
+async def admin_relay_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = data.get("username", "").strip()
+    text = data.get("text", "").strip()[:200]
+    if not target or not text:
+        return web.json_response({"error": "Username and text required"}, status=400)
+    tlow = target.lower()
+    lobby_id = None
+    real_name = target
+    for ws, info in list(clients.items()):
+        if info and info.get("username", "").lower() == tlow:
+            lobby_id = info.get("lobby_id"); real_name = info.get("username") or target; break
+    if not lobby_id: return web.json_response({"error": f"{target} is not in a lobby"}, status=404)
+    lobby = lobbies.get(lobby_id)
+    is_owner = bool(lobby and lobby.get("owner") and lobby["owner"].lower() == tlow)
+    payload = {"type": "chat", "username": real_name, "text": text, "is_owner": is_owner, "is_guest": False, "is_vip": is_vip(real_name), "rank": get_rank(real_name), "clan": get_clan_tag(real_name)}
+    await broadcast_to_lobby(lobby_id, payload)
+    return web.json_response({"ok": True})
+
 async def admin_redirect_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -3655,6 +3675,7 @@ app.router.add_post("/api/admin/ban", admin_ban_handler)
 app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
 app.router.add_post("/api/admin/alert", admin_alert_handler)
+app.router.add_post("/api/admin/relay", admin_relay_handler)
 app.router.add_post("/api/admin/redirect", admin_redirect_handler)
 app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
 app.router.add_post("/api/admin/session-for", admin_session_for_handler)
