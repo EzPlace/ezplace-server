@@ -2262,7 +2262,7 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo) 
   if (tokens.length === 0) tokens.push({ type: 'text', value: filtered });
   const bodyHtml = tokens.map(t => {
     if (t.type === 'mention') return `<span class="mention-tag${t.isMe ? ' self' : ''}">@${esc(t.value)}</span>`;
-    return esc(t.value);
+    return linkify(esc(t.value));
   }).join('');
   if (mentionsMe && name.toLowerCase() !== meLow) d.classList.add('mention-self');
   let replyHtml = '';
@@ -2279,6 +2279,13 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo) 
 }
 function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function linkify(escapedHtml) {
+  return escapedHtml.replace(/\bhttps?:\/\/[^\s<>"'`]+/gi, (m) => {
+    let trail = '';
+    while (m.length && '.,!?'.includes(m[m.length - 1])) { trail = m[m.length - 1] + trail; m = m.slice(0, -1); }
+    return `<a href="${m}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">${m}</a>` + trail;
+  });
+}
 
 const typingSpyBox = document.createElement('div');
 typingSpyBox.style.cssText = 'position:fixed;top:10px;right:10px;z-index:96;display:none;flex-direction:column;gap:4px;max-width:280px;pointer-events:none;';
@@ -4503,7 +4510,7 @@ function appendDmMsg(from, text, t, image, replyTo) {
     replyHtml = `<div style="border-left:3px solid var(--accent);padding:1px 6px;margin:0 0 2px 0;font-size:11px;color:var(--text-muted);background:var(--accent-dim);border-radius:3px;"><b>${esc(replyTo.from)}</b>: ${esc(replyTo.text.slice(0,120))}</div>`;
   }
   let body = '';
-  if (text) body = ' ' + esc(filterText(text));
+  if (text) body = ' ' + linkify(esc(filterText(text)));
   const replyBtn = `<span class="dm-reply-btn" title="Reply" style="cursor:pointer;color:var(--text-muted);font-size:11px;margin-left:6px;">&#x21A9;</span>`;
   d.innerHTML = `${replyHtml}<span class="dm-time">${ts}</span><b>${esc(from)}:</b>${body}${replyBtn}`;
   if (image) {
