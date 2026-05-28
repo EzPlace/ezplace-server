@@ -75,7 +75,6 @@ lobbies = {}
 clients = {}
 social_clients = {}
 social_ips = {}
-social_devices = {}
 
 def is_fake_admin(user):
     return user and user.lower() in [f.lower() for f in fake_admins]
@@ -313,7 +312,9 @@ def has_purchase(user, item):
     return bool((purchases.get(user.lower()) or {}).get(item))
 
 STREAK_REWARD_CAP = 50
-device_streak_claim = {}
+STREAK_HEARTBEAT_PERIOD = 30
+STREAK_ACTIVE_SECONDS_REQUIRED = 15 * 60
+streak_progress = {}
 
 async def save_streaks():
     await db_save("store", "streaks", streaks)
@@ -324,10 +325,21 @@ def get_streak(user):
     if not s: return {"count": 0, "last_date": ""}
     return {"count": int(s.get("count", 0)), "last_date": s.get("last_date", "")}
 
-async def bump_streak(user, device_id=None):
-    """If user hasn't been seen yet today, advance streak (or reset). Reward only
-    paid out once per device per day - alts on the same browser get the streak
-    count but no PB. Returns reward credited (0 if alt or already claimed)."""
+def get_streak_progress(user):
+    if not user or is_admin(user):
+        return {"seconds": STREAK_ACTIVE_SECONDS_REQUIRED, "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": True}
+    ulow = user.lower()
+    today = date.today().isoformat()
+    s = streaks.get(ulow) or {}
+    earned = s.get("last_date") == today
+    p = streak_progress.get(ulow) or {}
+    seconds = int(p.get("seconds", 0)) if p.get("date") == today else 0
+    return {"seconds": seconds, "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": earned}
+
+async def bump_streak(user):
+    """Advance the user's daily streak counter and pay out the PB reward. Caller
+    is responsible for ensuring this should fire (e.g. they've put in the
+    required active-tab time for today)."""
     if not user or is_admin(user): return 0
     ulow = user.lower()
     today = date.today().isoformat()
@@ -335,15 +347,12 @@ async def bump_streak(user, device_id=None):
     if s.get("last_date") == today: return 0
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     new_count = int(s.get("count", 0)) + 1 if s.get("last_date") == yesterday else 1
-    device_already_claimed = bool(device_id) and device_streak_claim.get(device_id) == today
-    reward = 0 if device_already_claimed else min(new_count * 2, STREAK_REWARD_CAP)
+    reward = min(new_count * 2, STREAK_REWARD_CAP)
     streaks[ulow] = {"count": new_count, "last_date": today, "last_reward": reward}
-    if reward > 0:
-        credit_pb(user, reward)
-        await save_place_bucks()
-        if device_id: device_streak_claim[device_id] = today
+    credit_pb(user, reward)
+    await save_place_bucks()
     await save_streaks()
-    payload = {"type": "streak_bonus", "count": new_count, "reward": reward, "alt_device": device_already_claimed}
+    payload = {"type": "streak_bonus", "count": new_count, "reward": reward}
     for ws, info in list(clients.items()):
         if info and info.get("username", "").lower() == ulow and not ws.closed:
             try: await ws.send_json(payload)
@@ -354,6 +363,35 @@ async def bump_streak(user, device_id=None):
             except: pass
     await push_pb_update(user)
     return reward
+
+async def streak_heartbeat_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if is_admin(user):
+        return web.json_response({"ok": True, "seconds": STREAK_ACTIVE_SECONDS_REQUIRED, "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": True})
+    ulow = user.lower()
+    today = date.today().isoformat()
+    s = streaks.get(ulow) or {}
+    earned_today = s.get("last_date") == today
+    p = streak_progress.get(ulow)
+    if not p or p.get("date") != today:
+        p = {"date": today, "seconds": 0, "last_hb_ts": 0}
+    now = time.time()
+    if not earned_today and (now - float(p.get("last_hb_ts", 0))) >= (STREAK_HEARTBEAT_PERIOD - 2):
+        p["seconds"] = min(int(p["seconds"]) + STREAK_HEARTBEAT_PERIOD, STREAK_ACTIVE_SECONDS_REQUIRED)
+        p["last_hb_ts"] = now
+        streak_progress[ulow] = p
+        if p["seconds"] >= STREAK_ACTIVE_SECONDS_REQUIRED:
+            await bump_streak(user)
+            earned_today = True
+    else:
+        streak_progress[ulow] = p
+    return web.json_response({"ok": True, "seconds": int(p["seconds"]), "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": earned_today})
+
+async def streak_progress_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    return web.json_response({"ok": True, **get_streak_progress(user)})
 
 async def push_pb_update(username):
     """Send the current balance/purchases to all live sockets for this user."""
@@ -548,36 +586,23 @@ async def idle_reward_loop(app):
         try:
             await asyncio.sleep(60)
             online_users = set()
-            user_device = {}
             for info in clients.values():
                 if not info or info.get("guest"): continue
                 n = info.get("username")
-                if n and not is_admin(n):
-                    online_users.add(n)
-                    if info.get("device_id") and n.lower() not in user_device:
-                        user_device[n.lower()] = info["device_id"]
-            for ws, uname in social_clients.items():
-                if uname and not is_admin(uname):
-                    online_users.add(uname)
-                    if uname.lower() not in user_device:
-                        d = social_devices.get(ws)
-                        if d: user_device[uname.lower()] = d
+                if n and not is_admin(n): online_users.add(n)
+            for uname in social_clients.values():
+                if uname and not is_admin(uname): online_users.add(uname)
             if not online_users: continue
             credited_anything = False
-            devices_paid_this_tick = set()
             for uname in online_users:
                 ulow = uname.lower()
                 stay_seconds[ulow] = int(stay_seconds.get(ulow, 0)) + 60
                 if stay_seconds[ulow] >= IDLE_REWARD_SECONDS:
-                    dev = user_device.get(ulow)
-                    if dev and dev in devices_paid_this_tick:
-                        continue
                     rewards = stay_seconds[ulow] // IDLE_REWARD_SECONDS
                     stay_seconds[ulow] = stay_seconds[ulow] % IDLE_REWARD_SECONDS
                     credit_pb(uname, rewards)
                     await push_pb_update(uname)
                     credited_anything = True
-                    if dev: devices_paid_this_tick.add(dev)
             if credited_anything:
                 await save_place_bucks()
             await save_stay_seconds()
@@ -1849,6 +1874,7 @@ async def me_handler(request):
         "purchases": purchases.get(user.lower()) or {},
         "lifetime_pixels": int(lifetime_pixels.get(user.lower(), 0)),
         "streak": get_streak(user),
+        "streak_progress": get_streak_progress(user),
         "prices": {"shop": SHOP_PRICES, "lobby": {f"{w}x{h}": p for (w, h), p in LOBBY_PRICES.items()}, "pixels_per_buck": PB_PIXELS_PER_BUCK},
     })
 
@@ -3251,14 +3277,11 @@ async def social_ws_handler(request):
                 data = json.loads(msg.data)
                 if data.get("type") == "auth":
                     token = data.get("token", "")
-                    device_id = str(data.get("device_id", ""))[:64] or None
                     if token in sessions:
                         username = sessions[token]
                         if is_banned(username) or is_ip_banned(request): await ws.close(); break
                         social_clients[ws] = username
-                        social_devices[ws] = device_id
                         await track_ip(username, request)
-                        asyncio.create_task(bump_streak(username, device_id))
                         await ws.send_json({"type": "social_ready"})
                         unread = get_unread_dm_summary(username)
                         if unread:
@@ -3351,7 +3374,6 @@ async def social_ws_handler(request):
         disconnected_user = social_clients.get(ws)
         del social_clients[ws]
         social_ips.pop(ws, None)
-        social_devices.pop(ws, None)
         if was_authed:
             await broadcast_online_all_lobbies()
             still_online = any(uname and uname.lower() == disconnected_user.lower() for uname in social_clients.values())
@@ -3396,7 +3418,6 @@ async def websocket_handler(request):
                 if data["type"] == "auth":
                     token = data.get("token", "")
                     lid = data.get("lobby_id", "")
-                    device_id = str(data.get("device_id", ""))[:64] or None
                     if token not in sessions:
                         await ws.send_json({"type": "error", "text": "Invalid session"}); await ws.close(); break
                     username = sessions[token]
@@ -3411,9 +3432,8 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
                     can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
                     lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place}
+                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "can_place": can_place}
                     await track_ip(username, request)
-                    asyncio.create_task(bump_streak(username, device_id))
                     grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                     if is_fake_admin(username): grid_msg["fake_admin"] = True
                     await send_grid_to_ws(ws, grid_msg, lobby["grid"])
@@ -4098,6 +4118,8 @@ app.router.add_post("/api/admin/rank-remove", admin_rank_remove_handler)
 app.router.add_get("/api/admin/ranks", admin_ranks_handler)
 app.router.add_get("/api/online-summary", online_summary_handler)
 app.router.add_get("/api/me", me_handler)
+app.router.add_post("/api/streak/heartbeat", streak_heartbeat_handler)
+app.router.add_get("/api/streak/progress", streak_progress_handler)
 app.router.add_post("/api/shop/buy", shop_buy_handler)
 app.router.add_post("/api/pb/transfer", pb_transfer_handler)
 app.router.add_post("/api/casino/slots", casino_slots_handler)

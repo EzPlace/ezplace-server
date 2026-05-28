@@ -2571,52 +2571,6 @@ const captchaImg = document.getElementById('captcha-img');
 const captchaAns = document.getElementById('captcha-ans');
 const authError = document.getElementById('auth-error');
 let authToken = safeStore.getItem('ezplace_token') || '';
-function ezpFingerprint() {
-  let canvasHash = '';
-  try {
-    const c = document.createElement('canvas');
-    c.width = 280; c.height = 60;
-    const ctx = c.getContext('2d');
-    ctx.textBaseline = 'top';
-    ctx.font = '14px Arial';
-    ctx.fillStyle = '#f60'; ctx.fillRect(0, 0, 200, 50);
-    ctx.fillStyle = '#069'; ctx.fillText('EzPlace fp 🔥', 2, 15);
-    ctx.fillStyle = 'rgba(102,204,0,0.7)'; ctx.font = '18px Times';
-    ctx.fillText('Cwm fjordbank glyphs vext quiz', 4, 40);
-    canvasHash = c.toDataURL();
-  } catch {}
-  let gpu = '';
-  try {
-    const gc = document.createElement('canvas');
-    const gl = gc.getContext('webgl') || gc.getContext('experimental-webgl');
-    if (gl) {
-      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-      if (dbg) gpu = (gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || '') + '|' + (gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '');
-      else gpu = (gl.getParameter(gl.VENDOR) || '') + '|' + (gl.getParameter(gl.RENDERER) || '');
-    }
-  } catch {}
-  const signals = [
-    navigator.userAgent, navigator.platform, navigator.language,
-    (navigator.languages || []).join(','),
-    navigator.hardwareConcurrency || '', navigator.deviceMemory || '',
-    screen.width + 'x' + screen.height, screen.colorDepth, screen.pixelDepth,
-    window.devicePixelRatio || '', new Date().getTimezoneOffset(),
-    (Intl.DateTimeFormat().resolvedOptions().timeZone) || '',
-    canvasHash, gpu, ('ontouchstart' in window) ? 'touch' : 'no-touch',
-  ].join('|');
-  // FNV-1a 32-bit hash, then mix with length to widen distribution
-  let h = 2166136261;
-  for (let i = 0; i < signals.length; i++) { h ^= signals.charCodeAt(i); h = Math.imul(h, 16777619); }
-  let h2 = 5381;
-  for (let i = signals.length - 1; i >= 0; i--) { h2 = ((h2 * 33) ^ signals.charCodeAt(i)) >>> 0; }
-  return (h >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0') + signals.length.toString(16);
-}
-let deviceId = '';
-try { deviceId = ezpFingerprint(); } catch { deviceId = safeStore.getItem('ezp_device_id') || ''; }
-if (!deviceId) {
-  deviceId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
-  safeStore.setItem('ezp_device_id', deviceId);
-}
 let captchaId = '';
 let isRegisterMode = false;
 
@@ -2698,12 +2652,22 @@ let myBalance = 0;
 let myPurchases = {};
 let myUnlimited = false;
 let myStreak = 0;
+let myStreakProgress = { seconds: 0, required: 900, earned_today: false };
+function fmtMMSS(s) { const m = Math.floor(s / 60), sec = s % 60; return m + ':' + String(sec).padStart(2, '0'); }
 function applyPbState() {
   const el = document.getElementById('pb-balance');
   if (el) {
     const base = myUnlimited ? 'PLACEBUX: ∞' : ('PLACEBUX: ' + myBalance);
-    el.textContent = base + (myStreak > 0 ? '  🔥 ' + myStreak : '');
-    el.title = 'PlaceBucks - earn 1 per 100 pixels placed' + (myStreak > 0 ? ' - daily streak: ' + myStreak + ' day' + (myStreak === 1 ? '' : 's') : '');
+    let suf = '';
+    if (myStreak > 0 || myStreakProgress.seconds > 0) {
+      if (myStreakProgress.earned_today) suf = '  🔥 ' + myStreak;
+      else suf = '  🔥 ' + myStreak + ' (' + fmtMMSS(myStreakProgress.seconds) + '/' + fmtMMSS(myStreakProgress.required) + ')';
+    }
+    el.textContent = base + suf;
+    let tip = 'PlaceBucks - earn 1 per 100 pixels placed';
+    if (myStreak > 0) tip += ' - streak: ' + myStreak + ' day' + (myStreak === 1 ? '' : 's');
+    if (!myStreakProgress.earned_today) tip += ' - spend ' + Math.ceil((myStreakProgress.required - myStreakProgress.seconds) / 60) + ' more min on this tab to claim today';
+    el.title = tip;
   }
   const sb = document.getElementById('shop-balance');
   if (sb) sb.textContent = (myUnlimited ? '∞' : myBalance) + (myStreak > 0 ? '  🔥 ' + myStreak : '');
@@ -2720,9 +2684,49 @@ async function refreshMe() {
     myPurchases = d.purchases || {};
     myUnlimited = !!d.unlimited;
     myStreak = (d.streak && d.streak.count) || 0;
+    if (d.streak_progress) myStreakProgress = d.streak_progress;
     applyPbState();
   } catch {}
 }
+
+const streakTabId = Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+let streakChan = null;
+try { streakChan = new BroadcastChannel('ezplace_streak_tabs'); } catch {}
+const streakTabsSeen = new Map();
+streakTabsSeen.set(streakTabId, Date.now());
+if (streakChan) {
+  streakChan.onmessage = (e) => {
+    if (e && e.data && e.data.type === 'alive' && e.data.id) {
+      streakTabsSeen.set(e.data.id, Date.now());
+    }
+  };
+}
+function streakAnnounceAlive() {
+  streakTabsSeen.set(streakTabId, Date.now());
+  if (streakChan) { try { streakChan.postMessage({ type: 'alive', id: streakTabId }); } catch {} }
+  const now = Date.now();
+  for (const [id, t] of streakTabsSeen) { if (now - t > 8000) streakTabsSeen.delete(id); }
+}
+setInterval(streakAnnounceAlive, 3000);
+streakAnnounceAlive();
+function streakIsOnlyTab() { return streakTabsSeen.size <= 1; }
+async function streakHeartbeat() {
+  if (!authToken || myUnlimited) return;
+  if (myStreakProgress.earned_today) return;
+  if (document.visibilityState !== 'visible') return;
+  streakAnnounceAlive();
+  if (!streakIsOnlyTab()) return;
+  try {
+    const r = await fetch(BACKEND + '/api/streak/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: '{}' });
+    const d = await r.json();
+    if (d.ok) {
+      myStreakProgress = { seconds: d.seconds, required: d.required, earned_today: d.earned_today };
+      applyPbState();
+    }
+  } catch {}
+}
+setInterval(streakHeartbeat, 30000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') streakHeartbeat(); });
 
 function openShop() {
   if (!authToken) { alert('Log in to use the shop.'); return; }
@@ -4447,7 +4451,7 @@ function connectToLobby(lobbyId, lobbyName) {
     if (isGuest) {
       ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, guest_name: guestName }));
     } else {
-      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId }));
+      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId }));
     }
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
@@ -4511,7 +4515,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank, msg.clan, msg.reply_to); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
       case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBucks', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
-      case 'streak_bonus': { myStreak = msg.count || myStreak; applyPbState(); const txt = msg.alt_device ? ('Day ' + msg.count + ' - already claimed on this device today') : ('Day ' + msg.count + ' - +' + msg.reward + ' $'); showDmToast('🔥 Daily Streak', txt, () => {}); break; }
+      case 'streak_bonus': { myStreak = msg.count || myStreak; myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true }; applyPbState(); showDmToast('🔥 Daily Streak', 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
@@ -4651,7 +4655,7 @@ function connectSocial() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const socialProto = BACKEND_HOST ? 'wss' : protocol;
   try { socialWs = new WebSocket(`${socialProto}://${WS_HOST}/ws/social`); } catch { return; }
-  socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken, device_id: deviceId })); };
+  socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken })); };
   socialWs.onmessage = async e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'client_alert') { alert(msg.text); return; }
@@ -4674,9 +4678,9 @@ function connectSocial() {
     }
     if (msg.type === 'streak_bonus') {
       myStreak = msg.count || myStreak;
+      myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true };
       applyPbState();
-      const txt = msg.alt_device ? ('Day ' + msg.count + ' - already claimed on this device today') : ('Day ' + msg.count + ' - +' + msg.reward + ' $');
-      showDmToast('🔥 Daily Streak', txt, () => {});
+      showDmToast('🔥 Daily Streak', 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {});
     }
     if (msg.type === 'economy_total') {
       const totalEl = document.getElementById('economy-total');
