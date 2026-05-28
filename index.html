@@ -2571,6 +2571,11 @@ const captchaImg = document.getElementById('captcha-img');
 const captchaAns = document.getElementById('captcha-ans');
 const authError = document.getElementById('auth-error');
 let authToken = safeStore.getItem('ezplace_token') || '';
+let deviceId = safeStore.getItem('ezp_device_id') || '';
+if (!deviceId) {
+  deviceId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+  safeStore.setItem('ezp_device_id', deviceId);
+}
 let captchaId = '';
 let isRegisterMode = false;
 
@@ -4401,7 +4406,7 @@ function connectToLobby(lobbyId, lobbyName) {
     if (isGuest) {
       ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, guest_name: guestName }));
     } else {
-      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId }));
+      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId }));
     }
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
@@ -4465,7 +4470,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank, msg.clan, msg.reply_to); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
       case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBucks', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
-      case 'streak_bonus': { myStreak = msg.count || myStreak; applyPbState(); showDmToast('🔥 Daily Streak', 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
+      case 'streak_bonus': { myStreak = msg.count || myStreak; applyPbState(); const txt = msg.alt_device ? ('Day ' + msg.count + ' - already claimed on this device today') : ('Day ' + msg.count + ' - +' + msg.reward + ' $'); showDmToast('🔥 Daily Streak', txt, () => {}); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
@@ -4605,7 +4610,7 @@ function connectSocial() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const socialProto = BACKEND_HOST ? 'wss' : protocol;
   try { socialWs = new WebSocket(`${socialProto}://${WS_HOST}/ws/social`); } catch { return; }
-  socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken })); };
+  socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken, device_id: deviceId })); };
   socialWs.onmessage = async e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'client_alert') { alert(msg.text); return; }
@@ -4629,7 +4634,8 @@ function connectSocial() {
     if (msg.type === 'streak_bonus') {
       myStreak = msg.count || myStreak;
       applyPbState();
-      showDmToast('🔥 Daily Streak', 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {});
+      const txt = msg.alt_device ? ('Day ' + msg.count + ' - already claimed on this device today') : ('Day ' + msg.count + ' - +' + msg.reward + ' $');
+      showDmToast('🔥 Daily Streak', txt, () => {});
     }
     if (msg.type === 'economy_total') {
       const totalEl = document.getElementById('economy-total');
