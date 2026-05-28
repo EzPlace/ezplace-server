@@ -9,6 +9,7 @@ import string
 import struct
 import time
 import zlib
+from datetime import date, timedelta
 from aiohttp import web
 import aiohttp
 import motor.motor_asyncio
@@ -54,9 +55,10 @@ groups = {}
 group_messages = {}                                                          
 
                                                                                   
-place_bucks = {}                               
-lifetime_pixels = {}                           
-purchases = {}                                                                   
+place_bucks = {}
+lifetime_pixels = {}
+purchases = {}
+streaks = {}                                                                   
 stay_seconds = {}
 IDLE_REWARD_SECONDS = 900
 economy_history = []
@@ -309,10 +311,47 @@ def has_purchase(user, item):
     if is_admin(user): return True
     return bool((purchases.get(user.lower()) or {}).get(item))
 
+STREAK_REWARD_CAP = 50
+
+async def save_streaks():
+    await db_save("store", "streaks", streaks)
+
+def get_streak(user):
+    if not user: return {"count": 0, "last_date": ""}
+    s = streaks.get(user.lower())
+    if not s: return {"count": 0, "last_date": ""}
+    return {"count": int(s.get("count", 0)), "last_date": s.get("last_date", "")}
+
+async def bump_streak(user):
+    """If user hasn't been seen yet today, advance streak (or reset) and award PB. Returns reward or 0."""
+    if not user or is_admin(user): return 0
+    ulow = user.lower()
+    today = date.today().isoformat()
+    s = streaks.get(ulow) or {"count": 0, "last_date": ""}
+    if s.get("last_date") == today: return 0
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    new_count = int(s.get("count", 0)) + 1 if s.get("last_date") == yesterday else 1
+    reward = min(new_count * 2, STREAK_REWARD_CAP)
+    streaks[ulow] = {"count": new_count, "last_date": today, "last_reward": reward}
+    credit_pb(user, reward)
+    await save_streaks()
+    await save_place_bucks()
+    payload = {"type": "streak_bonus", "count": new_count, "reward": reward}
+    for ws, info in list(clients.items()):
+        if info and info.get("username", "").lower() == ulow and not ws.closed:
+            try: await ws.send_json(payload)
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == ulow and not ws.closed:
+            try: await ws.send_json(payload)
+            except: pass
+    await push_pb_update(user)
+    return reward
+
 async def push_pb_update(username):
     """Send the current balance/purchases to all live sockets for this user."""
     if not username: return
-    payload = {"type": "pb_update", "balance": get_pb(username), "purchases": purchases.get(username.lower()) or {}}
+    payload = {"type": "pb_update", "balance": get_pb(username), "purchases": purchases.get(username.lower()) or {}, "streak": get_streak(username)}
     ulow = username.lower()
     for ws, info in list(clients.items()):
         if info and info.get("username", "").lower() == ulow and not ws.closed:
@@ -593,7 +632,7 @@ async def track_ip(username, request):
         await save_user_ips()
 
 async def load_all_data():
-    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, groups, group_messages, dms, dm_last_seen, place_bucks, lifetime_pixels, purchases, stay_seconds
+    global accounts, friends_data, bans, ip_bans, vips, ranks, user_ips, fake_admins, brush_perms, clans, groups, group_messages, dms, dm_last_seen, place_bucks, lifetime_pixels, purchases, stay_seconds, streaks
 
     accounts = await db_load("store", "accounts") or {}
     friends_data = await db_load("store", "friends") or {}
@@ -611,6 +650,7 @@ async def load_all_data():
     place_bucks = await db_load("store", "place_bucks") or {}
     lifetime_pixels = await db_load("store", "lifetime_pixels") or {}
     purchases = await db_load("store", "purchases") or {}
+    streaks = await db_load("store", "streaks") or {}
     stay_seconds = await db_load("store", "stay_seconds") or {}
     global economy_history
     economy_history = await db_load("store", "economy_history") or []
@@ -1788,6 +1828,7 @@ async def me_handler(request):
         "unlimited": bool(is_admin(user)),
         "purchases": purchases.get(user.lower()) or {},
         "lifetime_pixels": int(lifetime_pixels.get(user.lower(), 0)),
+        "streak": get_streak(user),
         "prices": {"shop": SHOP_PRICES, "lobby": {f"{w}x{h}": p for (w, h), p in LOBBY_PRICES.items()}, "pixels_per_buck": PB_PIXELS_PER_BUCK},
     })
 
@@ -3195,6 +3236,7 @@ async def social_ws_handler(request):
                         if is_banned(username) or is_ip_banned(request): await ws.close(); break
                         social_clients[ws] = username
                         await track_ip(username, request)
+                        asyncio.create_task(bump_streak(username))
                         await ws.send_json({"type": "social_ready"})
                         unread = get_unread_dm_summary(username)
                         if unread:
@@ -3347,6 +3389,7 @@ async def websocket_handler(request):
                     lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "can_place": can_place}
                     await track_ip(username, request)
+                    asyncio.create_task(bump_streak(username))
                     grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                     if is_fake_admin(username): grid_msg["fake_admin"] = True
                     await send_grid_to_ws(ws, grid_msg, lobby["grid"])
