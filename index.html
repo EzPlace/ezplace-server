@@ -2571,7 +2571,48 @@ const captchaImg = document.getElementById('captcha-img');
 const captchaAns = document.getElementById('captcha-ans');
 const authError = document.getElementById('auth-error');
 let authToken = safeStore.getItem('ezplace_token') || '';
-let deviceId = safeStore.getItem('ezp_device_id') || '';
+function ezpFingerprint() {
+  let canvasHash = '';
+  try {
+    const c = document.createElement('canvas');
+    c.width = 280; c.height = 60;
+    const ctx = c.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#f60'; ctx.fillRect(0, 0, 200, 50);
+    ctx.fillStyle = '#069'; ctx.fillText('EzPlace fp 🔥', 2, 15);
+    ctx.fillStyle = 'rgba(102,204,0,0.7)'; ctx.font = '18px Times';
+    ctx.fillText('Cwm fjordbank glyphs vext quiz', 4, 40);
+    canvasHash = c.toDataURL();
+  } catch {}
+  let gpu = '';
+  try {
+    const gc = document.createElement('canvas');
+    const gl = gc.getContext('webgl') || gc.getContext('experimental-webgl');
+    if (gl) {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      if (dbg) gpu = (gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || '') + '|' + (gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '');
+      else gpu = (gl.getParameter(gl.VENDOR) || '') + '|' + (gl.getParameter(gl.RENDERER) || '');
+    }
+  } catch {}
+  const signals = [
+    navigator.userAgent, navigator.platform, navigator.language,
+    (navigator.languages || []).join(','),
+    navigator.hardwareConcurrency || '', navigator.deviceMemory || '',
+    screen.width + 'x' + screen.height, screen.colorDepth, screen.pixelDepth,
+    window.devicePixelRatio || '', new Date().getTimezoneOffset(),
+    (Intl.DateTimeFormat().resolvedOptions().timeZone) || '',
+    canvasHash, gpu, ('ontouchstart' in window) ? 'touch' : 'no-touch',
+  ].join('|');
+  // FNV-1a 32-bit hash, then mix with length to widen distribution
+  let h = 2166136261;
+  for (let i = 0; i < signals.length; i++) { h ^= signals.charCodeAt(i); h = Math.imul(h, 16777619); }
+  let h2 = 5381;
+  for (let i = signals.length - 1; i >= 0; i--) { h2 = ((h2 * 33) ^ signals.charCodeAt(i)) >>> 0; }
+  return (h >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0') + signals.length.toString(16);
+}
+let deviceId = '';
+try { deviceId = ezpFingerprint(); } catch { deviceId = safeStore.getItem('ezp_device_id') || ''; }
 if (!deviceId) {
   deviceId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
   safeStore.setItem('ezp_device_id', deviceId);
