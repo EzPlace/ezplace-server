@@ -335,6 +335,11 @@ streak_progress = {}
 async def save_streaks():
     await db_save("store", "streaks", streaks)
 
+async def save_streak_progress():
+    today_iso = date.today().isoformat()
+    pruned = {k: v for k, v in streak_progress.items() if isinstance(v, dict) and v.get("date") == today_iso}
+    await db_save("store", "streak_progress", pruned)
+
 def get_streak(user):
     if not user: return {"count": 0, "last_date": ""}
     s = streaks.get(user.lower())
@@ -412,6 +417,7 @@ async def streak_heartbeat_handler(request):
         p["seconds"] = min(int(p["seconds"]) + STREAK_HEARTBEAT_PERIOD, STREAK_ACTIVE_SECONDS_REQUIRED)
         p["last_hb_ts"] = now
         streak_progress[ulow] = p
+        await save_streak_progress()
         if p["seconds"] >= STREAK_ACTIVE_SECONDS_REQUIRED:
             await bump_streak(user)
             earned_today = True
@@ -727,6 +733,10 @@ async def load_all_data():
     lifetime_pixels = await db_load("store", "lifetime_pixels") or {}
     purchases = await db_load("store", "purchases") or {}
     streaks = await db_load("store", "streaks") or {}
+    global streak_progress
+    raw_progress = await db_load("store", "streak_progress") or {}
+    today_iso = date.today().isoformat()
+    streak_progress = {k: v for k, v in raw_progress.items() if isinstance(v, dict) and v.get("date") == today_iso}
     stay_seconds = await db_load("store", "stay_seconds") or {}
     global economy_history
     economy_history = await db_load("store", "economy_history") or []
