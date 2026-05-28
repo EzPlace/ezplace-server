@@ -632,6 +632,10 @@
             <span id="custom-rank-preview" style="font-size:10px;font-weight:700;color:#ee5a52;">[PREVIEW]</span>
           </div>
         </div>
+        <div id="shop-item-luck-2x" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">2x Luck 🍀</div><div style="font-size:11px;color:var(--text-muted);">Doubles your winnings on every house game (slots, roulette, coin flip, blackjack, RPS vs AI). Permanent.</div></div><button class="win-btn shop-buy" data-item="luck_2x" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">1000 $</button></div>
+        <div id="shop-item-luck-4x" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">4x Luck 🍀🍀</div><div style="font-size:11px;color:var(--text-muted);">Quadruples house-game winnings. Overrides 2x Luck. Permanent.</div></div><button class="win-btn shop-buy" data-item="luck_4x" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">2000 $</button></div>
+        <div id="shop-item-streak-48hr" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">48hr Streak Window 🕐</div><div style="font-size:11px;color:var(--text-muted);">Lets you skip a day without losing your streak. Permanent.</div></div><button class="win-btn shop-buy" data-item="streak_48hr" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">1200 $</button></div>
+        <div id="shop-item-streak-pass" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">Streak Pass 🛡 <span id="streak-pass-count" style="color:var(--gold);font-size:11px;"></span></div><div style="font-size:11px;color:var(--text-muted);">Stackable insurance: auto-restores your streak if you'd otherwise reset to 1. One pass per save.</div></div><button class="win-btn shop-buy" data-item="streak_pass" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">800 $</button></div>
       </div>
 
       <!-- CASINO tab (each game collapsed by default; click to open) -->
@@ -2728,14 +2732,31 @@ async function streakHeartbeat() {
 setInterval(streakHeartbeat, 30000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') streakHeartbeat(); });
 
+const SHOP_STACKABLE = new Set(['streak_pass']);
+const SHOP_PRICES_LABEL = { custom_wheel: '5 $', vip: '45 $', custom_rank: '70 $', luck_2x: '1000 $', luck_4x: '2000 $', streak_48hr: '1200 $', streak_pass: '800 $' };
 function openShop() {
   if (!authToken) { alert('Log in to use the shop.'); return; }
   document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance;
   document.getElementById('shop-msg').textContent = '';
   document.querySelectorAll('#shop-modal .shop-buy').forEach(b => {
     const item = b.dataset.item;
-    if (myPurchases[item] || myUnlimited) { b.textContent = 'Owned'; b.disabled = true; b.style.background = 'var(--bg-elevated)'; b.style.color = 'var(--text-muted)'; }
+    const owned = myPurchases[item];
+    b.disabled = false;
+    b.style.background = 'var(--accent)';
+    b.style.color = '#fff';
+    if (SHOP_STACKABLE.has(item)) {
+      b.textContent = SHOP_PRICES_LABEL[item] || 'Buy';
+    } else if (owned || myUnlimited) {
+      b.textContent = 'Owned'; b.disabled = true; b.style.background = 'var(--bg-elevated)'; b.style.color = 'var(--text-muted)';
+    } else {
+      b.textContent = SHOP_PRICES_LABEL[item] || 'Buy';
+    }
   });
+  const spc = document.getElementById('streak-pass-count');
+  if (spc) {
+    const n = parseInt(myPurchases.streak_pass) || 0;
+    spc.textContent = n > 0 ? ('(you own ' + n + ')') : '';
+  }
   document.getElementById('shop-modal').style.display = 'flex';
 }
 document.getElementById('btn-shop').onclick = openShop;
@@ -4515,7 +4536,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank, msg.clan, msg.reply_to); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
       case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBucks', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
-      case 'streak_bonus': { myStreak = msg.count || myStreak; myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true }; applyPbState(); showDmToast('🔥 Daily Streak', 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
+      case 'streak_bonus': { myStreak = msg.count || myStreak; myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true }; if (msg.used_pass && myPurchases) myPurchases.streak_pass = msg.passes_left; applyPbState(); showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
@@ -4679,8 +4700,9 @@ function connectSocial() {
     if (msg.type === 'streak_bonus') {
       myStreak = msg.count || myStreak;
       myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true };
+      if (msg.used_pass && myPurchases) myPurchases.streak_pass = msg.passes_left;
       applyPbState();
-      showDmToast('🔥 Daily Streak', 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {});
+      showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {});
     }
     if (msg.type === 'economy_total') {
       const totalEl = document.getElementById('economy-total');

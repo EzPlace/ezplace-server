@@ -65,7 +65,23 @@ economy_history = []
 ECONOMY_SNAPSHOT_INTERVAL = 300
 ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
-SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70}
+SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70, "luck_2x": 1000, "luck_4x": 2000, "streak_48hr": 1200, "streak_pass": 800}
+STACKABLE_ITEMS = {"streak_pass"}
+
+def luck_mult(user):
+    if not user or is_admin(user): return 1
+    pu = purchases.get(user.lower()) or {}
+    if pu.get("luck_4x"): return 4
+    if pu.get("luck_2x"): return 2
+    return 1
+
+def apply_luck(user, bet, winnings):
+    """Multiply the profit portion of a house-game payout by the user's luck
+    tier. Refunds and losses are unchanged so we don't mint PB on pushes."""
+    if winnings <= bet: return winnings
+    mult = luck_mult(user)
+    if mult <= 1: return winnings
+    return bet + (winnings - bet) * mult
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
 
 ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
@@ -339,20 +355,35 @@ def get_streak_progress(user):
 async def bump_streak(user):
     """Advance the user's daily streak counter and pay out the PB reward. Caller
     is responsible for ensuring this should fire (e.g. they've put in the
-    required active-tab time for today)."""
+    required active-tab time for today). Respects the 48hr-window and
+    streak-pass shop items."""
     if not user or is_admin(user): return 0
     ulow = user.lower()
     today = date.today().isoformat()
     s = streaks.get(ulow) or {"count": 0, "last_date": ""}
     if s.get("last_date") == today: return 0
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
-    new_count = int(s.get("count", 0)) + 1 if s.get("last_date") == yesterday else 1
+    pu = purchases.get(ulow) or {}
+    allowed_days = 2 if pu.get("streak_48hr") else 1
+    valid_prior = {(date.today() - timedelta(days=i)).isoformat() for i in range(1, allowed_days + 1)}
+    used_pass = False
+    if s.get("last_date") in valid_prior:
+        new_count = int(s.get("count", 0)) + 1
+    else:
+        passes = int(pu.get("streak_pass", 0))
+        if passes > 0 and int(s.get("count", 0)) > 0:
+            pu["streak_pass"] = passes - 1
+            purchases[ulow] = pu
+            await save_purchases()
+            new_count = int(s.get("count", 0)) + 1
+            used_pass = True
+        else:
+            new_count = 1
     reward = min(new_count * 2, STREAK_REWARD_CAP)
     streaks[ulow] = {"count": new_count, "last_date": today, "last_reward": reward}
     credit_pb(user, reward)
     await save_place_bucks()
     await save_streaks()
-    payload = {"type": "streak_bonus", "count": new_count, "reward": reward}
+    payload = {"type": "streak_bonus", "count": new_count, "reward": reward, "used_pass": used_pass, "passes_left": int((purchases.get(ulow) or {}).get("streak_pass", 0))}
     for ws, info in list(clients.items()):
         if info and info.get("username", "").lower() == ulow and not ws.closed:
             try: await ws.send_json(payload)
@@ -1909,13 +1940,19 @@ async def shop_buy_handler(request):
         await save_ranks()
         await push_pb_update(user)
         return web.json_response({"ok": True, "balance": get_pb(user), "purchases": purchases.get(user.lower()) or {}})
-    if has_purchase(user, item):
+    stackable = item in STACKABLE_ITEMS
+    if not stackable and has_purchase(user, item):
+        return web.json_response({"error": "You already own that"}, status=400)
+    if item == "luck_4x" and has_purchase(user, "luck_4x"):
         return web.json_response({"error": "You already own that"}, status=400)
     price = SHOP_PRICES[item]
     if not spend_pb(user, price):
         return web.json_response({"error": f"Not enough PlaceBucks (need {price})"}, status=400)
     pu = purchases.setdefault(user.lower(), {})
-    pu[item] = True
+    if stackable:
+        pu[item] = int(pu.get(item, 0)) + 1
+    else:
+        pu[item] = True
     await save_purchases()
     await save_place_bucks()
                            
@@ -2015,6 +2052,7 @@ async def casino_slots_handler(request):
         for s in spin: counts[s] = counts.get(s, 0) + 1
         if max(counts.values()) == 2:
             winnings = amount; outcome = "pair"
+    winnings = apply_luck(user, amount, winnings)
     await _casino_payout(user, winnings)
     detail = " ".join(spin) + (" 🎰 JACKPOT" if outcome == "jackpot" else "")
     await broadcast_casino_result(user, "Slots", amount, winnings, detail)
@@ -2036,6 +2074,7 @@ async def casino_roulette_handler(request):
         if result_color == "green": winnings = amount * 35
         else: winnings = amount * 2
         outcome = "win"
+    winnings = apply_luck(user, amount, winnings)
     await _casino_payout(user, winnings)
     await broadcast_casino_result(user, "Roulette", amount, winnings, f"landed {n} {result_color} (bet {choice})")
     return web.json_response({"ok": True, "number": n, "color": result_color, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
@@ -2053,6 +2092,7 @@ async def casino_coinflip_handler(request):
     if choice == flip:
         winnings = int(amount * 1.95)                    
         outcome = "win"
+    winnings = apply_luck(user, amount, winnings)
     await _casino_payout(user, winnings)
     await broadcast_casino_result(user, "Coin Flip", amount, winnings, f"{flip} (called {choice})")
     return web.json_response({"ok": True, "flip": flip, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
@@ -2092,7 +2132,8 @@ async def _bj_resolve(user, game):
     elif psc < dsc:
         outcome = "lose"; winnings = 0
     else:
-        outcome = "push"; winnings = bet                
+        outcome = "push"; winnings = bet
+    winnings = apply_luck(user, bet, winnings)
     if winnings > 0: credit_pb(user, winnings)
     await save_place_bucks()
     await push_pb_update(user)
@@ -2131,7 +2172,7 @@ async def casino_blackjack_handler(request):
                 await broadcast_casino_result(user, "Blackjack", amount, amount, "double 21 push")
                 return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": 21, "outcome": "push", "winnings": amount, "bet": amount, "balance": get_pb(user)})
             else:
-                pay = int(amount * 2.5)                         
+                pay = apply_luck(user, amount, int(amount * 2.5))
                 credit_pb(user, pay); await save_place_bucks(); await push_pb_update(user)
                 game["done"] = True
                 await broadcast_casino_result(user, "Blackjack", amount, pay, "NATURAL 21")
@@ -2180,9 +2221,10 @@ async def casino_rps_solo_handler(request):
     if choice == ai:
         outcome = "tie"; winnings = amount        
     elif _rps_beats(choice, ai):
-        outcome = "win"; winnings = int(amount * 1.95)                    
+        outcome = "win"; winnings = int(amount * 1.95)
     else:
         outcome = "lose"; winnings = 0
+    winnings = apply_luck(user, amount, winnings)
     if winnings > 0: credit_pb(user, winnings)
     await save_place_bucks(); await push_pb_update(user)
     await broadcast_casino_result(user, "RPS vs AI", amount, winnings, f"{choice} vs {ai}")
