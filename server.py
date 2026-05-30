@@ -2113,6 +2113,27 @@ async def casino_roulette_handler(request):
     await broadcast_casino_result(user, "Roulette", amount, winnings, f"landed {n} {result_color} (bet {choice})")
     return web.json_response({"ok": True, "number": n, "color": result_color, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
 
+PLINKO_ROWS = 9
+PLINKO_MULTIPLIERS = [10.0, 3.0, 1.4, 1.1, 0.5, 0.3, 0.5, 1.1, 1.4, 3.0, 10.0]
+
+async def casino_plinko_handler(request):
+    res, err = await _casino_open(request, "casino_plinko")
+    if err: return err
+    user, amount, _ = res
+    path = []
+    bucket = 0
+    for _ in range(PLINKO_ROWS):
+        r = secrets.randbelow(2)
+        path.append(r)
+        bucket += r
+    if bucket < 0: bucket = 0
+    if bucket >= len(PLINKO_MULTIPLIERS): bucket = len(PLINKO_MULTIPLIERS) - 1
+    mult = PLINKO_MULTIPLIERS[bucket]
+    winnings = int(amount * mult)
+    await _casino_payout(user, winnings)
+    await broadcast_casino_result(user, "Plinko", amount, winnings, f"bucket {bucket} (x{mult})")
+    return web.json_response({"ok": True, "path": path, "bucket": bucket, "multiplier": mult, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
+
 async def casino_coinflip_handler(request):
     res, err = await _casino_open(request, "casino_coinflip")
     if err: return err
@@ -4357,6 +4378,7 @@ app.router.add_post("/api/pb/transfer", pb_transfer_handler)
 app.router.add_post("/api/casino/slots", casino_slots_handler)
 app.router.add_post("/api/casino/roulette", casino_roulette_handler)
 app.router.add_post("/api/casino/coinflip", casino_coinflip_handler)
+app.router.add_post("/api/casino/plinko", casino_plinko_handler)
 app.router.add_post("/api/casino/blackjack", casino_blackjack_handler)
 app.router.add_post("/api/casino/rps/solo", casino_rps_solo_handler)
 app.router.add_post("/api/casino/rps/join", casino_rps_join_handler)

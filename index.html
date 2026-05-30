@@ -764,6 +764,17 @@
             <div id="coin-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
         </details>
+        <details class="game-acc"><summary>Plinko <span class="game-hint">Drop the ball - edges pay 10x, center pays 0.3x</span></summary>
+          <div class="game-body">
+            <canvas id="plinko-canvas" width="380" height="420" style="display:block;margin:0 auto;background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;max-width:100%;"></canvas>
+            <div id="plinko-buckets" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:9px;color:var(--text-muted);display:flex;justify-content:space-around;padding:0 4px;text-align:center;"></div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input id="plinko-bet" type="number" min="1" value="10" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
+              <button id="btn-plinko" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Drop Ball</button>
+            </div>
+            <div id="plinko-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+          </div>
+        </details>
       </div>
 
       <!-- TRANSFER tab -->
@@ -3724,6 +3735,116 @@ document.querySelectorAll('.coin-go').forEach(b => {
     });
   };
 });
+
+const PLINKO_ROWS = 9;
+const PLINKO_MULTIPLIERS = [10.0, 3.0, 1.4, 1.1, 0.5, 0.3, 0.5, 1.1, 1.4, 3.0, 10.0];
+function plinkoLayout() {
+  const cv = document.getElementById('plinko-canvas');
+  if (!cv) return null;
+  const w = cv.width, h = cv.height;
+  const padTop = 20, padBottom = 50, padX = 18;
+  const innerH = h - padTop - padBottom;
+  const innerW = w - padX * 2;
+  const rowGap = innerH / (PLINKO_ROWS + 1);
+  const colGap = innerW / (PLINKO_ROWS + 2);
+  const pegs = [];
+  for (let row = 0; row < PLINKO_ROWS; row++) {
+    const pegsInRow = row + 3;
+    const rowY = padTop + rowGap * (row + 1);
+    const totalWidth = (pegsInRow - 1) * colGap;
+    const rowStartX = (w - totalWidth) / 2;
+    for (let i = 0; i < pegsInRow; i++) {
+      pegs.push({ x: rowStartX + i * colGap, y: rowY, row, col: i });
+    }
+  }
+  const lastRowStartX = (w - (PLINKO_ROWS + 1) * colGap) / 2;
+  const buckets = [];
+  for (let i = 0; i < PLINKO_MULTIPLIERS.length; i++) {
+    buckets.push({ x: lastRowStartX + i * colGap + colGap / 2, y: padTop + rowGap * (PLINKO_ROWS + 1) + 6 });
+  }
+  return { w, h, padTop, padBottom, padX, rowGap, colGap, pegs, buckets, ctx: cv.getContext('2d') };
+}
+function plinkoDrawStatic() {
+  const L = plinkoLayout(); if (!L) return;
+  const { ctx, w, h, pegs, buckets } = L;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  pegs.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill(); });
+  buckets.forEach((b, i) => {
+    const m = PLINKO_MULTIPLIERS[i];
+    let bg = '#444';
+    if (m >= 5) bg = '#22c55e';
+    else if (m >= 1.4) bg = '#3a7';
+    else if (m >= 1) bg = '#666';
+    else if (m >= 0.5) bg = '#b25';
+    else bg = '#a22';
+    const bw = L.colGap - 2, bh = 30;
+    ctx.fillStyle = bg;
+    ctx.fillRect(b.x - bw / 2, b.y, bw, bh);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(m + 'x', b.x, b.y + bh / 2);
+  });
+}
+function plinkoRenderBucketsList() {
+  const wrap = document.getElementById('plinko-buckets'); if (!wrap) return;
+  wrap.innerHTML = PLINKO_MULTIPLIERS.map(m => '<span>' + m + 'x</span>').join('');
+}
+async function plinkoAnimate(path, bucket, mult, winnings, bet, msgEl) {
+  const L = plinkoLayout(); if (!L) return;
+  const { ctx, w, pegs, buckets, padTop, rowGap, colGap } = L;
+  const startX = w / 2, startY = 8;
+  let col = 0;
+  const ballPath = [{ x: startX, y: startY }];
+  for (let r = 0; r < PLINKO_ROWS; r++) {
+    const goRight = path[r];
+    const pegsInRow = r + 3;
+    const rowY = padTop + rowGap * (r + 1);
+    const totalWidth = (pegsInRow - 1) * colGap;
+    const rowStartX = (w - totalWidth) / 2;
+    const pegIdx = col + (goRight ? 1 : 0);
+    const pegX = rowStartX + pegIdx * colGap;
+    ballPath.push({ x: pegX, y: rowY - 6 });
+    ballPath.push({ x: pegX + (goRight ? colGap / 2 : -colGap / 2), y: rowY + 4 });
+    if (goRight) col += 1;
+  }
+  const bx = buckets[bucket].x;
+  ballPath.push({ x: bx, y: buckets[bucket].y - 8 });
+  ballPath.push({ x: bx, y: buckets[bucket].y + 15 });
+  const stepMs = 70;
+  for (let i = 1; i < ballPath.length; i++) {
+    plinkoDrawStatic();
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(ballPath[i].x, ballPath[i].y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,210,63,0.4)'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let j = Math.max(0, i - 5); j <= i; j++) { if (j === Math.max(0, i - 5)) ctx.moveTo(ballPath[j].x, ballPath[j].y); else ctx.lineTo(ballPath[j].x, ballPath[j].y); }
+    ctx.stroke();
+    await new Promise(r => setTimeout(r, stepMs));
+  }
+  plinkoDrawStatic();
+  ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(bx, buckets[bucket].y + 15, 6, 0, Math.PI * 2); ctx.fill();
+  const net = winnings - bet;
+  if (net > 0) { msgEl.textContent = `🎉 ${mult}x! Won ${winnings} $ (net +${net})`; msgEl.style.color = '#22c55e'; }
+  else if (net === 0) { msgEl.textContent = `${mult}x - broke even`; msgEl.style.color = 'var(--text-muted)'; }
+  else { msgEl.textContent = `${mult}x - net ${net} $`; msgEl.style.color = 'var(--red)'; }
+}
+plinkoRenderBucketsList();
+plinkoDrawStatic();
+document.getElementById('btn-plinko').onclick = async () => {
+  const amount = parseInt(document.getElementById('plinko-bet').value) || 0;
+  const msg = document.getElementById('plinko-msg');
+  const btn = document.getElementById('btn-plinko');
+  if (amount < 1) { msg.textContent = 'Bet must be at least 1 $'; msg.style.color = 'var(--red)'; return; }
+  btn.disabled = true; msg.textContent = 'Dropping...'; msg.style.color = 'var(--text-muted)';
+  try {
+    const r = await fetch(BACKEND + '/api/casino/plinko', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ amount }) });
+    const d = await r.json();
+    if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; btn.disabled = false; return; }
+    if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
+    await plinkoAnimate(d.path, d.bucket, d.multiplier, d.winnings, d.bet, msg);
+  } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+  finally { btn.disabled = false; }
+};
 
 document.getElementById('btn-pb-xfer').onclick = async () => {
   const to = document.getElementById('pb-xfer-to').value.trim();
