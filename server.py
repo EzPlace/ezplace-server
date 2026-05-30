@@ -2838,7 +2838,7 @@ BATTLE_DRAW_SECONDS_MIN = 30
 BATTLE_DRAW_SECONDS_MAX = 300
 BATTLE_JUDGE_TIMEOUT = 90
 BATTLE_PALETTE_SIZE = 53
-BATTLE_THEMES = [
+BATTLE_THEMES_CURATED = [
     "a sad cat", "the sun melting", "a haunted house", "a dancing robot",
     "underwater city", "alien at the beach", "dragon eating pizza",
     "lonely lighthouse", "rainbow tornado", "ghost in the kitchen",
@@ -2848,7 +2848,92 @@ BATTLE_THEMES = [
     "deep sea fish", "robot puppy", "city in the clouds",
     "knight fighting a worm", "frog playing guitar", "bored astronaut",
     "spider on a cake", "vampire eating ice cream", "ninja turtle in love",
+    "shark in a suit", "tornado made of cats", "haunted refrigerator",
+    "duck riding a motorcycle", "an alien stealing fries", "potato superhero",
+    "skeleton at a disco", "dinosaur eating sushi", "yoga class for ghosts",
+    "octopus playing piano", "sentient sandwich", "library on fire",
+    "moon with a face", "snail racing championship", "evil rubber duck",
+    "robot crying in the rain", "frog mayor of a swamp", "pirate ship in space",
+    "tiny dragon hugging a sword", "cactus wedding", "donut shaped planet",
+    "wizard losing wifi", "bear hibernating in a couch", "magic toaster",
+    "shadow eating the sun", "mountain made of jelly", "cloud factory",
+    "raccoon CEO", "fish riding a bicycle", "tree with eyes",
+    "city under a glass dome", "shark with legs", "carnival at night",
+    "tiny knight on a snail", "burger volcano", "fox astronaut",
+    "candle in a hurricane", "mushroom kingdom collapsing", "tiger in a teacup",
+    "snake learning to fly", "evil clown selling balloons", "robot grandma knitting",
+    "panda in a tuxedo", "lava floor in a classroom", "cat overlord on a throne",
+    "ghost taking a selfie", "wizard duel in a parking lot",
 ]
+
+BATTLE_ADJ = [
+    "angry", "sleepy", "tiny", "huge", "glowing", "melting", "exploding", "frozen",
+    "ancient", "royal", "secret", "hungry", "scared", "smelly", "fluffy", "cosmic",
+    "haunted", "drunk", "lost", "broken", "evil", "lazy", "shiny", "rusty",
+    "invisible", "feral", "magical", "cursed", "robotic", "rainbow", "moldy",
+    "buff", "tired", "confused", "elegant", "wise", "stinky", "polite", "dramatic",
+    "cowardly", "noble", "sneaky", "fearless", "depressed", "ecstatic", "mysterious",
+    "underwater", "miniature", "giant", "burning", "icy", "smiling", "crying",
+    "celebrity", "retired", "feral", "buff", "8-bit", "bedazzled",
+]
+
+BATTLE_SUBJECT = [
+    "cat", "dog", "dragon", "robot", "ghost", "wizard", "knight", "samurai", "alien",
+    "ninja", "pirate", "vampire", "mermaid", "dinosaur", "frog", "spider", "octopus",
+    "llama", "capybara", "beaver", "sloth", "owl", "fox", "panda", "raccoon", "duck",
+    "goose", "shark", "whale", "snail", "snake", "tiger", "lion", "bear", "rabbit",
+    "hedgehog", "platypus", "axolotl", "chameleon", "turtle", "skeleton", "zombie",
+    "demon", "angel", "fairy", "centaur", "yeti", "kraken", "cyclops", "mummy",
+    "chef", "scientist", "pirate", "barista", "DJ", "wrestler", "librarian", "clown",
+    "astronaut", "cowboy", "viking", "monk", "detective", "plumber", "farmer",
+    "potato", "sandwich", "pizza", "donut", "cupcake", "burger", "noodle",
+    "lamp", "toaster", "fridge", "couch", "vending machine", "stop sign",
+]
+
+BATTLE_ACTION = [
+    "dancing", "sleeping", "fighting a worm", "eating pizza", "riding a bike",
+    "brushing teeth", "playing chess", "surfing", "doing yoga", "painting",
+    "breakdancing", "lifting weights", "stealing fries", "running away",
+    "taking a selfie", "writing a poem", "singing karaoke", "ordering coffee",
+    "filing taxes", "playing guitar", "skateboarding", "doing laundry",
+    "cooking ramen", "knitting a sweater", "meditating", "screaming",
+    "crying", "laughing too hard", "going on a date", "robbing a bank",
+    "teaching a class", "ice skating", "juggling", "doing a backflip",
+    "buying milk", "checking the mail", "ringing a doorbell", "vacuuming",
+    "winning a marathon", "losing at chess", "feeding pigeons", "watering plants",
+]
+
+BATTLE_SETTING = [
+    "a haunted house", "the moon", "underwater", "a cloud", "the desert",
+    "a treehouse", "a graveyard", "a cyberpunk city", "a sushi bar", "a museum",
+    "outer space", "a volcano", "a swamp", "a library", "a laundromat",
+    "a vending machine", "a parking lot", "an elevator", "a giant pumpkin",
+    "the bottom of a well", "a snow globe", "a pirate ship", "a circus tent",
+    "a haunted castle", "the bus stop", "a coffee shop", "Times Square",
+    "a tiny apartment", "the principal's office", "an alien spaceship",
+    "a bowling alley", "a roller rink", "a candy factory", "a black hole",
+    "Mars", "a frozen lake", "a sushi conveyor belt", "an arcade",
+]
+
+
+def random_battle_theme():
+    """50/50: pick from the hand-curated list, or generate combinatorially.
+    Combinatorial templates produce orders of magnitude more variety than a
+    fixed list could."""
+    if secrets.randbelow(2) == 0:
+        return secrets.choice(BATTLE_THEMES_CURATED)
+    pattern = secrets.randbelow(6)
+    if pattern == 0:
+        return f"a {secrets.choice(BATTLE_ADJ)} {secrets.choice(BATTLE_SUBJECT)}"
+    if pattern == 1:
+        return f"a {secrets.choice(BATTLE_SUBJECT)} {secrets.choice(BATTLE_ACTION)}"
+    if pattern == 2:
+        return f"a {secrets.choice(BATTLE_ADJ)} {secrets.choice(BATTLE_SUBJECT)} {secrets.choice(BATTLE_ACTION)}"
+    if pattern == 3:
+        return f"a {secrets.choice(BATTLE_SUBJECT)} in {secrets.choice(BATTLE_SETTING)}"
+    if pattern == 4:
+        return f"a {secrets.choice(BATTLE_ADJ)} {secrets.choice(BATTLE_SUBJECT)} in {secrets.choice(BATTLE_SETTING)}"
+    return f"a {secrets.choice(BATTLE_SUBJECT)} {secrets.choice(BATTLE_ACTION)} in {secrets.choice(BATTLE_SETTING)}"
 
 battle_rooms = {}
 
@@ -3026,7 +3111,7 @@ async def battle_start_handler(request):
     if room["phase"] != "lobby": return web.json_response({"error": "Already started"}, status=400)
     if len(room["drawers"]) != 2: return web.json_response({"error": "Need exactly 2 drawers"}, status=400)
     if not room["judge"]: return web.json_response({"error": "Need a judge"}, status=400)
-    room["theme"] = secrets.choice(BATTLE_THEMES)
+    room["theme"] = random_battle_theme()
     room["phase"] = "drawing"
     room["end_at"] = time.time() + room["draw_seconds"]
     room["grids"] = {d: bytearray(BATTLE_GRID * BATTLE_GRID) for d in room["drawers"]}
