@@ -473,8 +473,11 @@
     <div style="width:100%;max-width:480px;display:flex;flex-direction:column;gap:6px;align-items:center;">
       <div style="font-size:11px;color:var(--text-muted);">Sum of every player's PlaceBucks (toothpaste excluded)</div>
       <div id="economy-total" style="font-size:24px;font-weight:800;font-family:'JetBrains Mono','Fira Code',monospace;color:var(--text-primary);">- $</div>
-      <canvas id="economy-graph" width="460" height="120" style="width:100%;max-width:460px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);"></canvas>
-      <div id="economy-graph-caption" style="font-size:10px;color:var(--text-muted);">history (up to 7 days, hourly snapshots)</div>
+      <div style="position:relative;width:100%;max-width:460px;">
+        <canvas id="economy-graph" width="460" height="180" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:crosshair;"></canvas>
+        <div id="economy-graph-tip" style="display:none;position:absolute;background:rgba(0,0,0,0.85);color:#fff;border:1px solid var(--accent);border-radius:4px;padding:3px 6px;font-size:11px;font-family:'JetBrains Mono','Fira Code',monospace;pointer-events:none;white-space:nowrap;z-index:5;"></div>
+      </div>
+      <div id="economy-graph-caption" style="font-size:10px;color:var(--text-muted);">history (up to 7 days, hourly snapshots) - hover for exact values</div>
     </div>
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
       <span>Clans</span>
@@ -955,6 +958,9 @@
         <button class="win-btn" id="btn-admin-pb-grant" style="background:var(--accent);color:#fff;">Grant</button>
       </div>
       <div id="admin-pb-status" style="font-size:10px;color:#666;min-height:14px;">&nbsp;</div>
+      <h4>Richest Players</h4>
+      <div class="admin-row"><button class="win-btn" id="btn-admin-richest" style="background:var(--accent);color:#fff;">Refresh leaderboard</button><span id="admin-richest-meta" style="font-size:11px;color:var(--text-muted);align-self:center;"></span></div>
+      <div id="admin-richest-list" style="display:flex;flex-direction:column;gap:2px;font-size:11px;margin:6px 0;font-family:'JetBrains Mono','Fira Code',monospace;"></div>
       <h4>Ban / Kick</h4>
       <div class="admin-row">
         <input id="admin-ban-input" class="win-input" type="text" placeholder="Username">
@@ -3762,6 +3768,21 @@ function renderEconomyUI(total, delta) {
   drawEconomyGraph(color, delta);
 }
 
+let _economyGraphPoints = [];
+let _economyGraphGeom = null;
+function fmtCompact(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}
+function fmtAgo(seconds) {
+  const m = Math.floor(seconds / 60), hr = Math.floor(seconds / 3600), d = Math.floor(seconds / 86400);
+  if (d >= 1) return d + 'd';
+  if (hr >= 1) return hr + 'h';
+  if (m >= 1) return m + 'm';
+  return seconds + 's';
+}
 function drawEconomyGraph(color, delta) {
   const canvas = document.getElementById('economy-graph');
   if (!canvas) return;
@@ -3770,42 +3791,111 @@ function drawEconomyGraph(color, delta) {
   ctx.clearRect(0, 0, w, h);
   const points = economyHistoryCache.map(p => ({ ts: p.ts, v: Number(p.total || 0) }))
     .concat(economyLiveBuf.map(p => ({ ts: p.ts, v: p.v })));
+  _economyGraphPoints = points;
   if (points.length < 2) {
     ctx.fillStyle = '#888'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('Building history... (live updates as transactions happen)', w / 2, h / 2);
+    _economyGraphGeom = null;
     return;
   }
   const vals = points.map(p => p.v);
   let mn = Math.min(...vals), mx = Math.max(...vals);
   if (mx === mn) { mx = mn + 1; }
-  const pad = 8;
-  const innerW = w - pad * 2, innerH = h - pad * 2;
+  const padL = 48, padR = 10, padT = 10, padB = 22;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
   const t0 = points[0].ts, tN = points[points.length - 1].ts;
   const dur = Math.max(1, tN - t0);
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 1;
-  for (let i = 1; i < 4; i++) {
-    const y = pad + (innerH * i) / 4;
-    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
+  _economyGraphGeom = { padL, padR, padT, padB, innerW, innerH, t0, tN, dur, mn, mx, w, h };
+
+  // horizontal grid + Y-axis labels (5 lines)
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#888'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  const yLines = 5;
+  for (let i = 0; i <= yLines; i++) {
+    const y = padT + (innerH * i) / yLines;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + innerW, y); ctx.stroke();
+    const v = mx - (mx - mn) * i / yLines;
+    ctx.fillText(fmtCompact(Math.round(v)) + ' $', padL - 4, y);
   }
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+
+  // vertical grid + X-axis labels (5 ticks)
+  const xTicks = 5;
+  const nowS = Math.floor(Date.now() / 1000);
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let i = 0; i <= xTicks; i++) {
+    const x = padL + (innerW * i) / xTicks;
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + innerH); ctx.stroke();
+    const ts = t0 + (dur * i) / xTicks;
+    const label = (i === xTicks) ? 'now' : (fmtAgo(nowS - Math.floor(ts)) + ' ago');
+    ctx.fillText(label, x, padT + innerH + 4);
+  }
+
+  // filled area under the line
   ctx.beginPath();
   points.forEach((p, i) => {
-    const x = pad + ((p.ts - t0) / dur) * innerW;
-    const y = pad + innerH - ((p.v - mn) / (mx - mn)) * innerH;
+    const x = padL + ((p.ts - t0) / dur) * innerW;
+    const y = padT + innerH - ((p.v - mn) / (mx - mn)) * innerH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  const lastX = padL + innerW;
+  ctx.lineTo(lastX, padT + innerH);
+  ctx.lineTo(padL, padT + innerH);
+  ctx.closePath();
+  ctx.fillStyle = (delta > 0 ? 'rgba(34,197,94,0.12)' : (delta < 0 ? 'rgba(192,57,43,0.12)' : 'rgba(255,255,255,0.04)'));
+  ctx.fill();
+
+  // line
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = padL + ((p.ts - t0) / dur) * innerW;
+    const y = padT + innerH - ((p.v - mn) / (mx - mn)) * innerH;
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
   ctx.stroke();
-  ctx.lineTo(pad + innerW, h - pad);
-  ctx.lineTo(pad, h - pad);
-  ctx.closePath();
-  ctx.fillStyle = (delta > 0 ? 'rgba(34,197,94,0.10)' : (delta < 0 ? 'rgba(192,57,43,0.10)' : 'rgba(255,255,255,0.04)'));
-  ctx.fill();
-  ctx.fillStyle = '#888'; ctx.font = '10px Inter, sans-serif';
-  ctx.textAlign = 'left'; ctx.fillText(mx.toLocaleString(), pad + 2, pad + 10);
-  ctx.fillText(mn.toLocaleString(), pad + 2, h - pad - 2);
+
+  // data point dots (only if not too many)
+  if (points.length <= 80) {
+    ctx.fillStyle = color;
+    points.forEach(p => {
+      const x = padL + ((p.ts - t0) / dur) * innerW;
+      const y = padT + innerH - ((p.v - mn) / (mx - mn)) * innerH;
+      ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+    });
+  }
 }
+
+(function bindEconomyGraphHover() {
+  const canvas = document.getElementById('economy-graph');
+  const tip = document.getElementById('economy-graph-tip');
+  if (!canvas || !tip) return;
+  const moveHandler = (clientX, clientY) => {
+    if (!_economyGraphGeom || !_economyGraphPoints.length) { tip.style.display = 'none'; return; }
+    const r = canvas.getBoundingClientRect();
+    const xPx = (clientX - r.left) * (canvas.width / r.width);
+    const yPx = (clientY - r.top) * (canvas.height / r.height);
+    const g = _economyGraphGeom;
+    if (xPx < g.padL || xPx > g.padL + g.innerW || yPx < g.padT || yPx > g.padT + g.innerH) { tip.style.display = 'none'; return; }
+    const tsAtCursor = g.t0 + ((xPx - g.padL) / g.innerW) * g.dur;
+    let nearest = _economyGraphPoints[0]; let bestDelta = Math.abs(nearest.ts - tsAtCursor);
+    for (const p of _economyGraphPoints) {
+      const d = Math.abs(p.ts - tsAtCursor);
+      if (d < bestDelta) { bestDelta = d; nearest = p; }
+    }
+    const ageS = Math.max(0, Math.floor(Date.now() / 1000) - nearest.ts);
+    tip.innerHTML = '<b style="color:var(--accent);">' + nearest.v.toLocaleString() + ' $</b><br><span style="color:var(--text-muted);">' + (ageS < 60 ? 'just now' : (fmtAgo(ageS) + ' ago')) + '</span>';
+    tip.style.display = 'block';
+    const tipX = Math.min(r.width - 90, ((nearest.ts - g.t0) / g.dur) * (r.width * (g.innerW / canvas.width)) + r.width * (g.padL / canvas.width) + 6);
+    const tipY = Math.max(0, (clientY - r.top) - 28);
+    tip.style.left = tipX + 'px';
+    tip.style.top = tipY + 'px';
+  };
+  canvas.addEventListener('mousemove', e => moveHandler(e.clientX, e.clientY));
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  canvas.addEventListener('touchmove', e => { if (e.touches[0]) moveHandler(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+  canvas.addEventListener('touchend', () => { tip.style.display = 'none'; });
+})();
 
 function pushEconomyLivePoint(total) {
   economyLiveBuf.push({ ts: Math.floor(Date.now() / 1000), v: Number(total) });
@@ -5320,6 +5410,28 @@ async function adminView(endpoint) {
     el.textContent = JSON.stringify(data, null, 2);
   } catch { document.getElementById('admin-json').textContent = 'Error loading'; }
 }
+document.getElementById('btn-admin-richest').onclick = async () => {
+  const list = document.getElementById('admin-richest-list');
+  const meta = document.getElementById('admin-richest-meta');
+  list.innerHTML = '<div style="color:var(--text-muted);">Loading...</div>';
+  meta.textContent = '';
+  try {
+    const r = await fetch(BACKEND + '/api/admin/richest', { headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) { list.innerHTML = '<div style="color:var(--red);">' + esc(d.error) + '</div>'; return; }
+    meta.textContent = '(' + d.count + ' accounts · economy total: ' + d.total.toLocaleString() + ' $)';
+    list.innerHTML = '';
+    (d.rows || []).forEach((row, i) => {
+      const div = document.createElement('div');
+      div.style.cssText = 'display:flex;gap:6px;align-items:center;padding:2px 4px;background:' + (i % 2 ? 'var(--bg-secondary)' : 'transparent') + ';border-radius:3px;';
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+      const dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + (row.online ? '#22c55e' : '#666') + ';"></span>';
+      div.innerHTML = '<span style="width:30px;color:var(--text-muted);">#' + (i + 1) + '</span>' + dot + '<span style="flex:1;">' + esc(row.username) + ' ' + medal + '</span><span style="color:var(--gold);font-weight:700;">' + row.balance.toLocaleString() + ' $</span>';
+      list.appendChild(div);
+    });
+    if (!d.rows.length) list.innerHTML = '<div style="color:var(--text-muted);">No accounts.</div>';
+  } catch { list.innerHTML = '<div style="color:var(--red);">Server offline.</div>'; }
+};
 document.getElementById('btn-admin-pb-grant').onclick = async () => {
   const u = document.getElementById('admin-pb-user').value.trim();
   const amt = parseInt(document.getElementById('admin-pb-amt').value, 10);

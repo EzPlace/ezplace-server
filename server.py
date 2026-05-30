@@ -1364,6 +1364,18 @@ async def admin_alert_handler(request):
             except: pass
     return web.json_response({"ok": True, "message": f"Alert delivered to {delivered} connection(s) for {target}"} if delivered else {"error": f"{target} is not online"})
 
+async def admin_richest_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    rows = []
+    for uname in accounts.keys():
+        if is_admin(uname): continue
+        ulow = uname.lower()
+        bal = int(place_bucks.get(ulow, 0))
+        rows.append({"username": uname, "balance": bal, "online": is_online(uname)})
+    rows.sort(key=lambda r: r["balance"], reverse=True)
+    total = sum(r["balance"] for r in rows)
+    return web.json_response({"ok": True, "total": total, "count": len(rows), "rows": rows[:50]})
+
 async def admin_pb_grant_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -4324,6 +4336,7 @@ app.router.add_post("/api/admin/kick", admin_kick_handler)
 app.router.add_post("/api/admin/alert", admin_alert_handler)
 app.router.add_post("/api/admin/relay", admin_relay_handler)
 app.router.add_post("/api/admin/pb_grant", admin_pb_grant_handler)
+app.router.add_get("/api/admin/richest", admin_richest_handler)
 app.router.add_post("/api/admin/redirect", admin_redirect_handler)
 app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
 app.router.add_post("/api/admin/session-for", admin_session_for_handler)
