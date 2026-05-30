@@ -4070,6 +4070,17 @@ async def on_startup(app):
         migrations_doc["economy_reset_v2"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"economy_reset_v2: rebalanced {len(place_bucks)} users to lifetime_pixels // {PB_PIXELS_PER_BUCK}")
+    if not migrations_doc.get("economy_reset_v3"):
+        place_bucks.clear()
+        for ulow, lp in lifetime_pixels.items():
+            try: n = int(lp)
+            except: continue
+            if n > 0:
+                place_bucks[ulow] = n
+        await save_place_bucks()
+        migrations_doc["economy_reset_v3"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"economy_reset_v3: rebalanced {len(place_bucks)} users to lifetime_pixels (1:1)")
     if not migrations_doc.get("economy_reset_v1"):
         place_bucks.clear()
         for ulow, lp in lifetime_pixels.items():
