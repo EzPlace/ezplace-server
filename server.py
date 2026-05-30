@@ -2838,34 +2838,6 @@ BATTLE_DRAW_SECONDS_MIN = 30
 BATTLE_DRAW_SECONDS_MAX = 300
 BATTLE_JUDGE_TIMEOUT = 90
 BATTLE_PALETTE_SIZE = 53
-BATTLE_THEMES_CURATED = [
-    "a sad cat", "the sun melting", "a haunted house", "a dancing robot",
-    "underwater city", "alien at the beach", "dragon eating pizza",
-    "lonely lighthouse", "rainbow tornado", "ghost in the kitchen",
-    "wizard's hat", "rocket to the moon", "burning forest",
-    "smiling pumpkin", "cyber samurai", "treehouse in the rain",
-    "snowman melting", "mountain at sunset", "happy slime",
-    "deep sea fish", "robot puppy", "city in the clouds",
-    "knight fighting a worm", "frog playing guitar", "bored astronaut",
-    "spider on a cake", "vampire eating ice cream", "ninja turtle in love",
-    "shark in a suit", "tornado made of cats", "haunted refrigerator",
-    "duck riding a motorcycle", "an alien stealing fries", "potato superhero",
-    "skeleton at a disco", "dinosaur eating sushi", "yoga class for ghosts",
-    "octopus playing piano", "sentient sandwich", "library on fire",
-    "moon with a face", "snail racing championship", "evil rubber duck",
-    "robot crying in the rain", "frog mayor of a swamp", "pirate ship in space",
-    "tiny dragon hugging a sword", "cactus wedding", "donut shaped planet",
-    "wizard losing wifi", "bear hibernating in a couch", "magic toaster",
-    "shadow eating the sun", "mountain made of jelly", "cloud factory",
-    "raccoon CEO", "fish riding a bicycle", "tree with eyes",
-    "city under a glass dome", "shark with legs", "carnival at night",
-    "tiny knight on a snail", "burger volcano", "fox astronaut",
-    "candle in a hurricane", "mushroom kingdom collapsing", "tiger in a teacup",
-    "snake learning to fly", "evil clown selling balloons", "robot grandma knitting",
-    "panda in a tuxedo", "lava floor in a classroom", "cat overlord on a throne",
-    "ghost taking a selfie", "wizard duel in a parking lot",
-]
-
 BATTLE_ADJ = [
     "angry", "sleepy", "tiny", "huge", "glowing", "melting", "exploding", "frozen",
     "ancient", "royal", "secret", "hungry", "scared", "smelly", "fluffy", "cosmic",
@@ -2874,7 +2846,11 @@ BATTLE_ADJ = [
     "buff", "tired", "confused", "elegant", "wise", "stinky", "polite", "dramatic",
     "cowardly", "noble", "sneaky", "fearless", "depressed", "ecstatic", "mysterious",
     "underwater", "miniature", "giant", "burning", "icy", "smiling", "crying",
-    "celebrity", "retired", "feral", "buff", "8-bit", "bedazzled",
+    "celebrity", "retired", "8-bit", "bedazzled", "radioactive", "anxious",
+    "philosophical", "drunk", "edgy", "wholesome", "feral", "majestic", "broke",
+    "gothic", "cyberpunk", "steampunk", "discount", "premium", "knockoff",
+    "off-brand", "feral", "viral", "trending", "cancelled", "bored", "horny",
+    "feral", "psychic", "telepathic", "hovering", "leaking", "dripping",
 ]
 
 BATTLE_SUBJECT = [
@@ -2884,10 +2860,15 @@ BATTLE_SUBJECT = [
     "goose", "shark", "whale", "snail", "snake", "tiger", "lion", "bear", "rabbit",
     "hedgehog", "platypus", "axolotl", "chameleon", "turtle", "skeleton", "zombie",
     "demon", "angel", "fairy", "centaur", "yeti", "kraken", "cyclops", "mummy",
-    "chef", "scientist", "pirate", "barista", "DJ", "wrestler", "librarian", "clown",
+    "chef", "scientist", "barista", "DJ", "wrestler", "librarian", "clown",
     "astronaut", "cowboy", "viking", "monk", "detective", "plumber", "farmer",
     "potato", "sandwich", "pizza", "donut", "cupcake", "burger", "noodle",
     "lamp", "toaster", "fridge", "couch", "vending machine", "stop sign",
+    "traffic cone", "trash can", "pencil", "stapler", "calculator",
+    "mailman", "lifeguard", "tax accountant", "DMV worker", "substitute teacher",
+    "telemarketer", "bouncer", "uber driver", "influencer", "youtuber",
+    "kazoo player", "mime", "clown", "magician", "puppeteer", "ventriloquist",
+    "garden gnome", "scarecrow", "rubber duck", "pet rock", "houseplant",
 ]
 
 BATTLE_ACTION = [
@@ -2901,6 +2882,12 @@ BATTLE_ACTION = [
     "teaching a class", "ice skating", "juggling", "doing a backflip",
     "buying milk", "checking the mail", "ringing a doorbell", "vacuuming",
     "winning a marathon", "losing at chess", "feeding pigeons", "watering plants",
+    "dropping a phone", "missing the bus", "writing a will", "applying for a loan",
+    "going to therapy", "trying to parallel park", "binge-watching tv",
+    "running from the cops", "starting a podcast", "moonwalking", "doing taxes",
+    "writing fanfiction", "rage-quitting", "speedrunning life", "live-streaming",
+    "rage-baking", "having an existential crisis", "filing a complaint",
+    "playing the recorder badly", "stealing a bike", "delivering mail",
 ]
 
 BATTLE_SETTING = [
@@ -2913,15 +2900,20 @@ BATTLE_SETTING = [
     "a tiny apartment", "the principal's office", "an alien spaceship",
     "a bowling alley", "a roller rink", "a candy factory", "a black hole",
     "Mars", "a frozen lake", "a sushi conveyor belt", "an arcade",
+    "the DMV", "an IKEA", "a Costco", "a Waffle House", "an abandoned mall",
+    "a self-checkout lane", "the back of an Uber", "a high school gym",
+    "a kid's birthday party", "an office Christmas party", "a job interview",
+    "a wedding", "a funeral", "a courtroom", "a casino", "a McDonald's drive-thru",
+    "a haunted Chuck E Cheese", "a Best Buy parking lot", "an Olive Garden",
+    "the inside of a microwave", "a tornado shelter", "the bottom of a pool",
+    "a karaoke bar", "a dentist's waiting room",
 ]
 
 
 def random_battle_theme():
-    """50/50: pick from the hand-curated list, or generate combinatorially.
-    Combinatorial templates produce orders of magnitude more variety than a
-    fixed list could."""
-    if secrets.randbelow(2) == 0:
-        return secrets.choice(BATTLE_THEMES_CURATED)
+    """100% computer-generated. Picks one of six grammar templates and slots in
+    random words from the adj/subject/action/setting pools. The combined space
+    is in the tens of millions of unique prompts."""
     pattern = secrets.randbelow(6)
     if pattern == 0:
         return f"a {secrets.choice(BATTLE_ADJ)} {secrets.choice(BATTLE_SUBJECT)}"
