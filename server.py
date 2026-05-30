@@ -65,26 +65,11 @@ economy_history = []
 ECONOMY_SNAPSHOT_INTERVAL = 300
 ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
-SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70, "luck_2x": 1000, "luck_4x": 2000, "streak_48hr": 1200, "streak_pass": 800}
+SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
 STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
 PB_TRANSFER_AMOUNT_PER_MIN = 1000
 pb_transfer_amount_window = {}
-
-def luck_mult(user):
-    if not user or is_admin(user): return 1.0
-    pu = purchases.get(user.lower()) or {}
-    if pu.get("luck_4x"): return 2.0
-    if pu.get("luck_2x"): return 1.5
-    return 1.0
-
-def apply_luck(user, bet, winnings):
-    """Multiply the profit portion of a house-game payout by the user's luck
-    tier. Refunds and losses are unchanged so we don't mint PB on pushes."""
-    if winnings <= bet: return winnings
-    mult = luck_mult(user)
-    if mult <= 1: return winnings
-    return int(bet + (winnings - bet) * mult)
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
 
 ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
@@ -1976,8 +1961,6 @@ async def shop_buy_handler(request):
     stackable = item in STACKABLE_ITEMS
     if not stackable and has_purchase(user, item):
         return web.json_response({"error": "You already own that"}, status=400)
-    if item == "luck_4x" and has_purchase(user, "luck_4x"):
-        return web.json_response({"error": "You already own that"}, status=400)
     price = SHOP_PRICES[item]
     if not spend_pb(user, price):
         return web.json_response({"error": f"Not enough PlaceBucks (need {price})"}, status=400)
@@ -2093,7 +2076,6 @@ async def casino_slots_handler(request):
         for s in spin: counts[s] = counts.get(s, 0) + 1
         if max(counts.values()) == 2:
             winnings = amount; outcome = "pair"
-    winnings = apply_luck(user, amount, winnings)
     await _casino_payout(user, winnings)
     detail = " ".join(spin) + (" 🎰 JACKPOT" if outcome == "jackpot" else "")
     await broadcast_casino_result(user, "Slots", amount, winnings, detail)
@@ -2115,7 +2097,6 @@ async def casino_roulette_handler(request):
         if result_color == "green": winnings = amount * 35
         else: winnings = amount * 2
         outcome = "win"
-    winnings = apply_luck(user, amount, winnings)
     await _casino_payout(user, winnings)
     await broadcast_casino_result(user, "Roulette", amount, winnings, f"landed {n} {result_color} (bet {choice})")
     return web.json_response({"ok": True, "number": n, "color": result_color, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
@@ -2133,7 +2114,6 @@ async def casino_coinflip_handler(request):
     if choice == flip:
         winnings = int(amount * 1.95)                    
         outcome = "win"
-    winnings = apply_luck(user, amount, winnings)
     await _casino_payout(user, winnings)
     await broadcast_casino_result(user, "Coin Flip", amount, winnings, f"{flip} (called {choice})")
     return web.json_response({"ok": True, "flip": flip, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
@@ -2174,7 +2154,6 @@ async def _bj_resolve(user, game):
         outcome = "lose"; winnings = 0
     else:
         outcome = "push"; winnings = bet
-    winnings = apply_luck(user, bet, winnings)
     if winnings > 0: credit_pb(user, winnings)
     await save_place_bucks()
     await push_pb_update(user)
@@ -2214,7 +2193,7 @@ async def casino_blackjack_handler(request):
                 await broadcast_casino_result(user, "Blackjack", amount, amount, "double 21 push")
                 return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": 21, "outcome": "push", "winnings": amount, "bet": amount, "balance": get_pb(user)})
             else:
-                pay = apply_luck(user, amount, int(amount * 2.5))
+                pay = int(amount * 2.5)
                 credit_pb(user, pay); await save_place_bucks(); await push_pb_update(user)
                 game["done"] = True
                 await broadcast_casino_result(user, "Blackjack", amount, pay, "NATURAL 21")
@@ -2267,7 +2246,6 @@ async def casino_rps_solo_handler(request):
         outcome = "win"; winnings = int(amount * 1.95)
     else:
         outcome = "lose"; winnings = 0
-    winnings = apply_luck(user, amount, winnings)
     if winnings > 0: credit_pb(user, winnings)
     await save_place_bucks(); await push_pb_update(user)
     await broadcast_casino_result(user, "RPS vs AI", amount, winnings, f"{choice} vs {ai}")
@@ -4105,6 +4083,21 @@ async def on_startup(app):
         migrations_doc["economy_reset_v4"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"economy_reset_v4: re-applied lifetime_pixels // {PB_PIXELS_PER_BUCK} (safety net in case v3 ran with bad code)")
+    if not migrations_doc.get("luck_refund_v1"):
+        refunded = 0
+        for ulow, pu in list(purchases.items()):
+            if not isinstance(pu, dict): continue
+            owed = 0
+            if pu.get("luck_2x"): owed += 1000; del pu["luck_2x"]
+            if pu.get("luck_4x"): owed += 2000; del pu["luck_4x"]
+            if owed > 0:
+                place_bucks[ulow] = min(int(place_bucks.get(ulow, 0)) + owed, MAX_PB_BALANCE)
+                refunded += 1
+        await save_purchases()
+        await save_place_bucks()
+        migrations_doc["luck_refund_v1"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"luck_refund_v1: refunded {refunded} users for removed luck items")
     if not migrations_doc.get("pb_sync_v1"):
         totals = {}
         for lobby in lobbies.values():
