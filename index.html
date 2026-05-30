@@ -636,8 +636,6 @@
             <span id="custom-rank-preview" style="font-size:10px;font-weight:700;color:#ee5a52;">[PREVIEW]</span>
           </div>
         </div>
-        <div id="shop-item-luck-2x" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">1.5x Luck 🍀</div><div style="font-size:11px;color:var(--text-muted);">Multiplies house-game profit (slots, roulette, coin flip, blackjack, RPS vs AI) by 1.5x. Permanent.</div></div><button class="win-btn shop-buy" data-item="luck_2x" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">1000 $</button></div>
-        <div id="shop-item-luck-4x" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">2x Luck 🍀🍀</div><div style="font-size:11px;color:var(--text-muted);">Doubles house-game profit. Overrides 1.5x Luck. Permanent.</div></div><button class="win-btn shop-buy" data-item="luck_4x" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">2000 $</button></div>
         <div id="shop-item-streak-48hr" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">48hr Streak Window 🕐</div><div style="font-size:11px;color:var(--text-muted);">Lets you skip a day without losing your streak. Permanent.</div></div><button class="win-btn shop-buy" data-item="streak_48hr" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">1200 $</button></div>
         <div id="shop-item-streak-pass" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">Streak Pass 🛡 <span id="streak-pass-count" style="color:var(--gold);font-size:11px;"></span></div><div style="font-size:11px;color:var(--text-muted);">Stackable insurance: auto-restores your streak if you'd otherwise reset to 1. One pass per save.</div></div><button class="win-btn shop-buy" data-item="streak_pass" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">800 $</button></div>
       </div>
@@ -2744,7 +2742,7 @@ setInterval(streakHeartbeat, 30000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') streakHeartbeat(); });
 
 const SHOP_STACKABLE = new Set(['streak_pass']);
-const SHOP_PRICES_LABEL = { custom_wheel: '5 $', vip: '45 $', custom_rank: '70 $', luck_2x: '1000 $', luck_4x: '2000 $', streak_48hr: '1200 $', streak_pass: '800 $' };
+const SHOP_PRICES_LABEL = { custom_wheel: '5 $', vip: '45 $', custom_rank: '70 $', streak_48hr: '1200 $', streak_pass: '800 $' };
 function openShop() {
   if (!authToken) { alert('Log in to use the shop.'); return; }
   document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance;
