@@ -4074,6 +4074,17 @@ async def on_startup(app):
         migrations_doc["economy_reset_v3"] = True
         await db_save("store", "migrations", migrations_doc)
         print("economy_reset_v3: no-op (kept v2 result of lifetime_pixels // 100)")
+    if not migrations_doc.get("economy_reset_v4"):
+        place_bucks.clear()
+        for ulow, lp in lifetime_pixels.items():
+            try: n = int(lp)
+            except: continue
+            if n >= PB_PIXELS_PER_BUCK:
+                place_bucks[ulow] = n // PB_PIXELS_PER_BUCK
+        await save_place_bucks()
+        migrations_doc["economy_reset_v4"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"economy_reset_v4: re-applied lifetime_pixels // {PB_PIXELS_PER_BUCK} (safety net in case v3 ran with bad code)")
     if not migrations_doc.get("economy_reset_v1"):
         place_bucks.clear()
         for ulow, lp in lifetime_pixels.items():

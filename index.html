@@ -5513,6 +5513,13 @@ document.addEventListener('click', (e) => {
     }, 400);
   }, TIP_ROTATE_MS);
 })();
+(function economyResetBanner() {
+  const eb = document.getElementById('economy-reset-banner');
+  const cb = document.getElementById('economy-reset-banner-close');
+  if (!eb) return;
+  if (safeStore.getItem('ez_econ_reset_v2_seen') === '1') { eb.style.display = 'none'; return; }
+  if (cb) cb.onclick = () => { eb.style.display = 'none'; safeStore.setItem('ez_econ_reset_v2_seen', '1'); };
+})();
 (async () => {
   await selectBackend(); // pick primary or proxy before any API/WS traffic
   if (BACKEND_HOST && BACKEND_HOST !== BACKEND_CANDIDATES[0]) addSystemMsg('Primary server unreachable - connected via backup proxy.');
