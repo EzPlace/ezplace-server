@@ -950,6 +950,13 @@
   <!-- Admin tab (toothpaste only) -->
   <div id="admin-tab" class="tab-panel">
     <div id="admin-panel">
+      <h4>Grant / Take PlaceBucks</h4>
+      <div class="admin-row">
+        <input id="admin-pb-user" class="win-input" type="text" placeholder="Username">
+        <input id="admin-pb-amt" class="win-input" type="number" placeholder="Amount (+/-)" style="max-width:120px;">
+        <button class="win-btn" id="btn-admin-pb-grant" style="background:var(--accent);color:#fff;">Grant</button>
+      </div>
+      <div id="admin-pb-status" style="font-size:10px;color:#666;min-height:14px;">&nbsp;</div>
       <h4>Ban / Kick</h4>
       <div class="admin-row">
         <input id="admin-ban-input" class="win-input" type="text" placeholder="Username">
@@ -5315,6 +5322,21 @@ async function adminView(endpoint) {
     el.textContent = JSON.stringify(data, null, 2);
   } catch { document.getElementById('admin-json').textContent = 'Error loading'; }
 }
+document.getElementById('btn-admin-pb-grant').onclick = async () => {
+  const u = document.getElementById('admin-pb-user').value.trim();
+  const amt = parseInt(document.getElementById('admin-pb-amt').value, 10);
+  const status = document.getElementById('admin-pb-status');
+  if (!u) { status.textContent = 'Username required'; return; }
+  if (!Number.isFinite(amt) || amt === 0) { status.textContent = 'Amount must be a non-zero integer'; return; }
+  status.textContent = 'Sending...';
+  try {
+    const r = await fetch(BACKEND + '/api/admin/pb_grant', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u, amount: amt }) });
+    const d = await r.json();
+    if (d.error) { status.textContent = 'Error: ' + d.error; return; }
+    status.textContent = (amt > 0 ? 'Granted ' : 'Took ') + Math.abs(amt) + ' $ ' + (amt > 0 ? 'to ' : 'from ') + d.username + '. New balance: ' + d.balance;
+    document.getElementById('admin-pb-amt').value = '';
+  } catch { status.textContent = 'Server offline.'; }
+};
 document.getElementById('btn-admin-ban').onclick = () => {
   const u = document.getElementById('admin-ban-input').value.trim(); if (!u) return;
   if (isFakeAdmin) { fakeBannedUsers.add(u.toLowerCase()); addSystemMsg(`${u} has been banned`); addSystemMsg(`${u} left`); document.getElementById('admin-status').textContent = `Banned ${u}`; return; }

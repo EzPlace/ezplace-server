@@ -1379,6 +1379,24 @@ async def admin_alert_handler(request):
             except: pass
     return web.json_response({"ok": True, "message": f"Alert delivered to {delivered} connection(s) for {target}"} if delivered else {"error": f"{target} is not online"})
 
+async def admin_pb_grant_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = (data.get("username") or "").strip()
+    try: amount = int(data.get("amount", 0))
+    except: return web.json_response({"error": "Invalid amount"}, status=400)
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return web.json_response({"error": "User not found"}, status=404)
+    ulow = found.lower()
+    if amount > 0:
+        credit_pb(found, amount)
+    elif amount < 0:
+        place_bucks[ulow] = max(0, int(place_bucks.get(ulow, 0)) + amount)
+    await save_place_bucks()
+    await push_pb_update(found)
+    return web.json_response({"ok": True, "username": found, "balance": get_pb(found)})
+
 async def admin_relay_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -4087,6 +4105,17 @@ async def on_startup(app):
         migrations_doc["economy_reset_v4"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"economy_reset_v4: re-applied lifetime_pixels // {PB_PIXELS_PER_BUCK} (safety net in case v3 ran with bad code)")
+    if not migrations_doc.get("starting_floor_v1"):
+        floor = 50
+        for uname in accounts.keys():
+            if is_admin(uname): continue
+            ulow = uname.lower()
+            if int(place_bucks.get(ulow, 0)) < floor:
+                place_bucks[ulow] = floor
+        await save_place_bucks()
+        migrations_doc["starting_floor_v1"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"starting_floor_v1: ensured every account has at least {floor} PB")
     if not migrations_doc.get("economy_reset_v1"):
         place_bucks.clear()
         for ulow, lp in lifetime_pixels.items():
@@ -4198,6 +4227,7 @@ app.router.add_post("/api/admin/unban", admin_unban_handler)
 app.router.add_post("/api/admin/kick", admin_kick_handler)
 app.router.add_post("/api/admin/alert", admin_alert_handler)
 app.router.add_post("/api/admin/relay", admin_relay_handler)
+app.router.add_post("/api/admin/pb_grant", admin_pb_grant_handler)
 app.router.add_post("/api/admin/redirect", admin_redirect_handler)
 app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
 app.router.add_post("/api/admin/session-for", admin_session_for_handler)
