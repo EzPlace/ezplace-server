@@ -4083,21 +4083,25 @@ async def on_startup(app):
         migrations_doc["economy_reset_v4"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"economy_reset_v4: re-applied lifetime_pixels // {PB_PIXELS_PER_BUCK} (safety net in case v3 ran with bad code)")
-    if not migrations_doc.get("luck_refund_v1"):
+    if not migrations_doc.get("luck_refund_v2"):
         refunded = 0
         for ulow, pu in list(purchases.items()):
             if not isinstance(pu, dict): continue
             owed = 0
-            if pu.get("luck_2x"): owed += 1000; del pu["luck_2x"]
-            if pu.get("luck_4x"): owed += 2000; del pu["luck_4x"]
+            if pu.pop("luck_2x", None): owed += 1000
+            if pu.pop("luck_4x", None): owed += 2000
             if owed > 0:
                 place_bucks[ulow] = min(int(place_bucks.get(ulow, 0)) + owed, MAX_PB_BALANCE)
                 refunded += 1
+                u_real = next((u for u in accounts if u.lower() == ulow), None)
+                if u_real:
+                    try: await push_pb_update(u_real)
+                    except: pass
         await save_purchases()
         await save_place_bucks()
-        migrations_doc["luck_refund_v1"] = True
+        migrations_doc["luck_refund_v2"] = True
         await db_save("store", "migrations", migrations_doc)
-        print(f"luck_refund_v1: refunded {refunded} users for removed luck items")
+        print(f"luck_refund_v2: refunded {refunded} users for removed luck items (1.5x = 1000, 2x = 2000)")
     if not migrations_doc.get("pb_sync_v1"):
         totals = {}
         for lobby in lobbies.values():
