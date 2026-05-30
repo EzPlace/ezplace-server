@@ -67,13 +67,16 @@ ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70, "luck_2x": 1000, "luck_4x": 2000, "streak_48hr": 1200, "streak_pass": 800}
 STACKABLE_ITEMS = {"streak_pass"}
+MAX_CASINO_BET = 5000
+PB_TRANSFER_AMOUNT_PER_MIN = 1000
+pb_transfer_amount_window = {}
 
 def luck_mult(user):
-    if not user or is_admin(user): return 1
+    if not user or is_admin(user): return 1.0
     pu = purchases.get(user.lower()) or {}
-    if pu.get("luck_4x"): return 4
-    if pu.get("luck_2x"): return 2
-    return 1
+    if pu.get("luck_4x"): return 2.0
+    if pu.get("luck_2x"): return 1.5
+    return 1.0
 
 def apply_luck(user, bet, winnings):
     """Multiply the profit portion of a house-game payout by the user's luck
@@ -81,7 +84,7 @@ def apply_luck(user, bet, winnings):
     if winnings <= bet: return winnings
     mult = luck_mult(user)
     if mult <= 1: return winnings
-    return bet + (winnings - bet) * mult
+    return int(bet + (winnings - bet) * mult)
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
 
 ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
@@ -1991,12 +1994,17 @@ async def pb_transfer_handler(request):
                                                                    
     if not check_rate_limit(user, "pb_transfer_count", 5, 60):
         return web.json_response({"error": "Too many transfers - try again later."}, status=429)
-
-    for _ in range(min(amount, 200)):
-        if not check_rate_limit(user, "pb_transfer_amount", 200, 60):
-            return web.json_response({"error": "Transfer amount cap reached for this minute."}, status=429)
+    ulow = user.lower()
+    now_ts = time.time()
+    bucket = pb_transfer_amount_window.setdefault(ulow, [])
+    bucket[:] = [(t, a) for (t, a) in bucket if now_ts - t < 60]
+    spent_last_min = sum(a for (_, a) in bucket)
+    if spent_last_min + amount > PB_TRANSFER_AMOUNT_PER_MIN:
+        remaining = max(0, PB_TRANSFER_AMOUNT_PER_MIN - spent_last_min)
+        return web.json_response({"error": f"Transfer cap is {PB_TRANSFER_AMOUNT_PER_MIN} $/min. You can send {remaining} more this minute."}, status=429)
     if not spend_pb(user, amount):
         return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    bucket.append((now_ts, amount))
     credit_pb(found, amount)
     await save_place_bucks()
     await push_pb_update(user)
@@ -2005,7 +2013,8 @@ async def pb_transfer_handler(request):
     return web.json_response({"ok": True, "balance": get_pb(user)})
 
 async def _casino_open(request, rate_key):
-    """Auth, bet validation, deduct. No rate limit, no max bet - user's call."""
+    """Auth, bet validation, deduct. Hard-capped at MAX_CASINO_BET to prevent
+    compound-jackpot inflation exploits."""
     data = await request.json()
     user = get_auth_user(request)
     if not user: return None, web.json_response({"error": "Not authenticated"}, status=401)
@@ -2013,6 +2022,8 @@ async def _casino_open(request, rate_key):
     except: return None, web.json_response({"error": "Invalid bet"}, status=400)
     if amount < 1:
         return None, web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+    if amount > MAX_CASINO_BET:
+        return None, web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
     if not spend_pb(user, amount):
         return None, web.json_response({"error": "Not enough PlaceBucks"}, status=400)
     return (user, amount, data), None
@@ -2163,6 +2174,7 @@ async def casino_blackjack_handler(request):
         try: amount = int(data.get("amount", 0))
         except: return web.json_response({"error": "Invalid bet"}, status=400)
         if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+        if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
         if not spend_pb(user, amount):
             return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
         deck = list(range(52))
@@ -2222,6 +2234,7 @@ async def casino_rps_solo_handler(request):
     try: amount = int(data.get("amount", 0))
     except: return web.json_response({"error": "Invalid bet"}, status=400)
     if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+    if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
     choice = (data.get("choice") or "").strip().lower()
     if choice not in ("rock", "paper", "scissors"):
         return web.json_response({"error": "Pick rock, paper, or scissors"}, status=400)
@@ -4046,6 +4059,17 @@ async def on_startup(app):
         migrations_doc["pb_backfill_v1"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"pb_backfill_v1: credited {credited} PlaceBucks across {len(totals)} users")
+    if not migrations_doc.get("economy_reset_v2"):
+        place_bucks.clear()
+        for ulow, lp in lifetime_pixels.items():
+            try: n = int(lp)
+            except: continue
+            if n >= PB_PIXELS_PER_BUCK:
+                place_bucks[ulow] = n // PB_PIXELS_PER_BUCK
+        await save_place_bucks()
+        migrations_doc["economy_reset_v2"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"economy_reset_v2: rebalanced {len(place_bucks)} users to lifetime_pixels // {PB_PIXELS_PER_BUCK}")
     if not migrations_doc.get("economy_reset_v1"):
         place_bucks.clear()
         for ulow, lp in lifetime_pixels.items():
