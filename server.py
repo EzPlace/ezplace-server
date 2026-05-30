@@ -321,10 +321,12 @@ def spend_pb(user, amount):
     if bal < amount: return False
     place_bucks[ulow] = bal - amount
     return True
+MAX_PB_BALANCE = 10 ** 12
+
 def credit_pb(user, amount):
     if not user or amount <= 0 or is_admin(user): return
     ulow = user.lower()
-    place_bucks[ulow] = int(place_bucks.get(ulow, 0)) + amount
+    place_bucks[ulow] = min(int(place_bucks.get(ulow, 0)) + amount, MAX_PB_BALANCE)
 def has_purchase(user, item):
     if not user: return False
     if is_admin(user): return True
