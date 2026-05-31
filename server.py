@@ -2144,6 +2144,93 @@ async def casino_roulette_handler(request):
     await broadcast_casino_result(user, "Roulette", amount, winnings, f"landed {n} {result_color} (bet {choice})")
     return web.json_response({"ok": True, "number": n, "color": result_color, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
 
+MINES_GRID_W = 5
+MINES_GRID_N = MINES_GRID_W * MINES_GRID_W
+MINES_HOUSE_EDGE = 0.97
+mines_games = {}
+
+def _mines_mult(mines, revealed):
+    """Fair payout multiplier = (probability of having survived this many random reveals)^-1, with a flat house edge."""
+    safe = MINES_GRID_N - mines
+    if revealed <= 0: return 1.0
+    if revealed > safe: return 0.0
+    num = 1.0; den = 1.0
+    for i in range(revealed):
+        num *= (MINES_GRID_N - i)
+        den *= (safe - i)
+    return round((num / den) * MINES_HOUSE_EDGE, 4)
+
+async def casino_mines_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    action = (data.get("action") or "").strip().lower()
+    ulow = user.lower()
+    if action == "start":
+        try: amount = int(data.get("amount", 0))
+        except: return web.json_response({"error": "Invalid bet"}, status=400)
+        try: mines = int(data.get("mines", 3))
+        except: return web.json_response({"error": "Invalid mines"}, status=400)
+        if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+        if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
+        if mines < 1 or mines > MINES_GRID_N - 1: return web.json_response({"error": f"Mines must be 1-{MINES_GRID_N-1}"}, status=400)
+        if ulow in mines_games and not mines_games[ulow].get("done"):
+            return web.json_response({"error": "Finish your current game first (cash out or reveal)"}, status=400)
+        if not spend_pb(user, amount):
+            return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        positions = list(range(MINES_GRID_N))
+        secrets.SystemRandom().shuffle(positions)
+        mine_set = set(positions[:mines])
+        mines_games[ulow] = {"bet": amount, "mines": mine_set, "n_mines": mines, "revealed": set(), "done": False, "started_at": time.time()}
+        return web.json_response({"ok": True, "phase": "playing", "mines": mines, "revealed": [], "multiplier": 1.0, "next_mult": _mines_mult(mines, 1), "balance": get_pb(user)})
+    if action == "reveal":
+        g = mines_games.get(ulow)
+        if not g or g["done"]: return web.json_response({"error": "No active game"}, status=400)
+        try: idx = int(data.get("idx", -1))
+        except: return web.json_response({"error": "Bad position"}, status=400)
+        if not (0 <= idx < MINES_GRID_N): return web.json_response({"error": "Out of bounds"}, status=400)
+        if idx in g["revealed"]: return web.json_response({"error": "Already revealed"}, status=400)
+        if idx in g["mines"]:
+            g["done"] = True
+            await broadcast_casino_result(user, "Mines", g["bet"], 0, f"hit mine after {len(g['revealed'])} safe reveals")
+            payload = {"ok": True, "phase": "done", "hit_mine": True, "mine_idx": idx, "mines": list(g["mines"]), "revealed": list(g["revealed"]), "winnings": 0, "bet": g["bet"], "balance": get_pb(user)}
+            mines_games.pop(ulow, None)
+            return web.json_response(payload)
+        g["revealed"].add(idx)
+        cur_mult = _mines_mult(g["n_mines"], len(g["revealed"]))
+        nxt_mult = _mines_mult(g["n_mines"], len(g["revealed"]) + 1)
+        if len(g["revealed"]) >= MINES_GRID_N - g["n_mines"]:
+            winnings = int(g["bet"] * cur_mult)
+            credit_pb(user, winnings)
+            await save_place_bucks()
+            await push_pb_update(user)
+            g["done"] = True
+            await broadcast_casino_result(user, "Mines", g["bet"], winnings, f"cleared all safe tiles x{cur_mult}")
+            payload = {"ok": True, "phase": "done", "hit_mine": False, "cleared": True, "mines": list(g["mines"]), "revealed": list(g["revealed"]), "multiplier": cur_mult, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user)}
+            mines_games.pop(ulow, None)
+            return web.json_response(payload)
+        return web.json_response({"ok": True, "phase": "playing", "revealed": list(g["revealed"]), "multiplier": cur_mult, "next_mult": nxt_mult, "balance": get_pb(user)})
+    if action == "cashout":
+        g = mines_games.get(ulow)
+        if not g or g["done"]: return web.json_response({"error": "No active game"}, status=400)
+        revealed_count = len(g["revealed"])
+        if revealed_count < 1: return web.json_response({"error": "Reveal at least one tile before cashing out"}, status=400)
+        cur_mult = _mines_mult(g["n_mines"], revealed_count)
+        winnings = int(g["bet"] * cur_mult)
+        credit_pb(user, winnings)
+        await save_place_bucks()
+        await push_pb_update(user)
+        g["done"] = True
+        await broadcast_casino_result(user, "Mines", g["bet"], winnings, f"cashed out at x{cur_mult} ({revealed_count} reveals)")
+        payload = {"ok": True, "phase": "done", "hit_mine": False, "cashed_out": True, "mines": list(g["mines"]), "revealed": list(g["revealed"]), "multiplier": cur_mult, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user)}
+        mines_games.pop(ulow, None)
+        return web.json_response(payload)
+    if action == "state":
+        g = mines_games.get(ulow)
+        if not g or g["done"]: return web.json_response({"phase": "none"})
+        return web.json_response({"ok": True, "phase": "playing", "mines": g["n_mines"], "revealed": list(g["revealed"]), "multiplier": _mines_mult(g["n_mines"], len(g["revealed"])), "next_mult": _mines_mult(g["n_mines"], len(g["revealed"]) + 1), "bet": g["bet"], "balance": get_pb(user)})
+    return web.json_response({"error": "Bad action"}, status=400)
+
 PLINKO_ROWS = 9
 PLINKO_MULTIPLIERS = [10.0, 3.0, 1.4, 1.1, 0.5, 0.3, 0.5, 1.1, 1.4, 3.0, 10.0]
 
@@ -4427,6 +4514,7 @@ app.router.add_post("/api/casino/slots", casino_slots_handler)
 app.router.add_post("/api/casino/roulette", casino_roulette_handler)
 app.router.add_post("/api/casino/coinflip", casino_coinflip_handler)
 app.router.add_post("/api/casino/plinko", casino_plinko_handler)
+app.router.add_post("/api/casino/mines", casino_mines_handler)
 app.router.add_post("/api/casino/blackjack", casino_blackjack_handler)
 app.router.add_post("/api/casino/rps/solo", casino_rps_solo_handler)
 app.router.add_post("/api/casino/rps/join", casino_rps_join_handler)
