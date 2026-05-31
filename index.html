@@ -764,6 +764,19 @@
             <div id="coin-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
         </details>
+        <details class="game-acc"><summary>Mines 💣 <span class="game-hint">Reveal gems to grow your multiplier - cash out before a bomb</span></summary>
+          <div class="game-body">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:11px;">Bet <input id="mines-bet" type="number" min="1" value="10" class="win-input" style="width:70px;font-size:12px;padding:2px 4px;"></label>
+              <label style="font-size:11px;">Mines <select id="mines-count" class="win-input" style="font-size:12px;padding:2px;"></select></label>
+              <button id="btn-mines-start" class="win-btn" style="background:var(--accent);color:#fff;">Start</button>
+              <button id="btn-mines-cashout" class="win-btn" style="background:var(--gold);color:#000;font-weight:700;" disabled>Cash Out</button>
+            </div>
+            <div id="mines-info" style="font-size:11px;color:var(--text-muted);min-height:14px;">Place a bet to start.</div>
+            <div id="mines-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;max-width:280px;margin:0 auto;"></div>
+            <div id="mines-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);text-align:center;"></div>
+          </div>
+        </details>
         <details class="game-acc"><summary>Plinko <span class="game-hint">Drop the ball - edges pay 10x, center pays 0.3x</span></summary>
           <div class="game-body">
             <canvas id="plinko-canvas" width="380" height="420" style="display:block;margin:0 auto;background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;max-width:100%;"></canvas>
@@ -3735,6 +3748,131 @@ document.querySelectorAll('.coin-go').forEach(b => {
     });
   };
 });
+
+const MINES_N = 25;
+let minesActive = false;
+function minesBuildGrid() {
+  const grid = document.getElementById('mines-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  for (let i = 0; i < MINES_N; i++) {
+    const b = document.createElement('button');
+    b.dataset.idx = i;
+    b.className = 'mines-cell';
+    b.style.cssText = 'aspect-ratio:1;background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;font-size:18px;font-weight:700;cursor:pointer;color:var(--text-primary);padding:0;display:flex;align-items:center;justify-content:center;';
+    b.textContent = '';
+    b.disabled = true;
+    b.onclick = () => minesReveal(i);
+    grid.appendChild(b);
+  }
+}
+function minesPopulateCounts() {
+  const sel = document.getElementById('mines-count');
+  if (!sel || sel.options.length) return;
+  for (let i = 1; i <= 24; i++) {
+    const opt = document.createElement('option');
+    opt.value = i; opt.textContent = i + (i === 3 ? ' (default)' : '');
+    if (i === 3) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+function minesSetActive(on) {
+  minesActive = on;
+  document.querySelectorAll('#mines-grid .mines-cell').forEach(b => {
+    if (on) { b.disabled = false; }
+    else { b.disabled = true; }
+  });
+  document.getElementById('btn-mines-start').disabled = on;
+  document.getElementById('btn-mines-cashout').disabled = !on;
+  document.getElementById('mines-bet').disabled = on;
+  document.getElementById('mines-count').disabled = on;
+}
+function minesResetCells() {
+  document.querySelectorAll('#mines-grid .mines-cell').forEach(b => {
+    b.textContent = ''; b.style.background = 'var(--bg-elevated)'; b.style.color = 'var(--text-primary)';
+  });
+}
+function minesMarkRevealed(idx) {
+  const b = document.querySelector('#mines-grid .mines-cell[data-idx="' + idx + '"]');
+  if (!b) return;
+  b.textContent = '💎';
+  b.style.background = '#22c55e';
+  b.disabled = true;
+}
+function minesMarkMine(idx, hit) {
+  const b = document.querySelector('#mines-grid .mines-cell[data-idx="' + idx + '"]');
+  if (!b) return;
+  b.textContent = '💣';
+  b.style.background = hit ? '#d32f2f' : '#4a1818';
+  b.style.color = '#fff';
+  b.disabled = true;
+}
+function minesUpdateInfo(d) {
+  const info = document.getElementById('mines-info');
+  if (!info) return;
+  const bet = d.bet || 0;
+  const cur = d.multiplier || 1;
+  const next = d.next_mult || 0;
+  const cashable = Math.floor(bet * cur);
+  info.innerHTML = 'Multiplier: <b style="color:var(--accent);">x' + cur + '</b> &nbsp;·&nbsp; Cash out for <b style="color:var(--gold);">' + cashable.toLocaleString() + ' $</b> &nbsp;·&nbsp; Next: x' + next;
+}
+async function minesCall(action, body, msg) {
+  msg.textContent = ''; msg.style.color = 'var(--text-muted)';
+  try {
+    const r = await fetch(BACKEND + '/api/casino/mines', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(Object.assign({ action }, body || {})) });
+    const d = await r.json();
+    if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return null; }
+    if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
+    return d;
+  } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; return null; }
+}
+async function minesStart() {
+  const msg = document.getElementById('mines-msg');
+  const amount = parseInt(document.getElementById('mines-bet').value) || 0;
+  const mines = parseInt(document.getElementById('mines-count').value) || 3;
+  const d = await minesCall('start', { amount, mines }, msg);
+  if (!d) return;
+  minesResetCells();
+  minesSetActive(true);
+  minesUpdateInfo(d);
+  msg.textContent = "Pick a tile. Don't hit a 💣."; msg.style.color = 'var(--text-muted)';
+}
+async function minesReveal(idx) {
+  if (!minesActive) return;
+  const msg = document.getElementById('mines-msg');
+  const d = await minesCall('reveal', { idx }, msg);
+  if (!d) return;
+  if (d.phase === 'done') {
+    if (d.hit_mine) {
+      (d.mines || []).forEach(m => minesMarkMine(m, m === d.mine_idx));
+      msg.textContent = '💥 Hit a mine! Lost ' + d.bet + ' $.';
+      msg.style.color = 'var(--red)';
+    } else if (d.cleared) {
+      (d.revealed || []).forEach(minesMarkRevealed);
+      msg.textContent = '✨ Cleared everything! Won ' + d.winnings.toLocaleString() + ' $ (x' + d.multiplier + ')';
+      msg.style.color = '#22c55e';
+    }
+    minesSetActive(false);
+    return;
+  }
+  minesMarkRevealed(idx);
+  minesUpdateInfo(d);
+}
+async function minesCashout() {
+  const msg = document.getElementById('mines-msg');
+  const d = await minesCall('cashout', {}, msg);
+  if (!d) return;
+  if (d.phase === 'done') {
+    msg.textContent = '💰 Cashed out ' + d.winnings.toLocaleString() + ' $ (x' + d.multiplier + ')';
+    msg.style.color = '#22c55e';
+    (d.mines || []).forEach(m => minesMarkMine(m, false));
+    minesSetActive(false);
+  }
+}
+minesBuildGrid();
+minesPopulateCounts();
+document.getElementById('btn-mines-start').onclick = minesStart;
+document.getElementById('btn-mines-cashout').onclick = minesCashout;
 
 const PLINKO_ROWS = 9;
 const PLINKO_MULTIPLIERS = [10.0, 3.0, 1.4, 1.1, 0.5, 0.3, 0.5, 1.1, 1.4, 3.0, 10.0];
