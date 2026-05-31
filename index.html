@@ -2747,7 +2747,7 @@ async function streakHeartbeat() {
   streakAnnounceAlive();
   if (!streakIsOnlyTab()) return;
   try {
-    const r = await fetch(BACKEND + '/api/streak/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: '{}' });
+    const r = await fetch(BACKEND + '/api/streak/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ tz_offset: new Date().getTimezoneOffset() }) });
     const d = await r.json();
     if (d.ok) {
       myStreakProgress = { seconds: d.seconds, required: d.required, earned_today: d.earned_today };

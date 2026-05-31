@@ -9,7 +9,7 @@ import string
 import struct
 import time
 import zlib
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from aiohttp import web
 import aiohttp
 import motor.motor_asyncio
@@ -322,6 +322,20 @@ STREAK_HEARTBEAT_PERIOD = 30
 STREAK_ACTIVE_SECONDS_REQUIRED = 15 * 60
 streak_progress = {}
 
+def _local_today_iso(tz_offset_min):
+    """JavaScript's getTimezoneOffset returns minutes WEST of UTC (so EST = 300, UTC = 0).
+    Local time = UTC - tz_offset_min. Clamps to +-1440 just in case."""
+    try: off = int(tz_offset_min)
+    except: off = 0
+    if off > 1440 or off < -1440: off = 0
+    return (datetime.utcnow() - timedelta(minutes=off)).date().isoformat()
+
+def _local_yesterday_iso(tz_offset_min):
+    try: off = int(tz_offset_min)
+    except: off = 0
+    if off > 1440 or off < -1440: off = 0
+    return (datetime.utcnow() - timedelta(minutes=off) - timedelta(days=1)).date().isoformat()
+
 async def save_streaks():
     await db_save("store", "streaks", streaks)
 
@@ -347,19 +361,23 @@ def get_streak_progress(user):
     seconds = int(p.get("seconds", 0)) if p.get("date") == today else 0
     return {"seconds": seconds, "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": earned}
 
-async def bump_streak(user):
+async def bump_streak(user, tz_offset_min=0):
     """Advance the user's daily streak counter and pay out the PB reward. Caller
     is responsible for ensuring this should fire (e.g. they've put in the
-    required active-tab time for today). Respects the 48hr-window and
+    required active-tab time for today). 'Today' is the user's LOCAL date
+    (midnight-to-midnight in their timezone). Respects the 48hr-window and
     streak-pass shop items."""
     if not user or is_admin(user): return 0
     ulow = user.lower()
-    today = date.today().isoformat()
+    today = _local_today_iso(tz_offset_min)
     s = streaks.get(ulow) or {"count": 0, "last_date": ""}
     if s.get("last_date") == today: return 0
     pu = purchases.get(ulow) or {}
     allowed_days = 2 if pu.get("streak_48hr") else 1
-    valid_prior = {(date.today() - timedelta(days=i)).isoformat() for i in range(1, allowed_days + 1)}
+    try: off = int(tz_offset_min)
+    except: off = 0
+    base = datetime.utcnow() - timedelta(minutes=off)
+    valid_prior = {(base - timedelta(days=i)).date().isoformat() for i in range(1, allowed_days + 1)}
     used_pass = False
     if s.get("last_date") in valid_prior:
         new_count = int(s.get("count", 0)) + 1
@@ -395,8 +413,11 @@ async def streak_heartbeat_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if is_admin(user):
         return web.json_response({"ok": True, "seconds": STREAK_ACTIVE_SECONDS_REQUIRED, "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": True})
+    try: data = await request.json()
+    except: data = {}
+    tz_offset = data.get("tz_offset", 0)
     ulow = user.lower()
-    today = date.today().isoformat()
+    today = _local_today_iso(tz_offset)
     s = streaks.get(ulow) or {}
     earned_today = s.get("last_date") == today
     p = streak_progress.get(ulow)
@@ -409,7 +430,7 @@ async def streak_heartbeat_handler(request):
         streak_progress[ulow] = p
         await save_streak_progress()
         if p["seconds"] >= STREAK_ACTIVE_SECONDS_REQUIRED:
-            await bump_streak(user)
+            await bump_streak(user, tz_offset)
             earned_today = True
     else:
         streak_progress[ulow] = p
