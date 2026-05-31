@@ -601,6 +601,19 @@
   </div>
 </div>
 
+<div id="gd-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(4px);z-index:86;flex-direction:column;align-items:center;justify-content:center;padding:10px;gap:8px;color:var(--text-primary);">
+  <div style="display:flex;align-items:center;gap:14px;font-size:13px;font-weight:700;flex-wrap:wrap;justify-content:center;">
+    <span>Seed: <span id="gd-seed-tag" style="color:var(--accent);font-family:'JetBrains Mono','Fira Code',monospace;">-</span></span>
+    <button id="btn-gd-copy-seed" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:10px;padding:2px 8px;">Copy</button>
+    <span>Progress: <span id="gd-progress-tag" style="color:var(--gold);">0%</span></span>
+    <span>Mode: <span id="gd-mode-tag" style="color:#22c55e;">cube</span></span>
+    <button id="btn-gd-close" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;padding:4px 10px;">Quit</button>
+  </div>
+  <canvas id="gd-canvas" width="800" height="360" style="display:block;background:#0a0a14;border:2px solid var(--accent);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.6);max-width:100%;height:auto;touch-action:none;cursor:pointer;"></canvas>
+  <div id="gd-hint" style="font-size:11px;color:var(--text-muted);text-align:center;max-width:600px;">Tap / click / spacebar to jump (cube) or flap (UFO). HOLD to ascend in plane mode. Avoid the orange spikes. Mode portals: 🟦cube 🟪ufo 🟧plane</div>
+  <div id="gd-result" style="font-size:14px;font-weight:700;text-align:center;min-height:20px;"></div>
+</div>
+
 <div id="flappy-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);z-index:80;align-items:center;justify-content:center;padding:14px;flex-direction:column;gap:8px;">
   <div style="display:flex;align-items:center;gap:14px;color:var(--text-primary);font-size:13px;font-weight:700;">
     <span>Score: <span id="flappy-score" style="color:var(--accent);">0</span></span>
@@ -762,6 +775,16 @@
               <button class="win-btn coin-go" data-choice="tails" style="background:var(--accent);color:#fff;flex:1;">Tails</button>
             </div>
             <div id="coin-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+          </div>
+        </details>
+        <details class="game-acc"><summary>GeoDash 🚀 <span class="game-hint">Random seed level - cube/UFO/plane - payout scales with how far you get</span></summary>
+          <div class="game-body">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:11px;">Bet <input id="gd-bet" type="number" min="1" value="10" class="win-input" style="width:70px;font-size:12px;padding:2px 4px;"></label>
+              <label style="font-size:11px;">Seed (optional) <input id="gd-seed" type="text" placeholder="random" class="win-input" style="width:110px;font-size:12px;padding:2px 4px;" maxlength="12"></label>
+              <button id="btn-gd-play" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
+            </div>
+            <div id="gd-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);">Die at 0% lose bet · die at 50% break even · clear 100% = 3x. Multiplier scales linearly with progress.</div>
           </div>
         </details>
         <details class="game-acc"><summary>Mines 💣 <span class="game-hint">Reveal gems to grow your multiplier - cash out before a bomb</span></summary>
@@ -3748,6 +3771,287 @@ document.querySelectorAll('.coin-go').forEach(b => {
     });
   };
 });
+
+// ============= GeoDash =============
+function gdMulberry32(seed) {
+  let a = (seed >>> 0) || 1;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const GD_LEN = 5400;
+const GD_W = 800, GD_H = 360;
+const GD_GROUND_Y = 304;
+const GD_PLAYER_X = 120;
+const GD_PLAYER_SZ = 24;
+const GD_SPEED = 260;
+let gdState = null;
+function gdMakeLevel(seed) {
+  const r = gdMulberry32(seed);
+  const obstacles = [];
+  let x = 320;
+  let mode = 'cube';
+  const portalColors = { cube: '#3a86ff', ufo: '#b14aed', plane: '#ff8c42' };
+  while (x < GD_LEN - 240) {
+    const roll = r();
+    if (mode === 'cube') {
+      if (roll < 0.45) {
+        const spikes = 1 + Math.floor(r() * 3);
+        for (let i = 0; i < spikes; i++) obstacles.push({ kind: 'spike', x: x + i * 36, y: GD_GROUND_Y - 24, w: 24, h: 24, up: true });
+        x += spikes * 36 + 80;
+      } else if (roll < 0.75) {
+        const h = 40 + Math.floor(r() * 60);
+        obstacles.push({ kind: 'block', x, y: GD_GROUND_Y - h, w: 60 + Math.floor(r() * 40), h });
+        if (r() < 0.5) obstacles.push({ kind: 'spike', x: x + 80 + Math.floor(r() * 40), y: GD_GROUND_Y - 24, w: 24, h: 24, up: true });
+        x += 180;
+      } else {
+        obstacles.push({ kind: 'spike', x, y: GD_GROUND_Y - 24, w: 24, h: 24, up: true });
+        obstacles.push({ kind: 'block', x: x + 60, y: GD_GROUND_Y - 50, w: 50, h: 50 });
+        obstacles.push({ kind: 'spike', x: x + 140, y: GD_GROUND_Y - 24, w: 24, h: 24, up: true });
+        x += 220;
+      }
+    } else if (mode === 'ufo') {
+      const gap = 80 + Math.floor(r() * 50);
+      const topH = 20 + Math.floor(r() * (GD_GROUND_Y - gap - 40));
+      obstacles.push({ kind: 'spike', x, y: 0, w: 24, h: topH, up: false, asBlock: true });
+      obstacles.push({ kind: 'spike', x, y: topH + gap, w: 24, h: GD_GROUND_Y - topH - gap, up: true, asBlock: true });
+      if (r() < 0.4) {
+        obstacles.push({ kind: 'spike', x: x + 50, y: GD_GROUND_Y - 24, w: 24, h: 24, up: true });
+      }
+      x += 110;
+    } else { // plane
+      const gap = 110 + Math.floor(r() * 40);
+      const topH = 20 + Math.floor(r() * (GD_GROUND_Y - gap - 40));
+      if (r() < 0.6) {
+        obstacles.push({ kind: 'spike', x, y: 0, w: 24, h: topH, up: false, asBlock: true });
+        obstacles.push({ kind: 'spike', x, y: topH + gap, w: 24, h: GD_GROUND_Y - topH - gap, up: true, asBlock: true });
+      } else {
+        obstacles.push({ kind: 'spike', x: x + 30, y: GD_GROUND_Y - 24, w: 24, h: 24, up: true });
+      }
+      x += 130;
+    }
+    if (r() < 0.22 && x < GD_LEN - 400) {
+      const modes = ['cube', 'ufo', 'plane'].filter(m => m !== mode);
+      const newMode = modes[Math.floor(r() * modes.length)];
+      obstacles.push({ kind: 'portal', x, y: GD_GROUND_Y - 80, w: 32, h: 64, mode: newMode, color: portalColors[newMode] });
+      mode = newMode;
+      x += 80;
+    }
+  }
+  return obstacles;
+}
+function gdRectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+function gdReset() {
+  if (gdState) { gdState.alive = false; }
+  if (gdState && gdState.rafId) cancelAnimationFrame(gdState.rafId);
+}
+async function gdStart() {
+  const msg = document.getElementById('gd-msg');
+  const amount = parseInt(document.getElementById('gd-bet').value) || 0;
+  const seedInput = (document.getElementById('gd-seed').value || '').trim();
+  msg.textContent = 'Setting up...'; msg.style.color = 'var(--text-muted)';
+  try {
+    const r = await fetch(BACKEND + '/api/casino/gd/start', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ amount, seed: seedInput }) });
+    const d = await r.json();
+    if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return; }
+    if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
+    msg.textContent = '';
+    gdLaunch(d.seed, amount);
+  } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+}
+function gdLaunch(seed, bet) {
+  gdReset();
+  document.getElementById('gd-modal').style.display = 'flex';
+  document.getElementById('gd-seed-tag').textContent = seed;
+  document.getElementById('gd-result').textContent = '';
+  document.getElementById('gd-progress-tag').textContent = '0%';
+  document.getElementById('gd-mode-tag').textContent = 'cube';
+  const canvas = document.getElementById('gd-canvas');
+  const ctx = canvas.getContext('2d');
+  const obstacles = gdMakeLevel(seed);
+  gdState = {
+    seed, bet, alive: true, dead: false, won: false, reported: false,
+    scroll: 0, y: GD_GROUND_Y - GD_PLAYER_SZ, vy: 0, mode: 'cube',
+    onGround: true, pressing: false, lastTime: performance.now(),
+    startTs: performance.now(), obstacles, rafId: 0, rot: 0,
+  };
+  const press = () => {
+    if (!gdState || !gdState.alive) return;
+    gdState.pressing = true;
+    if (gdState.mode === 'cube' && gdState.onGround) gdState.vy = -560;
+    else if (gdState.mode === 'ufo') gdState.vy = -340;
+  };
+  const release = () => { if (gdState) gdState.pressing = false; };
+  canvas.onmousedown = press; canvas.onmouseup = release; canvas.onmouseleave = release;
+  canvas.ontouchstart = (e) => { e.preventDefault(); press(); };
+  canvas.ontouchend = (e) => { e.preventDefault(); release(); };
+  const keyDown = (e) => { if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); press(); } };
+  const keyUp = (e) => { if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); release(); } };
+  window.addEventListener('keydown', keyDown);
+  window.addEventListener('keyup', keyUp);
+  gdState._keyDown = keyDown; gdState._keyUp = keyUp;
+  const loop = (now) => {
+    if (!gdState || !gdState.alive) return;
+    const dt = Math.min(0.05, (now - gdState.lastTime) / 1000);
+    gdState.lastTime = now;
+    gdTick(dt);
+    gdDraw(ctx);
+    if (gdState.alive) gdState.rafId = requestAnimationFrame(loop);
+  };
+  gdState.rafId = requestAnimationFrame(loop);
+}
+function gdTick(dt) {
+  const s = gdState;
+  s.scroll += GD_SPEED * dt;
+  const progress = Math.min(1, s.scroll / GD_LEN);
+  document.getElementById('gd-progress-tag').textContent = Math.floor(progress * 100) + '%';
+  if (s.mode === 'cube') {
+    s.vy += 2400 * dt;
+    s.y += s.vy * dt;
+    s.rot += dt * 6;
+    if (s.y >= GD_GROUND_Y - GD_PLAYER_SZ) {
+      s.y = GD_GROUND_Y - GD_PLAYER_SZ; s.vy = 0; s.onGround = true; s.rot = Math.round(s.rot / (Math.PI / 2)) * (Math.PI / 2);
+    } else { s.onGround = false; }
+  } else if (s.mode === 'ufo') {
+    s.vy += 1400 * dt;
+    s.y += s.vy * dt;
+    if (s.y >= GD_GROUND_Y - GD_PLAYER_SZ) { s.y = GD_GROUND_Y - GD_PLAYER_SZ; s.vy = 0; s.onGround = true; }
+    else s.onGround = false;
+    if (s.y < 0) { s.y = 0; s.vy = 0; }
+  } else { // plane
+    const target = s.pressing ? -260 : 260;
+    s.vy += (target - s.vy) * Math.min(1, dt * 6);
+    s.y += s.vy * dt;
+    if (s.y >= GD_GROUND_Y - GD_PLAYER_SZ) { s.y = GD_GROUND_Y - GD_PLAYER_SZ; s.vy = 0; }
+    if (s.y < 0) { s.y = 0; s.vy = 0; }
+  }
+  // collisions: handle blocks (land on top) + spikes/portals
+  const px = s.scroll + GD_PLAYER_X;
+  const py = s.y;
+  for (const ob of s.obstacles) {
+    if (ob.x + ob.w < px - 50 || ob.x > px + GD_PLAYER_SZ + 50) continue;
+    if (ob.kind === 'block') {
+      if (gdRectsOverlap(px, py, GD_PLAYER_SZ, GD_PLAYER_SZ, ob.x, ob.y, ob.w, ob.h)) {
+        const prevPy = py - s.vy * dt;
+        if (s.mode === 'cube' && prevPy + GD_PLAYER_SZ <= ob.y + 2 && s.vy >= 0) {
+          s.y = ob.y - GD_PLAYER_SZ; s.vy = 0; s.onGround = true;
+        } else if (s.mode === 'ufo' && prevPy + GD_PLAYER_SZ <= ob.y + 2 && s.vy >= 0) {
+          s.y = ob.y - GD_PLAYER_SZ; s.vy = 0; s.onGround = true;
+        } else { return gdDie(); }
+      }
+    } else if (ob.kind === 'spike') {
+      const inset = 4;
+      if (gdRectsOverlap(px + inset, py + inset, GD_PLAYER_SZ - inset * 2, GD_PLAYER_SZ - inset * 2, ob.x + 4, ob.y + 4, ob.w - 8, ob.h - 8)) {
+        return gdDie();
+      }
+    } else if (ob.kind === 'portal') {
+      if (gdRectsOverlap(px, py, GD_PLAYER_SZ, GD_PLAYER_SZ, ob.x, ob.y, ob.w, ob.h) && !ob.used) {
+        ob.used = true;
+        s.mode = ob.mode;
+        s.vy = 0;
+        document.getElementById('gd-mode-tag').textContent = ob.mode;
+        document.getElementById('gd-mode-tag').style.color = ob.mode === 'cube' ? '#3a86ff' : (ob.mode === 'ufo' ? '#b14aed' : '#ff8c42');
+      }
+    }
+  }
+  if (s.scroll >= GD_LEN) { s.won = true; gdFinish(1); }
+}
+function gdDie() {
+  const s = gdState; if (!s || s.dead) return;
+  s.dead = true; s.alive = false;
+  const progress = Math.min(1, s.scroll / GD_LEN);
+  gdFinish(progress);
+}
+async function gdFinish(progress) {
+  const s = gdState; if (!s || s.reported) return;
+  s.reported = true; s.alive = false;
+  const time_ms = Math.floor(performance.now() - s.startTs);
+  const resEl = document.getElementById('gd-result');
+  resEl.textContent = 'Reporting...';
+  try {
+    const r = await fetch(BACKEND + '/api/casino/gd/result', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ seed: s.seed, progress, time_ms }) });
+    const d = await r.json();
+    if (d.error) { resEl.textContent = d.error; resEl.style.color = 'var(--red)'; return; }
+    if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
+    const net = d.winnings - d.bet;
+    if (net > 0) { resEl.textContent = '🎉 ' + Math.floor(progress * 100) + '% reached - won ' + d.winnings + ' $ (x' + d.multiplier + ', net +' + net + ')'; resEl.style.color = '#22c55e'; }
+    else if (net === 0) { resEl.textContent = '↔ ' + Math.floor(progress * 100) + '% - broke even (x' + d.multiplier + ')'; resEl.style.color = 'var(--gold)'; }
+    else { resEl.textContent = '💀 ' + Math.floor(progress * 100) + '% - net ' + net + ' $'; resEl.style.color = 'var(--red)'; }
+  } catch { resEl.textContent = 'Server offline - result not saved.'; resEl.style.color = 'var(--red)'; }
+}
+function gdDraw(ctx) {
+  const s = gdState;
+  ctx.fillStyle = '#0a0a14'; ctx.fillRect(0, 0, GD_W, GD_H);
+  // gridlines for parallax
+  ctx.strokeStyle = 'rgba(124,92,252,0.10)'; ctx.lineWidth = 1;
+  const grid = 40;
+  const offset = (s.scroll * 0.3) % grid;
+  for (let x = -offset; x < GD_W; x += grid) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GD_H); ctx.stroke(); }
+  for (let y = 0; y < GD_H; y += grid) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GD_W, y); ctx.stroke(); }
+  // ground
+  ctx.fillStyle = '#1a1632'; ctx.fillRect(0, GD_GROUND_Y, GD_W, GD_H - GD_GROUND_Y);
+  ctx.strokeStyle = 'var(--accent)'; ctx.lineWidth = 2; ctx.strokeStyle = '#7c5cfc';
+  ctx.beginPath(); ctx.moveTo(0, GD_GROUND_Y); ctx.lineTo(GD_W, GD_GROUND_Y); ctx.stroke();
+  // obstacles
+  for (const ob of s.obstacles) {
+    const sx = ob.x - s.scroll;
+    if (sx + ob.w < -20 || sx > GD_W + 20) continue;
+    if (ob.kind === 'block') {
+      ctx.fillStyle = '#3a3060'; ctx.fillRect(sx, ob.y, ob.w, ob.h);
+      ctx.strokeStyle = '#7c5cfc'; ctx.strokeRect(sx + 0.5, ob.y + 0.5, ob.w - 1, ob.h - 1);
+    } else if (ob.kind === 'spike') {
+      ctx.fillStyle = '#ff8c42'; ctx.strokeStyle = '#ff6b1a';
+      if (ob.asBlock) { ctx.fillRect(sx, ob.y, ob.w, ob.h); ctx.strokeRect(sx + 0.5, ob.y + 0.5, ob.w - 1, ob.h - 1); }
+      else {
+        ctx.beginPath();
+        if (ob.up) { ctx.moveTo(sx, ob.y + ob.h); ctx.lineTo(sx + ob.w / 2, ob.y); ctx.lineTo(sx + ob.w, ob.y + ob.h); }
+        else { ctx.moveTo(sx, ob.y); ctx.lineTo(sx + ob.w / 2, ob.y + ob.h); ctx.lineTo(sx + ob.w, ob.y); }
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    } else if (ob.kind === 'portal') {
+      const grad = ctx.createLinearGradient(sx, ob.y, sx + ob.w, ob.y + ob.h);
+      grad.addColorStop(0, ob.color); grad.addColorStop(1, '#fff');
+      ctx.fillStyle = grad; ctx.fillRect(sx, ob.y, ob.w, ob.h);
+      ctx.fillStyle = '#000'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(ob.mode.toUpperCase(), sx + ob.w / 2, ob.y + ob.h / 2);
+    }
+  }
+  // player
+  ctx.save();
+  ctx.translate(GD_PLAYER_X + GD_PLAYER_SZ / 2, s.y + GD_PLAYER_SZ / 2);
+  if (s.mode === 'cube') ctx.rotate(s.rot);
+  if (s.mode === 'cube') { ctx.fillStyle = '#3a86ff'; ctx.fillRect(-GD_PLAYER_SZ / 2, -GD_PLAYER_SZ / 2, GD_PLAYER_SZ, GD_PLAYER_SZ); ctx.strokeStyle = '#fff'; ctx.strokeRect(-GD_PLAYER_SZ / 2 + 0.5, -GD_PLAYER_SZ / 2 + 0.5, GD_PLAYER_SZ - 1, GD_PLAYER_SZ - 1); }
+  else if (s.mode === 'ufo') {
+    ctx.fillStyle = '#b14aed'; ctx.beginPath(); ctx.ellipse(0, 4, GD_PLAYER_SZ / 2, GD_PLAYER_SZ / 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, -2, GD_PLAYER_SZ / 3, Math.PI, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = '#ff8c42'; ctx.beginPath(); ctx.moveTo(GD_PLAYER_SZ / 2, 0); ctx.lineTo(-GD_PLAYER_SZ / 2, -GD_PLAYER_SZ / 2); ctx.lineTo(-GD_PLAYER_SZ / 4, 0); ctx.lineTo(-GD_PLAYER_SZ / 2, GD_PLAYER_SZ / 2); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+document.getElementById('btn-gd-play').onclick = gdStart;
+document.getElementById('btn-gd-close').onclick = () => {
+  if (gdState && gdState.alive && !gdState.reported) gdFinish(Math.min(1, gdState.scroll / GD_LEN));
+  if (gdState) {
+    if (gdState._keyDown) window.removeEventListener('keydown', gdState._keyDown);
+    if (gdState._keyUp) window.removeEventListener('keyup', gdState._keyUp);
+  }
+  if (gdState && gdState.rafId) cancelAnimationFrame(gdState.rafId);
+  gdState = null;
+  document.getElementById('gd-modal').style.display = 'none';
+};
+document.getElementById('btn-gd-copy-seed').onclick = () => {
+  const txt = document.getElementById('gd-seed-tag').textContent;
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => {
+    const b = document.getElementById('btn-gd-copy-seed'); const old = b.textContent; b.textContent = 'Copied!'; setTimeout(() => b.textContent = old, 1200);
+  });
+};
 
 const MINES_N = 25;
 let minesActive = false;

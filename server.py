@@ -2231,6 +2231,64 @@ async def casino_mines_handler(request):
         return web.json_response({"ok": True, "phase": "playing", "mines": g["n_mines"], "revealed": list(g["revealed"]), "multiplier": _mines_mult(g["n_mines"], len(g["revealed"])), "next_mult": _mines_mult(g["n_mines"], len(g["revealed"]) + 1), "bet": g["bet"], "balance": get_pb(user)})
     return web.json_response({"error": "Bad action"}, status=400)
 
+GD_LEVEL_LENGTH = 5400
+GD_MIN_PLAY_MS_PER_PCT = 30
+GD_DAILY_PLAY_CAP = 30
+gd_attempts = {}
+
+async def casino_gd_start_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    try: amount = int(data.get("amount", 0))
+    except: return web.json_response({"error": "Invalid bet"}, status=400)
+    if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+    if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
+    if not check_rate_limit(user, "gd_start", GD_DAILY_PLAY_CAP, 60 * 60 * 24):
+        return web.json_response({"error": f"Daily play cap reached ({GD_DAILY_PLAY_CAP} attempts/24h)"}, status=429)
+    if not spend_pb(user, amount):
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    seed_in = str(data.get("seed", "")).strip()[:12]
+    if seed_in and seed_in.isdigit():
+        seed = int(seed_in)
+    else:
+        seed = secrets.randbelow(1_000_000_000)
+    gd_attempts[user.lower()] = {"seed": seed, "bet": amount, "start_ts": time.time(), "done": False}
+    return web.json_response({"ok": True, "seed": seed, "length": GD_LEVEL_LENGTH, "max_mult": 3.0, "balance": get_pb(user)})
+
+async def casino_gd_result_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    ulow = user.lower()
+    g = gd_attempts.get(ulow)
+    if not g or g.get("done"):
+        return web.json_response({"error": "No active attempt"}, status=400)
+    try:
+        progress = max(0.0, min(1.0, float(data.get("progress", 0))))
+        time_ms = max(0, int(data.get("time_ms", 0)))
+        seed = int(data.get("seed", -1))
+    except: return web.json_response({"error": "Bad payload"}, status=400)
+    if seed != g["seed"]:
+        return web.json_response({"error": "Seed mismatch"}, status=400)
+    pct = progress * 100
+    server_elapsed_ms = int((time.time() - g["start_ts"]) * 1000)
+    min_required_ms = int(pct * GD_MIN_PLAY_MS_PER_PCT)
+    if time_ms < min_required_ms or server_elapsed_ms + 500 < min_required_ms:
+        g["done"] = True
+        gd_attempts.pop(ulow, None)
+        return web.json_response({"error": "Run too fast to be real (anti-cheat)"}, status=400)
+    multiplier = round(1 + 2 * progress, 3)
+    winnings = int(g["bet"] * multiplier)
+    credit_pb(user, winnings)
+    await save_place_bucks()
+    await push_pb_update(user)
+    g["done"] = True
+    detail = f"reached {pct:.0f}% (x{multiplier}) seed {g['seed']}"
+    await broadcast_casino_result(user, "GeoDash", g["bet"], winnings, detail)
+    gd_attempts.pop(ulow, None)
+    return web.json_response({"ok": True, "progress": progress, "multiplier": multiplier, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user), "seed": g["seed"]})
+
 PLINKO_ROWS = 9
 PLINKO_MULTIPLIERS = [10.0, 3.0, 1.4, 1.1, 0.5, 0.3, 0.5, 1.1, 1.4, 3.0, 10.0]
 
@@ -4515,6 +4573,8 @@ app.router.add_post("/api/casino/roulette", casino_roulette_handler)
 app.router.add_post("/api/casino/coinflip", casino_coinflip_handler)
 app.router.add_post("/api/casino/plinko", casino_plinko_handler)
 app.router.add_post("/api/casino/mines", casino_mines_handler)
+app.router.add_post("/api/casino/gd/start", casino_gd_start_handler)
+app.router.add_post("/api/casino/gd/result", casino_gd_result_handler)
 app.router.add_post("/api/casino/blackjack", casino_blackjack_handler)
 app.router.add_post("/api/casino/rps/solo", casino_rps_solo_handler)
 app.router.add_post("/api/casino/rps/join", casino_rps_join_handler)
