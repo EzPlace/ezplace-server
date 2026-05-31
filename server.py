@@ -1364,6 +1364,16 @@ async def admin_alert_handler(request):
             except: pass
     return web.json_response({"ok": True, "message": f"Alert delivered to {delivered} connection(s) for {target}"} if delivered else {"error": f"{target} is not online"})
 
+async def admin_clear_economy_history_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    global economy_history
+    n = len(economy_history)
+    economy_history.clear()
+    await save_economy_history()
+    economy_history.append({"ts": int(time.time()), "total": _total_economy_pb()})
+    await save_economy_history()
+    return web.json_response({"ok": True, "cleared": n})
+
 async def admin_richest_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     rows = []
@@ -4245,6 +4255,22 @@ async def on_startup(app):
         migrations_doc["starting_floor_v1"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"starting_floor_v1: ensured every account has at least {floor} PB")
+    if not migrations_doc.get("strip_inactive_floor_v1"):
+        # starting_floor_v1 credited 50 PB to EVERY account including thousands
+        # of never-used signups. Remove the floor for accounts that never
+        # placed a single pixel.
+        removed = 0
+        wiped_total = 0
+        for ulow in list(place_bucks.keys()):
+            if is_admin(ulow): continue
+            if int(lifetime_pixels.get(ulow, 0)) < 1:
+                wiped_total += int(place_bucks[ulow])
+                del place_bucks[ulow]
+                removed += 1
+        await save_place_bucks()
+        migrations_doc["strip_inactive_floor_v1"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"strip_inactive_floor_v1: removed PB balances for {removed} inactive accounts (total wiped: {wiped_total})")
     if not migrations_doc.get("economy_reset_v1"):
         place_bucks.clear()
         for ulow, lp in lifetime_pixels.items():
@@ -4358,6 +4384,7 @@ app.router.add_post("/api/admin/alert", admin_alert_handler)
 app.router.add_post("/api/admin/relay", admin_relay_handler)
 app.router.add_post("/api/admin/pb_grant", admin_pb_grant_handler)
 app.router.add_get("/api/admin/richest", admin_richest_handler)
+app.router.add_post("/api/admin/clear_economy_history", admin_clear_economy_history_handler)
 app.router.add_post("/api/admin/redirect", admin_redirect_handler)
 app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
 app.router.add_post("/api/admin/session-for", admin_session_for_handler)
