@@ -970,7 +970,7 @@
       </div>
       <div id="admin-pb-status" style="font-size:10px;color:#666;min-height:14px;">&nbsp;</div>
       <h4>Richest Players</h4>
-      <div class="admin-row"><button class="win-btn" id="btn-admin-richest" style="background:var(--accent);color:#fff;">Refresh leaderboard</button><span id="admin-richest-meta" style="font-size:11px;color:var(--text-muted);align-self:center;"></span></div>
+      <div class="admin-row"><button class="win-btn" id="btn-admin-richest" style="background:var(--accent);color:#fff;">Refresh leaderboard</button><button class="win-btn" id="btn-admin-clear-history" style="background:#d32f2f;color:#fff;">Wipe Graph History</button><span id="admin-richest-meta" style="font-size:11px;color:var(--text-muted);align-self:center;"></span></div>
       <div id="admin-richest-list" style="display:flex;flex-direction:column;gap:2px;font-size:11px;margin:6px 0;font-family:'JetBrains Mono','Fira Code',monospace;"></div>
       <h4>Ban / Kick</h4>
       <div class="admin-row">
@@ -5531,6 +5531,14 @@ async function adminView(endpoint) {
     el.textContent = JSON.stringify(data, null, 2);
   } catch { document.getElementById('admin-json').textContent = 'Error loading'; }
 }
+document.getElementById('btn-admin-clear-history').onclick = async () => {
+  if (!confirm('Wipe all economy graph history? This deletes every past snapshot. The current total stays as the new first point.')) return;
+  try {
+    const r = await fetch(BACKEND + '/api/admin/clear_economy_history', { method: 'POST', headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) alert(d.error); else alert('Cleared ' + d.cleared + ' history points. Reload to see the fresh graph.');
+  } catch { alert('Server offline.'); }
+};
 document.getElementById('btn-admin-richest').onclick = async () => {
   const list = document.getElementById('admin-richest-list');
   const meta = document.getElementById('admin-richest-meta');
