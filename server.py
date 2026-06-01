@@ -2278,7 +2278,10 @@ async def casino_gd_result_handler(request):
         g["done"] = True
         gd_attempts.pop(ulow, None)
         return web.json_response({"error": "Run too fast to be real (anti-cheat)"}, status=400)
-    multiplier = round(1 + 2 * progress, 3)
+    if progress < 0.5:
+        multiplier = round(2 * progress, 3)
+    else:
+        multiplier = round(1 + 4 * (progress - 0.5), 3)
     winnings = int(g["bet"] * multiplier)
     credit_pb(user, winnings)
     await save_place_bucks()
