@@ -3049,7 +3049,7 @@ BATTLE_DRAW_SECONDS_DEFAULT = 90
 BATTLE_DRAW_SECONDS_MIN = 30
 BATTLE_DRAW_SECONDS_MAX = 300
 BATTLE_JUDGE_TIMEOUT = 90
-BATTLE_PALETTE_SIZE = 53
+BATTLE_PALETTE_SIZE = 81
 BATTLE_ADJ = [
     "angry", "sleepy", "tiny", "huge", "glowing", "melting", "exploding", "frozen",
     "ancient", "royal", "secret", "hungry", "scared", "smelly", "fluffy", "cosmic",
