@@ -68,7 +68,7 @@ PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
 STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
-PB_TRANSFER_AMOUNT_PER_MIN = 1000
+PB_TRANSFER_AMOUNT_PER_MIN = 100000
 pb_transfer_amount_window = {}
 LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
 
