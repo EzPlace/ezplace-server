@@ -3834,13 +3834,12 @@ function gdMakeLevel(seed) {
       }
       x += 110;
     } else { // plane
-      const gap = 110 + Math.floor(r() * 40);
-      const topH = 20 + Math.floor(r() * (GD_GROUND_Y - gap - 40));
-      if (r() < 0.6) {
-        obstacles.push({ kind: 'spike', x, y: 0, w: 24, h: topH, up: false, asBlock: true });
-        obstacles.push({ kind: 'spike', x, y: topH + gap, w: 24, h: GD_GROUND_Y - topH - gap, up: true, asBlock: true });
-      } else {
-        obstacles.push({ kind: 'spike', x: x + 30, y: GD_GROUND_Y - 24, w: 24, h: 24, up: true });
+      const gap = 90 + Math.floor(r() * 50);
+      const topH = 40 + Math.floor(r() * (GD_GROUND_Y - gap - 80));
+      obstacles.push({ kind: 'spike', x, y: 0, w: 24, h: topH, up: false, asBlock: true });
+      obstacles.push({ kind: 'spike', x, y: topH + gap, w: 24, h: GD_GROUND_Y - topH - gap, up: true, asBlock: true });
+      if (r() < 0.35) {
+        obstacles.push({ kind: 'spike', x: x + 60, y: GD_GROUND_Y - 24, w: 24, h: 24, up: true });
       }
       x += 130;
     }
