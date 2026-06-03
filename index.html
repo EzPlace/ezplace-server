@@ -3960,7 +3960,7 @@ function gdTick(dt) {
         return gdDie();
       }
     } else if (ob.kind === 'portal') {
-      if (gdRectsOverlap(px, py, GD_PLAYER_SZ, GD_PLAYER_SZ, ob.x, ob.y, ob.w, ob.h) && !ob.used) {
+      if (!ob.used && px + GD_PLAYER_SZ >= ob.x && px <= ob.x + ob.w) {
         ob.used = true;
         s.mode = ob.mode;
         s.vy = 0;
@@ -4024,6 +4024,9 @@ function gdDraw(ctx) {
         ctx.closePath(); ctx.fill(); ctx.stroke();
       }
     } else if (ob.kind === 'portal') {
+      // full-height activation beam (you can't fly around it)
+      ctx.fillStyle = ob.color + '22';
+      ctx.fillRect(sx, 0, ob.w, GD_GROUND_Y);
       const grad = ctx.createLinearGradient(sx, ob.y, sx + ob.w, ob.y + ob.h);
       grad.addColorStop(0, ob.color); grad.addColorStop(1, '#fff');
       ctx.fillStyle = grad; ctx.fillRect(sx, ob.y, ob.w, ob.h);
