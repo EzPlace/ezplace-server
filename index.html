@@ -618,8 +618,8 @@
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Chat</div>
       <div id="au-chat-log" style="flex:1;overflow-y:auto;font-size:12px;line-height:1.4;background:var(--bg-secondary);border-radius:6px;padding:6px 8px;min-height:120px;"></div>
       <div style="display:flex;gap:4px;">
-        <input id="au-chat-input" class="win-input" type="text" maxlength="200" placeholder="Say something..." style="flex:1;font-size:12px;padding:4px 8px;">
-        <button id="btn-au-say" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;">Send</button>
+        <input id="au-chat-input" class="win-input" type="text" maxlength="200" placeholder="Say something..." style="flex:1;font-size:16px;padding:8px 10px;">
+        <button id="btn-au-say" class="win-btn" style="background:var(--accent);color:#fff;font-size:13px;padding:8px 14px;min-width:60px;">Send</button>
       </div>
     </div>
   </div>
@@ -3900,11 +3900,11 @@ function auRender(state) {
   if (state.imposter_can_kill) {
     const targets = state.players.filter(p => p.alive && p.name.toLowerCase() !== meLow);
     const sel = document.createElement('select'); sel.id = 'au-kill-target';
-    sel.style.cssText = 'flex:1;font-size:12px;padding:4px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;';
+    sel.style.cssText = 'flex:1;font-size:16px;padding:8px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;min-height:36px;';
     targets.forEach(t => { const o = document.createElement('option'); o.value = t.name; o.textContent = t.name; sel.appendChild(o); });
     const btn = document.createElement('button');
     btn.className = 'win-btn'; btn.textContent = '🔪 Kill';
-    btn.style.cssText = 'background:#e63946;color:#fff;font-size:11px;padding:4px 10px;';
+    btn.style.cssText = 'background:#e63946;color:#fff;font-size:13px;padding:8px 14px;min-height:36px;';
     btn.onclick = async () => {
       const t = document.getElementById('au-kill-target').value;
       if (!confirm('Kill ' + t + '?')) return;
@@ -3921,13 +3921,13 @@ function auRender(state) {
       const b = document.createElement('button');
       b.className = 'win-btn';
       b.textContent = 'Vote: ' + t.name;
-      b.style.cssText = 'background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:4px 8px;border:1px solid var(--border);';
+      b.style.cssText = 'background:var(--bg-elevated);color:var(--text-primary);font-size:13px;padding:10px 12px;border:1px solid var(--border);min-height:40px;text-align:left;';
       b.onclick = () => auVote(t.name);
       act.appendChild(b);
     });
     const skip = document.createElement('button');
     skip.className = 'win-btn'; skip.textContent = 'Skip vote';
-    skip.style.cssText = 'background:var(--bg-secondary);color:var(--text-muted);font-size:11px;padding:4px 8px;';
+    skip.style.cssText = 'background:var(--bg-secondary);color:var(--text-muted);font-size:13px;padding:10px 12px;min-height:40px;';
     skip.onclick = () => auVote('skip');
     act.appendChild(skip);
   }
