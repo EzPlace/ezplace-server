@@ -4065,6 +4065,12 @@ async def social_ws_handler(request):
                         unread = get_unread_dm_summary(username)
                         if unread:
                             await ws.send_json({"type": "unread_dms", "senders": unread})
+                        try:
+                            fd = friends_data.get(username) or {}
+                            pending = list(fd.get("incoming") or [])
+                            if pending:
+                                await ws.send_json({"type": "pending_friend_requests", "from": pending})
+                        except: pass
                         await broadcast_online_all_lobbies()
                     else:
                         await ws.close()
