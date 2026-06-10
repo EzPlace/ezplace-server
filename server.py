@@ -345,11 +345,32 @@ async def save_streak_progress():
     pruned = {k: v for k, v in streak_progress.items() if isinstance(v, dict) and v.get("date") == today_iso}
     await db_save("store", "streak_progress", pruned)
 
-def get_streak(user):
+def get_streak(user, tz_offset_min=None):
+    """Returns the user's current streak. If their last_date is older than the
+    allowed window (yesterday, or day-before-yesterday if they own streak_48hr),
+    the streak is considered broken and count returns 0 for display purposes.
+    The stored value is left intact so streak_pass can still revive it."""
     if not user: return {"count": 0, "last_date": ""}
     s = streaks.get(user.lower())
     if not s: return {"count": 0, "last_date": ""}
-    return {"count": int(s.get("count", 0)), "last_date": s.get("last_date", "")}
+    count = int(s.get("count", 0))
+    last_date = s.get("last_date", "")
+    if count <= 0 or not last_date:
+        return {"count": 0, "last_date": last_date}
+    if tz_offset_min is None:
+        tz_offset_min = s.get("tz_offset", 0)
+    try: off = int(tz_offset_min)
+    except: off = 0
+    today = _local_today_iso(off)
+    pu = purchases.get(user.lower()) or {}
+    allowed_days = 2 if pu.get("streak_48hr") else 1
+    base = datetime.utcnow() - timedelta(minutes=off)
+    valid = {today}
+    for i in range(1, allowed_days + 1):
+        valid.add((base - timedelta(days=i)).date().isoformat())
+    if last_date not in valid:
+        return {"count": 0, "last_date": last_date, "broken": True, "prev_count": count}
+    return {"count": count, "last_date": last_date}
 
 def get_streak_progress(user):
     if not user or is_admin(user):
@@ -393,7 +414,9 @@ async def bump_streak(user, tz_offset_min=0):
         else:
             new_count = 1
     reward = min(new_count * 2, STREAK_REWARD_CAP)
-    streaks[ulow] = {"count": new_count, "last_date": today, "last_reward": reward}
+    try: stored_tz = int(tz_offset_min)
+    except: stored_tz = 0
+    streaks[ulow] = {"count": new_count, "last_date": today, "last_reward": reward, "tz_offset": stored_tz}
     credit_pb(user, reward)
     await save_place_bucks()
     await save_streaks()
