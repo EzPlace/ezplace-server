@@ -598,6 +598,33 @@
   </div>
 </div>
 
+<div id="au-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.94);backdrop-filter:blur(4px);z-index:87;flex-direction:column;padding:10px;gap:8px;color:var(--text-primary);overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+    <div style="font-weight:700;font-size:14px;">Among Us 👽 <span id="au-room-info" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <span id="au-timer-tag" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;color:var(--gold);"></span>
+      <button id="btn-au-start-game" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;display:none;">Start Game</button>
+      <button id="btn-au-leave" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;padding:4px 10px;">Leave</button>
+    </div>
+  </div>
+  <div id="au-banner" style="text-align:center;font-size:13px;font-weight:700;padding:6px 10px;border-radius:6px;background:var(--bg-secondary);border:1px solid var(--border);"></div>
+  <div style="display:flex;gap:10px;flex:1;min-height:0;flex-wrap:wrap;">
+    <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:6px;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Players</div>
+      <div id="au-players" style="display:flex;flex-direction:column;gap:3px;font-size:12px;background:var(--bg-secondary);border-radius:6px;padding:6px;"></div>
+      <div id="au-actions" style="display:flex;flex-direction:column;gap:4px;"></div>
+    </div>
+    <div style="flex:2;min-width:300px;display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--border);padding-top:6px;max-height:50vh;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Chat</div>
+      <div id="au-chat-log" style="flex:1;overflow-y:auto;font-size:12px;line-height:1.4;background:var(--bg-secondary);border-radius:6px;padding:6px 8px;min-height:120px;"></div>
+      <div style="display:flex;gap:4px;">
+        <input id="au-chat-input" class="win-input" type="text" maxlength="200" placeholder="Say something..." style="flex:1;font-size:12px;padding:4px 8px;">
+        <button id="btn-au-say" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="gd-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(4px);z-index:86;flex-direction:column;align-items:center;justify-content:center;padding:10px;gap:8px;color:var(--text-primary);">
   <div style="display:flex;align-items:center;gap:14px;font-size:13px;font-weight:700;flex-wrap:wrap;justify-content:center;">
     <span>Seed: <span id="gd-seed-tag" style="color:var(--accent);font-family:'JetBrains Mono','Fira Code',monospace;">-</span></span>
@@ -782,6 +809,17 @@
               <button id="btn-gd-play" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
             </div>
             <div id="gd-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);">Die at 0% lose bet · die at 50% break even · clear 100% = 3x. Multiplier scales linearly with progress.</div>
+          </div>
+        </details>
+        <details class="game-acc"><summary>Among Us 👽 <span class="game-hint">4-20 players. 1 imposter. Kill or vote. Crew wins = alive crew split pot; imposter wins = takes all.</span></summary>
+          <div class="game-body">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:11px;">Bet <input id="au-bet" type="number" min="0" value="20" class="win-input" style="width:70px;font-size:12px;padding:2px 4px;"></label>
+              <button id="btn-au-create" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Create Room</button>
+              <button id="btn-au-list" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;">Find Room</button>
+            </div>
+            <div id="au-rooms" style="display:none;flex-direction:column;gap:4px;font-size:12px;"></div>
+            <div id="au-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
         </details>
         <details class="game-acc"><summary>Mines 💣 <span class="game-hint">Reveal gems to grow your multiplier - cash out before a bomb</span></summary>
@@ -3778,6 +3816,193 @@ document.querySelectorAll('.coin-go').forEach(b => {
   };
 });
 
+// ============= Among Us =============
+let auRoomId = null;
+let auState = null;
+let auTimerInt = null;
+function auMsg(t, color) { const el = document.getElementById('au-msg'); if (el) { el.textContent = t || ''; el.style.color = color || 'var(--text-muted)'; } }
+function auOpenModal() { document.getElementById('au-modal').style.display = 'flex'; }
+function auCloseModal() {
+  document.getElementById('au-modal').style.display = 'none';
+  auState = null; auRoomId = null;
+  if (auTimerInt) { clearInterval(auTimerInt); auTimerInt = null; }
+  document.getElementById('au-chat-log').innerHTML = '';
+}
+function auFmtMMSS(s) { const m = Math.floor(s / 60), sec = s % 60; return m + ':' + String(sec).padStart(2, '0'); }
+function auStartTimer(state) {
+  if (auTimerInt) { clearInterval(auTimerInt); auTimerInt = null; }
+  if (!state.time_left || state.phase === 'lobby' || state.phase === 'ended') {
+    document.getElementById('au-timer-tag').textContent = '';
+    return;
+  }
+  let left = state.time_left;
+  const tick = () => {
+    const el = document.getElementById('au-timer-tag');
+    if (!el) return;
+    if (left <= 0) { el.textContent = 'time up'; clearInterval(auTimerInt); auTimerInt = null; return; }
+    el.textContent = state.phase + ' ' + auFmtMMSS(left);
+    left--;
+  };
+  tick();
+  auTimerInt = setInterval(tick, 1000);
+}
+function auRender(state) {
+  auState = state;
+  auRoomId = state.room_id;
+  const isCreator = username && state.creator && username.toLowerCase() === state.creator.toLowerCase();
+  const meLow = (username || '').toLowerCase();
+  document.getElementById('au-room-info').textContent = '(' + state.phase + ' · bet ' + state.bet + ' $ · pot ' + state.pool + ' $' + (state.round ? ' · round ' + state.round : '') + ')';
+  document.getElementById('btn-au-start-game').style.display = (isCreator && state.phase === 'lobby') ? '' : 'none';
+  document.getElementById('btn-au-start-game').disabled = !(state.players && state.players.length >= 4);
+  const banner = document.getElementById('au-banner');
+  if (state.phase === 'lobby') {
+    banner.style.color = 'var(--text-muted)';
+    banner.textContent = 'Waiting for ' + Math.max(0, 4 - state.players.length) + ' more player(s) (4 min, 20 max).';
+  } else if (state.phase === 'discussion') {
+    if (state.my_role === 'imposter') {
+      banner.style.color = '#e63946';
+      banner.textContent = 'You are the 🔪 IMPOSTER. Kill a crewmate or hide and let them vote wrong.';
+    } else if (state.my_role === 'crew' && state.alive) {
+      banner.style.color = '#22c55e';
+      banner.textContent = 'You are 🛠 CREW. Discuss & find the imposter.';
+    } else {
+      banner.style.color = '#888';
+      banner.textContent = '💀 You are dead. You can still chat but it shows to other ghosts only (you all see it).';
+    }
+  } else if (state.phase === 'voting') {
+    banner.style.color = 'var(--gold)';
+    banner.textContent = state.alive ? 'VOTE for the imposter (or skip).' : '💀 Dead - waiting for the living to vote.';
+  } else if (state.phase === 'ended') {
+    const won = (state.winner === 'crew' && state.my_role === 'crew' && state.alive) || (state.winner === 'imposter' && state.my_role === 'imposter');
+    banner.style.color = won ? '#22c55e' : 'var(--red)';
+    banner.textContent = (state.winner === 'crew' ? '🛠 CREW WINS!' : '🔪 IMPOSTER WINS!') + (won ? ' You won ' + state.winnings + ' $!' : ' You lost your bet of ' + state.bet + ' $.');
+  }
+  auStartTimer(state);
+  // Players list
+  const pl = document.getElementById('au-players');
+  pl.innerHTML = '';
+  (state.players || []).forEach(p => {
+    const row = document.createElement('div');
+    const isMe = p.name.toLowerCase() === meLow;
+    const dead = !p.alive;
+    let roleTag = '';
+    if (p.role) {
+      const c = p.role === 'imposter' ? '#e63946' : (p.role === 'crew' ? '#22c55e' : '#888');
+      roleTag = ' <span style="color:' + c + ';font-size:10px;">[' + p.role + ']</span>';
+    }
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:4px;background:' + (dead ? 'rgba(231,57,70,0.15)' : 'var(--bg-elevated)') + ';' + (dead ? 'text-decoration:line-through;color:#999;' : '');
+    row.innerHTML = (dead ? '💀 ' : '👤 ') + esc(p.name) + (isMe ? ' (you)' : '') + roleTag;
+    pl.appendChild(row);
+  });
+  // Action buttons
+  const act = document.getElementById('au-actions');
+  act.innerHTML = '';
+  if (state.imposter_can_kill) {
+    const targets = state.players.filter(p => p.alive && p.name.toLowerCase() !== meLow);
+    const sel = document.createElement('select'); sel.id = 'au-kill-target';
+    sel.style.cssText = 'flex:1;font-size:12px;padding:4px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;';
+    targets.forEach(t => { const o = document.createElement('option'); o.value = t.name; o.textContent = t.name; sel.appendChild(o); });
+    const btn = document.createElement('button');
+    btn.className = 'win-btn'; btn.textContent = '🔪 Kill';
+    btn.style.cssText = 'background:#e63946;color:#fff;font-size:11px;padding:4px 10px;';
+    btn.onclick = async () => {
+      const t = document.getElementById('au-kill-target').value;
+      if (!confirm('Kill ' + t + '?')) return;
+      const r = await fetch(BACKEND + '/api/casino/amongus/kill', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: auRoomId, target: t }) });
+      const d = await r.json(); if (d.error) alert(d.error);
+    };
+    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;gap:4px;align-items:center;';
+    wrap.appendChild(sel); wrap.appendChild(btn);
+    act.appendChild(wrap);
+  }
+  if (state.can_vote) {
+    const targets = state.players.filter(p => p.alive);
+    targets.forEach(t => {
+      const b = document.createElement('button');
+      b.className = 'win-btn';
+      b.textContent = 'Vote: ' + t.name;
+      b.style.cssText = 'background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:4px 8px;border:1px solid var(--border);';
+      b.onclick = () => auVote(t.name);
+      act.appendChild(b);
+    });
+    const skip = document.createElement('button');
+    skip.className = 'win-btn'; skip.textContent = 'Skip vote';
+    skip.style.cssText = 'background:var(--bg-secondary);color:var(--text-muted);font-size:11px;padding:4px 8px;';
+    skip.onclick = () => auVote('skip');
+    act.appendChild(skip);
+  }
+}
+async function auVote(target) {
+  if (!auRoomId) return;
+  const r = await fetch(BACKEND + '/api/casino/amongus/vote', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: auRoomId, target }) });
+  const d = await r.json(); if (d.error) alert(d.error);
+}
+function auAppendChat(msg) {
+  const log = document.getElementById('au-chat-log');
+  const d = document.createElement('div');
+  if (msg.system) {
+    d.innerHTML = '<i style="color:var(--gold);">' + esc(msg.text) + '</i>';
+  } else {
+    const tagColor = msg.dead ? '#888' : 'var(--accent)';
+    const prefix = msg.dead ? '💀 ' : '';
+    d.innerHTML = prefix + '<b style="color:' + tagColor + ';">' + esc(msg.from) + ':</b> ' + linkify(esc(msg.text || ''));
+  }
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+}
+async function auSay() {
+  if (!auRoomId) return;
+  const inp = document.getElementById('au-chat-input');
+  const t = (inp.value || '').trim(); if (!t) return;
+  inp.value = '';
+  await fetch(BACKEND + '/api/casino/amongus/say', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: auRoomId, text: t }) });
+}
+document.getElementById('btn-au-say').onclick = auSay;
+document.getElementById('au-chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') auSay(); });
+document.getElementById('btn-au-create').onclick = async () => {
+  if (!authToken) { auMsg('Log in first.', 'var(--red)'); return; }
+  const bet = parseInt(document.getElementById('au-bet').value) || 0;
+  auMsg('Creating room...');
+  try {
+    const r = await fetch(BACKEND + '/api/casino/amongus/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ bet }) });
+    const d = await r.json();
+    if (d.error) { auMsg(d.error, 'var(--red)'); return; }
+    auMsg('');
+    auRoomId = d.room_id; auOpenModal(); auRender(d.state);
+  } catch { auMsg('Server offline.', 'var(--red)'); }
+};
+document.getElementById('btn-au-list').onclick = async () => {
+  const list = document.getElementById('au-rooms');
+  list.style.display = 'flex'; list.innerHTML = 'Loading...';
+  try {
+    const r = await fetch(BACKEND + '/api/casino/amongus/list'); const d = await r.json();
+    list.innerHTML = '';
+    if (!d.rooms || !d.rooms.length) { list.innerHTML = '<div style="color:var(--text-muted);">No open rooms.</div>'; return; }
+    d.rooms.forEach(rm => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 8px;background:var(--bg-elevated);border-radius:4px;';
+      row.innerHTML = '<span>' + esc(rm.creator) + ' - bet ' + rm.bet + ' $ - ' + rm.players + '/20 players</span>';
+      const btn = document.createElement('button'); btn.className = 'win-btn'; btn.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:3px 8px;'; btn.textContent = 'Join';
+      btn.onclick = async () => {
+        const rr = await fetch(BACKEND + '/api/casino/amongus/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: rm.room_id }) });
+        const dd = await rr.json(); if (dd.error) { alert(dd.error); return; }
+        auRoomId = rm.room_id; auOpenModal(); if (dd.state) auRender(dd.state);
+      };
+      row.appendChild(btn); list.appendChild(row);
+    });
+  } catch { list.innerHTML = '<div style="color:var(--red);">Failed to load.</div>'; }
+};
+document.getElementById('btn-au-start-game').onclick = async () => {
+  if (!auRoomId) return;
+  const r = await fetch(BACKEND + '/api/casino/amongus/start', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: auRoomId }) });
+  const d = await r.json(); if (d.error) alert(d.error);
+};
+document.getElementById('btn-au-leave').onclick = async () => {
+  if (auRoomId) {
+    try { await fetch(BACKEND + '/api/casino/amongus/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: auRoomId }) }); } catch {}
+  }
+  auCloseModal();
+};
+
 // ============= GeoDash =============
 function gdMulberry32(seed) {
   let a = (seed >>> 0) || 1;
@@ -5395,6 +5620,16 @@ function connectSocial() {
     }
     if (msg.type === 'uno_chat' && msg.msg) {
       if (unoRoomId === msg.room_id) unoAppendChat(msg.msg);
+    }
+    if (msg.type === 'amongus_state' && msg.state) {
+      if (!auRoomId || auRoomId === msg.state.room_id) {
+        auRoomId = msg.state.room_id;
+        if (document.getElementById('au-modal').style.display === 'none') auOpenModal();
+        auRender(msg.state);
+      }
+    }
+    if (msg.type === 'amongus_chat' && msg.msg && auRoomId === msg.room_id) {
+      auAppendChat(msg.msg);
     }
     if (msg.type === 'battle_state' && msg.state) {
       if (!battleRoomId || battleRoomId === msg.state.room_id) {
