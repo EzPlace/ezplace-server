@@ -342,7 +342,7 @@ async def save_streaks():
 
 async def save_streak_progress():
     today_iso = date.today().isoformat()
-    pruned = {k: v for k, v in streak_progress.items() if isinstance(v, dict) and v.get("date") == today_iso}
+    pruned = {k: v for k, v in streak_progress.items() if isinstance(v, dict) and (v.get("utc_date") == today_iso or v.get("date") == today_iso)}
     await db_save("store", "streak_progress", pruned)
 
 def get_streak(user, tz_offset_min=None):
@@ -376,10 +376,12 @@ def get_streak_progress(user):
     if not user or is_admin(user):
         return {"seconds": STREAK_ACTIVE_SECONDS_REQUIRED, "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": True}
     ulow = user.lower()
-    today = date.today().isoformat()
     s = streaks.get(ulow) or {}
-    earned = s.get("last_date") == today
     p = streak_progress.get(ulow) or {}
+    # Use whichever stored tz we can find; default to UTC.
+    tz = p.get("locked_tz", s.get("tz_offset", 0))
+    today = _local_today_iso(tz)
+    earned = s.get("last_date") == today
     seconds = int(p.get("seconds", 0)) if p.get("date") == today else 0
     return {"seconds": seconds, "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": earned}
 
@@ -439,14 +441,28 @@ async def streak_heartbeat_handler(request):
         return web.json_response({"ok": True, "seconds": STREAK_ACTIVE_SECONDS_REQUIRED, "required": STREAK_ACTIVE_SECONDS_REQUIRED, "earned_today": True})
     try: data = await request.json()
     except: data = {}
-    tz_offset = data.get("tz_offset", 0)
+    try: tz_offset = int(data.get("tz_offset", 0))
+    except: tz_offset = 0
+    if tz_offset > 1440 or tz_offset < -1440: tz_offset = 0
     ulow = user.lower()
+    mark_active(user)
+    # Anti-cheat: lock tz_offset to the first heartbeat of the UTC day. Subsequent
+    # heartbeats this UTC day must match (±60min for DST). Prevents claiming
+    # multiple "days" of streak by spoofing timezone offsets per request.
+    utc_today = date.today().isoformat()
+    p = streak_progress.get(ulow)
+    if not p or p.get("utc_date") != utc_today:
+        p = {"date": _local_today_iso(tz_offset), "utc_date": utc_today, "locked_tz": tz_offset, "seconds": 0, "last_hb_ts": 0}
+    else:
+        if abs(int(p.get("locked_tz", 0)) - tz_offset) > 60:
+            tz_offset = int(p.get("locked_tz", 0))
     today = _local_today_iso(tz_offset)
     s = streaks.get(ulow) or {}
     earned_today = s.get("last_date") == today
-    p = streak_progress.get(ulow)
-    if not p or p.get("date") != today:
-        p = {"date": today, "seconds": 0, "last_hb_ts": 0}
+    if p.get("date") != today:
+        p["date"] = today
+        p["seconds"] = 0
+        p["last_hb_ts"] = 0
     now = time.time()
     if not earned_today and (now - float(p.get("last_hb_ts", 0))) >= (STREAK_HEARTBEAT_PERIOD - 2):
         p["seconds"] = min(int(p["seconds"]) + STREAK_HEARTBEAT_PERIOD, STREAK_ACTIVE_SECONDS_REQUIRED)
@@ -465,6 +481,13 @@ async def streak_progress_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     return web.json_response({"ok": True, **get_streak_progress(user)})
 
+user_last_activity = {}
+IDLE_REWARD_ACTIVITY_WINDOW = 180  # require user activity within last 3 minutes to accrue idle PB
+
+def mark_active(user):
+    if not user: return
+    user_last_activity[user.lower()] = time.time()
+
 async def push_pb_update(username):
     """Send the current balance/purchases to all live sockets for this user."""
     if not username: return
@@ -482,6 +505,7 @@ async def push_pb_update(username):
 async def award_pixel_placement(username, count=1):
     """Increment lifetime pixel count and credit PlaceBucks for each new 100-mark crossed."""
     if not username or count <= 0: return
+    mark_active(username)
     ulow = username.lower()
     old = int(lifetime_pixels.get(ulow, 0))
     new = old + count
@@ -666,8 +690,12 @@ async def idle_reward_loop(app):
                 if uname and not is_admin(uname): online_users.add(uname)
             if not online_users: continue
             credited_anything = False
+            now_ts = time.time()
             for uname in online_users:
                 ulow = uname.lower()
+                last_active = user_last_activity.get(ulow, 0)
+                if now_ts - last_active > IDLE_REWARD_ACTIVITY_WINDOW:
+                    continue
                 stay_seconds[ulow] = int(stay_seconds.get(ulow, 0)) + 60
                 if stay_seconds[ulow] >= IDLE_REWARD_SECONDS:
                     rewards = stay_seconds[ulow] // IDLE_REWARD_SECONDS
@@ -996,9 +1024,12 @@ async def create_lobby_handler(request):
     name = data.get("name", "").strip()[:30]
     is_public = data.get("public", False)
     wl = data.get("whitelist_enabled", False)
-    cooldown = max(0, min(MAX_COOLDOWN, float(data.get("cooldown", DEFAULT_COOLDOWN))))
-    lw = int(data.get("width", 256))
-    lh = int(data.get("height", 256))
+    try: cooldown = max(0, min(MAX_COOLDOWN, float(data.get("cooldown", DEFAULT_COOLDOWN))))
+    except: cooldown = DEFAULT_COOLDOWN
+    try: lw = int(data.get("width", 256))
+    except: lw = 256
+    try: lh = int(data.get("height", 256))
+    except: lh = 256
     if (lw, lh) not in VALID_SIZES:
         lw, lh = 256, 256
     if not name:
@@ -1431,23 +1462,31 @@ async def admin_richest_handler(request):
     total = sum(r["balance"] for r in rows)
     return web.json_response({"ok": True, "total": total, "count": len(rows), "rows": rows[:50]})
 
+ADMIN_PB_GRANT_MAX_PER_CALL = 1_000_000
+
 async def admin_pb_grant_handler(request):
     data = await request.json()
-    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    admin_user = get_auth_user(request)
+    if not is_admin(admin_user): return web.json_response({"error": "Forbidden"}, status=403)
     target = (data.get("username") or "").strip()
     try: amount = int(data.get("amount", 0))
     except: return web.json_response({"error": "Invalid amount"}, status=400)
+    if abs(amount) > ADMIN_PB_GRANT_MAX_PER_CALL:
+        return web.json_response({"error": f"Per-call cap is {ADMIN_PB_GRANT_MAX_PER_CALL} $ (use multiple calls for more)"}, status=400)
     if not target: return web.json_response({"error": "Username required"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return web.json_response({"error": "User not found"}, status=404)
     ulow = found.lower()
+    before = int(place_bucks.get(ulow, 0))
     if amount > 0:
         credit_pb(found, amount)
     elif amount < 0:
-        place_bucks[ulow] = max(0, int(place_bucks.get(ulow, 0)) + amount)
+        place_bucks[ulow] = max(0, before + amount)
+    after = int(place_bucks.get(ulow, 0))
     await save_place_bucks()
     await push_pb_update(found)
-    return web.json_response({"ok": True, "username": found, "balance": get_pb(found)})
+    print(f"[admin_grant] {admin_user} {'+' if amount >= 0 else ''}{amount} -> {found} (was {before}, now {after})")
+    return web.json_response({"ok": True, "username": found, "balance": get_pb(found), "delta": after - before})
 
 async def admin_relay_handler(request):
     data = await request.json()
@@ -2089,8 +2128,9 @@ async def pb_transfer_handler(request):
     return web.json_response({"ok": True, "balance": get_pb(user)})
 
 async def _casino_open(request, rate_key):
-    """Auth, bet validation, deduct. Hard-capped at MAX_CASINO_BET to prevent
-    compound-jackpot inflation exploits."""
+    """Auth, bet validation, rate limit, deduct. Hard-capped at MAX_CASINO_BET
+    to prevent compound-jackpot inflation exploits. Rate limited per game key
+    (default 60 plays/minute) to prevent scripted spam."""
     data = await request.json()
     user = get_auth_user(request)
     if not user: return None, web.json_response({"error": "Not authenticated"}, status=401)
@@ -2100,6 +2140,8 @@ async def _casino_open(request, rate_key):
         return None, web.json_response({"error": "Bet must be at least 1 $"}, status=400)
     if amount > MAX_CASINO_BET:
         return None, web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
+    if rate_key and not check_rate_limit(user, rate_key, 60, 60):
+        return None, web.json_response({"error": "Slow down - too many plays this minute."}, status=429)
     if not spend_pb(user, amount):
         return None, web.json_response({"error": "Not enough PlaceBucks"}, status=400)
     return (user, amount, data), None
@@ -2262,7 +2304,7 @@ async def casino_mines_handler(request):
     return web.json_response({"error": "Bad action"}, status=400)
 
 GD_LEVEL_LENGTH = 5400
-GD_MIN_PLAY_MS_PER_PCT = 30
+GD_MIN_PLAY_MS_PER_PCT = 180
 GD_DAILY_PLAY_CAP = 30
 gd_attempts = {}
 
@@ -2304,7 +2346,7 @@ async def casino_gd_result_handler(request):
     pct = progress * 100
     server_elapsed_ms = int((time.time() - g["start_ts"]) * 1000)
     min_required_ms = int(pct * GD_MIN_PLAY_MS_PER_PCT)
-    if time_ms < min_required_ms or server_elapsed_ms + 500 < min_required_ms:
+    if time_ms < min_required_ms or server_elapsed_ms < min_required_ms:
         g["done"] = True
         gd_attempts.pop(ulow, None)
         return web.json_response({"error": "Run too fast to be real (anti-cheat)"}, status=400)
@@ -2412,6 +2454,8 @@ async def casino_blackjack_handler(request):
     action = (data.get("action") or "").strip().lower()
     ulow = user.lower()
     if action == "start":
+        if ulow in bj_games and not bj_games[ulow].get("done"):
+            return web.json_response({"error": "Finish your current hand first (hit or stand)"}, status=400)
         try: amount = int(data.get("amount", 0))
         except: return web.json_response({"error": "Invalid bet"}, status=400)
         if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
@@ -2500,6 +2544,7 @@ async def casino_rps_join_handler(request):
     try: amount = int(data.get("amount", 0))
     except: return web.json_response({"error": "Invalid bet"}, status=400)
     if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+    if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
     ulow = user.lower()
                                   
     for q in rps_queue:
@@ -2536,6 +2581,7 @@ async def casino_rps_challenge_handler(request):
     try: amount = int(data.get("amount", 0))
     except: return web.json_response({"error": "Invalid bet"}, status=400)
     if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
+    if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
     if not target: return web.json_response({"error": "Pick an opponent"}, status=400)
     if target.lower() == user.lower(): return web.json_response({"error": "you can't challenge yourself, you're not a bank"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
@@ -3955,6 +4001,7 @@ async def websocket_handler(request):
                 elif data["type"] == "chat" and username and lobby_id:
                     text = data.get("text", "").strip()[:200]
                     if text:
+                        mark_active(username)
                         now2 = time.time()
                         chat_times = [t for t in chat_times if now2 - t < 5]
                         if len(chat_times) >= 5:
