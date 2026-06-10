@@ -3539,6 +3539,357 @@ async def battle_say_handler(request):
         except: pass
     return web.json_response({"ok": True})
 
+AMONGUS_MIN = 4
+AMONGUS_MAX = 20
+AMONGUS_DISCUSSION_SECONDS = 75
+AMONGUS_VOTE_SECONDS = 30
+AMONGUS_MAX_ROUNDS = 4
+amongus_rooms = {}
+
+def _amongus_participants(room):
+    seen = set()
+    for p in room["players"]:
+        if p["name"].lower() not in seen:
+            seen.add(p["name"].lower()); yield p["name"]
+    for s in room.get("spectators", []):
+        if s.lower() not in seen:
+            seen.add(s.lower()); yield s
+
+def _amongus_public_state(room, for_user):
+    ulow = (for_user or "").lower()
+    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
+    my_role = me["role"] if me else None
+    is_imposter = bool(me and me.get("role") == "imposter")
+    reveal_roles = room["phase"] == "ended"
+    players_out = []
+    for p in room["players"]:
+        show_role = None
+        if reveal_roles:
+            show_role = p.get("role")
+        elif not p.get("alive") and p.get("revealed_role"):
+            show_role = p["role"]
+        elif p["name"].lower() == ulow:
+            show_role = p["role"]
+        players_out.append({
+            "name": p["name"], "alive": bool(p.get("alive")),
+            "role": show_role,
+        })
+    return {
+        "room_id": room["id"], "phase": room["phase"], "round": room["round"],
+        "creator": room["creator"], "bet": room["bet"], "pool": room["pool"],
+        "players": players_out, "you_are": ("crew" if me and me["role"] == "crew" else ("imposter" if is_imposter else "spectator")),
+        "my_role": my_role, "alive": bool(me and me.get("alive")),
+        "imposter_can_kill": is_imposter and room["phase"] == "discussion" and not room.get("kill_used_this_round") and me.get("alive"),
+        "can_vote": bool(me and me.get("alive") and room["phase"] == "voting" and ulow not in {v.lower() for v in room.get("votes", {})}),
+        "time_left": max(0, int(room["phase_end"] - time.time())) if room.get("phase_end") else 0,
+        "winner": room.get("winner"),
+        "winnings": room.get("payouts", {}).get(ulow, 0) if reveal_roles else 0,
+        "spectators": room.get("spectators", []),
+    }
+
+async def _amongus_push_state(room):
+    for n in _amongus_participants(room):
+        try: await notify_social(n, {"type": "amongus_state", "state": _amongus_public_state(room, n)})
+        except: pass
+
+async def _amongus_finish(room, winner_side):
+    if room["phase"] == "ended": return
+    room["phase"] = "ended"
+    room["winner"] = winner_side
+    payouts = {}
+    pool = room["pool"]
+    if winner_side == "imposter":
+        imp = next((p for p in room["players"] if p["role"] == "imposter"), None)
+        if imp:
+            credit_pb(imp["name"], pool)
+            payouts[imp["name"].lower()] = pool
+    elif winner_side == "crew":
+        alive_crew = [p for p in room["players"] if p["role"] == "crew" and p.get("alive")]
+        if alive_crew and pool > 0:
+            share = pool // len(alive_crew)
+            for p in alive_crew:
+                credit_pb(p["name"], share)
+                payouts[p["name"].lower()] = share
+    room["payouts"] = payouts
+    await save_place_bucks()
+    for ulow_key, amt in payouts.items():
+        real_name = next((p["name"] for p in room["players"] if p["name"].lower() == ulow_key), None)
+        if real_name:
+            await push_pb_update(real_name)
+            await broadcast_casino_result(real_name, "AmongUs", room["bet"], amt, f"{winner_side} won (round {room['round']})")
+    await _amongus_push_state(room)
+    asyncio.get_event_loop().call_later(180, lambda: amongus_rooms.pop(room["id"], None))
+
+def _amongus_check_end(room):
+    alive_imp = [p for p in room["players"] if p["role"] == "imposter" and p.get("alive")]
+    alive_crew = [p for p in room["players"] if p["role"] == "crew" and p.get("alive")]
+    if not alive_imp:
+        return "crew"
+    if len(alive_crew) <= len(alive_imp):
+        return "imposter"
+    if room["round"] > AMONGUS_MAX_ROUNDS:
+        return "imposter"
+    return None
+
+async def _amongus_enter_voting(room):
+    if room["phase"] != "discussion": return
+    room["phase"] = "voting"
+    room["votes"] = {}
+    room["phase_end"] = time.time() + AMONGUS_VOTE_SECONDS
+    asyncio.create_task(_amongus_vote_timer(room["id"], AMONGUS_VOTE_SECONDS))
+    await _amongus_push_state(room)
+
+async def _amongus_resolve_vote(room):
+    if room["phase"] != "voting": return
+    counts = {}
+    for voter, target in room["votes"].items():
+        if target and target != "skip":
+            counts[target] = counts.get(target, 0) + 1
+    ejected_name = None
+    if counts:
+        max_votes = max(counts.values())
+        top = [n for n, c in counts.items() if c == max_votes]
+        if len(top) == 1:
+            ejected_name = top[0]
+    if ejected_name:
+        p = next((p for p in room["players"] if p["name"].lower() == ejected_name.lower()), None)
+        if p:
+            p["alive"] = False
+            p["revealed_role"] = True
+    room["round"] += 1
+    end_side = _amongus_check_end(room)
+    if end_side:
+        await _amongus_finish(room, end_side)
+        return
+    room["phase"] = "discussion"
+    room["votes"] = {}
+    room["kill_used_this_round"] = False
+    room["phase_end"] = time.time() + AMONGUS_DISCUSSION_SECONDS
+    asyncio.create_task(_amongus_discussion_timer(room["id"], AMONGUS_DISCUSSION_SECONDS))
+    await _amongus_push_state(room)
+
+async def _amongus_discussion_timer(rid, secs):
+    try: await asyncio.sleep(secs)
+    except asyncio.CancelledError: return
+    room = amongus_rooms.get(rid)
+    if not room or room["phase"] != "discussion": return
+    await _amongus_enter_voting(room)
+
+async def _amongus_vote_timer(rid, secs):
+    try: await asyncio.sleep(secs)
+    except asyncio.CancelledError: return
+    room = amongus_rooms.get(rid)
+    if not room or room["phase"] != "voting": return
+    await _amongus_resolve_vote(room)
+
+async def amongus_create_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    try: bet = max(0, int(data.get("bet", 10)))
+    except: return web.json_response({"error": "Invalid bet"}, status=400)
+    if bet > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
+    if bet > 0 and not spend_pb(user, bet):
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    rid = secrets.token_hex(5)
+    amongus_rooms[rid] = {
+        "id": rid, "creator": user, "bet": bet, "pool": bet,
+        "phase": "lobby", "round": 0,
+        "players": [{"name": user, "alive": True, "role": None, "revealed_role": False}],
+        "spectators": [], "votes": {}, "phase_end": 0,
+        "kill_used_this_round": False, "winner": None, "payouts": {},
+    }
+    await save_place_bucks(); await push_pb_update(user)
+    await _amongus_push_state(amongus_rooms[rid])
+    return web.json_response({"ok": True, "room_id": rid, "state": _amongus_public_state(amongus_rooms[rid], user)})
+
+async def amongus_list_handler(request):
+    out = []
+    for r in amongus_rooms.values():
+        if r["phase"] != "lobby": continue
+        out.append({"room_id": r["id"], "creator": r["creator"], "bet": r["bet"], "players": len(r["players"])})
+    return web.json_response({"ok": True, "rooms": out})
+
+async def amongus_join_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = amongus_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if any(p["name"].lower() == user.lower() for p in room["players"]):
+        return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
+    if room["phase"] != "lobby":
+        if user not in room["spectators"]: room["spectators"].append(user)
+        await _amongus_push_state(room)
+        return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
+    if len(room["players"]) >= AMONGUS_MAX:
+        return web.json_response({"error": f"Room is full ({AMONGUS_MAX} players)"}, status=400)
+    if room["bet"] > 0 and not spend_pb(user, room["bet"]):
+        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+    room["players"].append({"name": user, "alive": True, "role": None, "revealed_role": False})
+    room["pool"] += room["bet"]
+    await save_place_bucks(); await push_pb_update(user)
+    await _amongus_push_state(room)
+    return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
+
+async def amongus_start_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = amongus_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["creator"].lower() != user.lower():
+        return web.json_response({"error": "Only the host can start"}, status=403)
+    if room["phase"] != "lobby": return web.json_response({"error": "Already started"}, status=400)
+    n = len(room["players"])
+    if n < AMONGUS_MIN: return web.json_response({"error": f"Need at least {AMONGUS_MIN} players"}, status=400)
+    indices = list(range(n))
+    secrets.SystemRandom().shuffle(indices)
+    imp_idx = indices[0]
+    for i, p in enumerate(room["players"]):
+        p["role"] = "imposter" if i == imp_idx else "crew"
+        p["alive"] = True
+        p["revealed_role"] = False
+    room["phase"] = "discussion"
+    room["round"] = 1
+    room["kill_used_this_round"] = False
+    room["votes"] = {}
+    room["phase_end"] = time.time() + AMONGUS_DISCUSSION_SECONDS
+    asyncio.create_task(_amongus_discussion_timer(rid, AMONGUS_DISCUSSION_SECONDS))
+    await _amongus_push_state(room)
+    return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
+
+async def amongus_say_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    text = (data.get("text") or "").strip()[:200]
+    if not text: return web.json_response({"error": "Empty"}, status=400)
+    room = amongus_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    ulow = user.lower()
+    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
+    if not me and ulow not in (s.lower() for s in room.get("spectators", [])):
+        return web.json_response({"error": "Not in this room"}, status=403)
+    if not check_rate_limit(user, "amongus_say", 8, 5):
+        return web.json_response({"error": "Slow down."}, status=429)
+    payload = {"type": "amongus_chat", "room_id": rid, "msg": {"from": user, "text": text, "time": int(time.time()), "dead": bool(me and not me.get("alive"))}}
+    for n in _amongus_participants(room):
+        try: await notify_social(n, payload)
+        except: pass
+    return web.json_response({"ok": True})
+
+async def amongus_kill_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    target = (data.get("target") or "").strip()
+    room = amongus_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    ulow = user.lower()
+    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
+    if not me or me["role"] != "imposter" or not me.get("alive"):
+        return web.json_response({"error": "Only the alive imposter can kill"}, status=403)
+    if room["phase"] != "discussion":
+        return web.json_response({"error": "Can only kill during discussion"}, status=400)
+    if room.get("kill_used_this_round"):
+        return web.json_response({"error": "You already killed this round"}, status=400)
+    victim = next((p for p in room["players"] if p["name"].lower() == target.lower()), None)
+    if not victim: return web.json_response({"error": "Target not found"}, status=404)
+    if victim["role"] != "crew" or not victim.get("alive"):
+        return web.json_response({"error": "Target must be an alive crewmate"}, status=400)
+    victim["alive"] = False
+    room["kill_used_this_round"] = True
+    end_side = _amongus_check_end(room)
+    if end_side:
+        await _amongus_finish(room, end_side)
+        return web.json_response({"ok": True})
+    payload = {"type": "amongus_chat", "room_id": rid, "msg": {"from": "system", "text": f"💀 {victim['name']} was killed!", "time": int(time.time()), "system": True}}
+    for n in _amongus_participants(room):
+        try: await notify_social(n, payload)
+        except: pass
+    await _amongus_push_state(room)
+    return web.json_response({"ok": True})
+
+async def amongus_vote_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    target = (data.get("target") or "skip").strip()
+    room = amongus_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "voting":
+        return web.json_response({"error": "Not in voting phase"}, status=400)
+    ulow = user.lower()
+    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
+    if not me or not me.get("alive"):
+        return web.json_response({"error": "Only alive players can vote"}, status=403)
+    if ulow in {v.lower() for v in room.get("votes", {})}:
+        return web.json_response({"error": "Already voted"}, status=400)
+    if target != "skip":
+        t = next((p for p in room["players"] if p["name"].lower() == target.lower() and p.get("alive")), None)
+        if not t: return web.json_response({"error": "Target must be an alive player"}, status=400)
+        target = t["name"]
+    room["votes"][user] = target
+    alive_count = sum(1 for p in room["players"] if p.get("alive"))
+    if len(room["votes"]) >= alive_count:
+        await _amongus_resolve_vote(room)
+    else:
+        await _amongus_push_state(room)
+    return web.json_response({"ok": True})
+
+async def amongus_leave_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = data.get("room_id", "")
+    room = amongus_rooms.get(rid)
+    if not room: return web.json_response({"ok": True})
+    ulow = user.lower()
+    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
+    if me:
+        if room["phase"] == "lobby":
+            room["players"] = [p for p in room["players"] if p["name"].lower() != ulow]
+            if room["bet"] > 0:
+                credit_pb(user, room["bet"])
+                room["pool"] = max(0, room["pool"] - room["bet"])
+                await save_place_bucks(); await push_pb_update(user)
+            if room["creator"].lower() == ulow:
+                # creator left -> dissolve
+                for p in list(room["players"]):
+                    if room["bet"] > 0:
+                        credit_pb(p["name"], room["bet"])
+                        await push_pb_update(p["name"])
+                if room["bet"] > 0: await save_place_bucks()
+                amongus_rooms.pop(rid, None)
+                return web.json_response({"ok": True})
+            await _amongus_push_state(room)
+        else:
+            me["alive"] = False
+            me["revealed_role"] = True
+            end_side = _amongus_check_end(room)
+            if end_side:
+                await _amongus_finish(room, end_side)
+            else:
+                await _amongus_push_state(room)
+    else:
+        room["spectators"] = [s for s in room.get("spectators", []) if s.lower() != ulow]
+        await _amongus_push_state(room)
+    return web.json_response({"ok": True})
+
+async def amongus_state_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = request.query.get("room_id", "")
+    room = amongus_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
+
 async def flappy_pass_handler(request):
     """Award 1 PB for each pipe passed in the Flappy game. Soft anti-cheat:
     capped at 6/sec which is faster than any real flappy run can produce."""
@@ -4655,6 +5006,15 @@ app.router.add_post("/api/casino/plinko", casino_plinko_handler)
 app.router.add_post("/api/casino/mines", casino_mines_handler)
 app.router.add_post("/api/casino/gd/start", casino_gd_start_handler)
 app.router.add_post("/api/casino/gd/result", casino_gd_result_handler)
+app.router.add_post("/api/casino/amongus/create", amongus_create_handler)
+app.router.add_get("/api/casino/amongus/list", amongus_list_handler)
+app.router.add_post("/api/casino/amongus/join", amongus_join_handler)
+app.router.add_post("/api/casino/amongus/start", amongus_start_handler)
+app.router.add_post("/api/casino/amongus/say", amongus_say_handler)
+app.router.add_post("/api/casino/amongus/kill", amongus_kill_handler)
+app.router.add_post("/api/casino/amongus/vote", amongus_vote_handler)
+app.router.add_post("/api/casino/amongus/leave", amongus_leave_handler)
+app.router.add_get("/api/casino/amongus/state", amongus_state_handler)
 app.router.add_post("/api/casino/blackjack", casino_blackjack_handler)
 app.router.add_post("/api/casino/rps/solo", casino_rps_solo_handler)
 app.router.add_post("/api/casino/rps/join", casino_rps_join_handler)
