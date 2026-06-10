@@ -66,6 +66,7 @@ ECONOMY_SNAPSHOT_INTERVAL = 300
 ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
+PALETTE_SIZE = 81
 STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
 PB_TRANSFER_AMOUNT_PER_MIN = 100000
@@ -1660,10 +1661,16 @@ async def clan_create_handler(request):
         return web.json_response({"error": "Name and color required"}, status=400)
     if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
         return web.json_response({"error": "Color must be a hex code"}, status=400)
-                                    
+    ulow = user.lower()
     for clan in clans.values():
-        if clan.get("owner", "").lower() == user.lower():
+        if clan.get("owner", "").lower() == ulow:
             return web.json_response({"error": "You already have a clan request or approved clan"}, status=400)
+    # auto-leave any clan you're currently a member of (you can only be in one)
+    existing = find_clan_by_member(user)
+    if existing and existing.get("owner", "").lower() != ulow:
+        existing["members"] = [m for m in existing.get("members", []) if m.lower() != ulow]
+        await remove_user_clan_rank(user)
+        await save_clans()
     cid = secrets.token_hex(6)
 
     clans[cid] = {
@@ -3049,7 +3056,7 @@ BATTLE_DRAW_SECONDS_DEFAULT = 90
 BATTLE_DRAW_SECONDS_MIN = 30
 BATTLE_DRAW_SECONDS_MAX = 300
 BATTLE_JUDGE_TIMEOUT = 90
-BATTLE_PALETTE_SIZE = 81
+BATTLE_PALETTE_SIZE = PALETTE_SIZE
 BATTLE_ADJ = [
     "angry", "sleepy", "tiny", "huge", "glowing", "melting", "exploding", "frozen",
     "ancient", "royal", "secret", "hungry", "scared", "smelly", "fluffy", "cosmic",
@@ -3833,7 +3840,7 @@ async def websocket_handler(request):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
-                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 53:
+                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
                         old_color = lobby["grid"][y * lw + x]
                         lobby["grid"][y * lw + x] = color
                         lobby["last_activity"] = now
@@ -3861,7 +3868,7 @@ async def websocket_handler(request):
                         continue
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
-                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < 53:
+                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
                         old_color = lobby["grid"][y * lw + x]
                         if isinstance(from_color, int) and old_color != from_color:
                             continue                                                                     
@@ -3894,7 +3901,7 @@ async def websocket_handler(request):
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
                         max_stamps = perm["size"] * perm["size"]
-                        if isinstance(coords, list) and 0 <= color < 53:
+                        if isinstance(coords, list) and 0 <= color < PALETTE_SIZE:
                             placed = 0
                             for c in coords[:max_stamps]:
                                 if not isinstance(c, list) or len(c) != 2: continue
@@ -4007,7 +4014,7 @@ async def websocket_handler(request):
                         lh = lobby.get("height", 256)
                                                                                                                
                         max_stamps = perm["size"] * perm["size"]
-                        if isinstance(coords, list) and 0 <= color < 53:
+                        if isinstance(coords, list) and 0 <= color < PALETTE_SIZE:
                             placed = 0
                             changed_count = 0
                             for c in coords[:max_stamps]:
