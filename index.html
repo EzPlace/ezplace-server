@@ -3094,19 +3094,33 @@ const UNO_LABELS = { '0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7'
 let unoRoomId = null;
 let unoState = null;
 let unoPickingCardIdx = null;
+let unoStack = []; // indices of cards selected to play together this turn
 function unoMsg(t, color) { const m = document.getElementById('uno-msg'); m.textContent = t; m.style.color = color || 'var(--text-muted)'; }
 function unoOpenModal() { document.getElementById('uno-modal').style.display = 'flex'; const log = document.getElementById('uno-chat-log'); if (log) log.innerHTML = ''; }
-function unoCloseModal() { document.getElementById('uno-modal').style.display = 'none'; unoRoomId = null; unoState = null; }
+function unoCloseModal() { document.getElementById('uno-modal').style.display = 'none'; unoRoomId = null; unoState = null; unoStack = []; const bar = document.getElementById('uno-stack-bar'); if (bar) bar.remove(); }
 function unoCardEl(card, idx, clickable) {
   const el = document.createElement('div');
   const bg = UNO_COLORS[card.color] || '#222';
-  el.style.cssText = 'width:54px;height:78px;border-radius:6px;background:' + bg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;border:2px solid #fff;cursor:' + (clickable ? 'pointer' : 'default') + ';box-shadow:0 2px 6px rgba(0,0,0,0.4);';
+  const inStack = unoStack.includes(idx);
+  const border = inStack ? '3px solid #ffd23f' : '2px solid #fff';
+  const transform = inStack ? 'translateY(-10px)' : '';
+  el.style.cssText = 'width:54px;height:78px;border-radius:6px;background:' + bg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;border:' + border + ';cursor:' + (clickable ? 'pointer' : 'default') + ';box-shadow:0 2px 6px rgba(0,0,0,0.4);transition:transform 0.12s;transform:' + transform + ';';
   el.textContent = UNO_LABELS[card.value] || card.value;
   if (clickable) el.onclick = () => unoPlayCard(idx);
   return el;
 }
 function unoRender(state) {
   unoState = state;
+  // if it's no longer my turn (or state changed in a way that invalidates the stack), drop it
+  if (state.current !== state.my_index || state.phase !== 'playing') {
+    if (unoStack.length) { unoStack = []; const _b = document.getElementById('uno-stack-bar'); if (_b) _b.remove(); }
+  } else if (unoStack.length) {
+    // re-validate stack indices still point to matching-value cards
+    const v = state.my_hand[unoStack[0]] && state.my_hand[unoStack[0]].value;
+    if (!v) { unoStack = []; const _b = document.getElementById('uno-stack-bar'); if (_b) _b.remove(); }
+    else unoStack = unoStack.filter(i => state.my_hand[i] && state.my_hand[i].value === v);
+    unoRenderStackBanner();
+  }
   const specTag = state.spectator ? ' [spectating]' : '';
   const specCount = state.spectator_count ? ' · ' + state.spectator_count + ' watching' : '';
   document.getElementById('uno-room-info').textContent = '(' + state.players.length + '/' + state.settings.max_players + ' players · bet ' + state.settings.bet + ' $ · pot ' + (state.pool || 0) + ' $' + specCount + specTag + ')';
@@ -3246,15 +3260,80 @@ document.getElementById('btn-uno-leave').onclick = async () => {
   }
   unoCloseModal();
 };
+function unoSiblingsByValue(value) {
+  if (!unoState || !unoState.my_hand) return [];
+  return unoState.my_hand.map((c, i) => ({ c, i })).filter(o => o.c.value === value && o.c.color !== 'w').map(o => o.i);
+}
+function unoRenderStackBanner() {
+  let bar = document.getElementById('uno-stack-bar');
+  if (!unoStack.length) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'uno-stack-bar';
+    bar.style.cssText = 'position:fixed;left:50%;bottom:240px;transform:translateX(-50%);background:rgba(0,0,0,0.92);border:2px solid #ffd23f;border-radius:8px;padding:8px 14px;display:flex;gap:8px;align-items:center;z-index:90;font-size:13px;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,0.6);';
+    document.body.appendChild(bar);
+  }
+  const v = unoState.my_hand[unoStack[0]].value;
+  const label = UNO_LABELS[v] || v;
+  const remaining = unoSiblingsByValue(v).filter(i => !unoStack.includes(i)).length;
+  bar.innerHTML = '';
+  const txt = document.createElement('span');
+  txt.innerHTML = '<b style="color:#ffd23f;">Stack ' + label + ':</b> ' + unoStack.length + ' card' + (unoStack.length === 1 ? '' : 's') + (remaining ? ' &nbsp;<span style="color:#aaa;">(' + remaining + ' more available)</span>' : '');
+  bar.appendChild(txt);
+  const playBtn = document.createElement('button');
+  playBtn.className = 'win-btn'; playBtn.textContent = 'Play ' + unoStack.length;
+  playBtn.style.cssText = 'background:var(--accent);color:#fff;font-size:12px;padding:6px 12px;';
+  playBtn.onclick = unoConfirmStack;
+  bar.appendChild(playBtn);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'win-btn'; cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = 'background:var(--red);color:#fff;font-size:12px;padding:6px 12px;';
+  cancelBtn.onclick = unoCancelStack;
+  bar.appendChild(cancelBtn);
+}
+function unoCancelStack() { unoStack = []; unoRenderStackBanner(); unoRender(unoState); }
+async function unoConfirmStack() {
+  if (!unoStack.length) return;
+  const idxs = unoStack.slice();
+  unoStack = []; unoRenderStackBanner();
+  await unoCall('/api/uno/play', { room_id: unoRoomId, card_idxs: idxs });
+}
 async function unoPlayCard(idx) {
   if (!unoState || unoState.current !== unoState.my_index) return;
   const card = unoState.my_hand[idx];
   if (!card) return;
   if (card.color === 'w') {
+    // wilds aren't stackable; clear any pending stack and go straight to color picker
+    unoStack = []; unoRenderStackBanner();
     unoPickingCardIdx = idx;
     document.getElementById('uno-color-picker').style.display = 'block';
     return;
   }
+  // if a stack is already in progress, this click adds/removes the card
+  if (unoStack.length > 0) {
+    const anchorVal = unoState.my_hand[unoStack[0]].value;
+    if (card.value !== anchorVal) {
+      // tapping a non-matching card cancels stack mode (UX choice)
+      unoStack = []; unoRenderStackBanner(); unoRender(unoState);
+      return;
+    }
+    const at = unoStack.indexOf(idx);
+    if (at >= 0) unoStack.splice(at, 1);
+    else unoStack.push(idx);
+    unoRenderStackBanner();
+    unoRender(unoState);
+    if (unoStack.length === 0) return;
+    return;
+  }
+  // first card click: if there are siblings of the same value, enter stack mode
+  const siblings = unoSiblingsByValue(card.value);
+  if (siblings.length > 1) {
+    unoStack = [idx];
+    unoRenderStackBanner();
+    unoRender(unoState);
+    return;
+  }
+  // no siblings — just play the single card
   await unoCall('/api/uno/play', { room_id: unoRoomId, card_idx: idx });
 }
 document.querySelectorAll('.uno-color-btn').forEach(b => b.onclick = async () => {

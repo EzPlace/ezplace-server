@@ -2820,30 +2820,48 @@ async def _uno_ai_turn(room):
         await _uno_push_state(room)
 
 async def _uno_apply_play(room, player_idx, card_idx, chosen_color):
+    await _uno_apply_play_multi(room, player_idx, [card_idx], chosen_color)
+
+async def _uno_apply_play_multi(room, player_idx, card_idxs, chosen_color):
+    """Plays one or more cards from the player's hand on a single turn.
+    All cards after the first must share the same value as the anchor (caller
+    is responsible for validating that). Action-card effects stack by count:
+    N skips skip N players, N draw2s force the next player to draw 2*N, etc."""
     p = room["players"][player_idx]
-    card = p["hand"].pop(card_idx)
-    room["discard"].append(card)
+    cards = [p["hand"][i] for i in card_idxs]
+    # pop indices in descending order so removal doesn't shift earlier ones
+    for i in sorted(card_idxs, reverse=True):
+        p["hand"].pop(i)
+    for c in cards:
+        room["discard"].append(c)
     room["last_action_at"] = time.time()
-    if card["color"] == "w":
+    last_card = cards[-1]
+    if last_card["color"] == "w":
         room["current_color"] = chosen_color or "r"
     else:
-        room["current_color"] = card["color"]
+        room["current_color"] = last_card["color"]
     if len(p["hand"]) == 0:
         room["phase"] = "done"
         room["winner"] = p["name"]
         await _uno_finalize(room)
         return
-    if card["value"] == "skip":
-        _uno_advance(room, skip=True)
-    elif card["value"] == "reverse":
-        room["direction"] *= -1
-        if len(room["players"]) == 2: _uno_advance(room, skip=True)
-        else: _uno_advance(room)
-    elif card["value"] == "draw2":
-        room["pending_draws"] += 2; room["pending_kind"] = "draw2"
+    anchor_value = cards[0]["value"]
+    n = len(cards)
+    if anchor_value == "skip":
+        for _ in range(n):
+            _uno_advance(room, skip=True)
+    elif anchor_value == "reverse":
+        for _ in range(n):
+            room["direction"] *= -1
+        if len(room["players"]) == 2 and (n % 2 == 1):
+            _uno_advance(room, skip=True)
+        else:
+            _uno_advance(room)
+    elif anchor_value == "draw2":
+        room["pending_draws"] += 2 * n; room["pending_kind"] = "draw2"
         _uno_advance(room)
-    elif card["value"] == "wild4":
-        room["pending_draws"] += 4; room["pending_kind"] = "wild4"
+    elif anchor_value == "wild4":
+        room["pending_draws"] += 4 * n; room["pending_kind"] = "wild4"
         _uno_advance(room)
     else:
         room["pending_draws"] = 0; room["pending_kind"] = None
@@ -3064,19 +3082,36 @@ async def uno_play_handler(request):
     idx = next((i for i, p in enumerate(room["players"]) if p["name"].lower() == user.lower()), None)
     if idx is None: return web.json_response({"error": "Not in room"}, status=403)
     if idx != room["current"]: return web.json_response({"error": "Not your turn"}, status=400)
-    try: card_idx = int(data.get("card_idx", -1))
-    except: return web.json_response({"error": "Invalid card index"}, status=400)
+    raw_idxs = data.get("card_idxs")
+    if isinstance(raw_idxs, list) and raw_idxs:
+        try: card_idxs = [int(x) for x in raw_idxs]
+        except: return web.json_response({"error": "Invalid card indices"}, status=400)
+    else:
+        try: card_idxs = [int(data.get("card_idx", -1))]
+        except: return web.json_response({"error": "Invalid card index"}, status=400)
+    if len(card_idxs) != len(set(card_idxs)):
+        return web.json_response({"error": "Duplicate card indices"}, status=400)
     hand = room["players"][idx]["hand"]
-    if card_idx < 0 or card_idx >= len(hand):
-        return web.json_response({"error": "Invalid card index"}, status=400)
-    card = hand[card_idx]
+    for ci in card_idxs:
+        if ci < 0 or ci >= len(hand):
+            return web.json_response({"error": "Invalid card index"}, status=400)
+    anchor = hand[card_idxs[0]]
     top = room["discard"][-1]
-    if not _uno_can_play(card, top, room["current_color"], room["pending_draws"], room["pending_kind"], room["settings"].get("stacking", False)):
+    if not _uno_can_play(anchor, top, room["current_color"], room["pending_draws"], room["pending_kind"], room["settings"].get("stacking", False)):
         return web.json_response({"error": "That card can't be played"}, status=400)
+    # All stacked cards must share the same value as anchor. Wilds (w) can never be stacked
+    # because their "value" string is "wild" / "wild4" and stacking wilds isn't supported.
+    if len(card_idxs) > 1:
+        if anchor["color"] == "w":
+            return web.json_response({"error": "Wild cards can't be stacked"}, status=400)
+        for ci in card_idxs[1:]:
+            c = hand[ci]
+            if c["color"] == "w" or c["value"] != anchor["value"]:
+                return web.json_response({"error": "All stacked cards must share the same value (and can't be wild)"}, status=400)
     chosen_color = (data.get("color") or "").strip().lower()
-    if card["color"] == "w" and chosen_color not in ("r", "y", "g", "b"):
+    if anchor["color"] == "w" and chosen_color not in ("r", "y", "g", "b"):
         return web.json_response({"error": "Wild needs a color (r/y/g/b)"}, status=400)
-    await _uno_apply_play(room, idx, card_idx, chosen_color if card["color"] == "w" else None)
+    await _uno_apply_play_multi(room, idx, card_idxs, chosen_color if anchor["color"] == "w" else None)
     await _uno_push_state(room)
     if room["phase"] == "playing" and room["players"][room["current"]]["is_ai"]:
         asyncio.create_task(_uno_ai_turn(room))
