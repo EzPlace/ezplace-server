@@ -5568,11 +5568,14 @@ function updateDmTabBadge() {
   }
 }
 
-function showDmToast(from, text, onClick) {
+function showDmToast(from, text, onClick, hideBody) {
   const container = document.getElementById('dm-toast-container');
   const toast = document.createElement('div');
   toast.className = 'dm-toast';
-  toast.innerHTML = `<div class="dm-toast-from">&#x1F4E9; New message from ${esc(from)}</div><div class="dm-toast-text" style="opacity:0.55;font-style:italic;">Tap to read</div>`;
+  const body = hideBody
+    ? `<div class="dm-toast-text" style="opacity:0.55;font-style:italic;">Tap to read</div>`
+    : `<div class="dm-toast-text">${esc(text)}</div>`;
+  toast.innerHTML = `<div class="dm-toast-from">&#x1F4E9; New message from ${esc(from)}</div>${body}`;
   toast.onclick = () => {
     toast.classList.add('closing');
     setTimeout(() => toast.remove(), 250);
@@ -5743,7 +5746,7 @@ function connectSocial() {
       } else {
         unreadDms[fromLow] = (unreadDms[fromLow] || 0) + 1;
         updateDmTabBadge();
-        showDmToast(msg.from, msg.text || ((msg.image_url || msg.image) ? '[image]' : ''));
+        showDmToast(msg.from, msg.text || ((msg.image_url || msg.image) ? '[image]' : ''), undefined, true);
         // Only refresh the list view if user is actually looking at the list (not inside a different thread)
         const inListView = activeTab && activeTab.dataset.tab === 'msgs-tab' && document.getElementById('msg-list-view').style.display !== 'none';
         if (inListView) loadMsgList();
@@ -5771,7 +5774,7 @@ function connectSocial() {
         appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image);
       } else {
         const gid = msg.group_id;
-        showDmToast(msg.from + ' (in ' + (msg.group_name || 'group') + ')', msg.text || (msg.image_url ? '[image]' : ''), () => openGroup(gid));
+        showDmToast(msg.from + ' (in ' + (msg.group_name || 'group') + ')', msg.text || (msg.image_url ? '[image]' : ''), () => openGroup(gid), true);
         unreadGroups[gid] = (unreadGroups[gid] || 0) + 1;
         updateDmTabBadge();
       }
