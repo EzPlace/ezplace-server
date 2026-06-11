@@ -6295,7 +6295,7 @@ async function adminAction(endpoint, body) {
     return;
   }
   try {
-    const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const res = await fetch(BACKEND + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
     const data = await res.json();
     document.getElementById('admin-status').textContent = data.error || data.message || 'Done';
   } catch { document.getElementById('admin-status').textContent = 'Error'; }
@@ -6319,7 +6319,7 @@ async function adminView(endpoint) {
     return;
   }
   try {
-    const res = await fetch(endpoint, { headers: { Authorization: authToken } });
+    const res = await fetch(BACKEND + endpoint, { headers: { Authorization: authToken } });
     const data = await res.json();
     const el = document.getElementById('admin-json');
     el.style.display = 'block';
