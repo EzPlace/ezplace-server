@@ -45,6 +45,8 @@ dms = {}
 dm_last_seen = {}                                                 
 bans = []
 ip_bans = []
+device_bans = []
+user_devices = {}
 vips = []
 ranks = {}                                                              
 user_ips = {}
@@ -185,6 +187,19 @@ async def save_bans():
 
 async def save_ip_bans():
     await db_save("store", "ip_bans", ip_bans)
+
+async def save_device_bans():
+    await db_save("store", "device_bans", device_bans)
+
+async def save_user_devices():
+    await db_save("store", "user_devices", user_devices)
+
+def is_device_banned(device_id):
+    return bool(device_id) and device_id in device_bans
+
+def track_user_device(user, device_id):
+    if not user or not device_id: return
+    user_devices[user.lower()] = device_id
 
 async def save_vips():
     await db_save("store", "vips", vips)
@@ -783,6 +798,9 @@ async def load_all_data():
     friends_data = await db_load("store", "friends") or {}
     bans = await db_load("store", "bans") or []
     ip_bans = await db_load("store", "ip_bans") or []
+    global device_bans, user_devices
+    device_bans = await db_load("store", "device_bans") or []
+    user_devices = await db_load("store", "user_devices") or {}
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
     fake_admins = await db_load("store", "fake_admins") or []
@@ -1364,6 +1382,52 @@ async def admin_unban_handler(request):
     bans[:] = [b for b in bans if b.lower() != target.lower()]
     await save_bans()
     return web.json_response({"ok": True, "message": f"Unbanned {target}"})
+
+async def admin_device_ban_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target_user = (data.get("username") or "").strip()
+    explicit_device = (data.get("device_id") or "").strip()
+    device_id = None
+    if explicit_device:
+        device_id = explicit_device[:64]
+    elif target_user:
+        device_id = user_devices.get(target_user.lower())
+        if not device_id:
+            return web.json_response({"error": f"No device recorded for {target_user} - they need to log in once after the feature shipped"}, status=404)
+    else:
+        return web.json_response({"error": "Username or device_id required"}, status=400)
+    if device_id not in device_bans:
+        device_bans.append(device_id)
+        await save_device_bans()
+    # boot any live sockets on that device
+    booted = 0
+    for ws, info in list(clients.items()):
+        if info and info.get("device_id") == device_id:
+            try: await ws.send_json({"type": "kicked", "text": "This device is banned"}); await ws.close(); booted += 1
+            except: pass
+    return web.json_response({"ok": True, "device_id": device_id, "booted": booted, "message": f"Device banned ({device_id[:8]}...). Booted {booted} live connection(s)."})
+
+async def admin_device_unban_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target_user = (data.get("username") or "").strip()
+    explicit_device = (data.get("device_id") or "").strip()
+    device_id = explicit_device or (user_devices.get(target_user.lower()) if target_user else None)
+    if not device_id:
+        return web.json_response({"error": "Username or device_id required"}, status=400)
+    device_bans[:] = [d for d in device_bans if d != device_id]
+    await save_device_bans()
+    return web.json_response({"ok": True, "message": f"Device unbanned ({device_id[:8]}...)"})
+
+async def admin_device_bans_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    # build a reverse-lookup so admin can see which users were on banned devices
+    rev = {}
+    for ulow, did in user_devices.items():
+        rev.setdefault(did, []).append(ulow)
+    entries = [{"device_id": d, "users": rev.get(d, [])} for d in device_bans]
+    return web.json_response({"device_bans": entries})
 
 async def admin_ipban_handler(request):
     data = await request.json()
@@ -4091,10 +4155,15 @@ async def social_ws_handler(request):
                 data = json.loads(msg.data)
                 if data.get("type") == "auth":
                     token = data.get("token", "")
+                    device_id = str(data.get("device_id", ""))[:64] or None
                     if token in sessions:
                         username = sessions[token]
                         if is_banned(username) or is_ip_banned(request): await ws.close(); break
+                        if is_device_banned(device_id): await ws.close(); break
                         social_clients[ws] = username
+                        if device_id:
+                            track_user_device(username, device_id)
+                            await save_user_devices()
                         await track_ip(username, request)
                         await ws.send_json({"type": "social_ready"})
                         unread = get_unread_dm_summary(username)
@@ -4238,11 +4307,17 @@ async def websocket_handler(request):
                 if data["type"] == "auth":
                     token = data.get("token", "")
                     lid = data.get("lobby_id", "")
+                    device_id = str(data.get("device_id", ""))[:64] or None
                     if token not in sessions:
                         await ws.send_json({"type": "error", "text": "Invalid session"}); await ws.close(); break
                     username = sessions[token]
                     if is_banned(username) or is_ip_banned(request):
                         await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
+                    if is_device_banned(device_id):
+                        await ws.send_json({"type": "error", "text": "This device is banned"}); await ws.close(); break
+                    if device_id:
+                        track_user_device(username, device_id)
+                        await save_user_devices()
                     lobby = lobbies.get(lid)
                     if not lobby:
                         await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
@@ -4252,7 +4327,7 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
                     can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
                     lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "can_place": can_place}
+                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place}
                     await track_ip(username, request)
                     grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                     if is_fake_admin(username): grid_msg["fake_admin"] = True
@@ -5027,6 +5102,9 @@ app.router.add_post("/api/admin/redirect", admin_redirect_handler)
 app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
 app.router.add_post("/api/admin/session-for", admin_session_for_handler)
 app.router.add_post("/api/admin/ipban", admin_ipban_handler)
+app.router.add_post("/api/admin/device-ban", admin_device_ban_handler)
+app.router.add_post("/api/admin/device-unban", admin_device_unban_handler)
+app.router.add_get("/api/admin/device-bans", admin_device_bans_handler)
 app.router.add_post("/api/admin/ip-unban", admin_ip_unban_handler)
 app.router.add_get("/api/admin/ipbans", lambda r: web.json_response({"ip_bans": ip_bans}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 app.router.add_post("/api/admin/vip-add", admin_vip_add_handler)

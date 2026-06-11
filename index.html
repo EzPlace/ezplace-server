@@ -1059,6 +1059,14 @@
         <button class="win-btn" id="btn-admin-ipban-list" style="background:var(--accent);color:#fff;">Show List</button>
       </div>
       <div id="admin-ipban-list" style="display:none;flex-direction:column;gap:3px;font-size:11px;margin:6px 0;"></div>
+      <h4>Device Ban</h4>
+      <div class="admin-row">
+        <input id="admin-device-input" class="win-input" type="text" placeholder="Username (or device_id)">
+        <button class="win-btn" id="btn-admin-device-ban" style="background:#d32f2f;color:#fff;">Ban Device</button>
+        <button class="win-btn" id="btn-admin-device-unban">Unban</button>
+        <button class="win-btn" id="btn-admin-device-list" style="background:var(--accent);color:#fff;">Show List</button>
+      </div>
+      <div id="admin-device-list" style="display:none;flex-direction:column;gap:3px;font-size:11px;margin:6px 0;"></div>
       <h4>Delete Account</h4>
       <div class="admin-row">
         <input id="admin-del-input" class="win-input" type="text" placeholder="Username">
@@ -2681,6 +2689,11 @@ const captchaImg = document.getElementById('captcha-img');
 const captchaAns = document.getElementById('captcha-ans');
 const authError = document.getElementById('auth-error');
 let authToken = safeStore.getItem('ezplace_token') || '';
+let deviceId = safeStore.getItem('ezp_device_id') || '';
+if (!deviceId) {
+  deviceId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+  safeStore.setItem('ezp_device_id', deviceId);
+}
 let captchaId = '';
 let isRegisterMode = false;
 
@@ -5466,7 +5479,7 @@ function connectToLobby(lobbyId, lobbyName) {
     if (isGuest) {
       ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, guest_name: guestName }));
     } else {
-      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId }));
+      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId }));
     }
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
@@ -5675,7 +5688,7 @@ function connectSocial() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const socialProto = BACKEND_HOST ? 'wss' : protocol;
   try { socialWs = new WebSocket(`${socialProto}://${WS_HOST}/ws/social`); } catch { return; }
-  socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken })); };
+  socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken, device_id: deviceId })); };
   socialWs.onmessage = async e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'client_alert') { alert(msg.text); return; }
@@ -6416,6 +6429,45 @@ async function refreshAdminIpBanList() {
   } catch { list.innerHTML = '<span style="color:var(--red);">Failed to load</span>'; }
 }
 document.getElementById('btn-admin-ipban-list').onclick = refreshAdminIpBanList;
+document.getElementById('btn-admin-device-ban').onclick = async () => {
+  const v = document.getElementById('admin-device-input').value.trim();
+  if (!v) return;
+  // Decide whether the input is a UUID/device_id (contains a dash) or a username
+  const body = v.includes('-') && v.length > 16 ? { device_id: v } : { username: v };
+  try {
+    const r = await fetch(BACKEND + '/api/admin/device-ban', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const d = await r.json();
+    document.getElementById('admin-status').textContent = d.error || d.message || 'Done';
+  } catch { document.getElementById('admin-status').textContent = 'Server offline.'; }
+};
+document.getElementById('btn-admin-device-unban').onclick = async () => {
+  const v = document.getElementById('admin-device-input').value.trim();
+  if (!v) return;
+  const body = v.includes('-') && v.length > 16 ? { device_id: v } : { username: v };
+  try {
+    const r = await fetch(BACKEND + '/api/admin/device-unban', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const d = await r.json();
+    document.getElementById('admin-status').textContent = d.error || d.message || 'Done';
+  } catch { document.getElementById('admin-status').textContent = 'Server offline.'; }
+};
+document.getElementById('btn-admin-device-list').onclick = async () => {
+  const list = document.getElementById('admin-device-list');
+  list.style.display = 'flex'; list.innerHTML = 'Loading...';
+  try {
+    const r = await fetch(BACKEND + '/api/admin/device-bans', { headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) { list.innerHTML = '<span style="color:var(--red);">' + esc(d.error) + '</span>'; return; }
+    list.innerHTML = '';
+    if (!d.device_bans || !d.device_bans.length) { list.innerHTML = '<span style="color:var(--text-muted);">No device bans</span>'; return; }
+    d.device_bans.forEach(entry => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:3px 6px;background:var(--bg-elevated);border-radius:3px;font-family:monospace;font-size:10px;';
+      const users = entry.users && entry.users.length ? ' (' + entry.users.map(esc).join(', ') + ')' : '';
+      row.innerHTML = '<span style="flex:1;">' + esc(entry.device_id) + '</span><span style="color:var(--text-muted);">' + users + '</span>';
+      list.appendChild(row);
+    });
+  } catch { list.innerHTML = '<span style="color:var(--red);">Failed to load</span>'; }
+};
 document.getElementById('btn-admin-del-account').onclick = () => {
   const u = document.getElementById('admin-del-input').value.trim();
   if (!u) return;
