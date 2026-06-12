@@ -465,6 +465,15 @@
     <div class="section-title">Your Lobbies</div>
     <div class="lobby-list" id="my-lobbies"></div>
     <div id="clan-invite-banner" style="display:none;width:100%;max-width:480px;margin:8px 0 0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(238,90,82,0.4);"></div>
+    <div id="night-event-banner" style="display:none;width:100%;max-width:480px;margin:8px 0;padding:14px 16px;background:linear-gradient(135deg,#1e3a8a,#3b82f6,#7c3aed);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:700;box-shadow:0 6px 20px rgba(60,80,200,0.5);border:1px solid rgba(255,255,255,0.2);">
+      <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:900;margin-bottom:4px;">🌙 Night Event <span id="night-event-status" style="font-weight:400;font-size:11px;color:rgba(255,255,255,0.85);"></span></div>
+      <div id="night-event-detail" style="font-size:12px;font-weight:400;color:rgba(255,255,255,0.92);line-height:1.4;"></div>
+      <div id="night-event-log" style="display:none;font-size:11px;color:rgba(255,255,255,0.85);margin-top:6px;background:rgba(0,0,0,0.3);border-radius:4px;padding:6px 8px;max-height:120px;overflow-y:auto;font-family:'JetBrains Mono','Fira Code',monospace;"></div>
+      <div style="display:flex;gap:6px;margin-top:8px;align-items:center;">
+        <button id="btn-night-event-join" class="win-btn" style="background:#fff;color:#1e3a8a;font-weight:900;font-size:12px;padding:6px 16px;display:none;">Join</button>
+        <span id="night-event-prize" style="font-size:11px;color:rgba(255,255,255,0.85);">🏆 Winner: 10,000 $</span>
+      </div>
+    </div>
     <div class="section-title">Top Placers (All Lobbies)</div>
     <div id="global-lb" class="lobby-list" style="font-size:12px;"></div>
     <div class="section-title">Total Economy</div>
@@ -4691,6 +4700,109 @@ function stopEconomyPoll() {
   if (economyPollTimer) { clearInterval(economyPollTimer); economyPollTimer = null; }
 }
 
+// ============= Night Event =============
+let nightEventState = null;
+let nightEventTick = null;
+let nightEventServerOffset = 0;
+function formatCountdown(secs) {
+  if (secs <= 0) return 'now';
+  const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+  if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+  if (h > 0) return h + 'h ' + m + 'm ' + s + 's';
+  if (m > 0) return m + 'm ' + s + 's';
+  return s + 's';
+}
+function renderNightEvent() {
+  const banner = document.getElementById('night-event-banner');
+  if (!banner) return;
+  const s = nightEventState;
+  if (!s) { banner.style.display = 'none'; return; }
+  banner.style.display = '';
+  const statusEl = document.getElementById('night-event-status');
+  const detailEl = document.getElementById('night-event-detail');
+  const joinBtn = document.getElementById('btn-night-event-join');
+  const logEl = document.getElementById('night-event-log');
+  const meLow = (username || '').toLowerCase();
+  const nowS = Math.floor(Date.now() / 1000) + nightEventServerOffset;
+  joinBtn.style.display = 'none';
+  if (s.phase === 'idle') {
+    const secs = Math.max(0, s.next_event_ts - nowS);
+    statusEl.textContent = 'starts in ' + formatCountdown(secs);
+    detailEl.innerHTML = 'Every night at 11 PM ET, a random event runs. Be online to play!';
+    logEl.style.display = 'none';
+  } else if (s.phase === 'signup') {
+    const secs = Math.max(0, s.signup_end_ts - nowS);
+    statusEl.textContent = 'SIGNUP — closes in ' + formatCountdown(secs);
+    const joined = (s.signups || []).some(u => u.toLowerCase() === meLow);
+    detailEl.innerHTML = '🎮 Tonight: <b>' + esc(s.type_label || '?') + '</b><br>' + s.signup_count + ' player' + (s.signup_count === 1 ? '' : 's') + ' signed up' + (joined ? ' (incl. you ✓)' : '') + '. Needs at least 2 to start.';
+    if (authToken && !joined) joinBtn.style.display = '';
+    logEl.style.display = 'none';
+  } else if (s.phase === 'running') {
+    statusEl.textContent = 'IN PROGRESS';
+    let html = '🎮 <b>' + esc(s.type_label || '?') + '</b> is live!';
+    if (s.type === 'uno' && s.running_state && s.running_state.uno_room_id) {
+      html += '<br><a href="javascript:nightOpenUno()" style="color:#fff;text-decoration:underline;">Open UNO room</a> to play or watch.';
+    }
+    if (s.type === 'battle' && s.running_state && s.running_state.battle_room_id) {
+      html += '<br>Theme: "' + esc(s.running_state.theme || '?') + '"';
+    }
+    detailEl.innerHTML = html;
+    if (s.running_state && s.running_state.log) {
+      logEl.style.display = '';
+      logEl.innerHTML = s.running_state.log.slice(-20).map(l => esc(l.text)).join('<br>');
+      logEl.scrollTop = logEl.scrollHeight;
+    } else logEl.style.display = 'none';
+  } else if (s.phase === 'ended') {
+    statusEl.textContent = 'ENDED';
+    let html = s.winner ? '🏆 <b>' + esc(s.winner) + '</b> won the Night Event! +' + s.prize + ' $' : '⚠ No winner this round.';
+    if (s.history && s.history.length) {
+      html += '<br><span style="font-size:11px;color:rgba(255,255,255,0.75);">Last few: ' + s.history.slice(-3).reverse().map(h => esc(h.winner) + ' (' + h.type + ')').join(' · ') + '</span>';
+    }
+    detailEl.innerHTML = html;
+    if (s.running_state && s.running_state.log) {
+      logEl.style.display = '';
+      logEl.innerHTML = s.running_state.log.slice(-20).map(l => esc(l.text)).join('<br>');
+      logEl.scrollTop = logEl.scrollHeight;
+    } else logEl.style.display = 'none';
+  }
+}
+function startNightEventTick() {
+  if (nightEventTick) clearInterval(nightEventTick);
+  nightEventTick = setInterval(renderNightEvent, 1000);
+}
+async function loadNightEventState() {
+  try {
+    const r = await fetch(BACKEND + '/api/night-event/state');
+    const d = await r.json();
+    if (d.ok) {
+      nightEventState = d.state;
+      // align our local clock with server
+      nightEventServerOffset = d.state.server_now_ts - Math.floor(Date.now() / 1000);
+      renderNightEvent();
+      startNightEventTick();
+    }
+  } catch {}
+}
+async function nightEventJoin() {
+  if (!authToken) { alert('Log in first.'); return; }
+  try {
+    const r = await fetch(BACKEND + '/api/night-event/join', { method: 'POST', headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    if (d.state) { nightEventState = d.state; renderNightEvent(); }
+  } catch { alert('Server offline.'); }
+}
+function nightOpenUno() {
+  if (!nightEventState || !nightEventState.running_state) return;
+  const rid = nightEventState.running_state.uno_room_id;
+  if (!rid) return;
+  unoRoomId = rid; unoOpenModal();
+  fetch(BACKEND + '/api/uno/state?room_id=' + encodeURIComponent(rid), { headers: { Authorization: authToken } }).then(r => r.json()).then(d => {
+    if (d.state) unoRender(d.state);
+  });
+}
+document.getElementById('btn-night-event-join').onclick = nightEventJoin;
+
 let economyHistoryCache = [];
 let economyLiveBuf = [];
 const ECON_LIVE_MAX = 240;
@@ -5184,6 +5296,7 @@ async function loadLobbies() {
   loadClans();
   loadGlobalLeaderboard();
   startEconomyPoll();
+  loadNightEventState();
   if (authToken) refreshMe();
   lobbyScreen.style.display = 'flex';
   document.getElementById('btn-leave-lobby').style.display = 'none';
@@ -5576,6 +5689,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
       case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank, msg.clan, msg.reply_to); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
       case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
+      case 'night_event_state': if (msg.state) { nightEventState = msg.state; nightEventServerOffset = (msg.state.server_now_ts || 0) - Math.floor(Date.now() / 1000); renderNightEvent(); } break;
       case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBucks', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
       case 'streak_bonus': { myStreak = msg.count || myStreak; myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true }; if (msg.used_pass && myPurchases) myPurchases.streak_pass = msg.passes_left; applyPbState(); showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
@@ -5759,6 +5873,11 @@ function connectSocial() {
       if (msg.used_pass && myPurchases) myPurchases.streak_pass = msg.passes_left;
       applyPbState();
       showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {});
+    }
+    if (msg.type === 'night_event_state' && msg.state) {
+      nightEventState = msg.state;
+      nightEventServerOffset = (msg.state.server_now_ts || 0) - Math.floor(Date.now() / 1000);
+      renderNightEvent();
     }
     if (msg.type === 'economy_total') {
       const totalEl = document.getElementById('economy-total');
