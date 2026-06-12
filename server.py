@@ -47,6 +47,9 @@ bans = []
 ip_bans = []
 device_bans = []
 user_devices = {}
+moderators = []
+mod_ban_log = []
+MOD_BAN_LOG_MAX = 500
 vips = []
 ranks = {}                                                              
 user_ips = {}
@@ -122,6 +125,8 @@ def get_rank(username):
         return None
     if is_admin(username):
         return {"label": "CREATOR", "color": "rainbow"}
+    if is_moderator(username):
+        return {"label": "MOD", "color": "mod"}
     return ranks.get(username.lower())
 
 def get_auth_user(request):
@@ -194,8 +199,17 @@ async def save_device_bans():
 async def save_user_devices():
     await db_save("store", "user_devices", user_devices)
 
+async def save_moderators():
+    await db_save("store", "moderators", moderators)
+
+async def save_mod_ban_log():
+    await db_save("store", "mod_ban_log", mod_ban_log[-MOD_BAN_LOG_MAX:])
+
 def is_device_banned(device_id):
     return bool(device_id) and device_id in device_bans
+
+def is_moderator(user):
+    return bool(user) and user.lower() in moderators
 
 def track_user_device(user, device_id):
     if not user or not device_id: return
@@ -798,9 +812,11 @@ async def load_all_data():
     friends_data = await db_load("store", "friends") or {}
     bans = await db_load("store", "bans") or []
     ip_bans = await db_load("store", "ip_bans") or []
-    global device_bans, user_devices
+    global device_bans, user_devices, moderators, mod_ban_log
     device_bans = await db_load("store", "device_bans") or []
     user_devices = await db_load("store", "user_devices") or {}
+    moderators = await db_load("store", "moderators") or []
+    mod_ban_log = await db_load("store", "mod_ban_log") or []
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
     fake_admins = await db_load("store", "fake_admins") or []
@@ -1382,6 +1398,127 @@ async def admin_unban_handler(request):
     bans[:] = [b for b in bans if b.lower() != target.lower()]
     await save_bans()
     return web.json_response({"ok": True, "message": f"Unbanned {target}"})
+
+async def admin_mod_add_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = (data.get("username") or "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return web.json_response({"error": "User not found"}, status=404)
+    if is_admin(found): return web.json_response({"error": "Cannot promote the owner"}, status=400)
+    if found.lower() not in moderators:
+        moderators.append(found.lower())
+        await save_moderators()
+    # push live event so they immediately see their new tab
+    try: await notify_social(found, {"type": "mod_status", "is_moderator": True})
+    except: pass
+    return web.json_response({"ok": True, "message": f"Granted MOD to {found}"})
+
+async def admin_mod_remove_handler(request):
+    data = await request.json()
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    target = (data.get("username") or "").strip().lower()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    moderators[:] = [m for m in moderators if m != target]
+    await save_moderators()
+    try: await notify_social(target, {"type": "mod_status", "is_moderator": False})
+    except: pass
+    return web.json_response({"ok": True, "message": f"Revoked MOD from {target}"})
+
+async def admin_mod_list_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"moderators": moderators})
+
+async def admin_mod_ban_log_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"log": mod_ban_log[-100:]})
+
+async def _mod_school_ban_action(moderator_user, target):
+    """Soft ban: account banned + push a school_ban event to every live socket of the target so
+    their client sets a localStorage flag and redirects to Google. IP and device are NOT touched
+    so other people on the same WiFi / Chromebook are unaffected."""
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return None, "User not found"
+    if is_admin(found): return None, "Cannot ban the owner"
+    if is_moderator(found) and not is_admin(moderator_user): return None, "Cannot ban another moderator"
+    if not is_banned(found):
+        bans.append(found)
+        await save_bans()
+    payload = {"type": "client_school_ban", "by": moderator_user, "url": "https://www.google.com"}
+    booted = 0
+    tlow = found.lower()
+    for ws, info in list(clients.items()):
+        if info and info.get("username", "").lower() == tlow:
+            try: await ws.send_json(payload); await ws.close(); booted += 1
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == tlow:
+            try: await ws.send_json(payload); await ws.close(); booted += 1
+            except: pass
+    entry = {"ts": int(time.time()), "moderator": moderator_user, "target": found, "type": "school_ban", "booted": booted}
+    mod_ban_log.append(entry)
+    if len(mod_ban_log) > MOD_BAN_LOG_MAX: del mod_ban_log[:len(mod_ban_log) - MOD_BAN_LOG_MAX]
+    await save_mod_ban_log()
+    return entry, None
+
+async def _mod_regular_ban_action(moderator_user, target):
+    """Hard ban: account banned + IP banned + device banned + push client_redirect to Google."""
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return None, "User not found"
+    if is_admin(found): return None, "Cannot ban the owner"
+    if is_moderator(found) and not is_admin(moderator_user): return None, "Cannot ban another moderator"
+    if not is_banned(found):
+        bans.append(found)
+        await save_bans()
+    ip = user_ips.get(found)
+    if ip and ip not in ip_bans:
+        ip_bans.append(ip)
+        await save_ip_bans()
+    did = user_devices.get(found.lower())
+    if did and did not in device_bans:
+        device_bans.append(did)
+        await save_device_bans()
+    payload = {"type": "client_redirect", "url": "https://www.google.com"}
+    booted = 0
+    tlow = found.lower()
+    for ws, info in list(clients.items()):
+        if info and info.get("username", "").lower() == tlow:
+            try: await ws.send_json(payload); await ws.close(); booted += 1
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == tlow:
+            try: await ws.send_json(payload); await ws.close(); booted += 1
+            except: pass
+    entry = {"ts": int(time.time()), "moderator": moderator_user, "target": found, "type": "regular_ban", "ip": ip, "device_id": did, "booted": booted}
+    mod_ban_log.append(entry)
+    if len(mod_ban_log) > MOD_BAN_LOG_MAX: del mod_ban_log[:len(mod_ban_log) - MOD_BAN_LOG_MAX]
+    await save_mod_ban_log()
+    return entry, None
+
+async def mod_school_ban_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not (is_admin(user) or is_moderator(user)):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target = (data.get("username") or "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    entry, err = await _mod_school_ban_action(user, target)
+    if err: return web.json_response({"error": err}, status=400)
+    return web.json_response({"ok": True, "message": f"School-banned {entry['target']} (booted {entry['booted']} sockets)", "entry": entry})
+
+async def mod_regular_ban_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not (is_admin(user) or is_moderator(user)):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target = (data.get("username") or "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    entry, err = await _mod_regular_ban_action(user, target)
+    if err: return web.json_response({"error": err}, status=400)
+    return web.json_response({"ok": True, "message": f"Regular-banned {entry['target']} (IP+device+account, booted {entry['booted']} sockets)", "entry": entry})
 
 async def admin_device_ban_handler(request):
     data = await request.json()
@@ -2100,6 +2237,8 @@ async def me_handler(request):
         "lifetime_pixels": int(lifetime_pixels.get(user.lower(), 0)),
         "streak": get_streak(user),
         "streak_progress": get_streak_progress(user),
+        "is_moderator": bool(is_moderator(user)),
+        "is_admin": bool(is_admin(user)),
         "prices": {"shop": SHOP_PRICES, "lobby": {f"{w}x{h}": p for (w, h), p in LOBBY_PRICES.items()}, "pixels_per_buck": PB_PIXELS_PER_BUCK},
     })
 
@@ -5105,6 +5244,12 @@ app.router.add_post("/api/admin/ipban", admin_ipban_handler)
 app.router.add_post("/api/admin/device-ban", admin_device_ban_handler)
 app.router.add_post("/api/admin/device-unban", admin_device_unban_handler)
 app.router.add_get("/api/admin/device-bans", admin_device_bans_handler)
+app.router.add_post("/api/admin/mod-add", admin_mod_add_handler)
+app.router.add_post("/api/admin/mod-remove", admin_mod_remove_handler)
+app.router.add_get("/api/admin/mod-list", admin_mod_list_handler)
+app.router.add_get("/api/admin/mod-ban-log", admin_mod_ban_log_handler)
+app.router.add_post("/api/mod/school-ban", mod_school_ban_handler)
+app.router.add_post("/api/mod/regular-ban", mod_regular_ban_handler)
 app.router.add_post("/api/admin/ip-unban", admin_ip_unban_handler)
 app.router.add_get("/api/admin/ipbans", lambda r: web.json_response({"ip_bans": ip_bans}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 app.router.add_post("/api/admin/vip-add", admin_vip_add_handler)
