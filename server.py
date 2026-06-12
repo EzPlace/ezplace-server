@@ -4413,6 +4413,14 @@ async def night_event_loop(app):
             print(f"night_event_loop error: {e}")
             await asyncio.sleep(60)
 
+async def auth_status_handler(request):
+    """Probe endpoint the client hits on boot to ask 'am I banned right now?'
+    Exempt from the ban middleware so a banned client can still get an answer."""
+    token = request.headers.get("Authorization", "")
+    username = sessions.get(token)
+    banned = bool(username and is_banned(username)) or is_ip_banned(request)
+    return web.json_response({"ok": True, "banned": banned, "redirect": "https://www.google.com" if banned else None})
+
 async def night_event_state_handler(request):
     if not night_event["next_event_ts"]:
         night_event["next_event_ts"] = _night_next_11pm_et_ts()
@@ -5499,7 +5507,7 @@ async def on_cleanup(app):
 
 @web.middleware
 async def cors_middleware(request, handler):
-                           
+
     if request.method == 'OPTIONS':
         resp = web.Response()
     else:
@@ -5509,7 +5517,27 @@ async def cors_middleware(request, handler):
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return resp
 
-app = web.Application(middlewares=[cors_middleware])
+# Paths exempt from the global ban check (auth-related and the ban-status probe itself).
+_BAN_GUARD_EXEMPT_PATHS = {
+    "/api/login", "/api/register", "/api/auth/suggest-mode", "/api/auth/status",
+}
+
+@web.middleware
+async def ban_guard_middleware(request, handler):
+    """Reject any authed API request from a banned account / IP / device. This
+    closes the loophole where a banned user could refresh the homepage and use
+    /api/me, /api/lobbies, etc. - WS auth was the only previous check."""
+    path = request.path or ""
+    if path.startswith("/api/") and path not in _BAN_GUARD_EXEMPT_PATHS:
+        token = request.headers.get("Authorization", "")
+        username = sessions.get(token)
+        if username and is_banned(username):
+            return web.json_response({"error": "banned", "redirect": "https://www.google.com"}, status=403)
+        if is_ip_banned(request):
+            return web.json_response({"error": "ip_banned", "redirect": "https://www.google.com"}, status=403)
+    return await handler(request)
+
+app = web.Application(middlewares=[cors_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
 app.router.add_get("/api/health", health_handler)
@@ -5624,6 +5652,7 @@ app.router.add_get("/api/battle/state", battle_state_handler)
 app.router.add_post("/api/battle/say", battle_say_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_get("/api/economy/stats", economy_stats_handler)
+app.router.add_get("/api/auth/status", auth_status_handler)
 app.router.add_get("/api/night-event/state", night_event_state_handler)
 app.router.add_post("/api/night-event/join", night_event_join_handler)
 app.router.add_post("/api/admin/night-event-trigger", admin_night_event_trigger_handler)
