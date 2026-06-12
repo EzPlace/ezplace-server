@@ -3137,6 +3137,7 @@ async def uno_create_handler(request):
         stacking = bool(data.get("stacking", False))
     except: return web.json_response({"error": "Invalid settings"}, status=400)
     if bet < 0: return web.json_response({"error": "Bet must be >= 0"}, status=400)
+    if bet > MAX_CASINO_BET: return web.json_response({"error": f"Max UNO bet is {MAX_CASINO_BET} $"}, status=400)
     if bet > 0 and not spend_pb(user, bet):
         return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
     rid = secrets.token_hex(5)
@@ -5442,6 +5443,20 @@ async def on_startup(app):
         migrations_doc["strip_inactive_floor_v1"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"strip_inactive_floor_v1: removed PB balances for {removed} inactive accounts (total wiped: {wiped_total})")
+    if not migrations_doc.get("reset_dinosoup_v1"):
+        ulow = "dinosoup"
+        real = next((u for u in accounts if u.lower() == ulow), None)
+        if real:
+            lp = int(lifetime_pixels.get(ulow, 0))
+            new_bal = lp // PB_PIXELS_PER_BUCK
+            old_bal = int(place_bucks.get(ulow, 0))
+            place_bucks[ulow] = new_bal
+            await save_place_bucks()
+            print(f"reset_dinosoup_v1: {real} {old_bal} -> {new_bal} PB ({lp} lifetime pixels)")
+        else:
+            print("reset_dinosoup_v1: account 'dinosoup' not found, skipping")
+        migrations_doc["reset_dinosoup_v1"] = True
+        await db_save("store", "migrations", migrations_doc)
     if not migrations_doc.get("economy_reset_v1"):
         place_bucks.clear()
         for ulow, lp in lifetime_pixels.items():
