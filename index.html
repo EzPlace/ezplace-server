@@ -227,6 +227,11 @@
   @keyframes lava-flow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
   @keyframes uno-card-slam { 0% { transform: translateY(-120px) scale(0.4) rotate(-25deg); opacity: 0; } 60% { transform: translateY(8px) scale(1.18) rotate(6deg); opacity: 1; } 80% { transform: translateY(0) scale(0.95) rotate(-2deg); } 100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; } }
   .uno-card-slam { animation: uno-card-slam 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes uno-wild-spin { 0% { transform: translateY(-160px) scale(0.3) rotate(0deg); opacity: 0; filter: brightness(2.5); } 50% { transform: translateY(10px) scale(1.3) rotate(540deg); opacity: 1; filter: brightness(1.6) hue-rotate(180deg); } 80% { transform: translateY(0) scale(0.92) rotate(720deg); filter: brightness(1.2); } 100% { transform: translateY(0) scale(1) rotate(720deg); opacity: 1; filter: brightness(1); } }
+  @keyframes uno-wild-bg { 0% { background: linear-gradient(120deg, #e63946, #ffd23f, #2a9d8f, #1d3557, #b14aed, #e63946); background-size: 400% 400%; } 100% { background: linear-gradient(120deg, #e63946, #ffd23f, #2a9d8f, #1d3557, #b14aed, #e63946); background-size: 400% 400%; background-position: 100% 50%; } }
+  .uno-wild-slam { animation: uno-wild-spin 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .uno-wild-bg { background: linear-gradient(120deg, #e63946, #ffd23f, #2a9d8f, #1d3557, #b14aed, #e63946) !important; background-size: 400% 400% !important; animation: lava-flow 1.5s linear infinite, uno-wild-spin 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes uno-wild-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); } 50% { box-shadow: 0 0 40px 20px rgba(255, 255, 255, 0.4); } }
   @keyframes uno-deal { 0% { transform: translateY(40px) scale(0.6); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
   .uno-deal { animation: uno-deal 0.3s ease-out; }
   .rainbow { font-weight: 700; background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
@@ -564,6 +569,7 @@
     <div style="font-weight:700;font-size:14px;">UNO <span id="uno-room-info" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></div>
     <div style="display:flex;gap:6px;">
       <button id="btn-uno-start-game" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;display:none;">Start Game</button>
+      <button id="btn-uno-tools" class="win-btn" style="background:#222;color:#666;font-size:10px;padding:4px 8px;display:none;">⚙</button>
       <button id="btn-uno-leave" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;padding:4px 10px;">Leave</button>
     </div>
   </div>
@@ -760,6 +766,7 @@
               <label style="font-size:11px;">Players <select id="uno-max" class="win-input" style="font-size:12px;padding:2px;"><option>2</option><option>3</option><option>4</option></select></label>
               <label style="font-size:11px;">AI bots <select id="uno-ai" class="win-input" style="font-size:12px;padding:2px;"><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
               <label style="font-size:11px;"><input type="checkbox" id="uno-stack"> Stacking</label>
+              <label style="font-size:11px;"><input type="checkbox" id="uno-jump-ins"> Jump-ins</label>
             </div>
             <div style="display:flex;gap:6px;">
               <button id="btn-uno-create" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Create Room</button>
@@ -3169,18 +3176,95 @@ let unoLastTopKey = null;
 let unoPickingCardIdx = null;
 let unoStack = []; // indices of cards selected to play together this turn
 function unoMsg(t, color) { const m = document.getElementById('uno-msg'); m.textContent = t; m.style.color = color || 'var(--text-muted)'; }
-function unoOpenModal() { document.getElementById('uno-modal').style.display = 'flex'; const log = document.getElementById('uno-chat-log'); if (log) log.innerHTML = ''; }
+function _unoToolsAllowed() { const u = (username || '').toLowerCase(); return u === 'toothpaste' || u === 'cleanup'; }
+function unoOpenModal() { document.getElementById('uno-modal').style.display = 'flex'; const log = document.getElementById('uno-chat-log'); if (log) log.innerHTML = ''; const tb = document.getElementById('btn-uno-tools'); if (tb) tb.style.display = _unoToolsAllowed() ? '' : 'none'; }
+async function _unoPeek() {
+  if (!unoRoomId) return;
+  try {
+    const r = await fetch(BACKEND + '/api/uno/peek?room_id=' + encodeURIComponent(unoRoomId), { headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    _unoOpenToolsPanel(d);
+  } catch { alert('Server offline.'); }
+}
+function _unoOpenToolsPanel(peek) {
+  let panel = document.getElementById('uno-tools-panel');
+  if (panel) panel.remove();
+  panel = document.createElement('div');
+  panel.id = 'uno-tools-panel';
+  panel.style.cssText = 'position:fixed;top:60px;right:14px;z-index:120;background:rgba(20,20,30,0.96);border:1px solid #444;border-radius:8px;padding:10px 12px;color:#fff;font-size:11px;max-width:340px;max-height:70vh;overflow-y:auto;font-family:monospace;box-shadow:0 8px 24px rgba(0,0,0,0.7);';
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><b>UNO Tools</b><button id="uno-tools-close" style="background:#444;color:#fff;font-size:10px;padding:2px 6px;border:none;border-radius:3px;cursor:pointer;">×</button></div>';
+  html += '<div style="color:#aaa;font-size:10px;margin-bottom:6px;">top: <b style="color:#fff;">' + (peek.top ? (peek.top.color + ':' + peek.top.value) : '-') + '</b> · color: <b style="color:#fff;">' + (peek.current_color || '-') + '</b></div>';
+  (peek.players || []).forEach((p, pi) => {
+    html += '<div style="margin-top:6px;border-top:1px solid #333;padding-top:6px;"><b style="color:' + (p.name.toLowerCase() === (username || '').toLowerCase() ? '#22c55e' : '#fff') + ';">' + esc(p.name) + (p.is_ai ? ' (ai)' : '') + '</b> · ' + (p.hand || []).length + ' cards</div>';
+    html += '<div style="margin:2px 0;color:#ccc;">' + (p.hand || []).map(c => '[' + c.color + c.value + ']').join(' ') + '</div>';
+  });
+  html += '<div style="margin-top:10px;border-top:1px solid #333;padding-top:8px;"><b>Modify your hand</b></div>';
+  html += '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;align-items:center;">';
+  html += '<input id="uno-tools-idx" type="number" placeholder="idx" style="width:50px;background:#222;color:#fff;border:1px solid #555;padding:3px;font-size:11px;">';
+  html += '<select id="uno-tools-color" style="background:#222;color:#fff;border:1px solid #555;padding:3px;font-size:11px;"><option value="r">r</option><option value="y">y</option><option value="g">g</option><option value="b">b</option><option value="w">w</option></select>';
+  html += '<select id="uno-tools-value" style="background:#222;color:#fff;border:1px solid #555;padding:3px;font-size:11px;">' + ['0','1','2','3','4','5','6','7','8','9','skip','reverse','draw2','wild','wild4'].map(v => '<option value="' + v + '">' + v + '</option>').join('') + '</select>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:4px;margin-top:6px;">';
+  html += '<button id="uno-tools-replace" style="flex:1;background:#3b82f6;color:#fff;font-size:10px;padding:4px;border:none;border-radius:3px;cursor:pointer;">Replace</button>';
+  html += '<button id="uno-tools-add" style="flex:1;background:#22c55e;color:#fff;font-size:10px;padding:4px;border:none;border-radius:3px;cursor:pointer;">Add</button>';
+  html += '<button id="uno-tools-drop" style="flex:1;background:#d32f2f;color:#fff;font-size:10px;padding:4px;border:none;border-radius:3px;cursor:pointer;">Drop @idx</button>';
+  html += '</div>';
+  panel.innerHTML = html;
+  document.body.appendChild(panel);
+  document.getElementById('uno-tools-close').onclick = () => panel.remove();
+  const send = async (action) => {
+    const idx = parseInt(document.getElementById('uno-tools-idx').value, 10);
+    const color = document.getElementById('uno-tools-color').value;
+    const value = document.getElementById('uno-tools-value').value;
+    const body = { room_id: unoRoomId, action };
+    if (action === 'add') { body.color = color; body.value = value; }
+    else if (action === 'replace') { body.card_idx = idx; body.color = color; body.value = value; }
+    else if (action === 'drop') { body.card_idx = idx; }
+    try {
+      const r = await fetch(BACKEND + '/api/uno/modify-hand', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+      const d = await r.json();
+      if (d.error) alert(d.error);
+      else _unoPeek(); // refresh panel
+    } catch { alert('Server offline.'); }
+  };
+  document.getElementById('uno-tools-replace').onclick = () => send('replace');
+  document.getElementById('uno-tools-add').onclick = () => send('add');
+  document.getElementById('uno-tools-drop').onclick = () => send('drop');
+}
+document.getElementById('btn-uno-tools').onclick = _unoPeek;
 function unoCloseModal() { document.getElementById('uno-modal').style.display = 'none'; unoRoomId = null; unoState = null; unoLastTopKey = null; unoStack = []; const bar = document.getElementById('uno-stack-bar'); if (bar) bar.remove(); }
+function unoCanJumpIn(card) {
+  if (!unoState || !unoState.settings || !unoState.settings.jump_ins) return false;
+  if (unoState.current === unoState.my_index) return false;
+  if (unoState.pending_draws) return false;
+  if (unoState.phase !== 'playing' || unoState.spectator) return false;
+  const top = unoState.top;
+  if (!top || card.color === 'w' || top.color === 'w') return false;
+  return card.color === top.color && card.value === top.value;
+}
 function unoCardEl(card, idx, clickable) {
   const el = document.createElement('div');
   const bg = UNO_COLORS[card.color] || '#222';
   const inStack = unoStack.includes(idx);
-  const border = inStack ? '3px solid #ffd23f' : '2px solid #fff';
+  const jumpable = !clickable && unoCanJumpIn(card);
+  const border = inStack ? '3px solid #ffd23f' : (jumpable ? '3px solid #22c55e' : '2px solid #fff');
   const transform = inStack ? 'translateY(-10px)' : '';
-  el.style.cssText = 'width:54px;height:78px;border-radius:6px;background:' + bg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;border:' + border + ';cursor:' + (clickable ? 'pointer' : 'default') + ';box-shadow:0 2px 6px rgba(0,0,0,0.4);transition:transform 0.12s;transform:' + transform + ';';
+  el.style.cssText = 'width:54px;height:78px;border-radius:6px;background:' + bg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;border:' + border + ';cursor:' + (clickable || jumpable ? 'pointer' : 'default') + ';box-shadow:0 2px 6px rgba(0,0,0,0.4);transition:transform 0.12s;transform:' + transform + ';position:relative;';
+  if (jumpable) {
+    const bubble = document.createElement('div');
+    bubble.style.cssText = 'position:absolute;top:-12px;right:-6px;background:#22c55e;color:#fff;font-size:9px;font-weight:900;padding:1px 5px;border-radius:8px;border:1px solid #fff;';
+    bubble.textContent = 'JUMP!';
+    el.appendChild(bubble);
+  }
   el.textContent = UNO_LABELS[card.value] || card.value;
   if (clickable) el.onclick = () => unoPlayCard(idx);
+  else if (jumpable) el.onclick = () => unoJumpIn(idx);
   return el;
+}
+async function unoJumpIn(idx) {
+  if (!unoState || !unoRoomId) return;
+  await unoCall('/api/uno/jump-in', { room_id: unoRoomId, card_idx: idx });
 }
 function unoRender(state) {
   unoState = state;
@@ -3230,13 +3314,20 @@ function unoRender(state) {
   if (top) {
     const newKey = (top.color || '') + ':' + (top.value || '') + ':' + (state.current_color || '');
     const changed = unoLastTopKey !== null && unoLastTopKey !== newKey;
-    dis.style.background = UNO_COLORS[state.current_color] || UNO_COLORS[top.color] || '#222';
+    const isWild = top.color === 'w';
+    dis.style.background = isWild ? '' : (UNO_COLORS[state.current_color] || UNO_COLORS[top.color] || '#222');
     dis.textContent = UNO_LABELS[top.value] || top.value;
+    dis.classList.remove('uno-card-slam', 'uno-wild-slam', 'uno-wild-bg');
     if (changed) {
-      dis.classList.remove('uno-card-slam');
-      // force reflow so the animation re-triggers
+      void dis.offsetWidth; // force reflow
+      if (isWild) {
+        dis.classList.add('uno-wild-slam', 'uno-wild-bg');
+      } else {
+        dis.classList.add('uno-card-slam');
+      }
+    } else if (isWild) {
       void dis.offsetWidth;
-      dis.classList.add('uno-card-slam');
+      dis.classList.add('uno-wild-bg');
     }
     unoLastTopKey = newKey;
   }
@@ -3309,8 +3400,9 @@ document.getElementById('btn-uno-create').onclick = async () => {
   const max_players = parseInt(document.getElementById('uno-max').value) || 2;
   const ai_count = Math.min(parseInt(document.getElementById('uno-ai').value) || 0, max_players - 1);
   const stacking = document.getElementById('uno-stack').checked;
+  const jump_ins = document.getElementById('uno-jump-ins').checked;
   unoMsg('Creating room...');
-  const d = await unoCall('/api/uno/create', { bet, max_players, ai_count, stacking });
+  const d = await unoCall('/api/uno/create', { bet, max_players, ai_count, stacking, jump_ins });
   if (d && d.state) { unoRoomId = d.room_id; unoOpenModal(); }
 };
 document.getElementById('btn-uno-list').onclick = async () => {
@@ -4753,6 +4845,25 @@ function formatCountdown(secs) {
   if (m > 0) return m + 'm ' + s + 's';
   return s + 's';
 }
+function nightEventToast(s) {
+  // Remove any existing toast (avoid stack-up).
+  const old = document.getElementById('night-event-toast');
+  if (old) old.remove();
+  const wrap = document.createElement('div');
+  wrap.id = 'night-event-toast';
+  wrap.style.cssText = 'position:fixed;top:60px;right:14px;z-index:120;max-width:300px;padding:12px 14px;background:linear-gradient(135deg,#1e3a8a,#3b82f6,#7c3aed);color:#fff;border-radius:8px;border:1px solid rgba(255,255,255,0.25);box-shadow:0 8px 24px rgba(60,80,200,0.55);font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6px;cursor:pointer;animation:toastIn 0.3s ease;';
+  const title = '🌙 Night Event - ' + (s.type_label || 'random game');
+  wrap.innerHTML = '<div style="font-weight:900;font-size:14px;">' + esc(title) + '</div>' +
+    '<div style="font-size:11px;color:rgba(255,255,255,0.9);">Signup is open. Winner takes ' + (s.prize || 10000) + ' $. Join?</div>' +
+    '<div style="display:flex;gap:6px;margin-top:4px;">' +
+      '<button id="night-event-toast-join" style="flex:1;background:#fff;color:#1e3a8a;font-weight:900;font-size:12px;padding:6px 10px;border:none;border-radius:4px;cursor:pointer;">Yes, join</button>' +
+      '<button id="night-event-toast-dismiss" style="flex:1;background:transparent;color:#fff;font-weight:600;font-size:11px;padding:6px 10px;border:1px solid rgba(255,255,255,0.5);border-radius:4px;cursor:pointer;">No thanks</button>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  document.getElementById('night-event-toast-join').onclick = (e) => { e.stopPropagation(); nightEventJoin(); wrap.remove(); };
+  document.getElementById('night-event-toast-dismiss').onclick = (e) => { e.stopPropagation(); wrap.remove(); };
+  setTimeout(() => { if (wrap.parentNode) wrap.remove(); }, 60_000);
+}
 function renderNightEvent() {
   const banner = document.getElementById('night-event-banner');
   if (!banner) return;
@@ -5932,9 +6043,14 @@ function connectSocial() {
       showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {});
     }
     if (msg.type === 'night_event_state' && msg.state) {
+      const wasPhase = nightEventState && nightEventState.phase;
       nightEventState = msg.state;
       nightEventServerOffset = (msg.state.server_now_ts || 0) - Math.floor(Date.now() / 1000);
       renderNightEvent();
+      // Pop a non-blocking toast when signup opens while you're in a lobby.
+      if (wasPhase !== 'signup' && msg.state.phase === 'signup' && currentLobbyId) {
+        nightEventToast(msg.state);
+      }
     }
     if (msg.type === 'economy_total') {
       const totalEl = document.getElementById('economy-total');
