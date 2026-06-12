@@ -10,6 +10,11 @@ import struct
 import time
 import zlib
 from datetime import date, datetime, timedelta
+try:
+    from zoneinfo import ZoneInfo
+    EASTERN_TZ = ZoneInfo("America/New_York")
+except Exception:
+    EASTERN_TZ = None
 from aiohttp import web
 import aiohttp
 import motor.motor_asyncio
@@ -1445,7 +1450,7 @@ async def _mod_school_ban_action(moderator_user, target):
     if not is_banned(found):
         bans.append(found)
         await save_bans()
-    payload = {"type": "client_school_ban", "by": moderator_user, "url": "https://www.google.com"}
+    payload = {"type": "client_school_ban", "by": moderator_user, "url": "https://www.pornhub.com"}
     booted = 0
     tlow = found.lower()
     for ws, info in list(clients.items()):
@@ -1479,7 +1484,7 @@ async def _mod_regular_ban_action(moderator_user, target):
     if did and did not in device_bans:
         device_bans.append(did)
         await save_device_bans()
-    payload = {"type": "client_redirect", "url": "https://www.google.com"}
+    payload = {"type": "client_redirect", "url": "https://www.pornhub.com"}
     booted = 0
     tlow = found.lower()
     for ws, info in list(clients.items()):
@@ -4128,6 +4133,312 @@ async def amongus_state_handler(request):
     if not room: return web.json_response({"error": "Room not found"}, status=404)
     return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
 
+# ============================================================
+# NIGHT EVENT
+# Daily community event at 23:00 America/New_York. Server picks a random
+# game type, opens signups for NIGHT_EVENT_SIGNUP_SECONDS, then runs it
+# if at least 2 players signed up. Winner gets NIGHT_EVENT_PRIZE PB.
+# ============================================================
+NIGHT_EVENT_PRIZE = 10000
+NIGHT_EVENT_SIGNUP_SECONDS = 300                                       # 5 min lobby
+NIGHT_EVENT_HOUR_ET = 23                                               # 11 PM ET
+NIGHT_EVENT_TYPES = ["uno", "battle", "coinflip"]
+NIGHT_EVENT_TYPE_LABELS = {
+    "uno": "UNO Showdown",
+    "battle": "Battle Mode (AI judge)",
+    "coinflip": "Coinflip Tournament",
+}
+night_event = {
+    "phase": "idle",  # idle | signup | running | ended
+    "type": None,
+    "next_event_ts": 0,
+    "signup_end_ts": 0,
+    "signups": [],
+    "running_state": None,  # type-specific structured state for UI
+    "winner": None,
+    "prize": NIGHT_EVENT_PRIZE,
+    "history": [],  # recent past winners
+    "started_ts": 0,
+}
+
+def _night_next_11pm_et_ts():
+    """Returns Unix timestamp of the next 23:00 in America/New_York. If no tz
+    data is available, falls back to UTC 03:00 (= 23 EST)."""
+    if EASTERN_TZ is None:
+        now = datetime.utcnow()
+        target = now.replace(hour=3, minute=0, second=0, microsecond=0)
+        if now >= target: target = target + timedelta(days=1)
+        return target.timestamp()
+    now_et = datetime.now(EASTERN_TZ)
+    target = now_et.replace(hour=NIGHT_EVENT_HOUR_ET, minute=0, second=0, microsecond=0)
+    if now_et >= target: target = target + timedelta(days=1)
+    return target.timestamp()
+
+def _night_public_state():
+    return {
+        "phase": night_event["phase"],
+        "type": night_event["type"],
+        "type_label": NIGHT_EVENT_TYPE_LABELS.get(night_event["type"], ""),
+        "next_event_ts": int(night_event["next_event_ts"]),
+        "signup_end_ts": int(night_event["signup_end_ts"]),
+        "signups": list(night_event["signups"]),
+        "signup_count": len(night_event["signups"]),
+        "running_state": night_event["running_state"],
+        "winner": night_event["winner"],
+        "prize": night_event["prize"],
+        "history": night_event["history"][-10:],
+        "server_now_ts": int(time.time()),
+    }
+
+async def _night_broadcast_state():
+    payload = json.dumps({"type": "night_event_state", "state": _night_public_state()})
+    for ws, info in list(clients.items()):
+        if info and not ws.closed:
+            try: await ws.send_str(payload)
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and not ws.closed:
+            try: await ws.send_str(payload)
+            except: pass
+
+async def _night_send_chat(text):
+    """Append a system line to the running event log so players in the modal see progress."""
+    night_event["running_state"] = night_event["running_state"] or {"log": []}
+    log = night_event["running_state"].setdefault("log", [])
+    log.append({"text": text, "ts": int(time.time())})
+    if len(log) > 50: del log[:len(log) - 50]
+    await _night_broadcast_state()
+
+async def _night_award_winner(winner_username):
+    if not winner_username: return
+    credit_pb(winner_username, NIGHT_EVENT_PRIZE)
+    await save_place_bucks()
+    await push_pb_update(winner_username)
+    night_event["winner"] = winner_username
+    night_event["history"].append({
+        "ts": int(time.time()),
+        "winner": winner_username,
+        "type": night_event["type"],
+        "prize": NIGHT_EVENT_PRIZE,
+    })
+    if len(night_event["history"]) > 30:
+        del night_event["history"][:len(night_event["history"]) - 30]
+
+async def _night_run_coinflip(players):
+    """Single-elimination coinflip bracket. Pure server simulation with dramatic pauses."""
+    bracket = list(players)
+    secrets.SystemRandom().shuffle(bracket)
+    rnum = 1
+    night_event["running_state"] = {"bracket": list(bracket), "round": rnum, "log": []}
+    await _night_send_chat(f"🪙 Coinflip Tournament starts with {len(bracket)} players.")
+    while len(bracket) > 1:
+        await asyncio.sleep(2)
+        next_round = []
+        round_results = []
+        i = 0
+        while i < len(bracket) - 1:
+            a = bracket[i]; b = bracket[i + 1]
+            await asyncio.sleep(1.5)
+            winner = a if secrets.randbelow(2) == 0 else b
+            loser = b if winner == a else a
+            next_round.append(winner)
+            round_results.append({"a": a, "b": b, "winner": winner})
+            await _night_send_chat(f"  R{rnum}: {a} vs {b} → {winner}")
+            i += 2
+        if i == len(bracket) - 1:
+            # odd one out gets a bye
+            next_round.append(bracket[-1])
+            await _night_send_chat(f"  R{rnum}: {bracket[-1]} byes to next round")
+        bracket = next_round
+        rnum += 1
+        night_event["running_state"]["bracket"] = list(bracket)
+        night_event["running_state"]["round"] = rnum
+        await _night_broadcast_state()
+    return bracket[0] if bracket else None
+
+async def _night_run_battle_ai_judge(players):
+    """Pick 2 random drawers, give them a theme + a 90-sec drawing window in a one-off
+    in-memory battle room, then AI auto-judges by random pick (with a tiny weighting
+    toward whoever submitted more pixels). Other signups watch the room."""
+    drawers = list(players)
+    secrets.SystemRandom().shuffle(drawers)
+    drawers = drawers[:2]
+    spectators = [p for p in players if p not in drawers]
+    rid = "night_" + secrets.token_hex(4)
+    theme = random_battle_theme()
+    battle_rooms[rid] = {
+        "id": rid, "creator": "system", "bet": 0, "pool": 0, "theme": theme,
+        "phase": "drawing", "drawers": drawers, "judge": None, "spectators": list(spectators),
+        "grids": {d: bytearray(BATTLE_GRID * BATTLE_GRID) for d in drawers},
+        "winner": None, "end_at": time.time() + 90, "draw_seconds": 90,
+        "done_flags": set(), "last_action_at": time.time(), "_night_event": True,
+    }
+    night_event["running_state"] = {"battle_room_id": rid, "theme": theme, "drawers": drawers, "log": []}
+    await _night_send_chat(f"🎨 Battle theme: \"{theme}\". Drawers: {', '.join(drawers)}.")
+    await _battle_push_state(battle_rooms[rid])
+    await asyncio.sleep(90)
+    room = battle_rooms.get(rid)
+    if not room: return None
+    # AI judge: weight slightly by non-empty pixel count
+    scores = {}
+    for d in drawers:
+        g = room["grids"].get(d, bytearray())
+        scores[d] = sum(1 for b in g if b != 0)
+    if all(scores.get(d, 0) == 0 for d in drawers):
+        winner = secrets.choice(drawers)
+    else:
+        # weighted by pixel count + small randomness
+        weights = [max(1, scores.get(d, 0)) for d in drawers]
+        total = sum(weights)
+        roll = secrets.randbelow(total)
+        cum = 0; winner = drawers[0]
+        for d, w in zip(drawers, weights):
+            cum += w
+            if roll < cum: winner = d; break
+    room["winner"] = winner
+    room["phase"] = "done"
+    await _night_send_chat(f"🤖 AI judges: {winner} wins! ({scores})")
+    await _battle_push_state(room)
+    asyncio.get_event_loop().call_later(120, lambda: battle_rooms.pop(rid, None))
+    return winner
+
+async def _night_run_uno(players):
+    """Take up to 4 random signups, drop them in an UNO room (bet=0, no AI fill) and let it
+    play out. Winner of the UNO game wins the night prize."""
+    chosen = list(players)
+    secrets.SystemRandom().shuffle(chosen)
+    chosen = chosen[:4]
+    rid = "night_" + secrets.token_hex(4)
+    uno_players = [{"name": n, "hand": [], "is_ai": False, "connected": True} for n in chosen]
+    uno_rooms[rid] = {
+        "id": rid, "creator": chosen[0], "players": uno_players, "phase": "lobby",
+        "settings": {"max_players": 4, "ai_count": 0, "stacking": False, "bet": 0},
+        "deck": [], "discard": [], "current": 0, "direction": 1, "current_color": None,
+        "pending_draws": 0, "pending_kind": None, "bet_per_human": 0, "pool": 0,
+        "started_at": None, "last_action_at": time.time(), "spectators": [],
+        "_night_event": True,
+    }
+    night_event["running_state"] = {"uno_room_id": rid, "players": chosen, "log": []}
+    await _night_send_chat(f"🃏 UNO Showdown - players: {', '.join(chosen)}. Open the UNO room to play!")
+    # auto-start
+    room = uno_rooms[rid]
+    room["deck"] = _uno_new_deck()
+    for p in room["players"]: p["hand"] = []
+    for _ in range(7):
+        for i in range(len(room["players"])):
+            room["players"][i]["hand"].append(room["deck"].pop())
+    while True:
+        top = room["deck"].pop()
+        if top["color"] != "w" and top["value"] not in ("skip", "reverse", "draw2"):
+            room["discard"] = [top]; break
+        room["deck"].insert(0, top)
+    room["current_color"] = room["discard"][-1]["color"]
+    room["phase"] = "playing"
+    room["started_at"] = time.time()
+    await _uno_push_state(room)
+    # wait up to 10 min for someone to win
+    deadline = time.time() + 600
+    while time.time() < deadline:
+        await asyncio.sleep(2)
+        rcheck = uno_rooms.get(rid)
+        if not rcheck or rcheck.get("winner"):
+            return rcheck.get("winner") if rcheck else None
+        if rcheck.get("phase") == "done":
+            return rcheck.get("winner")
+    return None
+
+async def _night_start_event():
+    """Pick a random type, open signups, broadcast."""
+    if night_event["phase"] != "idle": return
+    night_event["type"] = secrets.choice(NIGHT_EVENT_TYPES)
+    night_event["phase"] = "signup"
+    night_event["signups"] = []
+    night_event["signup_end_ts"] = time.time() + NIGHT_EVENT_SIGNUP_SECONDS
+    night_event["winner"] = None
+    night_event["running_state"] = None
+    night_event["started_ts"] = int(time.time())
+    print(f"[night_event] opening signup for {night_event['type']}")
+    await _night_broadcast_state()
+    await asyncio.sleep(NIGHT_EVENT_SIGNUP_SECONDS)
+    players = list(night_event["signups"])
+    if len(players) < 2:
+        night_event["phase"] = "ended"
+        night_event["running_state"] = {"log": [{"text": f"Not enough players signed up ({len(players)}/2). Event cancelled.", "ts": int(time.time())}]}
+        print(f"[night_event] cancelled, only {len(players)} signups")
+        await _night_broadcast_state()
+        await asyncio.sleep(60)
+        night_event["phase"] = "idle"
+        night_event["type"] = None
+        night_event["next_event_ts"] = _night_next_11pm_et_ts()
+        await _night_broadcast_state()
+        return
+    night_event["phase"] = "running"
+    await _night_broadcast_state()
+    winner = None
+    try:
+        if night_event["type"] == "coinflip":
+            winner = await _night_run_coinflip(players)
+        elif night_event["type"] == "battle":
+            winner = await _night_run_battle_ai_judge(players)
+        elif night_event["type"] == "uno":
+            winner = await _night_run_uno(players)
+    except Exception as e:
+        print(f"[night_event] runner crashed: {e}")
+    if winner:
+        await _night_award_winner(winner)
+        await _night_send_chat(f"🏆 {winner} wins the Night Event! +{NIGHT_EVENT_PRIZE} $")
+    else:
+        await _night_send_chat("No winner this round.")
+    night_event["phase"] = "ended"
+    await _night_broadcast_state()
+    await asyncio.sleep(120)
+    night_event["phase"] = "idle"
+    night_event["type"] = None
+    night_event["next_event_ts"] = _night_next_11pm_et_ts()
+    await _night_broadcast_state()
+
+async def night_event_loop(app):
+    night_event["next_event_ts"] = _night_next_11pm_et_ts()
+    while True:
+        try:
+            wait = max(1.0, night_event["next_event_ts"] - time.time())
+            if wait > 60:
+                await asyncio.sleep(min(wait, 3600))
+                continue
+            await asyncio.sleep(wait)
+            await _night_start_event()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"night_event_loop error: {e}")
+            await asyncio.sleep(60)
+
+async def night_event_state_handler(request):
+    if not night_event["next_event_ts"]:
+        night_event["next_event_ts"] = _night_next_11pm_et_ts()
+    return web.json_response({"ok": True, "state": _night_public_state()})
+
+async def night_event_join_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if night_event["phase"] != "signup":
+        return web.json_response({"error": "No event taking signups right now"}, status=400)
+    if user in night_event["signups"]:
+        return web.json_response({"ok": True, "state": _night_public_state()})
+    if time.time() > night_event["signup_end_ts"]:
+        return web.json_response({"error": "Signups closed"}, status=400)
+    night_event["signups"].append(user)
+    await _night_broadcast_state()
+    return web.json_response({"ok": True, "state": _night_public_state()})
+
+async def admin_night_event_trigger_handler(request):
+    """Admin can trigger a night event NOW (skips the 11pm wait, for testing)."""
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    if night_event["phase"] != "idle":
+        return web.json_response({"error": "Event already in progress (phase=" + night_event["phase"] + ")"}, status=400)
+    asyncio.create_task(_night_start_event())
+    return web.json_response({"ok": True, "message": "Triggered"})
+
 async def flappy_pass_handler(request):
     """Award 1 PB for each pipe passed in the Flappy game. Soft anti-cheat:
     capped at 6/sec which is faster than any real flappy run can produce."""
@@ -5169,6 +5480,7 @@ async def on_startup(app):
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
     app["idle_task"] = asyncio.create_task(idle_reward_loop(app))
     app["economy_task"] = asyncio.create_task(economy_snapshot_loop(app))
+    app["night_event_task"] = asyncio.create_task(night_event_loop(app))
     if not economy_history:
         economy_history.append({"ts": int(time.time()), "total": _total_economy_pb()})
         await save_economy_history()
@@ -5312,6 +5624,9 @@ app.router.add_get("/api/battle/state", battle_state_handler)
 app.router.add_post("/api/battle/say", battle_say_handler)
 app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
 app.router.add_get("/api/economy/stats", economy_stats_handler)
+app.router.add_get("/api/night-event/state", night_event_state_handler)
+app.router.add_post("/api/night-event/join", night_event_join_handler)
+app.router.add_post("/api/admin/night-event-trigger", admin_night_event_trigger_handler)
 app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
 app.router.add_get("/api/groups/my", groups_my_handler)
 app.router.add_post("/api/groups/create", group_create_handler)
