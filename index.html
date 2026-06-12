@@ -172,6 +172,7 @@
 
   /* Messages panel */
   #msgs-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+  #msg-list-view { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
   #msg-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
   .msg-thread { padding: 8px; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 12px; border-radius: var(--radius-sm); }
   .msg-thread:hover { background: var(--bg-hover); }
@@ -224,6 +225,10 @@
   .msg .name.owner { color: var(--red); font-weight: 700; }
   .msg .name.guest { color: var(--text-muted); font-style: italic; }
   @keyframes lava-flow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+  @keyframes uno-card-slam { 0% { transform: translateY(-120px) scale(0.4) rotate(-25deg); opacity: 0; } 60% { transform: translateY(8px) scale(1.18) rotate(6deg); opacity: 1; } 80% { transform: translateY(0) scale(0.95) rotate(-2deg); } 100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; } }
+  .uno-card-slam { animation: uno-card-slam 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes uno-deal { 0% { transform: translateY(40px) scale(0.6); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+  .uno-deal { animation: uno-deal 0.3s ease-out; }
   .rainbow { font-weight: 700; background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
   .msg .name.vip { color: var(--gold); font-weight: 700; }
   .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; background: linear-gradient(90deg, #daa520, #ffd700, #fff68f, #daa520); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
@@ -3160,11 +3165,12 @@ const UNO_COLORS = { r: '#e63946', y: '#ffd23f', g: '#2a9d8f', b: '#1d3557', w: 
 const UNO_LABELS = { '0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9','skip':'X','reverse':'R','draw2':'+2','wild':'W','wild4':'+4' };
 let unoRoomId = null;
 let unoState = null;
+let unoLastTopKey = null;
 let unoPickingCardIdx = null;
 let unoStack = []; // indices of cards selected to play together this turn
 function unoMsg(t, color) { const m = document.getElementById('uno-msg'); m.textContent = t; m.style.color = color || 'var(--text-muted)'; }
 function unoOpenModal() { document.getElementById('uno-modal').style.display = 'flex'; const log = document.getElementById('uno-chat-log'); if (log) log.innerHTML = ''; }
-function unoCloseModal() { document.getElementById('uno-modal').style.display = 'none'; unoRoomId = null; unoState = null; unoStack = []; const bar = document.getElementById('uno-stack-bar'); if (bar) bar.remove(); }
+function unoCloseModal() { document.getElementById('uno-modal').style.display = 'none'; unoRoomId = null; unoState = null; unoLastTopKey = null; unoStack = []; const bar = document.getElementById('uno-stack-bar'); if (bar) bar.remove(); }
 function unoCardEl(card, idx, clickable) {
   const el = document.createElement('div');
   const bg = UNO_COLORS[card.color] || '#222';
@@ -3222,20 +3228,43 @@ function unoRender(state) {
   }
   const top = state.top;
   if (top) {
+    const newKey = (top.color || '') + ':' + (top.value || '') + ':' + (state.current_color || '');
+    const changed = unoLastTopKey !== null && unoLastTopKey !== newKey;
     dis.style.background = UNO_COLORS[state.current_color] || UNO_COLORS[top.color] || '#222';
     dis.textContent = UNO_LABELS[top.value] || top.value;
+    if (changed) {
+      dis.classList.remove('uno-card-slam');
+      // force reflow so the animation re-triggers
+      void dis.offsetWidth;
+      dis.classList.add('uno-card-slam');
+    }
+    unoLastTopKey = newKey;
   }
   const cur = state.players[state.current];
+  // Find the next ALIVE player in current direction (skip forfeited/dead).
+  function unoNextPlayerName() {
+    const n = state.players.length;
+    const dir = state.direction || 1;
+    let idx = state.current;
+    for (let step = 0; step < n; step++) {
+      idx = (idx + dir + n) % n;
+      const p = state.players[idx];
+      if (p && p.connected !== false && !p.forfeited) return p.name;
+    }
+    return null;
+  }
+  const nextName = unoNextPlayerName();
+  const nextSuffix = nextName ? ' &nbsp;<span style="color:var(--text-muted);font-size:11px;">↪ next: ' + esc(nextName) + '</span>' : '';
   const handEl = document.getElementById('uno-hand');
   handEl.innerHTML = '';
   if (state.spectator) {
-    turnInfo.textContent = 'Spectating - Turn: ' + cur.name + (state.pending_draws ? ' (pending +' + state.pending_draws + ')' : '');
+    turnInfo.innerHTML = 'Spectating - Turn: ' + esc(cur.name) + (state.pending_draws ? ' (pending +' + state.pending_draws + ')' : '') + nextSuffix;
     drawBtn.style.display = 'none';
     handEl.innerHTML = '<div style="color:var(--text-muted);font-size:11px;text-align:center;">You are spectating. Players hands are hidden.</div>';
     return;
   }
   const isMyTurn = state.current === state.my_index;
-  turnInfo.textContent = isMyTurn ? ('Your turn' + (state.pending_draws ? ' - draw ' + state.pending_draws : '')) : ('Turn: ' + cur.name + (state.pending_draws ? ' (pending +' + state.pending_draws + ')' : ''));
+  turnInfo.innerHTML = (isMyTurn ? ('Your turn' + (state.pending_draws ? ' - draw ' + state.pending_draws : '')) : ('Turn: ' + esc(cur.name) + (state.pending_draws ? ' (pending +' + state.pending_draws + ')' : ''))) + nextSuffix;
   drawBtn.style.display = isMyTurn ? '' : 'none';
   state.my_hand.forEach((card, i) => handEl.appendChild(unoCardEl(card, i, isMyTurn)));
 }
@@ -3327,9 +3356,9 @@ document.getElementById('btn-uno-leave').onclick = async () => {
   }
   unoCloseModal();
 };
-function unoSiblingsByValue(value) {
+function unoSiblingsByValue(value, color) {
   if (!unoState || !unoState.my_hand) return [];
-  return unoState.my_hand.map((c, i) => ({ c, i })).filter(o => o.c.value === value && o.c.color !== 'w').map(o => o.i);
+  return unoState.my_hand.map((c, i) => ({ c, i })).filter(o => o.c.value === value && o.c.color === color && o.c.color !== 'w').map(o => o.i);
 }
 function unoRenderStackBanner() {
   let bar = document.getElementById('uno-stack-bar');
@@ -3340,9 +3369,10 @@ function unoRenderStackBanner() {
     bar.style.cssText = 'position:fixed;left:50%;bottom:240px;transform:translateX(-50%);background:rgba(0,0,0,0.92);border:2px solid #ffd23f;border-radius:8px;padding:8px 14px;display:flex;gap:8px;align-items:center;z-index:90;font-size:13px;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,0.6);';
     document.body.appendChild(bar);
   }
-  const v = unoState.my_hand[unoStack[0]].value;
+  const anchor = unoState.my_hand[unoStack[0]];
+  const v = anchor.value;
   const label = UNO_LABELS[v] || v;
-  const remaining = unoSiblingsByValue(v).filter(i => !unoStack.includes(i)).length;
+  const remaining = unoSiblingsByValue(v, anchor.color).filter(i => !unoStack.includes(i)).length;
   bar.innerHTML = '';
   const txt = document.createElement('span');
   txt.innerHTML = '<b style="color:#ffd23f;">Stack ' + label + ':</b> ' + unoStack.length + ' card' + (unoStack.length === 1 ? '' : 's') + (remaining ? ' &nbsp;<span style="color:#aaa;">(' + remaining + ' more available)</span>' : '');
@@ -3378,8 +3408,8 @@ async function unoPlayCard(idx) {
   }
   // if a stack is already in progress, this click adds/removes the card
   if (unoStack.length > 0) {
-    const anchorVal = unoState.my_hand[unoStack[0]].value;
-    if (card.value !== anchorVal) {
+    const anchor = unoState.my_hand[unoStack[0]];
+    if (card.value !== anchor.value || card.color !== anchor.color) {
       // tapping a non-matching card cancels stack mode (UX choice)
       unoStack = []; unoRenderStackBanner(); unoRender(unoState);
       return;
@@ -3392,8 +3422,8 @@ async function unoPlayCard(idx) {
     if (unoStack.length === 0) return;
     return;
   }
-  // first card click: if there are siblings of the same value, enter stack mode
-  const siblings = unoSiblingsByValue(card.value);
+  // first card click: if there are same-color same-value siblings, enter stack mode
+  const siblings = unoSiblingsByValue(card.value, card.color);
   if (siblings.length > 1) {
     unoStack = [idx];
     unoRenderStackBanner();
@@ -5624,6 +5654,20 @@ document.getElementById('manage-save').onclick = async () => {
 };
 
 let intentionalClose = false;
+const EZP_BASE_TITLE = 'EzPlace';
+const EZP_NOTIF_TITLE = 'EzPlace (New Messages)';
+let ezpHasUnseenNotif = false;
+function ezpMarkUnseen() {
+  if (document.visibilityState === 'visible') return;
+  ezpHasUnseenNotif = true;
+  document.title = EZP_NOTIF_TITLE;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    ezpHasUnseenNotif = false;
+    document.title = EZP_BASE_TITLE;
+  }
+});
 function connectToLobby(lobbyId, lobbyName) {
   if (!authToken && !isGuest) return;
   intentionalClose = true;
@@ -5698,7 +5742,8 @@ function connectToLobby(lobbyId, lobbyName) {
       }
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
-      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank, msg.clan, msg.reply_to); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); break;
+      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_guest, msg.is_vip, msg.rank, msg.clan, msg.reply_to); showMobileChatBubble(msg.username, msg.text, msg.is_owner, msg.is_guest); if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) ezpMarkUnseen(); break;
+      case 'system': if (msg.text && msg.text.indexOf(' joined') !== -1) ezpMarkUnseen(); addSystemMsg(msg.text); break;
       case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
       case 'night_event_state': if (msg.state) { nightEventState = msg.state; nightEventServerOffset = (msg.state.server_now_ts || 0) - Math.floor(Date.now() / 1000); renderNightEvent(); } break;
       case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBucks', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
@@ -5715,7 +5760,6 @@ function connectToLobby(lobbyId, lobbyName) {
         pixelOwnerTip.style.display = 'block';
         break;
       }
-      case 'system': addSystemMsg(msg.text); break;
       case 'error': addSystemMsg(msg.text); logout(); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; loadLobbies(); break;
       case 'client_alert': alert(msg.text); break;
@@ -5908,7 +5952,7 @@ function connectSocial() {
       showDmToast('PlaceBucks', `+${msg.amount} $ from ${fromName}`, () => openDm(fromName));
     }
     if (msg.type === 'uno_chat' && msg.msg) {
-      if (unoRoomId === msg.room_id) unoAppendChat(msg.msg);
+      if (unoRoomId === msg.room_id) { unoAppendChat(msg.msg); if (msg.msg && msg.msg.from && msg.msg.from.toLowerCase() !== (username || '').toLowerCase()) ezpMarkUnseen(); }
     }
     if (msg.type === 'amongus_state' && msg.state) {
       if (!auRoomId || auRoomId === msg.state.room_id) {
@@ -5919,6 +5963,7 @@ function connectSocial() {
     }
     if (msg.type === 'amongus_chat' && msg.msg && auRoomId === msg.room_id) {
       auAppendChat(msg.msg);
+      if (msg.msg.from && msg.msg.from.toLowerCase() !== (username || '').toLowerCase()) ezpMarkUnseen();
     }
     if (msg.type === 'battle_state' && msg.state) {
       if (!battleRoomId || battleRoomId === msg.state.room_id) {
@@ -5947,6 +5992,7 @@ function connectSocial() {
     }
     if (msg.type === 'battle_chat' && msg.msg && battleRoomId === msg.room_id) {
       battleAppendChat(msg.msg);
+      if (msg.msg.from && msg.msg.from.toLowerCase() !== (username || '').toLowerCase()) ezpMarkUnseen();
     }
     if (msg.type === 'uno_state' && msg.state) {
       if (unoRoomId === msg.state.room_id || !unoRoomId) {
@@ -6014,6 +6060,7 @@ function connectSocial() {
       } else {
         unreadDms[fromLow] = (unreadDms[fromLow] || 0) + 1;
         updateDmTabBadge();
+        ezpMarkUnseen();
         showDmToast(msg.from, msg.text || ((msg.image_url || msg.image) ? '[image]' : ''), undefined, true);
         // Only refresh the list view if user is actually looking at the list (not inside a different thread)
         const inListView = activeTab && activeTab.dataset.tab === 'msgs-tab' && document.getElementById('msg-list-view').style.display !== 'none';
@@ -6045,6 +6092,7 @@ function connectSocial() {
         showDmToast(msg.from + ' (in ' + (msg.group_name || 'group') + ')', msg.text || (msg.image_url ? '[image]' : ''), () => openGroup(gid), true);
         unreadGroups[gid] = (unreadGroups[gid] || 0) + 1;
         updateDmTabBadge();
+        ezpMarkUnseen();
       }
     }
     if (msg.type === 'group_added') {

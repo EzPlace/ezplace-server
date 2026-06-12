@@ -3307,15 +3307,15 @@ async def uno_play_handler(request):
     top = room["discard"][-1]
     if not _uno_can_play(anchor, top, room["current_color"], room["pending_draws"], room["pending_kind"], room["settings"].get("stacking", False)):
         return web.json_response({"error": "That card can't be played"}, status=400)
-    # All stacked cards must share the same value as anchor. Wilds (w) can never be stacked
-    # because their "value" string is "wild" / "wild4" and stacking wilds isn't supported.
+    # All stacked cards must share the same COLOR AND VALUE as the anchor.
+    # (Cross-color same-value stacking was removed - blue 2 + red 2 no longer stack.)
     if len(card_idxs) > 1:
         if anchor["color"] == "w":
             return web.json_response({"error": "Wild cards can't be stacked"}, status=400)
         for ci in card_idxs[1:]:
             c = hand[ci]
-            if c["color"] == "w" or c["value"] != anchor["value"]:
-                return web.json_response({"error": "All stacked cards must share the same value (and can't be wild)"}, status=400)
+            if c["color"] != anchor["color"] or c["value"] != anchor["value"]:
+                return web.json_response({"error": "Stacked cards must be the same color AND value"}, status=400)
     chosen_color = (data.get("color") or "").strip().lower()
     if anchor["color"] == "w" and chosen_color not in ("r", "y", "g", "b"):
         return web.json_response({"error": "Wild needs a color (r/y/g/b)"}, status=400)
