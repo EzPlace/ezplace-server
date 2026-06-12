@@ -267,11 +267,25 @@ async def apply_clan_rank(username, clan):
     return
 
 async def remove_user_clan_rank(username):
+    """Strips clan-applied rank tags but preserves anything the user actually paid for.
+    custom_rank and VIP are persistent purchases and must survive clan changes."""
     if not username or is_admin(username): return
     ulow = username.lower()
-    ranks.pop(ulow, None)
-
-    if ulow in vips:
+    pu = purchases.get(ulow) or {}
+    has_custom_rank = bool(pu.get("custom_rank"))
+    has_vip = bool(pu.get("vip"))
+    if has_custom_rank:
+        # Their ranks[ulow] entry IS the custom rank (label/color they chose). Leave it.
+        pass
+    elif has_vip:
+        # Restore the standard VIP badge.
+        ranks[ulow] = {"label": "VIP", "color": "#daa520"}
+    else:
+        ranks.pop(ulow, None)
+    if has_vip and ulow not in vips:
+        vips.append(ulow)
+        await save_vips()
+    elif not has_vip and ulow in vips:
         vips.remove(ulow)
         await save_vips()
     await save_ranks()
@@ -3376,7 +3390,11 @@ async def uno_jump_in_handler(request):
     """House rule: if a player holds an EXACT match (same color AND same value) of
     the current discard top, they can play it out of turn, becoming the current
     player. Wilds can't be jumped (no color match) and pending +2/+4 stacks block
-    jump-ins so the targeted player can't dodge their draw with a third party's card."""
+    jump-ins so the targeted player can't dodge their draw with a third party's card.
+
+    Accepts a single `card_idx` or a list `card_idxs`. When multiple are provided
+    all must share the exact same color+value as the discard top (so you can
+    jump-in and stack all your matching cards in one out-of-turn move)."""
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
@@ -3392,18 +3410,27 @@ async def uno_jump_in_handler(request):
     if idx is None: return web.json_response({"error": "Not in room"}, status=403)
     if idx == room["current"]:
         return web.json_response({"error": "It's your turn already, just play normally"}, status=400)
-    try: card_idx = int(data.get("card_idx", -1))
-    except: return web.json_response({"error": "Invalid card index"}, status=400)
+    raw_idxs = data.get("card_idxs")
+    if isinstance(raw_idxs, list) and raw_idxs:
+        try: card_idxs = [int(x) for x in raw_idxs]
+        except: return web.json_response({"error": "Invalid card indices"}, status=400)
+    else:
+        try: card_idxs = [int(data.get("card_idx", -1))]
+        except: return web.json_response({"error": "Invalid card index"}, status=400)
+    if len(card_idxs) != len(set(card_idxs)):
+        return web.json_response({"error": "Duplicate card indices"}, status=400)
     hand = room["players"][idx]["hand"]
-    if card_idx < 0 or card_idx >= len(hand):
-        return web.json_response({"error": "Invalid card index"}, status=400)
-    card = hand[card_idx]
+    for ci in card_idxs:
+        if ci < 0 or ci >= len(hand):
+            return web.json_response({"error": "Invalid card index"}, status=400)
     top = room["discard"][-1]
-    if card["color"] == "w" or card["color"] != top["color"] or card["value"] != top["value"]:
-        return web.json_response({"error": "Jump-ins require an EXACT color+value match (no wilds)"}, status=400)
+    for ci in card_idxs:
+        c = hand[ci]
+        if c["color"] == "w" or c["color"] != top["color"] or c["value"] != top["value"]:
+            return web.json_response({"error": "Every jump-in card must be an EXACT color+value match (no wilds)"}, status=400)
     # Snap turn to the jumper. Then run the normal play machinery.
     room["current"] = idx
-    await _uno_apply_play_multi(room, idx, [card_idx], None)
+    await _uno_apply_play_multi(room, idx, card_idxs, None)
     await _uno_push_state(room)
     if room["phase"] == "playing" and room["players"][room["current"]]["is_ai"]:
         asyncio.create_task(_uno_ai_turn(room))
