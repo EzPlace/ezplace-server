@@ -691,7 +691,8 @@ async def flush_dirty_lobbies_loop(app):
             print(f"flush_dirty_lobbies_loop error: {e}")
 
 def _total_economy_pb():
-    return sum(int(v) for k, v in place_bucks.items() if not is_admin(k))
+    accounts_low = {u.lower() for u in accounts.keys()}
+    return sum(int(v) for k, v in place_bucks.items() if not is_admin(k) and k in accounts_low)
 
 async def economy_snapshot_loop(app):
     while True:
@@ -5443,6 +5444,15 @@ async def on_startup(app):
         migrations_doc["strip_inactive_floor_v1"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"strip_inactive_floor_v1: removed PB balances for {removed} inactive accounts (total wiped: {wiped_total})")
+    if not migrations_doc.get("orphan_pb_cleanup_v1"):
+        accounts_low = {u.lower() for u in accounts.keys()}
+        orphan_keys = [k for k in list(place_bucks.keys()) if k not in accounts_low]
+        wiped = sum(int(place_bucks.get(k, 0)) for k in orphan_keys)
+        for k in orphan_keys: place_bucks.pop(k, None)
+        if orphan_keys: await save_place_bucks()
+        migrations_doc["orphan_pb_cleanup_v1"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"orphan_pb_cleanup_v1: removed {len(orphan_keys)} place_bucks entries with no matching account (wiped total: {wiped})")
     if not migrations_doc.get("reset_dinosoup_v1"):
         ulow = "dinosoup"
         real = next((u for u in accounts if u.lower() == ulow), None)
