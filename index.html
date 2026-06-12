@@ -2728,7 +2728,18 @@ const captchaRow = document.getElementById('captcha-row');
 const captchaImg = document.getElementById('captcha-img');
 const captchaAns = document.getElementById('captcha-ans');
 const authError = document.getElementById('auth-error');
-try { if (safeStore.getItem('ezp_school_banned') === '1') { location.replace('https://www.google.com'); } } catch {}
+function ezpReadBanFlag() {
+  try { if (window.localStorage && window.localStorage.getItem('ezp_school_banned') === '1') return true; } catch {}
+  try { if (window.sessionStorage && window.sessionStorage.getItem('ezp_school_banned') === '1') return true; } catch {}
+  try { if (document.cookie && document.cookie.indexOf('ezp_school_banned=1') !== -1) return true; } catch {}
+  return false;
+}
+function ezpWriteBanFlag() {
+  try { window.localStorage && window.localStorage.setItem('ezp_school_banned', '1'); } catch {}
+  try { window.sessionStorage && window.sessionStorage.setItem('ezp_school_banned', '1'); } catch {}
+  try { document.cookie = 'ezp_school_banned=1; path=/; max-age=' + (60 * 60 * 24 * 30) + '; SameSite=Lax'; } catch {}
+}
+if (ezpReadBanFlag()) { location.replace('https://www.google.com'); }
 let authToken = safeStore.getItem('ezplace_token') || '';
 let deviceId = safeStore.getItem('ezp_device_id') || '';
 if (!deviceId) {
@@ -5842,7 +5853,9 @@ function connectSocial() {
     if (msg.type === 'client_alert') { alert(msg.text); return; }
     if (msg.type === 'client_redirect' && typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; return; }
     if (msg.type === 'client_school_ban') {
-      try { safeStore.setItem('ezp_school_banned', '1'); safeStore.setItem('ezplace_token', ''); } catch {}
+      ezpWriteBanFlag();
+      try { safeStore.setItem('ezplace_token', ''); } catch {}
+      try { authToken = ''; } catch {}
       intentionalClose = true;
       location.href = (typeof msg.url === 'string' && msg.url.startsWith('http')) ? msg.url : 'https://www.google.com';
       return;
@@ -6864,12 +6877,19 @@ document.addEventListener('click', (e) => {
 })();
 (async () => {
   await selectBackend(); // pick primary or proxy before any API/WS traffic
+  // Server-side ban probe. Catches users banned while offline (no WS push received).
+  try {
+    const r = await fetch(BACKEND + '/api/auth/status', { headers: authToken ? { Authorization: authToken } : {} });
+    if (r.status === 403) { ezpWriteBanFlag(); location.replace('https://www.google.com'); return; }
+    const d = await r.json();
+    if (d && d.banned) { ezpWriteBanFlag(); location.replace(d.redirect || 'https://www.google.com'); return; }
+  } catch {}
   if (BACKEND_HOST && BACKEND_HOST !== BACKEND_CANDIDATES[0]) addSystemMsg('Primary server unreachable - connected via backup proxy.');
   if (authToken && safeStore.getItem('ezplace_user')) {
     username = safeStore.getItem('ezplace_user');
     showLoggedIn();
   } else {
-    fetch('/api/auth/suggest-mode').then(r => r.json()).then(d => {
+    fetch(BACKEND + '/api/auth/suggest-mode').then(r => r.json()).then(d => {
       if (d && d.mode === 'register') setAuthMode(true);
       else setAuthMode(false);
     }).catch(() => {});
