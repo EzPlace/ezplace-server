@@ -229,6 +229,7 @@
   .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; background: linear-gradient(90deg, #daa520, #ffd700, #fff68f, #daa520); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
   .msg .rank-badge { font-size: 10px; font-weight: 700; margin-right: 3px; }
   .msg .rank-badge.rainbow { background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
+  .mod-name, .rank-badge.mod-rank { font-weight: 900; background: linear-gradient(90deg, #1e3a8a, #3b82f6, #60a5fa, #93c5fd, #3b82f6, #1e3a8a); background-size: 300% 100%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 4s linear infinite; letter-spacing: 0.5px; }
   @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(20px); } }
   .dm-toast { background: var(--bg-elevated); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: var(--radius-md); padding: 10px 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.5); pointer-events: auto; cursor: pointer; animation: toastIn 0.25s ease; }
@@ -290,7 +291,7 @@
   body.eink-mode #canvas-wrap, body.eink-mode #sidebar, body.eink-mode #viewport-wrap, body.eink-mode #lobby-screen, body.eink-mode #header, body.eink-mode #info-row, body.eink-mode #palette-row, body.eink-mode #messages, body.eink-mode #admin-panel { background: #fff !important; color: #000 !important; border-color: #000 !important; }
   body.eink-mode .win-btn { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; font-weight: 700 !important; }
   body.eink-mode .win-input { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; }
-  body.eink-mode #header h1, body.eink-mode .rainbow, body.eink-mode .rank-badge.rainbow { background: none !important; -webkit-text-fill-color: #000 !important; color: #000 !important; }
+  body.eink-mode #header h1, body.eink-mode .rainbow, body.eink-mode .rank-badge.rainbow, body.eink-mode .mod-name, body.eink-mode .rank-badge.mod-rank { background: none !important; -webkit-text-fill-color: #000 !important; color: #000 !important; }
   body.eink-mode .msg, body.eink-mode .msg *, body.eink-mode .dm-msg, body.eink-mode .dm-msg * { color: #000 !important; }
   body.eink-mode .msg .name, body.eink-mode .msg .name.owner, body.eink-mode .msg .name.guest, body.eink-mode .msg .name.vip, body.eink-mode .msg .crown, body.eink-mode .lb-name, body.eink-mode .lb-count, body.eink-mode .dm-msg b { color: #000 !important; font-weight: 700 !important; }
   body.eink-mode .msg.system, body.eink-mode .msg.system * { color: #555 !important; }
@@ -964,6 +965,7 @@
     <div class="sidebar-tab" data-tab="lb-tab">Leaderboard</div>
     <div class="sidebar-tab" data-tab="friends-tab">Friends<span id="friend-notif" class="notif-badge" style="display:none"></span></div>
     <div class="sidebar-tab" data-tab="msgs-tab">DMs<span id="dm-notif" class="notif-badge" style="display:none"></span></div>
+    <div class="sidebar-tab" data-tab="mod-tab" id="mod-tab-btn" style="display:none;">Mod</div>
     <div class="sidebar-tab" data-tab="admin-tab" id="admin-tab-btn">Admin</div>
   </div>
 
@@ -1031,6 +1033,18 @@
   </div>
 
   <!-- Admin tab (toothpaste only) -->
+  <div id="mod-tab" class="tab-panel">
+    <div id="admin-panel">
+      <h4 style="color:#3b82f6;">Moderator Tools</h4>
+      <div class="admin-row">
+        <input id="mod-target-input" class="win-input" type="text" placeholder="Username to ban">
+        <button class="win-btn" id="btn-mod-school-ban" style="background:#3b82f6;color:#fff;font-weight:700;">School Ban</button>
+        <button class="win-btn" id="btn-mod-regular-ban" style="background:#d32f2f;color:#fff;font-weight:700;">Regular Ban</button>
+      </div>
+      <div id="mod-status" style="font-size:11px;color:#666;min-height:14px;">School Ban: account banned + redirect (no IP/device, so other people on the same WiFi keep working).<br>Regular Ban: account + IP + device + redirect.</div>
+    </div>
+  </div>
+
   <div id="admin-tab" class="tab-panel">
     <div id="admin-panel">
       <h4>Grant / Take PlaceBucks</h4>
@@ -1052,6 +1066,20 @@
         <button class="win-btn" id="btn-admin-ipban" style="background:#d32f2f">IP Ban</button>
       </div>
       <div id="admin-status" style="font-size:10px;color:#666;min-height:14px;">&nbsp;</div>
+      <h4 style="color:#3b82f6;">Moderators</h4>
+      <div class="admin-row">
+        <input id="admin-mod-input" class="win-input" type="text" placeholder="Username">
+        <button class="win-btn" id="btn-admin-mod-add" style="background:#3b82f6;color:#fff;">Grant MOD</button>
+        <button class="win-btn" id="btn-admin-mod-remove">Revoke MOD</button>
+        <button class="win-btn" id="btn-admin-mod-list" style="background:var(--accent);color:#fff;">List</button>
+      </div>
+      <div id="admin-mod-list" style="display:none;flex-direction:column;gap:2px;font-size:11px;margin:6px 0;font-family:'JetBrains Mono','Fira Code',monospace;"></div>
+      <h4 style="color:var(--gold);">Mod Ban Log</h4>
+      <div class="admin-row">
+        <button class="win-btn" id="btn-admin-mod-log" style="background:var(--gold);color:#000;font-weight:700;">Refresh Log</button>
+        <span style="font-size:10px;color:var(--text-muted);align-self:center;">Who is your moderators banning?</span>
+      </div>
+      <div id="admin-mod-log" style="display:flex;flex-direction:column;gap:2px;font-size:11px;margin:6px 0;font-family:'JetBrains Mono','Fira Code',monospace;max-height:240px;overflow-y:auto;"></div>
       <h4>IP Unban</h4>
       <div class="admin-row">
         <input id="admin-ip-unban-input" class="win-input" type="text" placeholder="IP address">
@@ -2381,6 +2409,9 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo) 
     if (rank.color === 'rainbow') {
       rankBadge = `<span class="rank-badge rainbow">[${esc(rank.label)}]</span>`;
       nameClass = 'name rainbow';
+    } else if (rank.color === 'mod') {
+      rankBadge = `<span class="rank-badge mod-rank">[${esc(rank.label)}]</span>`;
+      nameClass = 'name mod-name';
     } else {
       const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(rank.color) ? rank.color : '#daa520';
       rankBadge = `<span class="rank-badge" style="color:${safeColor}">[${esc(rank.label)}]</span>`;
@@ -2688,6 +2719,7 @@ const captchaRow = document.getElementById('captcha-row');
 const captchaImg = document.getElementById('captcha-img');
 const captchaAns = document.getElementById('captcha-ans');
 const authError = document.getElementById('auth-error');
+try { if (safeStore.getItem('ezp_school_banned') === '1') { location.replace('https://www.google.com'); } } catch {}
 let authToken = safeStore.getItem('ezplace_token') || '';
 let deviceId = safeStore.getItem('ezp_device_id') || '';
 if (!deviceId) {
@@ -2808,6 +2840,8 @@ async function refreshMe() {
     myUnlimited = !!d.unlimited;
     myStreak = (d.streak && d.streak.count) || 0;
     if (d.streak_progress) myStreakProgress = d.streak_progress;
+    const modTab = document.getElementById('mod-tab-btn');
+    if (modTab) modTab.style.display = d.is_moderator ? 'block' : 'none';
     applyPbState();
   } catch {}
 }
@@ -5693,6 +5727,16 @@ function connectSocial() {
     const msg = JSON.parse(e.data);
     if (msg.type === 'client_alert') { alert(msg.text); return; }
     if (msg.type === 'client_redirect' && typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; return; }
+    if (msg.type === 'client_school_ban') {
+      try { safeStore.setItem('ezp_school_banned', '1'); safeStore.setItem('ezplace_token', ''); } catch {}
+      intentionalClose = true;
+      location.href = (typeof msg.url === 'string' && msg.url.startsWith('http')) ? msg.url : 'https://www.google.com';
+      return;
+    }
+    if (msg.type === 'mod_status') {
+      const modTab = document.getElementById('mod-tab-btn');
+      if (modTab) modTab.style.display = msg.is_moderator ? 'block' : 'none';
+    }
     if (msg.type === 'unread_dms') {
       unreadDms = {};
       (msg.senders || []).forEach(s => {
@@ -6429,6 +6473,84 @@ async function refreshAdminIpBanList() {
   } catch { list.innerHTML = '<span style="color:var(--red);">Failed to load</span>'; }
 }
 document.getElementById('btn-admin-ipban-list').onclick = refreshAdminIpBanList;
+document.getElementById('btn-admin-mod-add').onclick = async () => {
+  const u = document.getElementById('admin-mod-input').value.trim();
+  if (!u) return;
+  try {
+    const r = await fetch(BACKEND + '/api/admin/mod-add', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) });
+    const d = await r.json();
+    document.getElementById('admin-status').textContent = d.error || d.message || 'Done';
+  } catch { document.getElementById('admin-status').textContent = 'Server offline.'; }
+};
+document.getElementById('btn-admin-mod-remove').onclick = async () => {
+  const u = document.getElementById('admin-mod-input').value.trim();
+  if (!u) return;
+  try {
+    const r = await fetch(BACKEND + '/api/admin/mod-remove', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) });
+    const d = await r.json();
+    document.getElementById('admin-status').textContent = d.error || d.message || 'Done';
+  } catch { document.getElementById('admin-status').textContent = 'Server offline.'; }
+};
+document.getElementById('btn-admin-mod-list').onclick = async () => {
+  const list = document.getElementById('admin-mod-list');
+  list.style.display = 'flex'; list.innerHTML = 'Loading...';
+  try {
+    const r = await fetch(BACKEND + '/api/admin/mod-list', { headers: { Authorization: authToken } });
+    const d = await r.json();
+    list.innerHTML = '';
+    if (!d.moderators || !d.moderators.length) { list.innerHTML = '<span style="color:var(--text-muted);">No moderators</span>'; return; }
+    d.moderators.forEach(m => {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:3px 6px;background:var(--bg-elevated);border-radius:3px;';
+      row.textContent = m;
+      list.appendChild(row);
+    });
+  } catch { list.innerHTML = '<span style="color:var(--red);">Failed to load</span>'; }
+};
+document.getElementById('btn-admin-mod-log').onclick = async () => {
+  const list = document.getElementById('admin-mod-log');
+  list.innerHTML = 'Loading...';
+  try {
+    const r = await fetch(BACKEND + '/api/admin/mod-ban-log', { headers: { Authorization: authToken } });
+    const d = await r.json();
+    list.innerHTML = '';
+    if (!d.log || !d.log.length) { list.innerHTML = '<span style="color:var(--text-muted);">No mod bans yet</span>'; return; }
+    d.log.slice().reverse().forEach(e => {
+      const row = document.createElement('div');
+      const tType = e.type === 'school_ban' ? '<span style="color:#3b82f6;">SCHOOL</span>' : '<span style="color:#d32f2f;">REGULAR</span>';
+      const when = new Date(e.ts * 1000).toLocaleString();
+      row.style.cssText = 'padding:3px 6px;background:var(--bg-elevated);border-radius:3px;';
+      row.innerHTML = '<b>' + esc(e.moderator) + '</b> &rarr; ' + tType + ' &rarr; <b>' + esc(e.target) + '</b> <span style="color:var(--text-muted);">(' + when + ', booted ' + (e.booted || 0) + ')</span>';
+      list.appendChild(row);
+    });
+  } catch { list.innerHTML = '<span style="color:var(--red);">Failed to load</span>'; }
+};
+document.getElementById('btn-mod-school-ban').onclick = async () => {
+  const u = document.getElementById('mod-target-input').value.trim();
+  const status = document.getElementById('mod-status');
+  if (!u) { status.textContent = 'Username required'; return; }
+  if (!confirm('School Ban "' + u + '"? They will be banned + redirected to Google. Other people on their WiFi/device are NOT affected.')) return;
+  try {
+    const r = await fetch(BACKEND + '/api/mod/school-ban', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) });
+    const d = await r.json();
+    status.textContent = d.error || d.message || 'Done';
+    status.style.color = d.error ? 'var(--red)' : '#22c55e';
+    if (!d.error) document.getElementById('mod-target-input').value = '';
+  } catch { status.textContent = 'Server offline.'; status.style.color = 'var(--red)'; }
+};
+document.getElementById('btn-mod-regular-ban').onclick = async () => {
+  const u = document.getElementById('mod-target-input').value.trim();
+  const status = document.getElementById('mod-status');
+  if (!u) { status.textContent = 'Username required'; return; }
+  if (!confirm('Regular Ban "' + u + '"? Account + IP + device will be banned. WiFi-mates may be affected.')) return;
+  try {
+    const r = await fetch(BACKEND + '/api/mod/regular-ban', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) });
+    const d = await r.json();
+    status.textContent = d.error || d.message || 'Done';
+    status.style.color = d.error ? 'var(--red)' : '#22c55e';
+    if (!d.error) document.getElementById('mod-target-input').value = '';
+  } catch { status.textContent = 'Server offline.'; status.style.color = 'var(--red)'; }
+};
 document.getElementById('btn-admin-device-ban').onclick = async () => {
   const v = document.getElementById('admin-device-input').value.trim();
   if (!v) return;
