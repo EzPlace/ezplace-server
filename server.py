@@ -3195,6 +3195,7 @@ async def uno_create_handler(request):
         ai_count = max(0, min(max_players - 1, int(data.get("ai_count", 0))))
         stacking = bool(data.get("stacking", False))
         jump_ins = bool(data.get("jump_ins", False))
+        multi_color = bool(data.get("multi_color", False))
     except: return web.json_response({"error": "Invalid settings"}, status=400)
     if bet < 0: return web.json_response({"error": "Bet must be >= 0"}, status=400)
     if bet > MAX_CASINO_BET: return web.json_response({"error": f"Max UNO bet is {MAX_CASINO_BET} $"}, status=400)
@@ -3206,7 +3207,7 @@ async def uno_create_handler(request):
         players.append({"name": f"AI Bot {i+1}", "hand": [], "is_ai": True, "connected": True})
     uno_rooms[rid] = {
         "id": rid, "creator": user, "players": players, "phase": "lobby",
-        "settings": {"max_players": max_players, "ai_count": ai_count, "stacking": stacking, "jump_ins": jump_ins, "bet": bet},
+        "settings": {"max_players": max_players, "ai_count": ai_count, "stacking": stacking, "jump_ins": jump_ins, "multi_color": multi_color, "bet": bet},
         "deck": [], "discard": [], "current": 0, "direction": 1, "current_color": None,
         "pending_draws": 0, "pending_kind": None, "bet_per_human": bet, "pool": bet if bet > 0 else 0,
         "started_at": None, "last_action_at": time.time(),
@@ -3368,15 +3369,19 @@ async def uno_play_handler(request):
     top = room["discard"][-1]
     if not _uno_can_play(anchor, top, room["current_color"], room["pending_draws"], room["pending_kind"], room["settings"].get("stacking", False)):
         return web.json_response({"error": "That card can't be played"}, status=400)
-    # All stacked cards must share the same COLOR AND VALUE as the anchor.
-    # (Cross-color same-value stacking was removed - blue 2 + red 2 no longer stack.)
+    # Stacked cards must share the anchor's value. If the room has multi_color
+    # enabled, color may differ (so blue 2 + red 2 stacks); otherwise the colors
+    # must match too.
+    multi_color = bool(room["settings"].get("multi_color"))
     if len(card_idxs) > 1:
         if anchor["color"] == "w":
             return web.json_response({"error": "Wild cards can't be stacked"}, status=400)
         for ci in card_idxs[1:]:
             c = hand[ci]
-            if c["color"] != anchor["color"] or c["value"] != anchor["value"]:
-                return web.json_response({"error": "Stacked cards must be the same color AND value"}, status=400)
+            if c["color"] == "w" or c["value"] != anchor["value"]:
+                return web.json_response({"error": "Stacked cards must share the same value (and can't be wild)"}, status=400)
+            if not multi_color and c["color"] != anchor["color"]:
+                return web.json_response({"error": "Cross-color stacking is off in this room"}, status=400)
     chosen_color = (data.get("color") or "").strip().lower()
     if anchor["color"] == "w" and chosen_color not in ("r", "y", "g", "b"):
         return web.json_response({"error": "Wild needs a color (r/y/g/b)"}, status=400)
@@ -4478,11 +4483,12 @@ async def _night_run_uno(players):
     chosen = chosen[:4]
     stacking = bool(secrets.randbelow(2))
     jump_ins = bool(secrets.randbelow(2))
+    multi_color = bool(secrets.randbelow(2))
     rid = "night_" + secrets.token_hex(4)
     uno_players = [{"name": n, "hand": [], "is_ai": False, "connected": True} for n in chosen]
     uno_rooms[rid] = {
         "id": rid, "creator": chosen[0], "players": uno_players, "phase": "lobby",
-        "settings": {"max_players": 4, "ai_count": 0, "stacking": stacking, "jump_ins": jump_ins, "bet": 0},
+        "settings": {"max_players": 4, "ai_count": 0, "stacking": stacking, "jump_ins": jump_ins, "multi_color": multi_color, "bet": 0},
         "deck": [], "discard": [], "current": 0, "direction": 1, "current_color": None,
         "pending_draws": 0, "pending_kind": None, "bet_per_human": 0, "pool": 0,
         "started_at": None, "last_action_at": time.time(), "spectators": [],
@@ -4492,6 +4498,7 @@ async def _night_run_uno(players):
     rule_notes = []
     if stacking: rule_notes.append("+2/+4 stacking ON")
     if jump_ins: rule_notes.append("jump-ins ON")
+    if multi_color: rule_notes.append("cross-color stacking ON")
     rules_str = " · ".join(rule_notes) if rule_notes else "vanilla rules"
     await _night_send_chat(f"🃏 UNO Showdown ({rules_str}) - players: {', '.join(chosen)}. Open the UNO room to play!")
     # auto-start
