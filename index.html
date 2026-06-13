@@ -227,11 +227,8 @@
   @keyframes lava-flow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
   @keyframes uno-card-slam { 0% { transform: translateY(-120px) scale(0.4) rotate(-25deg); opacity: 0; } 60% { transform: translateY(8px) scale(1.18) rotate(6deg); opacity: 1; } 80% { transform: translateY(0) scale(0.95) rotate(-2deg); } 100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; } }
   .uno-card-slam { animation: uno-card-slam 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
-  @keyframes uno-wild-spin { 0% { transform: translateY(-160px) scale(0.3) rotate(0deg); opacity: 0; filter: brightness(2.5); } 50% { transform: translateY(10px) scale(1.3) rotate(540deg); opacity: 1; filter: brightness(1.6) hue-rotate(180deg); } 80% { transform: translateY(0) scale(0.92) rotate(720deg); filter: brightness(1.2); } 100% { transform: translateY(0) scale(1) rotate(720deg); opacity: 1; filter: brightness(1); } }
-  @keyframes uno-wild-bg { 0% { background: linear-gradient(120deg, #e63946, #ffd23f, #2a9d8f, #1d3557, #b14aed, #e63946); background-size: 400% 400%; } 100% { background: linear-gradient(120deg, #e63946, #ffd23f, #2a9d8f, #1d3557, #b14aed, #e63946); background-size: 400% 400%; background-position: 100% 50%; } }
+  @keyframes uno-wild-spin { 0% { transform: translateY(-160px) scale(0.3) rotate(0deg); opacity: 0; } 50% { transform: translateY(10px) scale(1.3) rotate(540deg); opacity: 1; } 80% { transform: translateY(0) scale(0.92) rotate(720deg); } 100% { transform: translateY(0) scale(1) rotate(720deg); opacity: 1; } }
   .uno-wild-slam { animation: uno-wild-spin 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); }
-  .uno-wild-bg { background: linear-gradient(120deg, #e63946, #ffd23f, #2a9d8f, #1d3557, #b14aed, #e63946) !important; background-size: 400% 400% !important; animation: lava-flow 1.5s linear infinite, uno-wild-spin 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); }
-  @keyframes uno-wild-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); } 50% { box-shadow: 0 0 40px 20px rgba(255, 255, 255, 0.4); } }
   @keyframes uno-deal { 0% { transform: translateY(40px) scale(0.6); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
   .uno-deal { animation: uno-deal 0.3s ease-out; }
   .rainbow { font-weight: 700; background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
@@ -3251,14 +3248,15 @@ function unoCardEl(card, idx, clickable) {
   const jumpable = !clickable && unoCanJumpIn(card);
   const border = inStack ? '3px solid #ffd23f' : (jumpable ? '3px solid #22c55e' : '2px solid #fff');
   const transform = inStack ? 'translateY(-10px)' : '';
-  el.style.cssText = 'width:54px;height:78px;border-radius:6px;background:' + bg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;border:' + border + ';cursor:' + (clickable || jumpable ? 'pointer' : 'default') + ';box-shadow:0 2px 6px rgba(0,0,0,0.4);transition:transform 0.12s;transform:' + transform + ';position:relative;';
+  el.style.cssText = 'width:54px;height:78px;border-radius:6px;background:' + bg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;border:' + border + ';cursor:' + (clickable || jumpable ? 'pointer' : 'default') + ';box-shadow:0 2px 6px rgba(0,0,0,0.4);transition:transform 0.12s;transform:' + transform + ';position:relative;user-select:none;';
+  // Label first (textContent replaces children), bubble after as overlay
+  el.textContent = UNO_LABELS[card.value] || card.value;
   if (jumpable) {
     const bubble = document.createElement('div');
-    bubble.style.cssText = 'position:absolute;top:-12px;right:-6px;background:#22c55e;color:#fff;font-size:9px;font-weight:900;padding:1px 5px;border-radius:8px;border:1px solid #fff;';
+    bubble.style.cssText = 'position:absolute;top:-12px;right:-6px;background:#22c55e;color:#fff;font-size:9px;font-weight:900;padding:1px 5px;border-radius:8px;border:1px solid #fff;pointer-events:none;';
     bubble.textContent = 'JUMP!';
     el.appendChild(bubble);
   }
-  el.textContent = UNO_LABELS[card.value] || card.value;
   if (clickable) el.onclick = () => unoPlayCard(idx);
   else if (jumpable) el.onclick = () => unoJumpIn(idx);
   return el;
@@ -3353,19 +3351,13 @@ function unoRender(state) {
     const newKey = (top.color || '') + ':' + (top.value || '') + ':' + (state.current_color || '');
     const changed = unoLastTopKey !== null && unoLastTopKey !== newKey;
     const isWild = top.color === 'w';
-    dis.style.background = isWild ? '' : (UNO_COLORS[state.current_color] || UNO_COLORS[top.color] || '#222');
+    // Wilds use the chosen current_color, fallback to a neutral dark tone.
+    dis.style.background = UNO_COLORS[state.current_color] || (isWild ? '#222' : (UNO_COLORS[top.color] || '#222'));
     dis.textContent = UNO_LABELS[top.value] || top.value;
-    dis.classList.remove('uno-card-slam', 'uno-wild-slam', 'uno-wild-bg');
+    dis.classList.remove('uno-card-slam', 'uno-wild-slam');
     if (changed) {
       void dis.offsetWidth; // force reflow
-      if (isWild) {
-        dis.classList.add('uno-wild-slam', 'uno-wild-bg');
-      } else {
-        dis.classList.add('uno-card-slam');
-      }
-    } else if (isWild) {
-      void dis.offsetWidth;
-      dis.classList.add('uno-wild-bg');
+      dis.classList.add(isWild ? 'uno-wild-slam' : 'uno-card-slam');
     }
     unoLastTopKey = newKey;
   }
