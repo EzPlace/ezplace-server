@@ -764,6 +764,7 @@
               <label style="font-size:11px;">AI bots <select id="uno-ai" class="win-input" style="font-size:12px;padding:2px;"><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
               <label style="font-size:11px;"><input type="checkbox" id="uno-stack"> Stacking</label>
               <label style="font-size:11px;"><input type="checkbox" id="uno-jump-ins"> Jump-ins</label>
+              <label style="font-size:11px;"><input type="checkbox" id="uno-multi-color"> Cross-color stack</label>
             </div>
             <div style="display:flex;gap:6px;">
               <button id="btn-uno-create" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Create Room</button>
@@ -3310,7 +3311,8 @@ function unoRender(state) {
     if (invalid) {
       unoStack = []; unoStackMode = null; const _b = document.getElementById('uno-stack-bar'); if (_b) _b.remove();
     } else {
-      unoStack = unoStack.filter(i => state.my_hand[i] && state.my_hand[i].value === anchor.value && state.my_hand[i].color === anchor.color);
+      const multi = !!(state.settings && state.settings.multi_color);
+      unoStack = unoStack.filter(i => state.my_hand[i] && state.my_hand[i].value === anchor.value && (multi || state.my_hand[i].color === anchor.color) && state.my_hand[i].color !== 'w');
       unoRenderStackBanner();
     }
   }
@@ -3431,8 +3433,9 @@ document.getElementById('btn-uno-create').onclick = async () => {
   const ai_count = Math.min(parseInt(document.getElementById('uno-ai').value) || 0, max_players - 1);
   const stacking = document.getElementById('uno-stack').checked;
   const jump_ins = document.getElementById('uno-jump-ins').checked;
+  const multi_color = document.getElementById('uno-multi-color').checked;
   unoMsg('Creating room...');
-  const d = await unoCall('/api/uno/create', { bet, max_players, ai_count, stacking, jump_ins });
+  const d = await unoCall('/api/uno/create', { bet, max_players, ai_count, stacking, jump_ins, multi_color });
   if (d && d.state) { unoRoomId = d.room_id; unoOpenModal(); }
 };
 document.getElementById('btn-uno-list').onclick = async () => {
@@ -3480,7 +3483,8 @@ document.getElementById('btn-uno-leave').onclick = async () => {
 };
 function unoSiblingsByValue(value, color) {
   if (!unoState || !unoState.my_hand) return [];
-  return unoState.my_hand.map((c, i) => ({ c, i })).filter(o => o.c.value === value && o.c.color === color && o.c.color !== 'w').map(o => o.i);
+  const multi = !!(unoState.settings && unoState.settings.multi_color);
+  return unoState.my_hand.map((c, i) => ({ c, i })).filter(o => o.c.value === value && (multi || o.c.color === color) && o.c.color !== 'w').map(o => o.i);
 }
 function unoRenderStackBanner() {
   let bar = document.getElementById('uno-stack-bar');
@@ -3535,9 +3539,11 @@ async function unoPlayCard(idx) {
   // if a stack is already in progress, this click adds/removes the card
   if (unoStack.length > 0) {
     const anchor = unoState.my_hand[unoStack[0]];
-    if (card.value !== anchor.value || card.color !== anchor.color) {
+    const multi = !!(unoState.settings && unoState.settings.multi_color);
+    const mismatch = card.value !== anchor.value || (!multi && card.color !== anchor.color) || card.color === 'w';
+    if (mismatch) {
       // tapping a non-matching card cancels stack mode (UX choice)
-      unoStack = []; unoRenderStackBanner(); unoRender(unoState);
+      unoStack = []; unoStackMode = null; unoRenderStackBanner(); unoRender(unoState);
       return;
     }
     const at = unoStack.indexOf(idx);
