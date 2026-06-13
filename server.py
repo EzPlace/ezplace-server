@@ -3062,16 +3062,38 @@ async def _uno_play_one_ai_move(room, player_idx):
     Caller is responsible for pushing state afterwards."""
     p = room["players"][player_idx]
     top = room["discard"][-1]
-    idx = next((i for i, c in enumerate(p["hand"]) if _uno_can_play(c, top, room["current_color"], room["pending_draws"], room["pending_kind"], room["settings"].get("stacking", False))), None)
+    stacking_setting = room["settings"].get("stacking", False)
+    idx = next((i for i, c in enumerate(p["hand"]) if _uno_can_play(c, top, room["current_color"], room["pending_draws"], room["pending_kind"], stacking_setting)), None)
     if idx is None:
         if room["pending_draws"] > 0:
             _uno_draw_cards(room, player_idx, room["pending_draws"])
             room["pending_draws"] = 0; room["pending_kind"] = None
+            _uno_advance(room)
+            room["last_action_at"] = time.time()
+            return
+        # If draw_till is on, keep drawing until we get a playable card (capped),
+        # then play it. Otherwise draw 1 and pass.
+        if room["settings"].get("draw_till"):
+            drew = 0; max_draws = 30
+            new_idx = None
+            while drew < max_draws:
+                before = len(p["hand"])
+                _uno_draw_cards(room, player_idx, 1)
+                if len(p["hand"]) == before: break
+                drew += 1
+                if _uno_can_play(p["hand"][-1], top, room["current_color"], room["pending_draws"], room["pending_kind"], stacking_setting):
+                    new_idx = len(p["hand"]) - 1
+                    break
+            if new_idx is None:
+                _uno_advance(room)
+                room["last_action_at"] = time.time()
+                return
+            idx = new_idx
         else:
             _uno_draw_cards(room, player_idx, 1)
-        _uno_advance(room)
-        room["last_action_at"] = time.time()
-        return
+            _uno_advance(room)
+            room["last_action_at"] = time.time()
+            return
     color = None
     if p["hand"][idx]["color"] == "w":
         counts = {"r": 0, "y": 0, "g": 0, "b": 0}
@@ -3196,6 +3218,7 @@ async def uno_create_handler(request):
         stacking = bool(data.get("stacking", False))
         jump_ins = bool(data.get("jump_ins", False))
         multi_color = bool(data.get("multi_color", False))
+        draw_till = bool(data.get("draw_till", False))
     except: return web.json_response({"error": "Invalid settings"}, status=400)
     if bet < 0: return web.json_response({"error": "Bet must be >= 0"}, status=400)
     if bet > MAX_CASINO_BET: return web.json_response({"error": f"Max UNO bet is {MAX_CASINO_BET} $"}, status=400)
@@ -3207,7 +3230,7 @@ async def uno_create_handler(request):
         players.append({"name": f"AI Bot {i+1}", "hand": [], "is_ai": True, "connected": True})
     uno_rooms[rid] = {
         "id": rid, "creator": user, "players": players, "phase": "lobby",
-        "settings": {"max_players": max_players, "ai_count": ai_count, "stacking": stacking, "jump_ins": jump_ins, "multi_color": multi_color, "bet": bet},
+        "settings": {"max_players": max_players, "ai_count": ai_count, "stacking": stacking, "jump_ins": jump_ins, "multi_color": multi_color, "draw_till": draw_till, "bet": bet},
         "deck": [], "discard": [], "current": 0, "direction": 1, "current_color": None,
         "pending_draws": 0, "pending_kind": None, "bet_per_human": bet, "pool": bet if bet > 0 else 0,
         "started_at": None, "last_action_at": time.time(),
@@ -3508,10 +3531,36 @@ async def uno_draw_handler(request):
     idx = next((i for i, p in enumerate(room["players"]) if p["name"].lower() == user.lower()), None)
     if idx is None or idx != room["current"]:
         return web.json_response({"error": "Not your turn"}, status=400)
-    n = room["pending_draws"] if room["pending_draws"] > 0 else 1
-    _uno_draw_cards(room, idx, n)
-    room["pending_draws"] = 0; room["pending_kind"] = None
-    _uno_advance(room)
+    if room["pending_draws"] > 0:
+        # Forced draw from a stacked +2/+4. Take the whole stack and pass the turn.
+        _uno_draw_cards(room, idx, room["pending_draws"])
+        room["pending_draws"] = 0; room["pending_kind"] = None
+        _uno_advance(room)
+    elif room["settings"].get("draw_till"):
+        # House rule: keep drawing until you get a playable card; do NOT advance the turn so
+        # the player can then play that card. Caps draws to avoid emptying the deck on a
+        # truly hopeless hand.
+        p = room["players"][idx]
+        top = room["discard"][-1]
+        stacking_setting = room["settings"].get("stacking", False)
+        drew = 0
+        max_draws = 30
+        while drew < max_draws:
+            before = len(p["hand"])
+            _uno_draw_cards(room, idx, 1)
+            if len(p["hand"]) == before:
+                break  # deck and discard both exhausted
+            drew += 1
+            new_card = p["hand"][-1]
+            if _uno_can_play(new_card, top, room["current_color"], room["pending_draws"], room["pending_kind"], stacking_setting):
+                break
+        # If we still have no playable card (deck exhausted), advance the turn.
+        any_playable = any(_uno_can_play(c, top, room["current_color"], room["pending_draws"], room["pending_kind"], stacking_setting) for c in p["hand"])
+        if not any_playable:
+            _uno_advance(room)
+    else:
+        _uno_draw_cards(room, idx, 1)
+        _uno_advance(room)
     await _uno_push_state(room)
     if room["phase"] == "playing" and room["players"][room["current"]]["is_ai"]:
         asyncio.create_task(_uno_ai_turn(room))
@@ -4484,11 +4533,12 @@ async def _night_run_uno(players):
     stacking = bool(secrets.randbelow(2))
     jump_ins = bool(secrets.randbelow(2))
     multi_color = bool(secrets.randbelow(2))
+    draw_till = bool(secrets.randbelow(2))
     rid = "night_" + secrets.token_hex(4)
     uno_players = [{"name": n, "hand": [], "is_ai": False, "connected": True} for n in chosen]
     uno_rooms[rid] = {
         "id": rid, "creator": chosen[0], "players": uno_players, "phase": "lobby",
-        "settings": {"max_players": 4, "ai_count": 0, "stacking": stacking, "jump_ins": jump_ins, "multi_color": multi_color, "bet": 0},
+        "settings": {"max_players": 4, "ai_count": 0, "stacking": stacking, "jump_ins": jump_ins, "multi_color": multi_color, "draw_till": draw_till, "bet": 0},
         "deck": [], "discard": [], "current": 0, "direction": 1, "current_color": None,
         "pending_draws": 0, "pending_kind": None, "bet_per_human": 0, "pool": 0,
         "started_at": None, "last_action_at": time.time(), "spectators": [],
@@ -4499,6 +4549,7 @@ async def _night_run_uno(players):
     if stacking: rule_notes.append("+2/+4 stacking ON")
     if jump_ins: rule_notes.append("jump-ins ON")
     if multi_color: rule_notes.append("cross-color stacking ON")
+    if draw_till: rule_notes.append("draw till playable ON")
     rules_str = " · ".join(rule_notes) if rule_notes else "vanilla rules"
     await _night_send_chat(f"🃏 UNO Showdown ({rules_str}) - players: {', '.join(chosen)}. Open the UNO room to play!")
     # auto-start
