@@ -763,6 +763,7 @@
               <label style="font-size:11px;">Players <select id="uno-max" class="win-input" style="font-size:12px;padding:2px;"><option>2</option><option>3</option><option>4</option></select></label>
               <label style="font-size:11px;">AI bots <select id="uno-ai" class="win-input" style="font-size:12px;padding:2px;"><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
               <label style="font-size:11px;"><input type="checkbox" id="uno-stack"> Stacking</label>
+              <label style="font-size:11px;"><input type="checkbox" id="uno-draw-till"> Draw till playable</label>
               <label style="font-size:11px;"><input type="checkbox" id="uno-jump-ins"> Jump-ins</label>
               <label style="font-size:11px;"><input type="checkbox" id="uno-multi-color"> Cross-color stack</label>
             </div>
@@ -3434,8 +3435,9 @@ document.getElementById('btn-uno-create').onclick = async () => {
   const stacking = document.getElementById('uno-stack').checked;
   const jump_ins = document.getElementById('uno-jump-ins').checked;
   const multi_color = document.getElementById('uno-multi-color').checked;
+  const draw_till = document.getElementById('uno-draw-till').checked;
   unoMsg('Creating room...');
-  const d = await unoCall('/api/uno/create', { bet, max_players, ai_count, stacking, jump_ins, multi_color });
+  const d = await unoCall('/api/uno/create', { bet, max_players, ai_count, stacking, jump_ins, multi_color, draw_till });
   if (d && d.state) { unoRoomId = d.room_id; unoOpenModal(); }
 };
 document.getElementById('btn-uno-list').onclick = async () => {
