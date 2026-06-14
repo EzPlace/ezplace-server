@@ -1684,6 +1684,52 @@ async def admin_richest_handler(request):
     return web.json_response({"ok": True, "total": total, "count": len(rows), "rows": rows[:50]})
 
 ADMIN_PB_GRANT_MAX_PER_CALL = 1_000_000
+ADMIN_REPLACE_COLOR_MAX_PIXELS = 250_000
+
+async def admin_replace_color_handler(request):
+    """Admin tool: within a rectangle on a given lobby's canvas, swap every pixel
+    whose color is `from_color` to `to_color`. Broadcasts the resulting pixel
+    updates so all connected clients repaint, marks the lobby dirty for persistence."""
+    data = await request.json()
+    admin_user = get_auth_user(request)
+    if not is_admin(admin_user): return web.json_response({"error": "Forbidden"}, status=403)
+    lobby_id = (data.get("lobby_id") or "").strip()
+    lobby = lobbies.get(lobby_id)
+    if not lobby: return web.json_response({"error": "Lobby not found"}, status=404)
+    try:
+        x1 = int(data.get("x1", 0)); y1 = int(data.get("y1", 0))
+        x2 = int(data.get("x2", 0)); y2 = int(data.get("y2", 0))
+        from_color = int(data.get("from_color", -1))
+        to_color = int(data.get("to_color", -1))
+    except: return web.json_response({"error": "Invalid coordinates or color"}, status=400)
+    if not (0 <= from_color < PALETTE_SIZE and 0 <= to_color < PALETTE_SIZE):
+        return web.json_response({"error": "Color out of palette range"}, status=400)
+    if from_color == to_color:
+        return web.json_response({"error": "From and to color are the same"}, status=400)
+    w, h = lobby.get("width", 256), lobby.get("height", 256)
+    xa, xb = max(0, min(x1, x2)), min(w - 1, max(x1, x2))
+    ya, yb = max(0, min(y1, y2)), min(h - 1, max(y1, y2))
+    if xa > xb or ya > yb:
+        return web.json_response({"error": "Selection is outside the canvas"}, status=400)
+    area = (xb - xa + 1) * (yb - ya + 1)
+    if area > ADMIN_REPLACE_COLOR_MAX_PIXELS:
+        return web.json_response({"error": f"Selection too large ({area} px) - cap is {ADMIN_REPLACE_COLOR_MAX_PIXELS}"}, status=400)
+    grid = lobby["grid"]
+    changes = []
+    for y in range(ya, yb + 1):
+        row_base = y * w
+        for x in range(xa, xb + 1):
+            i = row_base + x
+            if grid[i] == from_color:
+                grid[i] = to_color
+                changes.append((x, y))
+                set_pixel_author(lobby, x, y, admin_user)
+    if changes:
+        lobby["last_activity"] = time.time()
+        mark_lobby_dirty(lobby_id)
+        for (x, y) in changes:
+            await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": to_color})
+    return web.json_response({"ok": True, "changed": len(changes), "area": area, "from": from_color, "to": to_color})
 
 async def admin_pb_grant_handler(request):
     data = await request.json()
@@ -5830,6 +5876,7 @@ app.router.add_post("/api/admin/kick", admin_kick_handler)
 app.router.add_post("/api/admin/alert", admin_alert_handler)
 app.router.add_post("/api/admin/relay", admin_relay_handler)
 app.router.add_post("/api/admin/pb_grant", admin_pb_grant_handler)
+app.router.add_post("/api/admin/replace_color", admin_replace_color_handler)
 app.router.add_get("/api/admin/richest", admin_richest_handler)
 app.router.add_post("/api/admin/clear_economy_history", admin_clear_economy_history_handler)
 app.router.add_post("/api/admin/redirect", admin_redirect_handler)

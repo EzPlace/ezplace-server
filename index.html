@@ -1192,6 +1192,27 @@
         <button class="win-btn" id="btn-admin-brush-perm-remove">Revoke</button>
         <button class="win-btn" id="btn-view-brush-perms">View All</button>
       </div>
+      <h4>Color Swap in Area</h4>
+      <div class="admin-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button class="win-btn" id="btn-admin-area-select" style="background:#3b82f6;color:#fff;">Select area</button>
+          <span id="admin-area-display" style="font-size:11px;color:var(--text-muted);">none selected</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;font-size:11px;">
+          <span>From:</span>
+          <button class="win-btn" id="btn-admin-area-from" style="background:#222;color:#fff;width:30px;height:22px;padding:0;"></button>
+          <span style="margin-left:8px;">To:</span>
+          <button class="win-btn" id="btn-admin-area-to" style="background:#222;color:#fff;width:30px;height:22px;padding:0;"></button>
+          <span id="admin-area-from-idx" style="color:var(--text-muted);">(-)</span>
+          <span style="color:var(--text-muted);">→</span>
+          <span id="admin-area-to-idx" style="color:var(--text-muted);">(-)</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="win-btn" id="btn-admin-area-apply" style="background:var(--accent);color:#fff;flex:1;">Apply swap</button>
+          <button class="win-btn" id="btn-admin-area-cancel" style="background:#d32f2f;color:#fff;">Clear</button>
+        </div>
+        <div id="admin-area-palette" style="display:none;flex-wrap:wrap;gap:2px;padding:6px;background:#111;border:1px solid #444;border-radius:4px;max-height:140px;overflow-y:auto;"></div>
+      </div>
       <h4>Clans</h4>
       <div class="admin-row">
         <button class="win-btn" id="btn-admin-clans-refresh">Refresh List</button>
@@ -1519,6 +1540,32 @@ _renderImpl = function() {
     ctx.strokeRect(hx - 1, hy - 1, hs + 2, hs + 2);
   }
   if (einkMode) return;
+  // Admin area-select overlay: dashed rectangle + corner markers
+  if (adminAreaSelect && (adminAreaSelect.x1 != null || adminAreaSelect.x2 != null)) {
+    const drawCornerMarker = (gx, gy, col) => {
+      const sx = Math.floor((gx - left) * zoom);
+      const sy = Math.floor((gy - top) * zoom);
+      const s = Math.max(2, Math.ceil(zoom));
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeRect(sx, sy, s, s);
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.strokeRect(sx, sy, s, s);
+    };
+    if (adminAreaSelect.x1 != null) drawCornerMarker(adminAreaSelect.x1, adminAreaSelect.y1, '#3b82f6');
+    if (adminAreaSelect.x2 != null) drawCornerMarker(adminAreaSelect.x2, adminAreaSelect.y2, '#3b82f6');
+    if (adminAreaSelect.x1 != null && adminAreaSelect.x2 != null) {
+      const xa = Math.min(adminAreaSelect.x1, adminAreaSelect.x2);
+      const ya = Math.min(adminAreaSelect.y1, adminAreaSelect.y2);
+      const xb = Math.max(adminAreaSelect.x1, adminAreaSelect.x2);
+      const yb = Math.max(adminAreaSelect.y1, adminAreaSelect.y2);
+      const rx = Math.floor((xa - left) * zoom);
+      const ry = Math.floor((ya - top) * zoom);
+      const rw = Math.ceil((xb - xa + 1) * zoom);
+      const rh = Math.ceil((yb - ya + 1) * zoom);
+      ctx.save();
+      ctx.fillStyle = 'rgba(59,130,246,0.18)'; ctx.fillRect(rx, ry, rw, rh);
+      ctx.setLineDash([6, 4]); ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2; ctx.strokeRect(rx, ry, rw, rh);
+      ctx.restore();
+    }
+  }
   const nowR = Date.now();
   ctx.font = '11px Inter, sans-serif';
   ctx.textBaseline = 'bottom';
@@ -1930,6 +1977,10 @@ cvs.addEventListener('mousedown', e => {
   if (wantPan) {
     isPanning = true; userHasInteracted = true; panStartX = e.clientX; panStartY = e.clientY; camStartX = camX; camStartY = camY;
     cvs.style.cursor = 'grabbing'; e.preventDefault();
+  } else if (e.button === 0 && isOverGrid(sx, sy) && adminAreaSelect.mode) {
+    const g = screenToGrid(sx, sy);
+    if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H) adminAreaPickCorner(g.x, g.y);
+    e.preventDefault();
   } else if (e.button === 0 && isOverGrid(sx, sy) && canDragPaint()) {
     const g = screenToGrid(sx, sy);
     isDrawing = true;
@@ -6750,6 +6801,97 @@ document.getElementById('btn-admin-richest').onclick = async () => {
     });
     if (!d.rows.length) list.innerHTML = '<div style="color:var(--text-muted);">No accounts.</div>';
   } catch { list.innerHTML = '<div style="color:var(--red);">Server offline.</div>'; }
+};
+const adminAreaSelect = { mode: false, x1: null, y1: null, x2: null, y2: null, fromColor: null, toColor: null };
+function adminAreaPickCorner(gx, gy) {
+  if (adminAreaSelect.x1 == null) {
+    adminAreaSelect.x1 = gx; adminAreaSelect.y1 = gy;
+  } else {
+    adminAreaSelect.x2 = gx; adminAreaSelect.y2 = gy;
+    adminAreaSelect.mode = false;
+    document.getElementById('btn-admin-area-select').textContent = 'Select area';
+    document.getElementById('btn-admin-area-select').style.background = '#3b82f6';
+  }
+  adminAreaUpdateDisplay();
+  render();
+}
+function adminAreaUpdateDisplay() {
+  const d = document.getElementById('admin-area-display');
+  if (adminAreaSelect.x1 == null) d.textContent = adminAreaSelect.mode ? 'click first corner...' : 'none selected';
+  else if (adminAreaSelect.x2 == null) d.textContent = `(${adminAreaSelect.x1},${adminAreaSelect.y1}) ... click second corner`;
+  else {
+    const xa = Math.min(adminAreaSelect.x1, adminAreaSelect.x2);
+    const ya = Math.min(adminAreaSelect.y1, adminAreaSelect.y2);
+    const xb = Math.max(adminAreaSelect.x1, adminAreaSelect.x2);
+    const yb = Math.max(adminAreaSelect.y1, adminAreaSelect.y2);
+    const area = (xb - xa + 1) * (yb - ya + 1);
+    d.textContent = `(${xa},${ya}) → (${xb},${yb}) — ${area} px`;
+  }
+  const fBtn = document.getElementById('btn-admin-area-from');
+  const tBtn = document.getElementById('btn-admin-area-to');
+  const fIdx = document.getElementById('admin-area-from-idx');
+  const tIdx = document.getElementById('admin-area-to-idx');
+  fBtn.style.background = adminAreaSelect.fromColor != null ? COLORS[adminAreaSelect.fromColor] : '#222';
+  tBtn.style.background = adminAreaSelect.toColor != null ? COLORS[adminAreaSelect.toColor] : '#222';
+  fIdx.textContent = adminAreaSelect.fromColor != null ? '#' + adminAreaSelect.fromColor : '(-)';
+  tIdx.textContent = adminAreaSelect.toColor != null ? '#' + adminAreaSelect.toColor : '(-)';
+}
+function adminAreaOpenPalette(target) {
+  const pal = document.getElementById('admin-area-palette');
+  pal.innerHTML = '';
+  COLORS.forEach((hex, i) => {
+    const sw = document.createElement('div');
+    sw.style.cssText = `width:18px;height:18px;background:${hex};border:1px solid #555;cursor:pointer;`;
+    sw.title = `#${i} ${hex}`;
+    sw.onclick = () => {
+      adminAreaSelect[target === 'from' ? 'fromColor' : 'toColor'] = i;
+      pal.style.display = 'none';
+      adminAreaUpdateDisplay();
+    };
+    pal.appendChild(sw);
+  });
+  pal.style.display = 'flex';
+}
+document.getElementById('btn-admin-area-select').onclick = () => {
+  // Toggle / restart selection
+  adminAreaSelect.mode = true;
+  adminAreaSelect.x1 = null; adminAreaSelect.y1 = null;
+  adminAreaSelect.x2 = null; adminAreaSelect.y2 = null;
+  document.getElementById('btn-admin-area-select').textContent = 'Click on canvas...';
+  document.getElementById('btn-admin-area-select').style.background = '#f59e0b';
+  adminAreaUpdateDisplay();
+  render();
+};
+document.getElementById('btn-admin-area-from').onclick = () => adminAreaOpenPalette('from');
+document.getElementById('btn-admin-area-to').onclick = () => adminAreaOpenPalette('to');
+document.getElementById('btn-admin-area-cancel').onclick = () => {
+  adminAreaSelect.mode = false; adminAreaSelect.x1 = adminAreaSelect.y1 = adminAreaSelect.x2 = adminAreaSelect.y2 = null;
+  adminAreaSelect.fromColor = adminAreaSelect.toColor = null;
+  document.getElementById('btn-admin-area-select').textContent = 'Select area';
+  document.getElementById('btn-admin-area-select').style.background = '#3b82f6';
+  document.getElementById('admin-area-palette').style.display = 'none';
+  adminAreaUpdateDisplay();
+  render();
+};
+document.getElementById('btn-admin-area-apply').onclick = async () => {
+  if (adminAreaSelect.x1 == null || adminAreaSelect.x2 == null) { alert('Select an area first (click "Select area" then click two corners).'); return; }
+  if (adminAreaSelect.fromColor == null || adminAreaSelect.toColor == null) { alert('Pick both From and To colors.'); return; }
+  if (!currentLobbyId) { alert('You must be in a lobby.'); return; }
+  const xa = Math.min(adminAreaSelect.x1, adminAreaSelect.x2);
+  const ya = Math.min(adminAreaSelect.y1, adminAreaSelect.y2);
+  const xb = Math.max(adminAreaSelect.x1, adminAreaSelect.x2);
+  const yb = Math.max(adminAreaSelect.y1, adminAreaSelect.y2);
+  const area = (xb - xa + 1) * (yb - ya + 1);
+  if (!confirm(`Replace #${adminAreaSelect.fromColor} → #${adminAreaSelect.toColor} in ${area} px area?`)) return;
+  try {
+    const r = await fetch(BACKEND + '/api/admin/replace_color', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken },
+      body: JSON.stringify({ lobby_id: currentLobbyId, x1: adminAreaSelect.x1, y1: adminAreaSelect.y1, x2: adminAreaSelect.x2, y2: adminAreaSelect.y2, from_color: adminAreaSelect.fromColor, to_color: adminAreaSelect.toColor }),
+    });
+    const d = await r.json();
+    if (d.error) { alert('Error: ' + d.error); return; }
+    document.getElementById('admin-area-display').textContent = `Swapped ${d.changed} of ${d.area} px`;
+  } catch { alert('Server offline.'); }
 };
 document.getElementById('btn-admin-pb-grant').onclick = async () => {
   const u = document.getElementById('admin-pb-user').value.trim();
