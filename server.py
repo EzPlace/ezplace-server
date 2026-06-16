@@ -9,6 +9,7 @@ import string
 import struct
 import time
 import zlib
+import gzip
 from datetime import date, datetime, timedelta
 try:
     from zoneinfo import ZoneInfo
@@ -39,7 +40,11 @@ def lobby_timeout_for(lobby):
     return LOBBY_TIMEOUT_PUBLIC if lobby.get("public") else LOBBY_TIMEOUT_PRIVATE
 
 MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/ezplace")
-mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+# zlib wire compression: 3-5x reduction in bytes shipped to/from Atlas for our
+# write-heavy workload (lobby grids especially - lots of repeated colors). zlib
+# is stdlib so it works on Render with no new deps, and PyMongo negotiates
+# gracefully if the server doesn't support it.
+mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, compressors='zlib', zlibCompressionLevel=6)
 db = mongo_client.get_default_database() if "mongodb.net" in MONGO_URI else mongo_client["ezplace"]
 
 accounts = {}
@@ -690,10 +695,12 @@ async def save_all_lobbies():
         await save_lobby(lid)
 
 async def flush_dirty_lobbies_loop(app):
-    """Background task: every 30s, save any lobby that has unsaved pixel changes."""
+    """Background task: every 60s, save any lobby that has unsaved pixel changes.
+    Worst-case 60s of placements lost on a hard crash (rare), but in-memory state
+    is authoritative for live clients so nothing visible to users."""
     while True:
         try:
-            await asyncio.sleep(30)
+            await asyncio.sleep(60)
             for lid in list(dirty_lobbies):
                 try:
                     await save_lobby(lid)
@@ -726,7 +733,12 @@ async def economy_stats_handler(request):
 
 async def idle_reward_loop(app):
     """Every minute, add 60 to each online user's stay_seconds. Credit 1 PB per
-    900 (15 min) accumulated. Admins are skipped (unlimited balance anyway)."""
+    900 (15 min) accumulated. Admins are skipped (unlimited balance anyway).
+    stay_seconds is held in memory and only persisted to Mongo every 5 minutes
+    (or immediately when a credit fires) - saves ~5x the writes for a doc that
+    only matters across restarts. The dict is rewritten in full each time, so
+    avoiding 4-of-5 unnecessary saves is a real bandwidth win."""
+    save_throttle = 0
     while True:
         try:
             await asyncio.sleep(60)
@@ -737,7 +749,9 @@ async def idle_reward_loop(app):
                 if n and not is_admin(n): online_users.add(n)
             for uname in social_clients.values():
                 if uname and not is_admin(uname): online_users.add(uname)
-            if not online_users: continue
+            if not online_users:
+                save_throttle += 1
+                continue
             credited_anything = False
             now_ts = time.time()
             for uname in online_users:
@@ -752,9 +766,14 @@ async def idle_reward_loop(app):
                     credit_pb(uname, rewards)
                     await push_pb_update(uname)
                     credited_anything = True
+            save_throttle += 1
             if credited_anything:
                 await save_place_bucks()
-            await save_stay_seconds()
+                await save_stay_seconds()
+                save_throttle = 0
+            elif save_throttle >= 5:
+                await save_stay_seconds()
+                save_throttle = 0
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -1031,6 +1050,28 @@ async def my_lobbies_handler(request):
                    if not l["id"].startswith("public_") and l.get("whitelist_enabled")
                    and user in l.get("whitelist", []) and (not l["owner"] or l["owner"].lower() != user.lower())]
     return web.json_response({"lobbies": mine, "whitelisted": whitelisted})
+
+async def lobby_preview_handler(request):
+    """Lightweight grid snapshot for the homepage's background canvas. Returns
+    gzipped raw grid bytes (one palette index per pixel) for one of the public
+    lobbies. Browser decompresses via Content-Encoding header. Headers carry
+    the width/height. No auth required - public info already exposed via join."""
+    lid = request.query.get("id", "public_2")
+    lobby = lobbies.get(lid)
+    if not lobby:
+        return web.Response(status=404, text="Lobby not found")
+    grid_bytes = bytes(lobby["grid"])
+    compressed = gzip.compress(grid_bytes, compresslevel=6)
+    return web.Response(
+        body=compressed,
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Encoding": "gzip",
+            "X-Width": str(lobby.get("width", 256)),
+            "X-Height": str(lobby.get("height", 256)),
+            "Cache-Control": "public, max-age=60",
+        }
+    )
 
 async def lobby_timelapse_handler(request):
     """Return the raw event log for a lobby (for the last 24h). The client reconstructs the
@@ -1515,6 +1556,54 @@ async def _mod_regular_ban_action(moderator_user, target):
     if len(mod_ban_log) > MOD_BAN_LOG_MAX: del mod_ban_log[:len(mod_ban_log) - MOD_BAN_LOG_MAX]
     await save_mod_ban_log()
     return entry, None
+
+async def _mod_unban_action(moderator_user, target):
+    """Reverses both school and regular bans: removes from bans, ip_bans, device_bans
+    (using their last-known IP / device id). Idempotent — fine to call on a user that
+    isn't banned, returns the entry showing what (if anything) was undone."""
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return None, "User not found"
+    if is_admin(found): return None, "Cannot unban the owner (not banned anyway)"
+    removed_account = False
+    removed_ip = None
+    removed_device = None
+    if found in bans:
+        bans.remove(found)
+        removed_account = True
+        await save_bans()
+    ip = user_ips.get(found)
+    if ip and ip in ip_bans:
+        ip_bans.remove(ip)
+        removed_ip = ip
+        await save_ip_bans()
+    did = user_devices.get(found.lower())
+    if did and did in device_bans:
+        device_bans.remove(did)
+        removed_device = did
+        await save_device_bans()
+    entry = {"ts": int(time.time()), "moderator": moderator_user, "target": found, "type": "unban",
+             "removed_account": removed_account, "removed_ip": removed_ip, "removed_device": removed_device}
+    mod_ban_log.append(entry)
+    if len(mod_ban_log) > MOD_BAN_LOG_MAX: del mod_ban_log[:len(mod_ban_log) - MOD_BAN_LOG_MAX]
+    await save_mod_ban_log()
+    return entry, None
+
+async def mod_unban_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not (is_admin(user) or is_moderator(user)):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target = (data.get("username") or "").strip()
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    entry, err = await _mod_unban_action(user, target)
+    if err: return web.json_response({"error": err}, status=400)
+    parts = []
+    if entry["removed_account"]: parts.append("account")
+    if entry["removed_ip"]: parts.append(f"IP {entry['removed_ip']}")
+    if entry["removed_device"]: parts.append("device")
+    summary = ", ".join(parts) if parts else "nothing (wasn't banned)"
+    return web.json_response({"ok": True, "message": f"Unbanned {entry['target']}: removed {summary}", "entry": entry})
 
 async def mod_school_ban_handler(request):
     data = await request.json()
@@ -5378,7 +5467,7 @@ async def websocket_handler(request):
                     elif isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
                         await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y, "guest": is_guest}, exclude=ws)
 
-                elif data["type"] == "pixel_owner" and username and lobby_id and is_admin(username):
+                elif data["type"] == "pixel_owner" and username and lobby_id and (is_admin(username) or is_moderator(username)):
                                                                                   
                     lobby = lobbies.get(lobby_id)
                     if not lobby:
@@ -5850,6 +5939,7 @@ app.router.add_get("/api/lobbies", lobbies_handler)
 app.router.add_get("/api/my-lobbies", my_lobbies_handler)
 app.router.add_get("/api/lobbies/info", lobby_detail_handler)
 app.router.add_get("/api/lobbies/timelapse", lobby_timelapse_handler)
+app.router.add_get("/api/lobbies/preview", lobby_preview_handler)
 app.router.add_post("/api/lobbies/create", create_lobby_handler)
 app.router.add_post("/api/lobbies/delete", delete_lobby_handler)
 app.router.add_post("/api/lobbies/update", update_lobby_handler)
@@ -5892,6 +5982,7 @@ app.router.add_get("/api/admin/mod-list", admin_mod_list_handler)
 app.router.add_get("/api/admin/mod-ban-log", admin_mod_ban_log_handler)
 app.router.add_post("/api/mod/school-ban", mod_school_ban_handler)
 app.router.add_post("/api/mod/regular-ban", mod_regular_ban_handler)
+app.router.add_post("/api/mod/unban", mod_unban_handler)
 app.router.add_post("/api/admin/ip-unban", admin_ip_unban_handler)
 app.router.add_get("/api/admin/ipbans", lambda r: web.json_response({"ip_bans": ip_bans}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 app.router.add_post("/api/admin/vip-add", admin_vip_add_handler)
