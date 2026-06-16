@@ -24,9 +24,9 @@ MAX_LOBBIES_PER_USER = 5
 MAX_DM_HISTORY = 100
 VALID_SIZES = [(256, 256), (512, 512), (1024, 1024)]
 PUBLIC_LOBBIES = [
-    {"name": "Main 256", "cooldown": 0, "width": 256, "height": 256},
-    {"name": "Main 512", "cooldown": 0, "width": 512, "height": 512},
-    {"name": "Main 1024", "cooldown": 0, "width": 1024, "height": 1024},
+    {"name": "OFFICIAL 256x256", "cooldown": 0, "width": 256, "height": 256},
+    {"name": "OFFICIAL 512x512", "cooldown": 0, "width": 512, "height": 512},
+    {"name": "OFFICIAL 1024x1024", "cooldown": 0, "width": 1024, "height": 1024},
 ]
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60

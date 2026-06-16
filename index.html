@@ -106,10 +106,12 @@
   #tab-warning.show { display: flex; }
 
   /* Lobby browser overlay */
-  #lobby-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: transparent; z-index: 10; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
-  /* Panorama canvas + dark overlay sit inside lobby-screen. Both are position:fixed (viewport-sized), z:0/1. All other lobby-screen children get z:2 to render above. */
-  #lobby-bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(4px) saturate(1.1); opacity: 0.5; image-rendering: pixelated; }
-  #lobby-bg-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; background: rgba(15, 15, 17, 0.78); }
+  /* Solid bg + z:35 (above mobile sidebar at 15 and mobile toggles at 20) so no in-game
+     GUI bleeds through onto the homepage. Stays below modals (z:50+). Panorama and
+     overlay are children, painted above the bg (z:0/1) but below the content (z:2). */
+  #lobby-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-secondary); z-index: 35; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
+  #lobby-bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(4px) saturate(1.1); opacity: 0.55; image-rendering: pixelated; }
+  #lobby-bg-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; background: rgba(15, 15, 17, 0.6); }
   #lobby-screen > *:not(#lobby-bg-canvas):not(#lobby-bg-overlay) { position: relative; z-index: 2; }
   #lobby-screen h2 { color: var(--accent); margin-bottom: 12px; font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
   #lobby-screen .section-title { font-size: 13px; color: var(--text-muted); margin: 16px 0 6px; font-weight: 500; width: 100%; max-width: 480px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
