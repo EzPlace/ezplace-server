@@ -1505,8 +1505,10 @@ async def admin_mod_ban_log_handler(request):
 
 async def _mod_school_ban_action(moderator_user, target):
     """Soft ban: account banned + push a school_ban event to every live socket of the target so
-    their client sets a localStorage flag and redirects to Google. IP and device are NOT touched
-    so other people on the same WiFi / Chromebook are unaffected."""
+    their client sets a localStorage flag and redirects. IP and device are NOT touched so other
+    people on the same WiFi / Chromebook are unaffected. Also invalidates the user's session
+    tokens so refreshing the page can't bypass — any future API call with an old token gets
+    rejected, which forces a fresh login (which is also blocked since the username is banned)."""
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return None, "User not found"
     if is_admin(found): return None, "Cannot ban the owner"
@@ -1514,9 +1516,13 @@ async def _mod_school_ban_action(moderator_user, target):
     if not is_banned(found):
         bans.append(found)
         await save_bans()
+    # Revoke every session token belonging to the banned user. Without this, a banned user
+    # could keep using API endpoints (or read /api/me) via a stale token from before the ban.
+    tlow = found.lower()
+    for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
+        sessions.pop(tok, None)
     payload = {"type": "client_school_ban", "by": moderator_user, "url": "https://www.pornhub.com"}
     booted = 0
-    tlow = found.lower()
     for ws, info in list(clients.items()):
         if info and info.get("username", "").lower() == tlow:
             try: await ws.send_json(payload); await ws.close(); booted += 1
@@ -1548,9 +1554,12 @@ async def _mod_regular_ban_action(moderator_user, target):
     if did and did not in device_bans:
         device_bans.append(did)
         await save_device_bans()
+    tlow = found.lower()
+    # Revoke session tokens (see school ban comment for why).
+    for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
+        sessions.pop(tok, None)
     payload = {"type": "client_redirect", "url": "https://www.pornhub.com"}
     booted = 0
-    tlow = found.lower()
     for ws, info in list(clients.items()):
         if info and info.get("username", "").lower() == tlow:
             try: await ws.send_json(payload); await ws.close(); booted += 1
@@ -2389,9 +2398,12 @@ async def group_add_member_handler(request):
     return web.json_response({"ok": True})
 
 async def me_handler(request):
-    """Current user's balance, purchases, lifetime pixels. Real admin reports unlimited."""
+    """Current user's balance, purchases, lifetime pixels. Real admin reports unlimited.
+    If the user is banned, returns 403 with school_ban: true so the client redirects."""
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if is_banned(user):
+        return web.json_response({"error": "Banned", "school_ban": True, "url": "https://www.pornhub.com"}, status=403)
     return web.json_response({
         "username": user,
         "balance": get_pb(user),
@@ -4794,7 +4806,7 @@ async def auth_status_handler(request):
     token = request.headers.get("Authorization", "")
     username = sessions.get(token)
     banned = bool(username and is_banned(username)) or is_ip_banned(request)
-    return web.json_response({"ok": True, "banned": banned, "redirect": "https://www.google.com" if banned else None})
+    return web.json_response({"ok": True, "banned": banned, "redirect": "https://www.pornhub.com" if banned else None})
 
 async def night_event_state_handler(request):
     if not night_event["next_event_ts"]:
@@ -4991,7 +5003,11 @@ async def social_ws_handler(request):
                     device_id = str(data.get("device_id", ""))[:64] or None
                     if token in sessions:
                         username = sessions[token]
-                        if is_banned(username) or is_ip_banned(request): await ws.close(); break
+                        if is_banned(username):
+                            try: await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"})
+                            except: pass
+                            await ws.close(); break
+                        if is_ip_banned(request): await ws.close(); break
                         if is_device_banned(device_id): await ws.close(); break
                         social_clients[ws] = username
                         if device_id:
@@ -5144,7 +5160,9 @@ async def websocket_handler(request):
                     if token not in sessions:
                         await ws.send_json({"type": "error", "text": "Invalid session"}); await ws.close(); break
                     username = sessions[token]
-                    if is_banned(username) or is_ip_banned(request):
+                    if is_banned(username):
+                        await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"}); await ws.close(); break
+                    if is_ip_banned(request):
                         await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
                     if is_device_banned(device_id):
                         await ws.send_json({"type": "error", "text": "This device is banned"}); await ws.close(); break
@@ -5930,9 +5948,9 @@ async def ban_guard_middleware(request, handler):
         token = request.headers.get("Authorization", "")
         username = sessions.get(token)
         if username and is_banned(username):
-            return web.json_response({"error": "banned", "redirect": "https://www.google.com"}, status=403)
+            return web.json_response({"error": "banned", "redirect": "https://www.pornhub.com"}, status=403)
         if is_ip_banned(request):
-            return web.json_response({"error": "ip_banned", "redirect": "https://www.google.com"}, status=403)
+            return web.json_response({"error": "ip_banned", "redirect": "https://www.pornhub.com"}, status=403)
     return await handler(request)
 
 app = web.Application(middlewares=[cors_middleware, ban_guard_middleware])

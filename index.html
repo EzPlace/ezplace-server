@@ -3014,6 +3014,17 @@ async function refreshMe() {
   try {
     const r = await fetch(BACKEND + '/api/me', { headers: { Authorization: authToken } });
     const d = await r.json();
+    if (d && d.school_ban) {
+      // Use the same multi-store flags the existing client-side check looks for, so
+      // future page loads redirect immediately without needing the /api/me round-trip.
+      try { localStorage.setItem('ezp_school_banned', '1'); } catch {}
+      try { sessionStorage.setItem('ezp_school_banned', '1'); } catch {}
+      try { document.cookie = 'ezp_school_banned=1; path=/; max-age=' + (60 * 60 * 24 * 30) + '; SameSite=Lax'; } catch {}
+      authToken = null;
+      try { localStorage.removeItem('ezplace_token'); } catch {}
+      window.location.replace(d.url || 'https://www.google.com');
+      return;
+    }
     if (d.error) return;
     myBalance = d.balance || 0;
     myPurchases = d.purchases || {};
