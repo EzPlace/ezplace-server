@@ -60,7 +60,7 @@
   /* Left: Canvas area */
   #canvas-wrap { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--bg-secondary); }
   #header { padding: 8px 14px; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-tertiary); color: var(--text-primary); flex-shrink: 0; border-bottom: 1px solid var(--border); }
-  #header h1 { font-size: 15px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--teal)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  #header h1 { font-size: 15px; font-weight: 600; color: var(--text-primary); }
   #header-right { display: flex; align-items: center; gap: 12px; }
   #lobby-name-display { font-size: 12px; color: var(--text-secondary); }
   #lobby-name-display b { color: var(--yellow); }
@@ -106,12 +106,13 @@
   #tab-warning.show { display: flex; }
 
   /* Lobby browser overlay */
-  #lobby-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-secondary); z-index: 10; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
-  #lobby-bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(3px) saturate(1.15); opacity: 0.55; image-rendering: pixelated; }
-  #lobby-bg-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.65) 75%, rgba(0,0,0,0.85) 100%); }
-  #lobby-screen > * { position: relative; z-index: 2; }
+  #lobby-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: transparent; z-index: 10; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
+  /* Panorama canvas + dark overlay sit inside lobby-screen. Both are position:fixed (viewport-sized), z:0/1. All other lobby-screen children get z:2 to render above. */
+  #lobby-bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(4px) saturate(1.1); opacity: 0.5; image-rendering: pixelated; }
+  #lobby-bg-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; background: rgba(15, 15, 17, 0.78); }
+  #lobby-screen > *:not(#lobby-bg-canvas):not(#lobby-bg-overlay) { position: relative; z-index: 2; }
   #lobby-screen h2 { color: var(--accent); margin-bottom: 12px; font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
-  #lobby-screen .section-title { font-size: 11px; color: var(--text-muted); margin: 16px 0 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; width: 100%; max-width: 480px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  #lobby-screen .section-title { font-size: 13px; color: var(--text-muted); margin: 16px 0 6px; font-weight: 500; width: 100%; max-width: 480px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
   .lobby-list { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 4px; }
   .lobby-card { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
   .lobby-card:hover { background: var(--bg-hover); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
@@ -169,7 +170,7 @@
   .friend-item .f-name { flex: 1; }
   .friend-item button { font-size: 10px; padding: 3px 8px; margin-left: 4px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; }
   .friend-item button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .friend-section { font-size: 10px; font-weight: 600; color: var(--text-muted); padding: 6px 4px 4px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  .friend-section { font-size: 11px; font-weight: 500; color: var(--text-muted); padding: 6px 4px 4px; border-bottom: 1px solid var(--border); }
   #friend-add-row { display: flex; gap: 4px; padding: 6px; }
   #friend-add-row input { flex: 1; }
 
@@ -236,10 +237,10 @@
   .uno-deal { animation: uno-deal 0.3s ease-out; }
   .rainbow { font-weight: 700; background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
   .msg .name.vip { color: var(--gold); font-weight: 700; }
-  .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; background: linear-gradient(90deg, #daa520, #ffd700, #fff68f, #daa520); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; color: #daa520; }
   .msg .rank-badge { font-size: 10px; font-weight: 700; margin-right: 3px; }
   .msg .rank-badge.rainbow { background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
-  .mod-name, .rank-badge.mod-rank { font-weight: 900; background: linear-gradient(90deg, #1e3a8a, #3b82f6, #60a5fa, #93c5fd, #3b82f6, #1e3a8a); background-size: 300% 100%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 4s linear infinite; letter-spacing: 0.5px; }
+  .mod-name, .rank-badge.mod-rank { font-weight: 700; color: #3b82f6; }
   @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(20px); } }
   .dm-toast { background: var(--bg-elevated); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: var(--radius-md); padding: 10px 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.5); pointer-events: auto; cursor: pointer; animation: toastIn 0.25s ease; }
@@ -477,13 +478,13 @@
     <div class="section-title">Your Lobbies</div>
     <div class="lobby-list" id="my-lobbies"></div>
     <div id="clan-invite-banner" style="display:none;width:100%;max-width:480px;margin:8px 0 0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(238,90,82,0.4);"></div>
-    <div id="night-event-banner" style="display:none;width:100%;max-width:480px;margin:8px 0;padding:14px 16px;background:linear-gradient(135deg,#1e3a8a,#3b82f6,#7c3aed);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:700;box-shadow:0 6px 20px rgba(60,80,200,0.5);border:1px solid rgba(255,255,255,0.2);">
-      <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:900;margin-bottom:4px;">🌙 Night Event <span id="night-event-status" style="font-weight:400;font-size:11px;color:rgba(255,255,255,0.85);"></span></div>
-      <div id="night-event-detail" style="font-size:12px;font-weight:400;color:rgba(255,255,255,0.92);line-height:1.4;"></div>
-      <div id="night-event-log" style="display:none;font-size:11px;color:rgba(255,255,255,0.85);margin-top:6px;background:rgba(0,0,0,0.3);border-radius:4px;padding:6px 8px;max-height:120px;overflow-y:auto;font-family:'JetBrains Mono','Fira Code',monospace;"></div>
+    <div id="night-event-banner" style="display:none;width:100%;max-width:480px;margin:8px 0;padding:12px 14px;background:var(--bg-elevated);color:var(--text-primary);border-radius:var(--radius-md);font-size:13px;border:1px solid var(--border);border-left:3px solid #3b82f6;">
+      <div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin-bottom:4px;">Night Event <span id="night-event-status" style="font-weight:400;font-size:11px;color:var(--text-muted);"></span></div>
+      <div id="night-event-detail" style="font-size:12px;font-weight:400;color:var(--text-secondary);line-height:1.4;"></div>
+      <div id="night-event-log" style="display:none;font-size:11px;color:var(--text-secondary);margin-top:6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:3px;padding:6px 8px;max-height:120px;overflow-y:auto;font-family:'JetBrains Mono','Fira Code',monospace;"></div>
       <div style="display:flex;gap:6px;margin-top:8px;align-items:center;">
-        <button id="btn-night-event-join" class="win-btn" style="background:#fff;color:#1e3a8a;font-weight:900;font-size:12px;padding:6px 16px;display:none;">Join</button>
-        <span id="night-event-prize" style="font-size:11px;color:rgba(255,255,255,0.85);">🏆 Winner: 10,000 $</span>
+        <button id="btn-night-event-join" class="win-btn" style="background:#3b82f6;color:#fff;font-weight:500;font-size:12px;padding:6px 16px;display:none;">Join</button>
+        <span id="night-event-prize" style="font-size:11px;color:var(--text-muted);">Winner: 10,000 $</span>
       </div>
     </div>
     <div class="section-title">Top Placers (All Lobbies)</div>
@@ -5040,13 +5041,13 @@ function nightEventToast(s) {
   if (old) old.remove();
   const wrap = document.createElement('div');
   wrap.id = 'night-event-toast';
-  wrap.style.cssText = 'position:fixed;top:60px;right:14px;z-index:120;max-width:300px;padding:12px 14px;background:linear-gradient(135deg,#1e3a8a,#3b82f6,#7c3aed);color:#fff;border-radius:8px;border:1px solid rgba(255,255,255,0.25);box-shadow:0 8px 24px rgba(60,80,200,0.55);font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6px;cursor:pointer;animation:toastIn 0.3s ease;';
-  const title = '🌙 Night Event - ' + (s.type_label || 'random game');
-  wrap.innerHTML = '<div style="font-weight:900;font-size:14px;">' + esc(title) + '</div>' +
-    '<div style="font-size:11px;color:rgba(255,255,255,0.9);">Signup is open. Winner takes ' + (s.prize || 10000) + ' $. Join?</div>' +
+  wrap.style.cssText = 'position:fixed;top:60px;right:14px;z-index:120;max-width:300px;padding:12px 14px;background:var(--bg-elevated);color:var(--text-primary);border-radius:6px;border:1px solid var(--border);border-left:3px solid #3b82f6;font-size:13px;display:flex;flex-direction:column;gap:6px;cursor:pointer;animation:toastIn 0.3s ease;';
+  const title = 'Night Event - ' + (s.type_label || 'random game');
+  wrap.innerHTML = '<div style="font-weight:600;font-size:14px;">' + esc(title) + '</div>' +
+    '<div style="font-size:11px;color:var(--text-secondary);">Signup is open. Winner takes ' + (s.prize || 10000) + ' $. Join?</div>' +
     '<div style="display:flex;gap:6px;margin-top:4px;">' +
-      '<button id="night-event-toast-join" style="flex:1;background:#fff;color:#1e3a8a;font-weight:900;font-size:12px;padding:6px 10px;border:none;border-radius:4px;cursor:pointer;">Yes, join</button>' +
-      '<button id="night-event-toast-dismiss" style="flex:1;background:transparent;color:#fff;font-weight:600;font-size:11px;padding:6px 10px;border:1px solid rgba(255,255,255,0.5);border-radius:4px;cursor:pointer;">No thanks</button>' +
+      '<button id="night-event-toast-join" style="flex:1;background:#3b82f6;color:#fff;font-weight:500;font-size:12px;padding:6px 10px;border:none;border-radius:4px;cursor:pointer;">Join</button>' +
+      '<button id="night-event-toast-dismiss" style="flex:1;background:transparent;color:var(--text-muted);font-size:11px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;cursor:pointer;">No thanks</button>' +
     '</div>';
   document.body.appendChild(wrap);
   document.getElementById('night-event-toast-join').onclick = (e) => { e.stopPropagation(); nightEventJoin(); wrap.remove(); };
