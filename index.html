@@ -108,9 +108,10 @@
   /* Lobby browser overlay */
   /* Solid bg + z:35 (above mobile sidebar at 15 and mobile toggles at 20) so no in-game
      GUI bleeds through onto the homepage. Stays below modals (z:50+) and below the
-     right sidebar (z:40) so chat/account stays usable from the homepage. Panorama
-     and overlay are children, painted above the bg (z:0/1) below the content (z:2). */
-  #lobby-screen { position: absolute; top: 0; left: 0; right: 320px; bottom: 0; background: var(--bg-secondary); z-index: 35; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
+     right sidebar (z:40) so chat/account stays usable from the homepage. Lobby-screen
+     is a child of canvas-wrap (which already takes only the non-sidebar area), so
+     right:0 covers the whole canvas-wrap — including the header's online count. */
+  #lobby-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-secondary); z-index: 35; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
   #lobby-bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(4px) saturate(1.1); opacity: 0.55; image-rendering: pixelated; }
   #lobby-bg-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; background: rgba(15, 15, 17, 0.6); }
   #lobby-screen > *:not(#lobby-bg-canvas):not(#lobby-bg-overlay) { position: relative; z-index: 2; }
@@ -364,7 +365,6 @@
     body { flex-direction: column; }
     #canvas-wrap { flex: 1; min-height: 0; }
     #sidebar { width: 100%; height: 65vh; position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; transform: translateY(100%); transition: transform 0.25s ease; border-left: none; border-top: 1px solid var(--border); }
-    #lobby-screen { right: 0; }
     #sidebar.open { transform: translateY(0); }
     #mobile-sidebar-toggle { display: flex; align-items: center; justify-content: center; bottom: 18px; right: 18px; width: 56px; height: 56px; font-size: 24px; }
     #mobile-pan-toggle { display: flex; align-items: center; justify-content: center; bottom: 18px; left: 18px; width: 56px; height: 56px; font-size: 12px; }
