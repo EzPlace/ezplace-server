@@ -24,9 +24,9 @@ MAX_LOBBIES_PER_USER = 5
 MAX_DM_HISTORY = 100
 VALID_SIZES = [(256, 256), (512, 512), (1024, 1024)]
 PUBLIC_LOBBIES = [
-    {"name": "OFFICIAL 256x256", "cooldown": 0, "width": 256, "height": 256},
-    {"name": "OFFICIAL 512x512", "cooldown": 0, "width": 512, "height": 512},
-    {"name": "OFFICIAL 1024x1024", "cooldown": 0, "width": 1024, "height": 1024},
+    {"name": "Main 256", "cooldown": 0, "width": 256, "height": 256},
+    {"name": "Main 512", "cooldown": 0, "width": 512, "height": 512},
+    {"name": "Main 1024", "cooldown": 0, "width": 1024, "height": 1024},
 ]
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
@@ -1417,7 +1417,15 @@ async def admin_friends_handler(request):
 
 async def admin_lobbies_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    return web.json_response({"lobbies": {lid: {k: v for k, v in l.items() if k != "grid"} for lid, l in lobbies.items()}})
+    skip = {"grid", "events", "pixel_authors"}  # binary / large dicts that aren't JSON-friendly
+    out = {}
+    for lid, l in lobbies.items():
+        entry = {k: v for k, v in l.items() if k not in skip}
+        entry["grid_bytes"] = len(l.get("grid", b""))
+        entry["events_bytes"] = len(l.get("events", b""))
+        entry["pixel_authors_count"] = len(l.get("pixel_authors", {}) or {})
+        out[lid] = entry
+    return web.json_response({"lobbies": out})
 
 async def admin_bans_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -3165,7 +3173,7 @@ async def _uno_turn_timeout_watcher(rid):
     # draws the right number and advances. This stops a losing player from
     # stalling out to avoid drawing pending +2/+4 stacks.
     await _uno_play_one_ai_move(room, snapshot_idx)
-    payload = {"type": "uno_chat", "room_id": rid, "msg": {"from": "system", "text": f"⏰ {snapshot_player} took too long - AI played their turn.", "time": int(time.time()), "spectator": True}}
+    payload = {"type": "uno_chat", "room_id": rid, "msg": {"from": "system", "text": f"{snapshot_player} took too long - AI played their turn.", "time": int(time.time()), "spectator": True}}
     for pp in room["players"]:
         if not pp["is_ai"]:
             try: await notify_social(pp["name"], payload)
@@ -4686,7 +4694,7 @@ async def _night_run_uno(players):
     if multi_color: rule_notes.append("cross-color stacking ON")
     if draw_till: rule_notes.append("draw till playable ON")
     rules_str = " · ".join(rule_notes) if rule_notes else "vanilla rules"
-    await _night_send_chat(f"🃏 UNO Showdown ({rules_str}) - players: {', '.join(chosen)}. Open the UNO room to play!")
+    await _night_send_chat(f"UNO Showdown ({rules_str}) - players: {', '.join(chosen)}. Open the UNO room to play!")
     # auto-start
     room = uno_rooms[rid]
     room["deck"] = _uno_new_deck()
