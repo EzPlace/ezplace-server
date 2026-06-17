@@ -5434,7 +5434,7 @@ async def websocket_handler(request):
                         lw = lobby.get("width", 256)
                         lh = lobby.get("height", 256)
                         expected = lw * lh
-                        if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < 53 for c in new_grid):
+                        if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < PALETTE_SIZE for c in new_grid):
                             lobby["grid"] = bytearray(new_grid)
                             lobby["last_activity"] = time.time()
                             imported_counts = data.get("pixel_counts")
