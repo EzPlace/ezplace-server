@@ -2979,8 +2979,37 @@ function showLoggedIn() {
   document.getElementById('user-display').textContent = username;
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
   if (username.toLowerCase() === 'toothpaste') { document.getElementById('admin-tab-btn').style.display = 'block'; document.getElementById('fake-admin-section').style.display = ''; }
+  if (username.toLowerCase() === 'trillium') triggerTrilliumEasterEgg();
   connectSocial();
   refreshMe();
+}
+
+function triggerTrilliumEasterEgg() {
+  if (document.getElementById('trillium-egg-style')) return;
+  const url = 'https://files.catbox.moe/mihofd.jpg';
+  const style = document.createElement('style');
+  style.id = 'trillium-egg-style';
+  style.textContent = `
+    body { background-image: url("${url}") !important; background-repeat: repeat !important; background-size: 140px 140px !important; }
+    #trillium-egg-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 9998; background-image: url("${url}"); background-repeat: repeat; background-size: 140px 140px; opacity: 0.35; }
+    .trillium-egg-float { position: fixed; width: 90px; height: 90px; pointer-events: none; z-index: 9999; background-image: url("${url}"); background-size: cover; background-position: center; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+  `;
+  document.head.appendChild(style);
+  const overlay = document.createElement('div');
+  overlay.id = 'trillium-egg-overlay';
+  document.body.appendChild(overlay);
+  const sprinkle = () => {
+    const n = 40;
+    for (let i = 0; i < n; i++) {
+      const img = document.createElement('div');
+      img.className = 'trillium-egg-float';
+      img.style.left = (Math.floor((i * 9301 + 49297) % 233280) / 233280 * 100) + 'vw';
+      img.style.top = (Math.floor((i * 4733 + 12345) % 99991) / 99991 * 100) + 'vh';
+      img.style.transform = 'rotate(' + ((i * 37) % 360) + 'deg)';
+      document.body.appendChild(img);
+    }
+  };
+  sprinkle();
 }
 
 let myBalance = 0;
@@ -7110,10 +7139,26 @@ document.getElementById('btn-admin-mod-log').onclick = async () => {
     if (!d.log || !d.log.length) { list.innerHTML = '<span style="color:var(--text-muted);">No mod bans yet</span>'; return; }
     d.log.slice().reverse().forEach(e => {
       const row = document.createElement('div');
-      const tType = e.type === 'school_ban' ? '<span style="color:#3b82f6;">SCHOOL</span>' : '<span style="color:#d32f2f;">REGULAR</span>';
+      let tType;
+      if (e.type === 'school_ban') tType = '<span style="color:#3b82f6;">SCHOOL</span>';
+      else if (e.type === 'unban') tType = '<span style="color:#22c55e;">UNBAN</span>';
+      else tType = '<span style="color:#d32f2f;">REGULAR</span>';
       const when = new Date(e.ts * 1000).toLocaleString();
+      const meta = [];
+      if (e.type === 'regular_ban') {
+        if (e.ip) meta.push('ip ' + esc(e.ip));
+        if (e.device_id) meta.push('device ' + esc(String(e.device_id).slice(0, 12)) + '…');
+        meta.push('booted ' + (e.booted || 0));
+      } else if (e.type === 'school_ban') {
+        meta.push('booted ' + (e.booted || 0));
+      } else if (e.type === 'unban') {
+        if (e.removed_account) meta.push('account');
+        if (e.removed_ip) meta.push('ip ' + esc(e.removed_ip));
+        if (e.removed_device) meta.push('device ' + esc(String(e.removed_device).slice(0, 12)) + '…');
+        if (!meta.length) meta.push('nothing to remove');
+      }
       row.style.cssText = 'padding:3px 6px;background:var(--bg-elevated);border-radius:3px;';
-      row.innerHTML = '<b>' + esc(e.moderator) + '</b> &rarr; ' + tType + ' &rarr; <b>' + esc(e.target) + '</b> <span style="color:var(--text-muted);">(' + when + ', booted ' + (e.booted || 0) + ')</span>';
+      row.innerHTML = '<b>' + esc(e.moderator) + '</b> &rarr; ' + tType + ' &rarr; <b>' + esc(e.target) + '</b> <span style="color:var(--text-muted);">(' + when + ', ' + meta.join(', ') + ')</span>';
       list.appendChild(row);
     });
   } catch { list.innerHTML = '<span style="color:var(--red);">Failed to load</span>'; }
