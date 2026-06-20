@@ -1318,10 +1318,12 @@ async def dm_history_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     target = request.query.get("with", "")
     msgs = dms.get(dm_key(user, target), [])[-MAX_DM_HISTORY:]
+    peer_last_seen = 0
     if target:
         mark_dm_seen(user, target)
         await save_dm_last_seen()
-    return web.json_response({"messages": msgs})
+        peer_last_seen = dm_last_seen.get(target.lower(), {}).get(user.lower(), 0)
+    return web.json_response({"messages": msgs, "peer_last_seen": peer_last_seen})
 
 async def dm_unread_handler(request):
     user = get_auth_user(request)
