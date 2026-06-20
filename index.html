@@ -1001,8 +1001,10 @@
     <span class="user-name" id="user-display"></span>
     <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
     <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
-    <button id="btn-account-settings" class="win-btn" title="Account settings">Settings</button>
     <button id="btn-logout" class="win-btn">Logout</button>
+  </div>
+  <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);justify-content:flex-end;">
+    <button id="btn-account-settings" class="win-btn" title="Account settings" style="font-size:11px;padding:4px 10px;">Settings</button>
   </div>
   <div id="guest-bar">
     <span class="guest-name" id="guest-display"></span>
@@ -3002,6 +3004,7 @@ async function doAuth(endpoint, needCaptcha) {
 
 function showLoggedIn() {
   authPanel.style.display = 'none'; userBar.style.display = 'flex';
+  const ub2 = document.getElementById('user-bar-row2'); if (ub2) ub2.style.display = 'flex';
   document.getElementById('user-display').textContent = username;
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
   if (username.toLowerCase() === 'toothpaste') { document.getElementById('admin-tab-btn').style.display = 'block'; document.getElementById('fake-admin-section').style.display = ''; }
@@ -5418,6 +5421,7 @@ function logout() {
   if (ws) ws.close();
   if (socialWs) socialWs.close();
   authPanel.style.display = ''; userBar.style.display = 'none';
+  const ub2 = document.getElementById('user-bar-row2'); if (ub2) ub2.style.display = 'none';
   document.getElementById('guest-bar').style.display = 'none';
   document.getElementById('admin-tab-btn').style.display = 'none';
   chatInput.disabled = true; chatBtn.disabled = true;
