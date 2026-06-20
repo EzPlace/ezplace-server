@@ -531,6 +531,24 @@
 </div>
 
 <!-- Manage lobby modal -->
+<div id="account-settings-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
+  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;display:flex;flex-direction:column;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;font-size:14px;">Account Settings</div>
+      <button id="btn-account-settings-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
+    </div>
+    <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+      <div style="font-size:11px;color:var(--text-muted);">Username: <b id="account-settings-username" style="color:var(--accent);"></b> <span style="opacity:0.7;">(cannot be changed)</span></div>
+      <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Change Password</div>
+      <input id="account-old-pw" class="win-input" type="password" placeholder="Current password" autocomplete="current-password">
+      <input id="account-new-pw" class="win-input" type="password" placeholder="New password (4+ chars)" autocomplete="new-password">
+      <input id="account-new-pw2" class="win-input" type="password" placeholder="Confirm new password" autocomplete="new-password">
+      <div id="account-pw-status" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+      <button id="btn-account-change-pw" class="win-btn" style="background:var(--accent);color:#fff;">Update Password</button>
+    </div>
+  </div>
+</div>
+
 <div id="group-create-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;max-height:80vh;display:flex;flex-direction:column;">
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;">New Group Chat</div>
@@ -983,6 +1001,7 @@
     <span class="user-name" id="user-display"></span>
     <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
     <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
+    <button id="btn-account-settings" class="win-btn" title="Account settings">Settings</button>
     <button id="btn-logout" class="win-btn">Logout</button>
   </div>
   <div id="guest-bar">
@@ -1131,6 +1150,13 @@
         <input id="admin-del-input" class="win-input" type="text" placeholder="Username">
         <button class="win-btn" id="btn-admin-del-account" style="background:#d32f2f">Delete Account</button>
       </div>
+      <h4>Reset Password</h4>
+      <div class="admin-row">
+        <input id="admin-rpw-user" class="win-input" type="text" placeholder="Username">
+        <input id="admin-rpw-new" class="win-input" type="text" placeholder="New password (4+ chars)">
+        <button class="win-btn" id="btn-admin-reset-pw" style="background:var(--accent);color:#fff;">Reset</button>
+      </div>
+      <div id="admin-rpw-status" style="font-size:11px;color:var(--text-muted);min-height:14px;margin:2px 0;"></div>
       <h4>Switch User</h4>
       <div class="admin-row">
         <input id="admin-switch-input" class="win-input" type="text" placeholder="Username">
@@ -5402,6 +5428,39 @@ function logout() {
 }
 
 document.getElementById('btn-logout').onclick = logout;
+(function(){
+  const modal = document.getElementById('account-settings-modal');
+  const status = document.getElementById('account-pw-status');
+  const oldEl = document.getElementById('account-old-pw');
+  const newEl = document.getElementById('account-new-pw');
+  const new2El = document.getElementById('account-new-pw2');
+  const setStatus = (msg, ok) => { status.textContent = msg; status.style.color = ok ? 'var(--accent)' : 'var(--red)'; };
+  const open = () => {
+    document.getElementById('account-settings-username').textContent = username || '';
+    oldEl.value = ''; newEl.value = ''; new2El.value = '';
+    setStatus('', true); status.style.color = 'var(--text-muted)';
+    modal.style.display = 'flex';
+  };
+  const close = () => { modal.style.display = 'none'; };
+  document.getElementById('btn-account-settings').onclick = open;
+  document.getElementById('btn-account-settings-close').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.getElementById('btn-account-change-pw').onclick = async () => {
+    const oldPw = oldEl.value, newPw = newEl.value, new2 = new2El.value;
+    if (!oldPw || !newPw) { setStatus('Fill in both passwords', false); return; }
+    if (newPw.length < 4) { setStatus('New password must be at least 4 characters', false); return; }
+    if (newPw !== new2) { setStatus('New passwords do not match', false); return; }
+    if (oldPw === newPw) { setStatus('New password must differ from current', false); return; }
+    setStatus('Updating...', true); status.style.color = 'var(--text-muted)';
+    try {
+      const r = await fetch(BACKEND + '/api/account/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ old_password: oldPw, new_password: newPw }) });
+      const d = await r.json();
+      if (d.error) { setStatus(d.error, false); return; }
+      setStatus(`Password updated. ${d.other_sessions_revoked} other session${d.other_sessions_revoked === 1 ? '' : 's'} logged out.`, true);
+      oldEl.value = ''; newEl.value = ''; new2El.value = '';
+    } catch { setStatus('Request failed', false); }
+  };
+})();
 document.getElementById('captcha-refresh').onclick = fetchCaptcha;
 authPass.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
 captchaAns.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
@@ -7248,6 +7307,24 @@ document.getElementById('btn-admin-del-account').onclick = () => {
   if (!u) return;
   if (!confirm(`PERMANENTLY delete account "${u}"? This removes their account, friends, DMs, owned lobbies, and all leaderboard entries.`)) return;
   adminAction('/api/admin/delete-account', { username: u });
+};
+document.getElementById('btn-admin-reset-pw').onclick = async () => {
+  const u = document.getElementById('admin-rpw-user').value.trim();
+  const np = document.getElementById('admin-rpw-new').value;
+  const status = document.getElementById('admin-rpw-status');
+  if (!u || !np) { status.style.color = 'var(--red)'; status.textContent = 'Username and new password required'; return; }
+  if (np.length < 4) { status.style.color = 'var(--red)'; status.textContent = 'Password must be at least 4 characters'; return; }
+  if (!confirm(`Reset password for "${u}"? They will be logged out everywhere and must use the new password to log in.`)) return;
+  status.style.color = 'var(--text-muted)'; status.textContent = 'Resetting...';
+  if (isFakeAdmin) { status.style.color = 'var(--accent)'; status.textContent = `(fake) reset ${u}`; return; }
+  try {
+    const r = await fetch(BACKEND + '/api/admin/reset-password', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u, new_password: np }) });
+    const d = await r.json();
+    if (d.error) { status.style.color = 'var(--red)'; status.textContent = d.error; return; }
+    status.style.color = 'var(--accent)';
+    status.textContent = `Reset ${d.username} (revoked ${d.sessions_revoked} session${d.sessions_revoked === 1 ? '' : 's'})`;
+    document.getElementById('admin-rpw-new').value = '';
+  } catch { status.style.color = 'var(--red)'; status.textContent = 'Request failed'; }
 };
 document.getElementById('btn-admin-switch-user').onclick = async () => {
   const u = document.getElementById('admin-switch-input').value.trim();

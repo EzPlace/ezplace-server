@@ -1903,6 +1903,63 @@ async def admin_redirect_handler(request):
             except: pass
     return web.json_response({"ok": True, "message": f"Redirect sent to {delivered} connection(s) for {target}"} if delivered else {"error": f"{target} is not online"})
 
+async def admin_reset_password_handler(request):
+    data = await request.json()
+    actor = get_auth_user(request)
+    if not is_admin(actor): return web.json_response({"error": "Forbidden"}, status=403)
+    target = (data.get("username") or "").strip()
+    new_pw = data.get("new_password") or ""
+    if not target: return web.json_response({"error": "Username required"}, status=400)
+    if len(new_pw) < 4: return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
+    found = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not found: return web.json_response({"error": f"Account {target} not found"}, status=404)
+    pw_hash, salt = hash_password(new_pw)
+    accounts[found]["password_hash"] = pw_hash
+    accounts[found]["salt"] = salt
+    await save_accounts()
+    tlow = found.lower()
+    revoked = 0
+    for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
+        sessions.pop(tok, None); revoked += 1
+    for ws, info in list(clients.items()):
+        if info and info.get("username", "").lower() == tlow:
+            try: await ws.send_json({"type": "kicked", "text": "Your password was reset - please log in again"}); await ws.close()
+            except: pass
+    for ws, uname in list(social_clients.items()):
+        if uname and uname.lower() == tlow:
+            try: await ws.close()
+            except: pass
+    return web.json_response({"ok": True, "username": found, "sessions_revoked": revoked})
+
+async def change_password_handler(request):
+    if not check_rate_limit(get_client_ip(request), "change_pw", 5, 300):
+        return web.json_response({"error": "Too many attempts - try again in a few minutes"}, status=429)
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await request.json()
+    old_pw = data.get("old_password") or ""
+    new_pw = data.get("new_password") or ""
+    if not old_pw or not new_pw:
+        return web.json_response({"error": "Old and new password required"}, status=400)
+    if len(new_pw) < 4:
+        return web.json_response({"error": "New password must be at least 4 characters"}, status=400)
+    acc = accounts.get(user)
+    if not acc: return web.json_response({"error": "Account not found"}, status=404)
+    h, _ = hash_password(old_pw, acc["salt"])
+    if h != acc["password_hash"]:
+        return web.json_response({"error": "Current password is incorrect"}, status=400)
+    pw_hash, salt = hash_password(new_pw)
+    accounts[user]["password_hash"] = pw_hash
+    accounts[user]["salt"] = salt
+    await save_accounts()
+    auth_hdr = request.headers.get("Authorization", "")
+    keep_tok = auth_hdr if auth_hdr in sessions else None
+    ulow = user.lower()
+    revoked = 0
+    for tok in [t for t, u in sessions.items() if u.lower() == ulow and t != keep_tok]:
+        sessions.pop(tok, None); revoked += 1
+    return web.json_response({"ok": True, "other_sessions_revoked": revoked})
+
 async def admin_delete_account_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -5997,6 +6054,8 @@ app.router.add_get("/api/admin/richest", admin_richest_handler)
 app.router.add_post("/api/admin/clear_economy_history", admin_clear_economy_history_handler)
 app.router.add_post("/api/admin/redirect", admin_redirect_handler)
 app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
+app.router.add_post("/api/admin/reset-password", admin_reset_password_handler)
+app.router.add_post("/api/account/change-password", change_password_handler)
 app.router.add_post("/api/admin/session-for", admin_session_for_handler)
 app.router.add_post("/api/admin/ipban", admin_ipban_handler)
 app.router.add_post("/api/admin/device-ban", admin_device_ban_handler)
