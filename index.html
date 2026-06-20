@@ -6470,7 +6470,7 @@ function connectSocial() {
       if (isViewingThisThread) {
         const ti = document.getElementById('dm-typing-ind'); if (ti) ti.style.display = 'none';
         appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image, msg.reply_to);
-        if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+        if (socialWs && socialWs.readyState === WebSocket.OPEN && !document.hidden) {
           socialWs.send(JSON.stringify({ type: 'dm_seen', peer: msg.from }));
         }
       } else {
@@ -6578,6 +6578,14 @@ document.getElementById('btn-friend-add').onclick = async () => {
 let currentDmWith = null;
 let currentGroupId = null;
 let myFriendsCache = [];
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (!currentDmWith) return;
+  if (!socialWs || socialWs.readyState !== WebSocket.OPEN) return;
+  const activeTab = document.querySelector('.sidebar-tab.active');
+  const inThread = activeTab && activeTab.dataset.tab === 'msgs-tab' && document.getElementById('msg-view').style.display !== 'none';
+  if (inThread) socialWs.send(JSON.stringify({ type: 'dm_seen', peer: currentDmWith }));
+});
 
 async function loadMsgList() {
   const list = document.getElementById('msg-list'); list.innerHTML = '';
@@ -6682,13 +6690,18 @@ async function openDm(friendName) {
   const el = document.getElementById('msg-view-msgs'); el.innerHTML = '';
   delete unreadDms[friendName.toLowerCase()];
   updateDmTabBadge();
-  if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+  if (socialWs && socialWs.readyState === WebSocket.OPEN && !document.hidden) {
     socialWs.send(JSON.stringify({ type: 'dm_seen', peer: friendName }));
   }
   try {
     const res = await fetch(`/api/dm/history?with=${encodeURIComponent(friendName)}`, { headers: { Authorization: authToken } });
     const data = await res.json();
     (data.messages || []).forEach(m => appendDmMsg(m.from, m.text || '', m.time, m.image_url || m.image, m.reply_to));
+    const pls = data.peer_last_seen || 0;
+    if (pls && lastSelfDmEl) {
+      const lastTs = parseInt(lastSelfDmEl.dataset.ts || '0', 10);
+      if (lastTs && pls >= lastTs) showDmSeen();
+    }
   } catch {}
   document.getElementById('msg-send-input').focus();
 }
@@ -6716,6 +6729,7 @@ function appendDmMsg(from, text, t, image, replyTo) {
     d.appendChild(img);
   }
   d.querySelector('.dm-reply-btn').addEventListener('click', () => setDmReply(from, text || '[image]'));
+  d.dataset.ts = String(t || 0);
   el.appendChild(d);
   if (username && from.toLowerCase() === username.toLowerCase()) lastSelfDmEl = d;
   el.scrollTop = el.scrollHeight;
