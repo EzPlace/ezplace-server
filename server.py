@@ -61,7 +61,8 @@ moderators = []
 mod_ban_log = []
 MOD_BAN_LOG_MAX = 500
 vips = []
-ranks = {}                                                              
+ranks = {}
+name_colors = {}
 user_ips = {}
 fake_admins = []
 brush_perms = {}                                                     
@@ -80,7 +81,7 @@ economy_history = []
 ECONOMY_SNAPSHOT_INTERVAL = 300
 ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
-SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
+SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "name_color": 30, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
 PALETTE_SIZE = 81
 STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
@@ -304,6 +305,12 @@ def get_brush_perm(username):
 
 async def save_ranks():
     await db_save("store", "ranks", ranks)
+
+async def save_name_colors():
+    await db_save("store", "name_colors", name_colors)
+
+def get_name_color(username):
+    return name_colors.get((username or "").lower())
 
 async def save_user_ips():
     await db_save("store", "user_ips", user_ips)
@@ -858,6 +865,8 @@ async def load_all_data():
     mod_ban_log = await db_load("store", "mod_ban_log") or []
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
+    global name_colors
+    name_colors = await db_load("store", "name_colors") or {}
     fake_admins = await db_load("store", "fake_admins") or []
     brush_perms = await db_load("store", "brush_perms") or {}
     clans = await db_load("store", "clans") or {}
@@ -1879,7 +1888,7 @@ async def admin_relay_handler(request):
     if not lobby_id: return web.json_response({"error": f"{target} is not in a lobby"}, status=404)
     lobby = lobbies.get(lobby_id)
     is_owner = bool(lobby and lobby.get("owner") and lobby["owner"].lower() == tlow)
-    payload = {"type": "chat", "username": real_name, "text": text, "is_owner": is_owner, "is_guest": False, "is_vip": is_vip(real_name), "rank": get_rank(real_name), "clan": get_clan_tag(real_name)}
+    payload = {"type": "chat", "username": real_name, "text": text, "is_owner": is_owner, "is_guest": False, "is_vip": is_vip(real_name), "rank": get_rank(real_name), "clan": get_clan_tag(real_name), "name_color": get_name_color(real_name)}
     await broadcast_to_lobby(lobby_id, payload)
     return web.json_response({"ok": True})
 
@@ -2473,6 +2482,7 @@ async def me_handler(request):
         "streak_progress": get_streak_progress(user),
         "is_moderator": bool(is_moderator(user)),
         "is_admin": bool(is_admin(user)),
+        "name_color": get_name_color(user),
         "prices": {"shop": SHOP_PRICES, "lobby": {f"{w}x{h}": p for (w, h), p in LOBBY_PRICES.items()}, "pixels_per_buck": PB_PIXELS_PER_BUCK},
     })
 
@@ -2507,6 +2517,22 @@ async def shop_buy_handler(request):
         await save_ranks()
         await push_pb_update(user)
         return web.json_response({"ok": True, "balance": get_pb(user), "purchases": purchases.get(user.lower()) or {}})
+    if item == "name_color":
+        color = (data.get("color") or "").strip()[:32]
+        if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+            return web.json_response({"error": "Color must be a hex code"}, status=400)
+        first_time = not has_purchase(user, "name_color")
+        if first_time:
+            price = SHOP_PRICES["name_color"]
+            if not spend_pb(user, price):
+                return web.json_response({"error": f"Not enough PlaceBucks (need {price})"}, status=400)
+            purchases.setdefault(user.lower(), {})["name_color"] = True
+            await save_purchases()
+            await save_place_bucks()
+        name_colors[user.lower()] = color
+        await save_name_colors()
+        await push_pb_update(user)
+        return web.json_response({"ok": True, "balance": get_pb(user), "purchases": purchases.get(user.lower()) or {}, "name_color": color})
     stackable = item in STACKABLE_ITEMS
     if not stackable and has_purchase(user, item):
         return web.json_response({"error": "You already own that"}, status=400)
@@ -5392,7 +5418,7 @@ async def websocket_handler(request):
                         lobby = lobbies.get(lobby_id)
                         if lobby: lobby["last_activity"] = now2
                         is_owner = not is_guest and lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
-                        chat_payload = {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username), "rank": get_rank(username), "clan": get_clan_tag(username)}
+                        chat_payload = {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username), "rank": get_rank(username), "clan": get_clan_tag(username), "name_color": get_name_color(username)}
                         rt = data.get("reply_to")
                         if isinstance(rt, dict):
                             rfrom = str(rt.get("from", ""))[:30]
