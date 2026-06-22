@@ -93,6 +93,7 @@
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+  @keyframes movieArrowBob { from { transform: translate(-50%, 0); } to { transform: translate(-50%, -4px); } }
   .msg { animation: fadeIn 0.2s ease; }
   .lobby-card { animation: slideIn 0.2s ease; transition: all 0.2s ease; }
   .friend-item { animation: fadeIn 0.15s ease; }
@@ -554,6 +555,26 @@
       <div id="account-pw-status" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
       <button id="btn-account-change-pw" class="win-btn" style="background:var(--accent);color:#fff;">Update Password</button>
     </div>
+  </div>
+</div>
+
+<div id="movies-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(6px);z-index:70;align-items:center;justify-content:center;padding:14px;">
+  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:900px;max-width:100%;max-height:90vh;display:flex;flex-direction:column;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <div style="font-weight:700;font-size:14px;">🎬 Movies</div>
+      <button id="btn-movies-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
+    </div>
+    <div id="movies-player-wrap" style="display:none;padding:0;background:#000;position:relative;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border);">
+        <button id="btn-movies-back" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">← Back to list</button>
+        <div id="movies-now-playing" style="font-weight:700;font-size:13px;color:var(--accent);"></div>
+        <div style="width:120px;"></div>
+      </div>
+      <div style="position:relative;width:100%;padding-top:56.25%;background:#000;">
+        <iframe id="movies-iframe" src="" allow="autoplay; fullscreen" allowfullscreen style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"></iframe>
+      </div>
+    </div>
+    <div id="movies-list" style="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;overflow-y:auto;"></div>
   </div>
 </div>
 
@@ -1021,6 +1042,10 @@
   </div>
   <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;justify-content:flex-end;flex-wrap:wrap;">
     <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
+    <span style="position:relative;">
+      <button id="btn-movies" class="win-btn" title="Watch movies" style="font-size:11px;padding:4px 10px;background:#7c5cfc;color:#fff;font-weight:700;">🎬 Movies</button>
+      <div id="movies-tutorial-arrow" style="display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#7c5cfc;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 4px 14px rgba(124,92,252,0.5);z-index:55;cursor:pointer;white-space:nowrap;animation:movieArrowBob 1.2s ease-in-out infinite alternate;">↑ Watch movies here <span style="opacity:0.8;font-weight:400;font-size:10px;">(click to dismiss)</span></div>
+    </span>
     <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
     <button id="btn-account-settings" class="win-btn" title="Account settings" style="font-size:11px;padding:4px 10px;">Settings</button>
   </div>
@@ -1345,6 +1370,20 @@ const safeStore = (function () {
     };
   }
 })();
+
+// ============================================================
+// MOVIES CONFIG - drop your Google Drive share links (or raw file IDs) into the `src` field.
+// Share URL format: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+// The code will auto-extract the file ID and build the /preview embed URL.
+// You can also pass just "FILE_ID" directly if you prefer.
+// ============================================================
+const MOVIES = [
+  { title: "A Minecraft Movie", src: "1Hd98_27UNxYQvvqqOjmHC_25S6VG8UG9" },
+  { title: "Michael Jackson Movie", src: "1CWpY2A2nEoNo0YZ8XpCPo5YYlA-m5x_r" },
+  { title: "FNAF 2 Movie", src: "1DR8vuiCDiBosdZCywL8hB-Q5I-5tg8yv" },
+  { title: "Backrooms Movie", src: "18nLws3FusSwXgQxTmAv-JmQijlCytXzD" },
+  { title: "More coming soon...", comingSoon: true },
+];
 
 const TIPS = [
   "DID YOU KNOW? You can create clans, you can join them and create them on the homepage.",
@@ -5599,6 +5638,88 @@ applyPrefs();
     } catch { setStatus('Request failed', false); }
   };
 })();
+
+(function setupMovies() {
+  const modal = document.getElementById('movies-modal');
+  const list = document.getElementById('movies-list');
+  const playerWrap = document.getElementById('movies-player-wrap');
+  const iframe = document.getElementById('movies-iframe');
+  const nowPlaying = document.getElementById('movies-now-playing');
+  function extractDriveId(src) {
+    if (!src) return null;
+    const m = String(src).match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+    if (m) return m[1];
+    if (/^[a-zA-Z0-9_-]{20,}$/.test(src)) return src;
+    return null;
+  }
+  function previewUrl(src) {
+    const id = extractDriveId(src);
+    return id ? 'https://drive.google.com/file/d/' + id + '/preview' : null;
+  }
+  function renderList() {
+    list.innerHTML = '';
+    if (!MOVIES.length) {
+      list.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px;color:var(--text-muted);font-size:12px;">No movies have been added yet. The site owner needs to fill in the MOVIES config array.</div>';
+      return;
+    }
+    MOVIES.forEach((m, i) => {
+      const card = document.createElement('div');
+      if (m.comingSoon) {
+        card.style.cssText = 'background:var(--bg-secondary);border:1px dashed var(--border);border-radius:var(--radius-sm);padding:12px;opacity:0.6;cursor:default;';
+        card.innerHTML = '<div style="font-weight:700;font-size:13px;margin-bottom:4px;color:var(--text-muted);">⏳ ' + esc(m.title || 'More coming soon...') + '</div><div style="font-size:10px;color:var(--text-muted);">Stay tuned</div>';
+        list.appendChild(card);
+        return;
+      }
+      const url = previewUrl(m.src);
+      card.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;cursor:' + (url ? 'pointer' : 'not-allowed') + ';transition:transform 0.15s, border-color 0.15s;';
+      card.innerHTML = '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">🎬 ' + esc(m.title || ('Movie ' + (i+1))) + '</div><div style="font-size:10px;color:var(--text-muted);">' + (url ? 'Click to play' : 'Invalid Drive URL') + '</div>';
+      if (url) {
+        card.onmouseenter = () => { card.style.borderColor = 'var(--accent)'; card.style.transform = 'translateY(-2px)'; };
+        card.onmouseleave = () => { card.style.borderColor = 'var(--border)'; card.style.transform = ''; };
+        card.onclick = () => playMovie(m, url);
+      }
+      list.appendChild(card);
+    });
+  }
+  function playMovie(m, url) {
+    iframe.src = url;
+    nowPlaying.textContent = m.title || 'Movie';
+    playerWrap.style.display = 'block';
+    list.style.display = 'none';
+  }
+  function backToList() {
+    iframe.src = '';
+    playerWrap.style.display = 'none';
+    list.style.display = 'grid';
+  }
+  function open() {
+    backToList();
+    renderList();
+    modal.style.display = 'flex';
+    safeStore.setItem('ez_movies_tutorial_seen', '1');
+    const arr = document.getElementById('movies-tutorial-arrow');
+    if (arr) arr.style.display = 'none';
+  }
+  function close() {
+    iframe.src = '';
+    modal.style.display = 'none';
+  }
+  document.getElementById('btn-movies').onclick = open;
+  document.getElementById('btn-movies-close').onclick = close;
+  document.getElementById('btn-movies-back').onclick = backToList;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  const arrow = document.getElementById('movies-tutorial-arrow');
+  if (arrow) arrow.onclick = () => { arrow.style.display = 'none'; safeStore.setItem('ez_movies_tutorial_seen', '1'); };
+})();
+
+function showMoviesTutorialIfNew() {
+  if (safeStore.getItem('ez_movies_tutorial_seen') === '1') return;
+  const arr = document.getElementById('movies-tutorial-arrow');
+  if (!arr) return;
+  arr.style.display = 'block';
+  setTimeout(() => { arr.style.display = 'none'; safeStore.setItem('ez_movies_tutorial_seen', '1'); }, 15000);
+}
+
 document.getElementById('captcha-refresh').onclick = fetchCaptcha;
 authPass.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
 captchaAns.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
@@ -5946,8 +6067,10 @@ function joinLobby(id, name, isPublic) {
     document.getElementById('guest-bar').style.display = 'flex';
     document.getElementById('guest-display').textContent = guestName;
     chatInput.disabled = false; chatBtn.disabled = false;
+    setTimeout(() => alert('Make an account to get access to drawing and friends list and movies!'), 200);
   } else {
     isGuest = false;
+    setTimeout(showMoviesTutorialIfNew, 400);
   }
   currentLobbyId = id; currentLobbyName = name;
   stopEconomyPoll();
