@@ -63,6 +63,8 @@ MOD_BAN_LOG_MAX = 500
 vips = []
 ranks = {}
 name_colors = {}
+presence = {}
+last_online = {}
 user_ips = {}
 fake_admins = []
 brush_perms = {}                                                     
@@ -311,6 +313,24 @@ async def save_name_colors():
 
 def get_name_color(username):
     return name_colors.get((username or "").lower())
+
+async def save_last_online():
+    await db_save("store", "last_online", last_online)
+
+def get_presence(username):
+    ulow = (username or "").lower()
+    p = presence.get(ulow)
+    return p if p else None
+
+async def push_friend_presence(user):
+    """Push presence state to everyone who has this user as a friend."""
+    ulow = user.lower()
+    p = presence.get(ulow) or {"afk": False, "since": time.time()}
+    payload = {"type": "friend_presence", "user": user, "afk": bool(p.get("afk")), "since": p.get("since", time.time()), "online": is_online(user)}
+    for friend_user, fd in list(friends_data.items()):
+        if user in (fd.get("friends") or []):
+            try: await notify_social(friend_user, payload)
+            except: pass
 
 async def save_user_ips():
     await db_save("store", "user_ips", user_ips)
@@ -865,8 +885,9 @@ async def load_all_data():
     mod_ban_log = await db_load("store", "mod_ban_log") or []
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
-    global name_colors
+    global name_colors, last_online
     name_colors = await db_load("store", "name_colors") or {}
+    last_online = await db_load("store", "last_online") or {}
     fake_admins = await db_load("store", "fake_admins") or []
     brush_perms = await db_load("store", "brush_perms") or {}
     clans = await db_load("store", "clans") or {}
@@ -1257,7 +1278,17 @@ async def friends_list_handler(request):
     if not user:
         return web.json_response({"error": "Not authenticated"}, status=401)
     fd = get_friend_data(user)
-    return web.json_response({"friends": [{"name": f, "online": is_online(f)} for f in fd["friends"]], "incoming": fd["incoming"], "outgoing": fd["outgoing"]})
+    def friend_entry(f):
+        online = is_online(f)
+        p = presence.get(f.lower()) or {}
+        return {
+            "name": f,
+            "online": online,
+            "afk": bool(p.get("afk")) if online else False,
+            "afk_since": p.get("since") if online and p.get("afk") else None,
+            "last_online": last_online.get(f.lower()),
+        }
+    return web.json_response({"friends": [friend_entry(f) for f in fd["friends"]], "incoming": fd["incoming"], "outgoing": fd["outgoing"]})
 
 async def friend_add_handler(request):
     data = await request.json()
@@ -5110,14 +5141,23 @@ async def social_ws_handler(request):
                                 await ws.send_json({"type": "pending_friend_requests", "from": pending})
                         except: pass
                         await broadcast_online_all_lobbies()
+                        try: await push_friend_presence(username)
+                        except: pass
                     else:
                         await ws.close()
+                elif data.get("type") == "presence" and username:
+                    afk = bool(data.get("afk"))
+                    ulow = username.lower()
+                    prev = presence.get(ulow) or {}
+                    if prev.get("afk") != afk:
+                        presence[ulow] = {"afk": afk, "since": time.time()}
+                        await push_friend_presence(username)
                 elif data.get("type") == "dm_seen" and username:
                     peer = data.get("peer", "").strip()
                     if peer:
                         mark_dm_seen(username, peer)
                         await save_dm_last_seen()
-                                                                              
+
                         await notify_social(peer, {"type": "dm_seen_by", "peer": username})
                 elif data.get("type") == "dm_typing" and username:
                     peer = data.get("to", "").strip()
@@ -5201,6 +5241,13 @@ async def social_ws_handler(request):
             await broadcast_online_all_lobbies()
             still_online = any(uname and uname.lower() == disconnected_user.lower() for uname in social_clients.values())
             if not still_online and disconnected_user:
+                dlow_p = disconnected_user.lower()
+                last_online[dlow_p] = time.time()
+                presence.pop(dlow_p, None)
+                try: await save_last_online()
+                except: pass
+                try: await push_friend_presence(disconnected_user)
+                except: pass
                 try: await uno_forfeit(disconnected_user)
                 except Exception as e: print(f"uno_forfeit on disconnect failed: {e}")
                 try:

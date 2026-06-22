@@ -170,6 +170,7 @@
   .friend-item:hover { background: var(--bg-hover); }
   .friend-item .f-status { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
   .friend-item .f-status.online { background: var(--green); box-shadow: 0 0 6px rgba(67,181,129,0.4); }
+  .friend-item .f-status.afk { background: #f0b232; box-shadow: 0 0 6px rgba(240,178,50,0.45); }
   .friend-item .f-status.offline { background: var(--text-muted); }
   .friend-item .f-name { flex: 1; }
   .friend-item button { font-size: 10px; padding: 3px 8px; margin-left: 4px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; }
@@ -308,6 +309,8 @@
   body.eink-mode .win-input { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; }
   body.eink-mode #header h1, body.eink-mode .rainbow, body.eink-mode .rank-badge.rainbow, body.eink-mode .mod-name, body.eink-mode .rank-badge.mod-rank { background: none !important; -webkit-text-fill-color: #000 !important; color: #000 !important; }
   body.eink-mode .msg, body.eink-mode .msg *, body.eink-mode .dm-msg, body.eink-mode .dm-msg * { color: #000 !important; }
+  body.no-anim *, body.no-anim *::before, body.no-anim *::after { animation: none !important; transition: none !important; }
+  body.no-panorama #lobby-bg-canvas, body.no-panorama #lobby-bg-overlay { display: none !important; }
   body.eink-mode .msg .name, body.eink-mode .msg .name.owner, body.eink-mode .msg .name.guest, body.eink-mode .msg .name.vip, body.eink-mode .msg .crown, body.eink-mode .lb-name, body.eink-mode .lb-count, body.eink-mode .dm-msg b { color: #000 !important; font-weight: 700 !important; }
   body.eink-mode .msg.system, body.eink-mode .msg.system * { color: #555 !important; }
   body.eink-mode .msg .timestamp, body.eink-mode .dm-msg .dm-time { color: #666 !important; }
@@ -539,6 +542,11 @@
     </div>
     <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
       <div style="font-size:11px;color:var(--text-muted);">Username: <b id="account-settings-username" style="color:var(--accent);"></b> <span style="opacity:0.7;">(cannot be changed)</span></div>
+      <div style="font-size:11px;color:var(--text-muted);">AFK time: <b id="account-settings-afk" style="color:var(--text);">active</b></div>
+      <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Preferences</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-tips"> Hide "DID YOU KNOW?" banner permanently</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-panorama"> Disable main menu panorama</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-disable-anim"> Disable animations</label>
       <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Change Password</div>
       <input id="account-old-pw" class="win-input" type="password" placeholder="Current password" autocomplete="current-password">
       <input id="account-new-pw" class="win-input" type="password" placeholder="New password (4+ chars)" autocomplete="new-password">
@@ -1009,11 +1017,11 @@
   </div>
   <div id="user-bar">
     <span class="user-name" id="user-display"></span>
-    <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
-    <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
     <button id="btn-logout" class="win-btn">Logout</button>
   </div>
-  <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);justify-content:flex-end;">
+  <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;justify-content:flex-end;flex-wrap:wrap;">
+    <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
+    <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
     <button id="btn-account-settings" class="win-btn" title="Account settings" style="font-size:11px;padding:4px 10px;">Settings</button>
   </div>
   <div id="guest-bar">
@@ -3066,6 +3074,16 @@ let myUnlimited = false;
 let myStreak = 0;
 let myStreakProgress = { seconds: 0, required: 900, earned_today: false };
 function fmtMMSS(s) { const m = Math.floor(s / 60), sec = s % 60; return m + ':' + String(sec).padStart(2, '0'); }
+function fmtRelTime(unixSec) {
+  if (!unixSec) return 'never';
+  const diff = Math.max(0, Math.floor(Date.now()/1000 - unixSec));
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  if (diff < 86400*30) return Math.floor(diff/86400) + 'd ago';
+  const d = new Date(unixSec * 1000);
+  return d.toLocaleDateString();
+}
 function applyPbState() {
   const el = document.getElementById('pb-balance');
   if (el) {
@@ -5490,20 +5508,78 @@ function logout() {
 }
 
 document.getElementById('btn-logout').onclick = logout;
+let lastActivityAt = Date.now();
+let isAfk = false;
+let afkSince = Date.now();
+function refreshAfk() {
+  const wasAfk = isAfk;
+  const hidden = document.hidden;
+  const idle = (Date.now() - lastActivityAt) > 60000;
+  const now = hidden || idle;
+  if (now !== wasAfk) {
+    isAfk = now;
+    afkSince = Date.now();
+    if (socialWs && socialWs.readyState === WebSocket.OPEN) {
+      try { socialWs.send(JSON.stringify({ type: 'presence', afk: isAfk })); } catch {}
+    }
+  }
+}
+['mousemove','keydown','touchstart','pointerdown','scroll','wheel'].forEach(ev => {
+  document.addEventListener(ev, () => { lastActivityAt = Date.now(); refreshAfk(); }, { passive: true });
+});
+document.addEventListener('visibilitychange', refreshAfk);
+setInterval(refreshAfk, 5000);
+
+function applyPrefs() {
+  const noAnim = safeStore.getItem('ez_anim_disabled') === '1';
+  document.body.classList.toggle('no-anim', noAnim);
+  const noPan = safeStore.getItem('ez_panorama_hidden') === '1';
+  document.body.classList.toggle('no-panorama', noPan);
+  const noTips = safeStore.getItem('ez_tips_hidden') === '1';
+  const tipBar = document.getElementById('tip-banner');
+  if (tipBar && noTips) tipBar.style.display = 'none';
+}
+applyPrefs();
 (function(){
   const modal = document.getElementById('account-settings-modal');
   const status = document.getElementById('account-pw-status');
   const oldEl = document.getElementById('account-old-pw');
   const newEl = document.getElementById('account-new-pw');
   const new2El = document.getElementById('account-new-pw2');
+  const afkEl = document.getElementById('account-settings-afk');
+  const tipsEl = document.getElementById('pref-hide-tips');
+  const panEl = document.getElementById('pref-hide-panorama');
+  const animEl = document.getElementById('pref-disable-anim');
+  let afkTimer = null;
+  const fmtAfkDur = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(s / 60), r = s % 60;
+    if (m === 0) return s + 's';
+    if (m < 60) return m + 'm ' + r + 's';
+    const h = Math.floor(m / 60); return h + 'h ' + (m % 60) + 'm';
+  };
+  const updateAfkLabel = () => {
+    if (!afkEl) return;
+    if (isAfk) afkEl.innerHTML = 'AFK <span style="color:var(--text-muted);">(' + fmtAfkDur(Date.now() - afkSince) + ')</span>';
+    else afkEl.textContent = 'active';
+  };
   const setStatus = (msg, ok) => { status.textContent = msg; status.style.color = ok ? 'var(--accent)' : 'var(--red)'; };
   const open = () => {
     document.getElementById('account-settings-username').textContent = username || '';
     oldEl.value = ''; newEl.value = ''; new2El.value = '';
     setStatus('', true); status.style.color = 'var(--text-muted)';
+    tipsEl.checked = safeStore.getItem('ez_tips_hidden') === '1';
+    panEl.checked = safeStore.getItem('ez_panorama_hidden') === '1';
+    animEl.checked = safeStore.getItem('ez_anim_disabled') === '1';
+    updateAfkLabel();
+    if (afkTimer) clearInterval(afkTimer);
+    afkTimer = setInterval(updateAfkLabel, 1000);
     modal.style.display = 'flex';
   };
-  const close = () => { modal.style.display = 'none'; };
+  const close = () => { if (afkTimer) { clearInterval(afkTimer); afkTimer = null; } modal.style.display = 'none'; };
+  tipsEl.onchange = () => { safeStore.setItem('ez_tips_hidden', tipsEl.checked ? '1' : '0'); applyPrefs(); const tb = document.getElementById('tip-banner'); if (tb && !tipsEl.checked) tb.style.display = ''; };
+  panEl.onchange = () => { safeStore.setItem('ez_panorama_hidden', panEl.checked ? '1' : '0'); applyPrefs(); };
+  animEl.onchange = () => { safeStore.setItem('ez_anim_disabled', animEl.checked ? '1' : '0'); applyPrefs(); };
   document.getElementById('btn-account-settings').onclick = open;
   document.getElementById('btn-account-settings-close').onclick = close;
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
@@ -6360,7 +6436,10 @@ function connectSocial() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const socialProto = BACKEND_HOST ? 'wss' : protocol;
   try { socialWs = new WebSocket(`${socialProto}://${WS_HOST}/ws/social`); } catch { return; }
-  socialWs.onopen = () => { socialWs.send(JSON.stringify({ type: 'auth', token: authToken, device_id: deviceId })); };
+  socialWs.onopen = () => {
+    socialWs.send(JSON.stringify({ type: 'auth', token: authToken, device_id: deviceId }));
+    try { socialWs.send(JSON.stringify({ type: 'presence', afk: isAfk })); } catch {}
+  };
   socialWs.onmessage = async e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'client_alert') { alert(msg.text); return; }
@@ -6558,6 +6637,10 @@ function connectSocial() {
       }
     }
     if (msg.type === 'friend_accepted') { loadFriendsList(); }
+    if (msg.type === 'friend_presence') {
+      const activeTab = document.querySelector('.sidebar-tab.active');
+      if (activeTab && activeTab.dataset.tab === 'friends-tab') loadFriendsList();
+    }
     if (msg.type === 'group_msg') {
       if (currentGroupId === msg.group_id) {
         appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image);
@@ -6616,7 +6699,14 @@ async function loadFriendsList() {
     }
     data.friends.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0)).forEach(f => {
       const d = document.createElement('div'); d.className = 'friend-item';
-      d.innerHTML = `<div class="f-status ${f.online ? 'online' : 'offline'}"></div><span class="f-name">${esc(f.name)}</span><button class="win-btn" data-dm="${f.name}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${f.name}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
+      let statusCls = f.online ? (f.afk ? 'afk' : 'online') : 'offline';
+      let statusText = '';
+      if (f.online && f.afk) {
+        statusText = ` <span class="friend-afk" style="font-size:10px;color:#f0b232;font-weight:600;">AFK</span>`;
+      } else if (!f.online) {
+        statusText = ` <span style="font-size:10px;color:var(--text-muted);">${f.last_online ? 'last online ' + fmtRelTime(f.last_online) : 'never seen online'}</span>`;
+      }
+      d.innerHTML = `<div class="f-status ${statusCls}"></div><span class="f-name">${esc(f.name)}</span>${statusText}<button class="win-btn" data-dm="${f.name}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${f.name}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
       d.querySelector('[data-dm]').onclick = () => { openDm(f.name); };
       d.querySelector('[data-rm]').onclick = async () => { if (confirm(`Remove ${f.name}?`)) { await fetch('/api/friends/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: f.name }) }); loadFriendsList(); }};
       panel.appendChild(d);
