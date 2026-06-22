@@ -40,10 +40,6 @@ def lobby_timeout_for(lobby):
     return LOBBY_TIMEOUT_PUBLIC if lobby.get("public") else LOBBY_TIMEOUT_PRIVATE
 
 MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/ezplace")
-# zlib wire compression: 3-5x reduction in bytes shipped to/from Atlas for our
-# write-heavy workload (lobby grids especially - lots of repeated colors). zlib
-# is stdlib so it works on Render with no new deps, and PyMongo negotiates
-# gracefully if the server doesn't support it.
 mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, compressors='zlib', zlibCompressionLevel=6)
 db = mongo_client.get_default_database() if "mongodb.net" in MONGO_URI else mongo_client["ezplace"]
 
@@ -194,29 +190,14 @@ async def db_load(collection, key):
     doc = await db[collection].find_one({"_id": key})
     return doc["data"] if doc else None
 
-async def save_accounts():
-    await db_save("store", "accounts", accounts)
-
-async def save_friends():
-    await db_save("store", "friends", friends_data)
-
-async def save_bans():
-    await db_save("store", "bans", bans)
-
-async def save_ip_bans():
-    await db_save("store", "ip_bans", ip_bans)
-
-async def save_device_bans():
-    await db_save("store", "device_bans", device_bans)
-
-async def save_user_devices():
-    await db_save("store", "user_devices", user_devices)
-
-async def save_moderators():
-    await db_save("store", "moderators", moderators)
-
-async def save_mod_ban_log():
-    await db_save("store", "mod_ban_log", mod_ban_log[-MOD_BAN_LOG_MAX:])
+async def save_accounts(): await db_save("store", "accounts", accounts)
+async def save_friends(): await db_save("store", "friends", friends_data)
+async def save_bans(): await db_save("store", "bans", bans)
+async def save_ip_bans(): await db_save("store", "ip_bans", ip_bans)
+async def save_device_bans(): await db_save("store", "device_bans", device_bans)
+async def save_user_devices(): await db_save("store", "user_devices", user_devices)
+async def save_moderators(): await db_save("store", "moderators", moderators)
+async def save_mod_ban_log(): await db_save("store", "mod_ban_log", mod_ban_log[-MOD_BAN_LOG_MAX:])
 
 def is_device_banned(device_id):
     return bool(device_id) and device_id in device_bans
@@ -228,24 +209,12 @@ def track_user_device(user, device_id):
     if not user or not device_id: return
     user_devices[user.lower()] = device_id
 
-async def save_vips():
-    await db_save("store", "vips", vips)
-
-async def save_fake_admins():
-    await db_save("store", "fake_admins", fake_admins)
-
-async def save_brush_perms():
-    await db_save("store", "brush_perms", brush_perms)
-
-async def save_clans():
-    await db_save("store", "clans", clans)
-
-async def save_groups():
-    await db_save("store", "groups", groups)
-
-async def save_group_messages(gid):
-    msgs = group_messages.get(gid, [])
-    await db_save("group_messages", gid, msgs)
+async def save_vips(): await db_save("store", "vips", vips)
+async def save_fake_admins(): await db_save("store", "fake_admins", fake_admins)
+async def save_brush_perms(): await db_save("store", "brush_perms", brush_perms)
+async def save_clans(): await db_save("store", "clans", clans)
+async def save_groups(): await db_save("store", "groups", groups)
+async def save_group_messages(gid): await db_save("group_messages", gid, group_messages.get(gid, []))
 
 def find_clan_by_member(username):
     if not username: return None
@@ -283,10 +252,8 @@ async def remove_user_clan_rank(username):
     has_custom_rank = bool(pu.get("custom_rank"))
     has_vip = bool(pu.get("vip"))
     if has_custom_rank:
-        # Their ranks[ulow] entry IS the custom rank (label/color they chose). Leave it.
         pass
     elif has_vip:
-        # Restore the standard VIP badge.
         ranks[ulow] = {"label": "VIP", "color": "#daa520"}
     else:
         ranks.pop(ulow, None)
@@ -305,22 +272,12 @@ def get_brush_perm(username):
         return {"size": 25, "drag": True}
     return brush_perms.get(username.lower(), {"size": 1, "drag": False})
 
-async def save_ranks():
-    await db_save("store", "ranks", ranks)
+async def save_ranks(): await db_save("store", "ranks", ranks)
 
-async def save_name_colors():
-    await db_save("store", "name_colors", name_colors)
-
-def get_name_color(username):
-    return name_colors.get((username or "").lower())
-
-async def save_last_online():
-    await db_save("store", "last_online", last_online)
-
-def get_presence(username):
-    ulow = (username or "").lower()
-    p = presence.get(ulow)
-    return p if p else None
+async def save_name_colors(): await db_save("store", "name_colors", name_colors)
+def get_name_color(username): return name_colors.get((username or "").lower())
+async def save_last_online(): await db_save("store", "last_online", last_online)
+def get_presence(username): return presence.get((username or "").lower()) or None
 
 async def push_friend_presence(user):
     """Push presence state to everyone who has this user as a friend."""
@@ -332,8 +289,7 @@ async def push_friend_presence(user):
             try: await notify_social(friend_user, payload)
             except: pass
 
-async def save_user_ips():
-    await db_save("store", "user_ips", user_ips)
+async def save_user_ips(): await db_save("store", "user_ips", user_ips)
 
 _last_broadcast_total = None
 _last_broadcast_at = 0
@@ -363,14 +319,10 @@ async def save_place_bucks():
     await db_save("store", "place_bucks", place_bucks)
     try: await broadcast_economy_total()
     except: pass
-async def save_lifetime_pixels():
-    await db_save("store", "lifetime_pixels", lifetime_pixels)
-async def save_purchases():
-    await db_save("store", "purchases", purchases)
-async def save_stay_seconds():
-    await db_save("store", "stay_seconds", stay_seconds)
-async def save_economy_history():
-    await db_save("store", "economy_history", economy_history)
+async def save_lifetime_pixels(): await db_save("store", "lifetime_pixels", lifetime_pixels)
+async def save_purchases(): await db_save("store", "purchases", purchases)
+async def save_stay_seconds(): await db_save("store", "stay_seconds", stay_seconds)
+async def save_economy_history(): await db_save("store", "economy_history", economy_history)
 
 PB_UNLIMITED = 10 ** 9                                                  
 
@@ -417,8 +369,7 @@ def _local_yesterday_iso(tz_offset_min):
     if off > 1440 or off < -1440: off = 0
     return (datetime.utcnow() - timedelta(minutes=off) - timedelta(days=1)).date().isoformat()
 
-async def save_streaks():
-    await db_save("store", "streaks", streaks)
+async def save_streaks(): await db_save("store", "streaks", streaks)
 
 async def save_streak_progress():
     today_iso = date.today().isoformat()
@@ -458,7 +409,6 @@ def get_streak_progress(user):
     ulow = user.lower()
     s = streaks.get(ulow) or {}
     p = streak_progress.get(ulow) or {}
-    # Use whichever stored tz we can find; default to UTC.
     tz = p.get("locked_tz", s.get("tz_offset", 0))
     today = _local_today_iso(tz)
     earned = s.get("last_date") == today
@@ -526,9 +476,6 @@ async def streak_heartbeat_handler(request):
     if tz_offset > 1440 or tz_offset < -1440: tz_offset = 0
     ulow = user.lower()
     mark_active(user)
-    # Anti-cheat: lock tz_offset to the first heartbeat of the UTC day. Subsequent
-    # heartbeats this UTC day must match (±60min for DST). Prevents claiming
-    # multiple "days" of streak by spoofing timezone offsets per request.
     utc_today = date.today().isoformat()
     p = streak_progress.get(ulow)
     if not p or p.get("utc_date") != utc_today:
@@ -562,7 +509,7 @@ async def streak_progress_handler(request):
     return web.json_response({"ok": True, **get_streak_progress(user)})
 
 user_last_activity = {}
-IDLE_REWARD_ACTIVITY_WINDOW = 180  # require user activity within last 3 minutes to accrue idle PB
+IDLE_REWARD_ACTIVITY_WINDOW = 180
 
 def mark_active(user):
     if not user: return
@@ -828,12 +775,8 @@ async def rate_limit_cleanup_loop(app):
 async def delete_lobby_db(lid):
     await db["lobbies"].delete_one({"_id": lid})
 
-async def save_dm(key):
-    msgs = dms.get(key, [])
-    await db_save("dms", key, msgs)
-
-async def save_dm_last_seen():
-    await db_save("store", "dm_last_seen", dm_last_seen)
+async def save_dm(key): await db_save("dms", key, dms.get(key, []))
+async def save_dm_last_seen(): await db_save("store", "dm_last_seen", dm_last_seen)
 
 def mark_dm_seen(user, peer):
     ulow = user.lower()
@@ -1459,7 +1402,7 @@ async def admin_friends_handler(request):
 
 async def admin_lobbies_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    skip = {"grid", "events", "pixel_authors"}  # binary / large dicts that aren't JSON-friendly
+    skip = {"grid", "events", "pixel_authors"}
     out = {}
     for lid, l in lobbies.items():
         entry = {k: v for k, v in l.items() if k not in skip}
@@ -1521,7 +1464,6 @@ async def admin_mod_add_handler(request):
     if found.lower() not in moderators:
         moderators.append(found.lower())
         await save_moderators()
-    # push live event so they immediately see their new tab
     try: await notify_social(found, {"type": "mod_status", "is_moderator": True})
     except: pass
     return web.json_response({"ok": True, "message": f"Granted MOD to {found}"})
@@ -1558,8 +1500,6 @@ async def _mod_school_ban_action(moderator_user, target):
     if not is_banned(found):
         bans.append(found)
         await save_bans()
-    # Revoke every session token belonging to the banned user. Without this, a banned user
-    # could keep using API endpoints (or read /api/me) via a stale token from before the ban.
     tlow = found.lower()
     for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
         sessions.pop(tok, None)
@@ -1597,7 +1537,6 @@ async def _mod_regular_ban_action(moderator_user, target):
         device_bans.append(did)
         await save_device_bans()
     tlow = found.lower()
-    # Revoke session tokens (see school ban comment for why).
     for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
         sessions.pop(tok, None)
     payload = {"type": "client_redirect", "url": "https://www.pornhub.com"}
@@ -1705,7 +1644,6 @@ async def admin_device_ban_handler(request):
     if device_id not in device_bans:
         device_bans.append(device_id)
         await save_device_bans()
-    # boot any live sockets on that device
     booted = 0
     for ws, info in list(clients.items()):
         if info and info.get("device_id") == device_id:
@@ -1727,7 +1665,6 @@ async def admin_device_unban_handler(request):
 
 async def admin_device_bans_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    # build a reverse-lookup so admin can see which users were on banned devices
     rev = {}
     for ulow, did in user_devices.items():
         rev.setdefault(did, []).append(ulow)
@@ -2199,7 +2136,6 @@ async def clan_create_handler(request):
     for clan in clans.values():
         if clan.get("owner", "").lower() == ulow:
             return web.json_response({"error": "You already have a clan request or approved clan"}, status=400)
-    # auto-leave any clan you're currently a member of (you can only be in one)
     existing = find_clan_by_member(user)
     if existing and existing.get("owner", "").lower() != ulow:
         existing["members"] = [m for m in existing.get("members", []) if m.lower() != ulow]
@@ -3297,9 +3233,6 @@ async def _uno_turn_timeout_watcher(rid):
     if room["current"] != snapshot_idx: return
     p = room["players"][snapshot_idx]
     if p.get("is_ai"): return
-    # AI plays *for* the stalling player: picks a legal card if any, otherwise
-    # draws the right number and advances. This stops a losing player from
-    # stalling out to avoid drawing pending +2/+4 stacks.
     await _uno_play_one_ai_move(room, snapshot_idx)
     payload = {"type": "uno_chat", "room_id": rid, "msg": {"from": "system", "text": f"{snapshot_player} took too long - AI played their turn.", "time": int(time.time()), "spectator": True}}
     for pp in room["players"]:
@@ -3342,8 +3275,6 @@ async def _uno_play_one_ai_move(room, player_idx):
             _uno_advance(room)
             room["last_action_at"] = time.time()
             return
-        # If draw_till is on, keep drawing until we get a playable card (capped),
-        # then play it. Otherwise draw 1 and pass.
         if room["settings"].get("draw_till"):
             drew = 0; max_draws = 30
             new_idx = None
@@ -3389,7 +3320,6 @@ async def _uno_apply_play_multi(room, player_idx, card_idxs, chosen_color):
     N skips skip N players, N draw2s force the next player to draw 2*N, etc."""
     p = room["players"][player_idx]
     cards = [p["hand"][i] for i in card_idxs]
-    # pop indices in descending order so removal doesn't shift earlier ones
     for i in sorted(card_idxs, reverse=True):
         p["hand"].pop(i)
     for c in cards:
@@ -3663,9 +3593,6 @@ async def uno_play_handler(request):
     top = room["discard"][-1]
     if not _uno_can_play(anchor, top, room["current_color"], room["pending_draws"], room["pending_kind"], room["settings"].get("stacking", False)):
         return web.json_response({"error": "That card can't be played"}, status=400)
-    # Stacked cards must share the anchor's value. If the room has multi_color
-    # enabled, color may differ (so blue 2 + red 2 stacks); otherwise the colors
-    # must match too.
     multi_color = bool(room["settings"].get("multi_color"))
     if len(card_idxs) > 1:
         if anchor["color"] == "w":
@@ -3727,7 +3654,6 @@ async def uno_jump_in_handler(request):
         c = hand[ci]
         if c["color"] == "w" or c["color"] != top["color"] or c["value"] != top["value"]:
             return web.json_response({"error": "Every jump-in card must be an EXACT color+value match (no wilds)"}, status=400)
-    # Snap turn to the jumper. Then run the normal play machinery.
     room["current"] = idx
     await _uno_apply_play_multi(room, idx, card_idxs, None)
     await _uno_push_state(room)
@@ -3803,14 +3729,10 @@ async def uno_draw_handler(request):
     if idx is None or idx != room["current"]:
         return web.json_response({"error": "Not your turn"}, status=400)
     if room["pending_draws"] > 0:
-        # Forced draw from a stacked +2/+4. Take the whole stack and pass the turn.
         _uno_draw_cards(room, idx, room["pending_draws"])
         room["pending_draws"] = 0; room["pending_kind"] = None
         _uno_advance(room)
     elif room["settings"].get("draw_till"):
-        # House rule: keep drawing until you get a playable card; do NOT advance the turn so
-        # the player can then play that card. Caps draws to avoid emptying the deck on a
-        # truly hopeless hand.
         p = room["players"][idx]
         top = room["discard"][-1]
         stacking_setting = room["settings"].get("stacking", False)
@@ -3820,12 +3742,11 @@ async def uno_draw_handler(request):
             before = len(p["hand"])
             _uno_draw_cards(room, idx, 1)
             if len(p["hand"]) == before:
-                break  # deck and discard both exhausted
+                break
             drew += 1
             new_card = p["hand"][-1]
             if _uno_can_play(new_card, top, room["current_color"], room["pending_draws"], room["pending_kind"], stacking_setting):
                 break
-        # If we still have no playable card (deck exhausted), advance the turn.
         any_playable = any(_uno_can_play(c, top, room["current_color"], room["pending_draws"], room["pending_kind"], stacking_setting) for c in p["hand"])
         if not any_playable:
             _uno_advance(room)
@@ -4595,7 +4516,6 @@ async def amongus_leave_handler(request):
                 room["pool"] = max(0, room["pool"] - room["bet"])
                 await save_place_bucks(); await push_pb_update(user)
             if room["creator"].lower() == ulow:
-                # creator left -> dissolve
                 for p in list(room["players"]):
                     if room["bet"] > 0:
                         credit_pb(p["name"], room["bet"])
@@ -4625,15 +4545,9 @@ async def amongus_state_handler(request):
     if not room: return web.json_response({"error": "Room not found"}, status=404)
     return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
 
-# ============================================================
-# NIGHT EVENT
-# Daily community event at 23:00 America/New_York. Server picks a random
-# game type, opens signups for NIGHT_EVENT_SIGNUP_SECONDS, then runs it
-# if at least 2 players signed up. Winner gets NIGHT_EVENT_PRIZE PB.
-# ============================================================
 NIGHT_EVENT_PRIZE = 10000
-NIGHT_EVENT_SIGNUP_SECONDS = 300                                       # 5 min lobby
-NIGHT_EVENT_HOUR_ET = 23                                               # 11 PM ET
+NIGHT_EVENT_SIGNUP_SECONDS = 300
+NIGHT_EVENT_HOUR_ET = 23
 NIGHT_EVENT_TYPES = ["uno", "battle", "coinflip"]
 NIGHT_EVENT_TYPE_LABELS = {
     "uno": "UNO Showdown",
@@ -4641,15 +4555,15 @@ NIGHT_EVENT_TYPE_LABELS = {
     "coinflip": "Coinflip Tournament",
 }
 night_event = {
-    "phase": "idle",  # idle | signup | running | ended
+    "phase": "idle",
     "type": None,
     "next_event_ts": 0,
     "signup_end_ts": 0,
     "signups": [],
-    "running_state": None,  # type-specific structured state for UI
+    "running_state": None,
     "winner": None,
     "prize": NIGHT_EVENT_PRIZE,
-    "history": [],  # recent past winners
+    "history": [],
     "started_ts": 0,
 }
 
@@ -4738,7 +4652,6 @@ async def _night_run_coinflip(players):
             await _night_send_chat(f"  R{rnum}: {a} vs {b} → {winner}")
             i += 2
         if i == len(bracket) - 1:
-            # odd one out gets a bye
             next_round.append(bracket[-1])
             await _night_send_chat(f"  R{rnum}: {bracket[-1]} byes to next round")
         bracket = next_round
@@ -4771,7 +4684,6 @@ async def _night_run_battle_ai_judge(players):
     await asyncio.sleep(90)
     room = battle_rooms.get(rid)
     if not room: return None
-    # AI judge: weight slightly by non-empty pixel count
     scores = {}
     for d in drawers:
         g = room["grids"].get(d, bytearray())
@@ -4779,7 +4691,6 @@ async def _night_run_battle_ai_judge(players):
     if all(scores.get(d, 0) == 0 for d in drawers):
         winner = secrets.choice(drawers)
     else:
-        # weighted by pixel count + small randomness
         weights = [max(1, scores.get(d, 0)) for d in drawers]
         total = sum(weights)
         roll = secrets.randbelow(total)
@@ -4823,7 +4734,6 @@ async def _night_run_uno(players):
     if draw_till: rule_notes.append("draw till playable ON")
     rules_str = " · ".join(rule_notes) if rule_notes else "vanilla rules"
     await _night_send_chat(f"UNO Showdown ({rules_str}) - players: {', '.join(chosen)}. Open the UNO room to play!")
-    # auto-start
     room = uno_rooms[rid]
     room["deck"] = _uno_new_deck()
     for p in room["players"]: p["hand"] = []
@@ -4839,7 +4749,6 @@ async def _night_run_uno(players):
     room["phase"] = "playing"
     room["started_at"] = time.time()
     await _uno_push_state(room)
-    # wait up to 10 min for someone to win
     deadline = time.time() + 600
     while time.time() < deadline:
         await asyncio.sleep(2)
@@ -5151,7 +5060,9 @@ async def social_ws_handler(request):
                     prev = presence.get(ulow) or {}
                     if prev.get("afk") != afk:
                         presence[ulow] = {"afk": afk, "since": time.time()}
-                        await push_friend_presence(username)
+                        print(f"[presence] {username} -> {'AFK' if afk else 'active'}", flush=True)
+                        try: await push_friend_presence(username)
+                        except Exception as e: print(f"[presence] push failed for {username}: {e}", flush=True)
                 elif data.get("type") == "dm_seen" and username:
                     peer = data.get("peer", "").strip()
                     if peer:
@@ -5200,6 +5111,8 @@ async def social_ws_handler(request):
                             if text: payload["text"] = text
                             if image_url: payload["image_url"] = image_url
                             if reply_obj: payload["reply_to"] = reply_obj
+                            try: print(f"[dm {username}->{target}] {text}{' [img]' if image_url else ''}", flush=True)
+                            except: pass
                             await notify_social(target, payload)
                 elif data.get("type") == "group_msg" and username:
                     gid = data.get("group_id", "")
@@ -5227,6 +5140,8 @@ async def social_ws_handler(request):
                     fanout = {"type": "group_msg", "group_id": gid, "group_name": g.get("name", ""), "from": username, "time": msg_obj["time"]}
                     if text: fanout["text"] = text
                     if image_url: fanout["image_url"] = image_url
+                    try: print(f"[group {gid} ({g.get('name','')}) {username}] {text}{' [img]' if image_url else ''}", flush=True)
+                    except: pass
                     for member in g.get("members", []):
                         if member.lower() != username.lower():
                             await notify_social(member, fanout)
@@ -5244,10 +5159,13 @@ async def social_ws_handler(request):
                 dlow_p = disconnected_user.lower()
                 last_online[dlow_p] = time.time()
                 presence.pop(dlow_p, None)
-                try: await save_last_online()
-                except: pass
+                try:
+                    await save_last_online()
+                    print(f"[presence] {disconnected_user} disconnected, last_online saved", flush=True)
+                except Exception as e:
+                    print(f"[presence] last_online save FAILED for {disconnected_user}: {e}", flush=True)
                 try: await push_friend_presence(disconnected_user)
-                except: pass
+                except Exception as e: print(f"[presence] push_friend_presence on disconnect failed: {e}", flush=True)
                 try: await uno_forfeit(disconnected_user)
                 except Exception as e: print(f"uno_forfeit on disconnect failed: {e}")
                 try:
@@ -5472,6 +5390,11 @@ async def websocket_handler(request):
                             rtext = str(rt.get("text", ""))[:120]
                             if rfrom and rtext:
                                 chat_payload["reply_to"] = {"from": rfrom, "text": rtext}
+                        try:
+                            _lname = lobby.get("name", "") if lobby else ""
+                            _pub = "public" if (lobby and lobby.get("public")) else "private"
+                            print(f"[chat {_pub} {lobby_id} ({_lname})] {username}: {text}", flush=True)
+                        except: pass
                         await broadcast_to_lobby(lobby_id, chat_payload)
 
                 elif data["type"] == "lobby_kick" and username and lobby_id and not is_guest:
@@ -5952,9 +5875,6 @@ async def on_startup(app):
         await db_save("store", "migrations", migrations_doc)
         print(f"starting_floor_v1: ensured every account has at least {floor} PB")
     if not migrations_doc.get("strip_inactive_floor_v1"):
-        # starting_floor_v1 credited 50 PB to EVERY account including thousands
-        # of never-used signups. Remove the floor for accounts that never
-        # placed a single pixel.
         removed = 0
         wiped_total = 0
         for ulow in list(place_bucks.keys()):
@@ -6065,7 +5985,6 @@ async def cors_middleware(request, handler):
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return resp
 
-# Paths exempt from the global ban check (auth-related and the ban-status probe itself).
 _BAN_GUARD_EXEMPT_PATHS = {
     "/api/login", "/api/register", "/api/auth/suggest-mode", "/api/auth/status",
 }
@@ -6088,160 +6007,100 @@ async def ban_guard_middleware(request, handler):
 app = web.Application(middlewares=[cors_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
-app.router.add_get("/api/health", health_handler)
-app.router.add_get("/api/captcha", captcha_handler)
-app.router.add_post("/api/register", register_handler)
-app.router.add_post("/api/login", login_handler)
-app.router.add_get("/api/auth/suggest-mode", auth_suggest_mode_handler)
-app.router.add_get("/api/lobbies", lobbies_handler)
-app.router.add_get("/api/my-lobbies", my_lobbies_handler)
-app.router.add_get("/api/lobbies/info", lobby_detail_handler)
-app.router.add_get("/api/lobbies/timelapse", lobby_timelapse_handler)
-app.router.add_get("/api/lobbies/preview", lobby_preview_handler)
-app.router.add_post("/api/lobbies/create", create_lobby_handler)
-app.router.add_post("/api/lobbies/delete", delete_lobby_handler)
-app.router.add_post("/api/lobbies/update", update_lobby_handler)
-app.router.add_post("/api/lobbies/join-code", join_lobby_by_code_handler)
-app.router.add_get("/api/leaderboard", leaderboard_handler)
-app.router.add_get("/api/friends", friends_list_handler)
-app.router.add_post("/api/friends/add", friend_add_handler)
-app.router.add_post("/api/friends/accept", friend_accept_handler)
-app.router.add_post("/api/friends/decline", friend_decline_handler)
-app.router.add_post("/api/friends/remove", friend_remove_handler)
-app.router.add_get("/api/dm/history", dm_history_handler)
-app.router.add_post("/api/dm/send", dm_send_handler)
-app.router.add_post("/api/upload-image", upload_image_handler)
-app.router.add_get("/api/dm/unread", dm_unread_handler)
-app.router.add_get("/api/admin/accounts", admin_accounts_handler)
-app.router.add_get("/api/admin/friends", admin_friends_handler)
-app.router.add_get("/api/admin/lobbies", admin_lobbies_handler)
-app.router.add_get("/api/admin/bans", admin_bans_handler)
-app.router.add_get("/api/admin/ips", admin_ips_handler)
-app.router.add_get("/api/admin/vips", admin_vips_handler)
-app.router.add_post("/api/admin/ban", admin_ban_handler)
-app.router.add_post("/api/admin/unban", admin_unban_handler)
-app.router.add_post("/api/admin/kick", admin_kick_handler)
-app.router.add_post("/api/admin/alert", admin_alert_handler)
-app.router.add_post("/api/admin/relay", admin_relay_handler)
-app.router.add_post("/api/admin/pb_grant", admin_pb_grant_handler)
-app.router.add_post("/api/admin/replace_color", admin_replace_color_handler)
-app.router.add_get("/api/admin/richest", admin_richest_handler)
-app.router.add_post("/api/admin/clear_economy_history", admin_clear_economy_history_handler)
-app.router.add_post("/api/admin/redirect", admin_redirect_handler)
-app.router.add_post("/api/admin/delete-account", admin_delete_account_handler)
-app.router.add_post("/api/admin/reset-password", admin_reset_password_handler)
-app.router.add_post("/api/account/change-password", change_password_handler)
-app.router.add_post("/api/admin/session-for", admin_session_for_handler)
-app.router.add_post("/api/admin/ipban", admin_ipban_handler)
-app.router.add_post("/api/admin/device-ban", admin_device_ban_handler)
-app.router.add_post("/api/admin/device-unban", admin_device_unban_handler)
-app.router.add_get("/api/admin/device-bans", admin_device_bans_handler)
-app.router.add_post("/api/admin/mod-add", admin_mod_add_handler)
-app.router.add_post("/api/admin/mod-remove", admin_mod_remove_handler)
-app.router.add_get("/api/admin/mod-list", admin_mod_list_handler)
-app.router.add_get("/api/admin/mod-ban-log", admin_mod_ban_log_handler)
-app.router.add_post("/api/mod/school-ban", mod_school_ban_handler)
-app.router.add_post("/api/mod/regular-ban", mod_regular_ban_handler)
-app.router.add_post("/api/mod/unban", mod_unban_handler)
-app.router.add_post("/api/admin/ip-unban", admin_ip_unban_handler)
-app.router.add_get("/api/admin/ipbans", lambda r: web.json_response({"ip_bans": ip_bans}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
-app.router.add_post("/api/admin/vip-add", admin_vip_add_handler)
-app.router.add_post("/api/admin/vip-remove", admin_vip_remove_handler)
-app.router.add_post("/api/admin/rank-set", admin_rank_set_handler)
-app.router.add_post("/api/admin/rank-remove", admin_rank_remove_handler)
-app.router.add_get("/api/admin/ranks", admin_ranks_handler)
-app.router.add_get("/api/online-summary", online_summary_handler)
-app.router.add_get("/api/me", me_handler)
-app.router.add_post("/api/streak/heartbeat", streak_heartbeat_handler)
-app.router.add_get("/api/streak/progress", streak_progress_handler)
-app.router.add_post("/api/shop/buy", shop_buy_handler)
-app.router.add_post("/api/pb/transfer", pb_transfer_handler)
-app.router.add_post("/api/casino/slots", casino_slots_handler)
-app.router.add_post("/api/casino/roulette", casino_roulette_handler)
-app.router.add_post("/api/casino/coinflip", casino_coinflip_handler)
-app.router.add_post("/api/casino/plinko", casino_plinko_handler)
-app.router.add_post("/api/casino/mines", casino_mines_handler)
-app.router.add_post("/api/casino/gd/start", casino_gd_start_handler)
-app.router.add_post("/api/casino/gd/result", casino_gd_result_handler)
-app.router.add_post("/api/casino/amongus/create", amongus_create_handler)
-app.router.add_get("/api/casino/amongus/list", amongus_list_handler)
-app.router.add_post("/api/casino/amongus/join", amongus_join_handler)
-app.router.add_post("/api/casino/amongus/start", amongus_start_handler)
-app.router.add_post("/api/casino/amongus/say", amongus_say_handler)
-app.router.add_post("/api/casino/amongus/kill", amongus_kill_handler)
-app.router.add_post("/api/casino/amongus/vote", amongus_vote_handler)
-app.router.add_post("/api/casino/amongus/leave", amongus_leave_handler)
-app.router.add_get("/api/casino/amongus/state", amongus_state_handler)
-app.router.add_post("/api/casino/blackjack", casino_blackjack_handler)
-app.router.add_post("/api/casino/rps/solo", casino_rps_solo_handler)
-app.router.add_post("/api/casino/rps/join", casino_rps_join_handler)
-app.router.add_post("/api/casino/rps/cancel", casino_rps_cancel_handler)
-app.router.add_post("/api/casino/rps/challenge", casino_rps_challenge_handler)
-app.router.add_post("/api/casino/rps/respond", casino_rps_respond_handler)
-app.router.add_post("/api/casino/rps/play", casino_rps_play_handler)
-app.router.add_get("/api/casino/rps/status", casino_rps_status_handler)
-app.router.add_post("/api/flappy/pass", flappy_pass_handler)
-app.router.add_post("/api/uno/create", uno_create_handler)
-app.router.add_get("/api/uno/list", uno_list_handler)
-app.router.add_post("/api/uno/join", uno_join_handler)
-app.router.add_post("/api/uno/start", uno_start_handler)
-app.router.add_post("/api/uno/play", uno_play_handler)
-app.router.add_post("/api/uno/jump-in", uno_jump_in_handler)
-app.router.add_get("/api/uno/peek", uno_peek_handler)
-app.router.add_post("/api/uno/modify-hand", uno_modify_hand_handler)
-app.router.add_post("/api/uno/draw", uno_draw_handler)
-app.router.add_post("/api/uno/leave", uno_leave_handler)
-app.router.add_get("/api/uno/state", uno_state_handler)
-app.router.add_post("/api/uno/spectate", uno_spectate_handler)
-app.router.add_post("/api/uno/unspectate", uno_unspectate_handler)
-app.router.add_post("/api/uno/say", uno_say_handler)
-app.router.add_post("/api/battle/create", battle_create_handler)
-app.router.add_get("/api/battle/list", battle_list_handler)
-app.router.add_post("/api/battle/join", battle_join_handler)
-app.router.add_post("/api/battle/assign", battle_assign_handler)
-app.router.add_post("/api/battle/start", battle_start_handler)
-app.router.add_post("/api/battle/paint", battle_paint_handler)
-app.router.add_post("/api/battle/done", battle_done_handler)
-app.router.add_post("/api/battle/judge", battle_judge_handler)
-app.router.add_post("/api/battle/leave", battle_leave_handler)
-app.router.add_get("/api/battle/state", battle_state_handler)
-app.router.add_post("/api/battle/say", battle_say_handler)
-app.router.add_get("/api/global-leaderboard", global_leaderboard_handler)
-app.router.add_get("/api/economy/stats", economy_stats_handler)
-app.router.add_get("/api/auth/status", auth_status_handler)
-app.router.add_get("/api/night-event/state", night_event_state_handler)
-app.router.add_post("/api/night-event/join", night_event_join_handler)
-app.router.add_post("/api/admin/night-event-trigger", admin_night_event_trigger_handler)
-app.router.add_post("/api/clans/remove-member", clan_remove_member_handler)
-app.router.add_get("/api/groups/my", groups_my_handler)
-app.router.add_post("/api/groups/create", group_create_handler)
-app.router.add_get("/api/groups/messages", group_messages_handler)
-app.router.add_post("/api/groups/leave", group_leave_handler)
-app.router.add_post("/api/groups/add-member", group_add_member_handler)
-app.router.add_get("/api/clans", clans_list_handler)
-app.router.add_get("/api/clans/my", clan_my_handler)
-app.router.add_post("/api/clans/create", clan_create_handler)
-app.router.add_post("/api/clans/request-join", clan_request_join_handler)
-app.router.add_post("/api/clans/handle-request", clan_handle_request_handler)
-app.router.add_post("/api/clans/update-color", clan_update_color_handler)
-app.router.add_post("/api/clans/set-member-rank", clan_set_member_rank_handler)
-app.router.add_post("/api/clans/transfer-owner", clan_transfer_owner_handler)
-app.router.add_post("/api/clans/leave", clan_leave_handler)
-app.router.add_get("/api/admin/clans", admin_clans_handler)
-app.router.add_post("/api/admin/clan-approve", admin_clan_approve_handler)
-app.router.add_post("/api/admin/clan-reject", admin_clan_reject_handler)
-app.router.add_post("/api/admin/clan-disband", admin_clan_disband_handler)
-app.router.add_post("/api/admin/brush-perm-set", admin_brush_perm_set_handler)
-app.router.add_post("/api/admin/brush-perm-remove", admin_brush_perm_remove_handler)
-app.router.add_get("/api/admin/brush-perms", lambda r: web.json_response({"brush_perms": brush_perms}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
-app.router.add_post("/api/admin/fake-admin-add", admin_fake_admin_add_handler)
-app.router.add_post("/api/admin/fake-admin-remove", admin_fake_admin_remove_handler)
-app.router.add_get("/api/admin/fake-admins", lambda r: web.json_response({"fake_admins": fake_admins}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
-app.router.add_post("/api/admin/fake-action-log", fake_action_log_handler)
-app.router.add_get("/api/admin/fake-log", admin_view_fake_log_handler)
-app.router.add_get("/ws", websocket_handler)
-app.router.add_get("/ws/social", social_ws_handler)
-app.router.add_get("/", index_handler)
+_g, _p = app.router.add_get, app.router.add_post
+_admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
+for _path, _h in (
+    ("/api/health", health_handler), ("/api/captcha", captcha_handler),
+    ("/api/auth/suggest-mode", auth_suggest_mode_handler), ("/api/lobbies", lobbies_handler),
+    ("/api/my-lobbies", my_lobbies_handler), ("/api/lobbies/info", lobby_detail_handler),
+    ("/api/lobbies/timelapse", lobby_timelapse_handler), ("/api/lobbies/preview", lobby_preview_handler),
+    ("/api/leaderboard", leaderboard_handler), ("/api/friends", friends_list_handler),
+    ("/api/dm/history", dm_history_handler), ("/api/dm/unread", dm_unread_handler),
+    ("/api/admin/accounts", admin_accounts_handler), ("/api/admin/friends", admin_friends_handler),
+    ("/api/admin/lobbies", admin_lobbies_handler), ("/api/admin/bans", admin_bans_handler),
+    ("/api/admin/ips", admin_ips_handler), ("/api/admin/vips", admin_vips_handler),
+    ("/api/admin/richest", admin_richest_handler), ("/api/admin/device-bans", admin_device_bans_handler),
+    ("/api/admin/mod-list", admin_mod_list_handler), ("/api/admin/mod-ban-log", admin_mod_ban_log_handler),
+    ("/api/admin/ipbans", _admin_json_view("ip_bans", lambda: ip_bans)),
+    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler),
+    ("/api/me", me_handler), ("/api/streak/progress", streak_progress_handler),
+    ("/api/casino/amongus/list", amongus_list_handler), ("/api/casino/amongus/state", amongus_state_handler),
+    ("/api/casino/rps/status", casino_rps_status_handler), ("/api/uno/list", uno_list_handler),
+    ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
+    ("/api/battle/list", battle_list_handler), ("/api/battle/state", battle_state_handler),
+    ("/api/global-leaderboard", global_leaderboard_handler), ("/api/economy/stats", economy_stats_handler),
+    ("/api/auth/status", auth_status_handler), ("/api/night-event/state", night_event_state_handler),
+    ("/api/groups/my", groups_my_handler), ("/api/groups/messages", group_messages_handler),
+    ("/api/clans", clans_list_handler), ("/api/clans/my", clan_my_handler),
+    ("/api/admin/clans", admin_clans_handler),
+    ("/api/admin/brush-perms", _admin_json_view("brush_perms", lambda: brush_perms)),
+    ("/api/admin/fake-admins", _admin_json_view("fake_admins", lambda: fake_admins)),
+    ("/api/admin/fake-log", admin_view_fake_log_handler),
+    ("/ws", websocket_handler), ("/ws/social", social_ws_handler), ("/", index_handler),
+): _g(_path, _h)
+for _path, _h in (
+    ("/api/register", register_handler), ("/api/login", login_handler),
+    ("/api/lobbies/create", create_lobby_handler), ("/api/lobbies/delete", delete_lobby_handler),
+    ("/api/lobbies/update", update_lobby_handler), ("/api/lobbies/join-code", join_lobby_by_code_handler),
+    ("/api/friends/add", friend_add_handler), ("/api/friends/accept", friend_accept_handler),
+    ("/api/friends/decline", friend_decline_handler), ("/api/friends/remove", friend_remove_handler),
+    ("/api/dm/send", dm_send_handler), ("/api/upload-image", upload_image_handler),
+    ("/api/admin/ban", admin_ban_handler), ("/api/admin/unban", admin_unban_handler),
+    ("/api/admin/kick", admin_kick_handler), ("/api/admin/alert", admin_alert_handler),
+    ("/api/admin/relay", admin_relay_handler), ("/api/admin/pb_grant", admin_pb_grant_handler),
+    ("/api/admin/replace_color", admin_replace_color_handler),
+    ("/api/admin/clear_economy_history", admin_clear_economy_history_handler),
+    ("/api/admin/redirect", admin_redirect_handler), ("/api/admin/delete-account", admin_delete_account_handler),
+    ("/api/admin/reset-password", admin_reset_password_handler),
+    ("/api/account/change-password", change_password_handler),
+    ("/api/admin/session-for", admin_session_for_handler), ("/api/admin/ipban", admin_ipban_handler),
+    ("/api/admin/device-ban", admin_device_ban_handler), ("/api/admin/device-unban", admin_device_unban_handler),
+    ("/api/admin/mod-add", admin_mod_add_handler), ("/api/admin/mod-remove", admin_mod_remove_handler),
+    ("/api/mod/school-ban", mod_school_ban_handler), ("/api/mod/regular-ban", mod_regular_ban_handler),
+    ("/api/mod/unban", mod_unban_handler), ("/api/admin/ip-unban", admin_ip_unban_handler),
+    ("/api/admin/vip-add", admin_vip_add_handler), ("/api/admin/vip-remove", admin_vip_remove_handler),
+    ("/api/admin/rank-set", admin_rank_set_handler), ("/api/admin/rank-remove", admin_rank_remove_handler),
+    ("/api/streak/heartbeat", streak_heartbeat_handler), ("/api/shop/buy", shop_buy_handler),
+    ("/api/pb/transfer", pb_transfer_handler), ("/api/casino/slots", casino_slots_handler),
+    ("/api/casino/roulette", casino_roulette_handler), ("/api/casino/coinflip", casino_coinflip_handler),
+    ("/api/casino/plinko", casino_plinko_handler), ("/api/casino/mines", casino_mines_handler),
+    ("/api/casino/gd/start", casino_gd_start_handler), ("/api/casino/gd/result", casino_gd_result_handler),
+    ("/api/casino/amongus/create", amongus_create_handler), ("/api/casino/amongus/join", amongus_join_handler),
+    ("/api/casino/amongus/start", amongus_start_handler), ("/api/casino/amongus/say", amongus_say_handler),
+    ("/api/casino/amongus/kill", amongus_kill_handler), ("/api/casino/amongus/vote", amongus_vote_handler),
+    ("/api/casino/amongus/leave", amongus_leave_handler), ("/api/casino/blackjack", casino_blackjack_handler),
+    ("/api/casino/rps/solo", casino_rps_solo_handler), ("/api/casino/rps/join", casino_rps_join_handler),
+    ("/api/casino/rps/cancel", casino_rps_cancel_handler),
+    ("/api/casino/rps/challenge", casino_rps_challenge_handler),
+    ("/api/casino/rps/respond", casino_rps_respond_handler), ("/api/casino/rps/play", casino_rps_play_handler),
+    ("/api/flappy/pass", flappy_pass_handler), ("/api/uno/create", uno_create_handler),
+    ("/api/uno/join", uno_join_handler), ("/api/uno/start", uno_start_handler),
+    ("/api/uno/play", uno_play_handler), ("/api/uno/jump-in", uno_jump_in_handler),
+    ("/api/uno/modify-hand", uno_modify_hand_handler), ("/api/uno/draw", uno_draw_handler),
+    ("/api/uno/leave", uno_leave_handler), ("/api/uno/spectate", uno_spectate_handler),
+    ("/api/uno/unspectate", uno_unspectate_handler), ("/api/uno/say", uno_say_handler),
+    ("/api/battle/create", battle_create_handler), ("/api/battle/join", battle_join_handler),
+    ("/api/battle/assign", battle_assign_handler), ("/api/battle/start", battle_start_handler),
+    ("/api/battle/paint", battle_paint_handler), ("/api/battle/done", battle_done_handler),
+    ("/api/battle/judge", battle_judge_handler), ("/api/battle/leave", battle_leave_handler),
+    ("/api/battle/say", battle_say_handler), ("/api/night-event/join", night_event_join_handler),
+    ("/api/admin/night-event-trigger", admin_night_event_trigger_handler),
+    ("/api/clans/remove-member", clan_remove_member_handler), ("/api/groups/create", group_create_handler),
+    ("/api/groups/leave", group_leave_handler), ("/api/groups/add-member", group_add_member_handler),
+    ("/api/clans/create", clan_create_handler), ("/api/clans/request-join", clan_request_join_handler),
+    ("/api/clans/handle-request", clan_handle_request_handler),
+    ("/api/clans/update-color", clan_update_color_handler),
+    ("/api/clans/set-member-rank", clan_set_member_rank_handler),
+    ("/api/clans/transfer-owner", clan_transfer_owner_handler), ("/api/clans/leave", clan_leave_handler),
+    ("/api/admin/clan-approve", admin_clan_approve_handler),
+    ("/api/admin/clan-reject", admin_clan_reject_handler),
+    ("/api/admin/clan-disband", admin_clan_disband_handler),
+    ("/api/admin/brush-perm-set", admin_brush_perm_set_handler),
+    ("/api/admin/brush-perm-remove", admin_brush_perm_remove_handler),
+    ("/api/admin/fake-admin-add", admin_fake_admin_add_handler),
+    ("/api/admin/fake-admin-remove", admin_fake_admin_remove_handler),
+    ("/api/admin/fake-action-log", fake_action_log_handler),
+): _p(_path, _h)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
