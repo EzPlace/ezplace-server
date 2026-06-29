@@ -5228,7 +5228,7 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
                     can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
                     lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place}
+                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate"))}
                     await track_ip(username, request)
                     grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                     if is_fake_admin(username): grid_msg["fake_admin"] = True
@@ -5247,7 +5247,7 @@ async def websocket_handler(request):
                     if not lobby["public"]:
                         await ws.send_json({"type": "error", "text": "Guests can only join public lobbies"}); await ws.close(); break
                     username = guest_name; is_guest = True; lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True, "ip": get_client_ip(request)}
+                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True, "ip": get_client_ip(request), "no_deflate": bool(data.get("no_deflate"))}
                     await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)}, lobby["grid"])
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined (spectating)"})
                     await broadcast_online_lobby(lobby_id)
@@ -5589,28 +5589,34 @@ def _compress_grid(grid_bytes):
     return zlib.compress(bytes(grid_bytes), level=6)
 
 async def send_grid_to_ws(ws, meta_dict, grid_bytes):
-    """Send a grid as a JSON metadata frame followed by a zlib-compressed binary frame.
-    Way smaller on the wire than the old JSON int array - empty 1024x1024 grids go from
-    ~3MB JSON / 1MB raw down to a few KB."""
+    info = clients.get(ws) or {}
+    no_deflate = bool(info.get("no_deflate"))
     meta = dict(meta_dict)
     meta["binary"] = True
-    meta["compressed"] = "deflate"
     meta["uncompressed_size"] = len(grid_bytes)
-    await ws.send_json(meta)
-    await ws.send_bytes(_compress_grid(grid_bytes))
+    if no_deflate:
+        meta["compressed"] = "none"
+        await ws.send_json(meta)
+        await ws.send_bytes(bytes(grid_bytes))
+    else:
+        meta["compressed"] = "deflate"
+        await ws.send_json(meta)
+        await ws.send_bytes(_compress_grid(grid_bytes))
 
 async def broadcast_grid_to_lobby(lobby_id, meta_dict, grid_bytes, exclude=None):
-    meta = dict(meta_dict)
-    meta["binary"] = True
-    meta["compressed"] = "deflate"
-    meta["uncompressed_size"] = len(grid_bytes)
-    meta_str = json.dumps(meta)
-    grid_b = _compress_grid(grid_bytes)
+    meta_def = dict(meta_dict); meta_def["binary"] = True; meta_def["compressed"] = "deflate"; meta_def["uncompressed_size"] = len(grid_bytes)
+    meta_raw = dict(meta_dict); meta_raw["binary"] = True; meta_raw["compressed"] = "none"; meta_raw["uncompressed_size"] = len(grid_bytes)
+    meta_def_str = json.dumps(meta_def)
+    meta_raw_str = json.dumps(meta_raw)
+    grid_def = _compress_grid(grid_bytes)
+    grid_raw = bytes(grid_bytes)
     for ws, info in list(clients.items()):
         if info and info.get("lobby_id") == lobby_id and ws != exclude and not ws.closed:
             try:
-                await ws.send_str(meta_str)
-                await ws.send_bytes(grid_b)
+                if info.get("no_deflate"):
+                    await ws.send_str(meta_raw_str); await ws.send_bytes(grid_raw)
+                else:
+                    await ws.send_str(meta_def_str); await ws.send_bytes(grid_def)
             except: pass
 
 async def broadcast_online_all_lobbies():

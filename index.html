@@ -173,7 +173,9 @@
   .friend-item .f-status.online { background: var(--green); box-shadow: 0 0 6px rgba(67,181,129,0.4); }
   .friend-item .f-status.afk { background: #f0b232; box-shadow: 0 0 6px rgba(240,178,50,0.45); }
   .friend-item .f-status.offline { background: var(--text-muted); }
-  .friend-item .f-name { flex: 1; }
+  .friend-item .f-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .friend-item .f-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .friend-item .f-sub { font-size: 10px; color: var(--text-muted); }
   .friend-item button { font-size: 10px; padding: 3px 8px; margin-left: 4px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; }
   .friend-item button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
   .friend-section { font-size: 11px; font-weight: 500; color: var(--text-muted); padding: 6px 4px 4px; border-bottom: 1px solid var(--border); }
@@ -1042,8 +1044,8 @@
   </div>
   <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;justify-content:flex-end;flex-wrap:wrap;">
     <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
-    <span style="position:relative;">
-      <button id="btn-movies" class="win-btn" title="Watch movies" style="font-size:11px;padding:4px 10px;background:#7c5cfc;color:#fff;font-weight:700;">🎬 Movies</button>
+    <span style="position:relative;display:inline-flex;align-items:center;">
+      <button id="btn-movies" class="win-btn" title="Watch movies" style="font-size:11px;padding:4px 10px;background:#7c5cfc;color:#fff;font-weight:700;display:inline-flex;align-items:center;">🎬 Movies</button>
       <div id="movies-tutorial-arrow" style="display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#7c5cfc;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 4px 14px rgba(124,92,252,0.5);z-index:55;cursor:pointer;white-space:nowrap;animation:movieArrowBob 1.2s ease-in-out infinite alternate;">↑ Watch movies here <span style="opacity:0.8;font-weight:400;font-size:10px;">(click to dismiss)</span></div>
     </span>
     <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
@@ -2136,7 +2138,16 @@ function getTouchDist(t1, t2) {
   return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 }
 
-function updateModeBtnVisibility() {} // no-op kept so existing callers don't error
+function updateModeBtnVisibility() {
+  const btn = document.getElementById('mobile-pan-toggle');
+  if (!btn) return;
+  btn.style.display = canDragPaint() ? '' : 'none';
+  if (!canDragPaint() && forcePanMode) {
+    forcePanMode = false;
+    btn.textContent = 'Draw';
+    btn.classList.remove('pan');
+  }
+}
 
 let pendingTouchPaintTimer = null;
 function cancelPendingTouchPaint() {
@@ -6345,11 +6356,12 @@ function connectToLobby(lobbyId, lobbyName) {
   const wsProto = BACKEND_HOST ? 'wss' : protocol;
   try { ws = new WebSocket(`${wsProto}://${WS_HOST}/ws`); } catch { addSystemMsg('No server.'); return; }
   ws.binaryType = 'arraybuffer';
+  const noDeflate = (typeof DecompressionStream === 'undefined' || typeof ReadableStream === 'undefined' || typeof Response === 'undefined' || !Blob.prototype.stream);
   ws.onopen = () => {
     if (isGuest) {
-      ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, guest_name: guestName }));
+      ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, guest_name: guestName, no_deflate: noDeflate }));
     } else {
-      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId }));
+      ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate }));
     }
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
@@ -6373,9 +6385,10 @@ function connectToLobby(lobbyId, lobbyName) {
             const meta = pendingGridMeta;
             pendingGridMeta = null;
             try {
-              meta.data = meta.compressed === 'deflate' ? await decompressDeflate(data) : new Uint8Array(data);
-            } catch {
-              addSystemMsg('Failed to decode grid (try refreshing).');
+              if (meta.compressed === 'deflate') meta.data = await decompressDeflate(data);
+              else meta.data = new Uint8Array(data);
+            } catch (e) {
+              addSystemMsg('Failed to decode grid (try refreshing). ' + (e && e.message ? e.message : ''));
               continue;
             }
             handleWsMessage(meta);
@@ -6823,13 +6836,10 @@ async function loadFriendsList() {
     data.friends.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0)).forEach(f => {
       const d = document.createElement('div'); d.className = 'friend-item';
       let statusCls = f.online ? (f.afk ? 'afk' : 'online') : 'offline';
-      let statusText = '';
-      if (f.online && f.afk) {
-        statusText = ` <span class="friend-afk" style="font-size:10px;color:#f0b232;font-weight:600;">AFK</span>`;
-      } else if (!f.online) {
-        statusText = ` <span style="font-size:10px;color:var(--text-muted);">${f.last_online ? 'last online ' + fmtRelTime(f.last_online) : 'never seen online'}</span>`;
-      }
-      d.innerHTML = `<div class="f-status ${statusCls}"></div><span class="f-name">${esc(f.name)}</span>${statusText}<button class="win-btn" data-dm="${f.name}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${f.name}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
+      let subText = '';
+      if (f.online && f.afk) subText = `<span class="f-sub" style="color:#f0b232;font-weight:600;">AFK</span>`;
+      else if (!f.online) subText = `<span class="f-sub">${f.last_online ? 'last online ' + fmtRelTime(f.last_online) : 'never seen online'}</span>`;
+      d.innerHTML = `<div class="f-status ${statusCls}"></div><div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div><button class="win-btn" data-dm="${f.name}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${f.name}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
       d.querySelector('[data-dm]').onclick = () => { openDm(f.name); };
       d.querySelector('[data-rm]').onclick = async () => { if (confirm(`Remove ${f.name}?`)) { await fetch('/api/friends/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: f.name }) }); loadFriendsList(); }};
       panel.appendChild(d);
