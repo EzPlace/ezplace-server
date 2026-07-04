@@ -85,7 +85,7 @@ STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
 PB_TRANSFER_AMOUNT_PER_MIN = 100000
 pb_transfer_amount_window = {}
-LOBBY_PRICES = {(256, 256): 0, (512, 512): 10, (1024, 1024): 20}
+LOBBY_PRICES = {(256, 256): 50, (512, 512): 100, (1024, 1024): 200}
 
 ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
 def is_safe_image_url(url):
@@ -4873,7 +4873,7 @@ async def flappy_pass_handler(request):
     return web.json_response({"ok": True, "balance": get_pb(user)})
 
 async def global_leaderboard_handler(request):
-    """Top placers across ALL lobbies combined. Toothpaste excluded."""
+    """Top placers across ALL lobbies combined. The owner of the site is excluded."""
     totals = {}
     for lobby in lobbies.values():
         pc = lobby.get("pixel_counts") or {}
