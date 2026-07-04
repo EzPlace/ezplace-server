@@ -507,7 +507,15 @@
         <canvas id="economy-graph" width="460" height="180" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:crosshair;"></canvas>
         <div id="economy-graph-tip" style="display:none;position:absolute;background:rgba(0,0,0,0.85);color:#fff;border:1px solid var(--accent);border-radius:4px;padding:3px 6px;font-size:11px;font-family:'JetBrains Mono','Fira Code',monospace;pointer-events:none;white-space:nowrap;z-index:5;"></div>
       </div>
-      <div id="economy-graph-caption" style="font-size:10px;color:var(--text-muted);">history (up to 7 days, hourly snapshots) - hover for exact values</div>
+      <div style="display:flex;align-items:center;gap:6px;width:100%;max-width:460px;font-size:11px;color:var(--text-muted);">
+        <span>Zoom:</span>
+        <button class="win-btn econ-zoom" data-econ-range="all" style="font-size:10px;padding:2px 8px;background:var(--accent);color:#fff;">All</button>
+        <button class="win-btn econ-zoom" data-econ-range="86400" style="font-size:10px;padding:2px 8px;">24h</button>
+        <button class="win-btn econ-zoom" data-econ-range="21600" style="font-size:10px;padding:2px 8px;">6h</button>
+        <button class="win-btn econ-zoom" data-econ-range="3600" style="font-size:10px;padding:2px 8px;">1h</button>
+        <span style="flex:1;"></span>
+        <span id="economy-graph-caption" style="font-size:10px;color:var(--text-muted);">hover for values</span>
+      </div>
     </div>
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
       <span>Clans</span>
@@ -976,10 +984,12 @@
     <div style="font-weight:700;font-size:14px;color:var(--text-primary);">Flashback - up to last 24 hours</div>
     <button id="btn-timelapse-close" class="win-btn" style="background:var(--bg-elevated);">Close</button>
   </div>
-  <canvas id="timelapse-canvas" style="background:#000;max-width:100%;max-height:60vh;image-rendering:pixelated;border-radius:var(--radius-sm);"></canvas>
-  <div style="display:flex;align-items:center;gap:8px;width:100%;max-width:900px;margin-top:10px;">
+  <div id="timelapse-canvas-wrap" style="overflow:auto;max-width:100%;max-height:60vh;display:flex;justify-content:center;align-items:flex-start;background:#000;border-radius:var(--radius-sm);">
+    <canvas id="timelapse-canvas" style="background:#000;image-rendering:pixelated;display:block;"></canvas>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;width:100%;max-width:900px;margin-top:10px;flex-wrap:wrap;">
     <button id="btn-timelapse-play" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
-    <input type="range" id="timelapse-scrubber" min="0" max="100" value="0" style="flex:1;accent-color:var(--accent);">
+    <input type="range" id="timelapse-scrubber" min="0" max="100" value="0" style="flex:1;min-width:120px;accent-color:var(--accent);">
     <select id="timelapse-speed" class="win-input" style="width:auto;padding:4px 6px;font-size:11px;">
       <option value="1">1x</option>
       <option value="5">5x</option>
@@ -987,6 +997,11 @@
       <option value="100">100x</option>
       <option value="500">500x</option>
     </select>
+    <div style="display:flex;align-items:center;gap:4px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);padding:2px 6px;">
+      <button id="btn-timelapse-zoom-out" class="win-btn" style="font-size:14px;padding:0 6px;background:transparent;border:none;color:var(--text-primary);">−</button>
+      <span id="timelapse-zoom-label" style="font-size:11px;color:var(--text-muted);min-width:40px;text-align:center;">100%</span>
+      <button id="btn-timelapse-zoom-in" class="win-btn" style="font-size:14px;padding:0 6px;background:transparent;border:none;color:var(--text-primary);">+</button>
+    </div>
   </div>
   <div id="timelapse-info" style="margin-top:6px;font-size:11px;color:var(--text-muted);width:100%;max-width:900px;text-align:center;">Loading...</div>
 </div>
@@ -1931,9 +1946,10 @@ async function openTimelapse() {
   }
   const t0 = events.getUint32(0, true);
   const tEnd = events.getUint32((count - 1) * TL_EVENT_SIZE, true);
-  tlState = { events, count, startGrid, w, h, t0, tEnd, idx: 0, playing: false, speed: parseFloat(document.getElementById('timelapse-speed').value) };
+  tlState = { events, count, startGrid, w, h, t0, tEnd, idx: 0, playing: false, speed: parseFloat(document.getElementById('timelapse-speed').value), zoom: 1 };
   const tlCvs = document.getElementById('timelapse-canvas');
   tlCvs.width = w; tlCvs.height = h;
+  applyTimelapseZoom();
   const tlCtx = tlCvs.getContext('2d');
   const imageData = tlCtx.createImageData(w, h);
   tlState.imageData = imageData;
@@ -1947,6 +1963,36 @@ async function openTimelapse() {
   document.getElementById('timelapse-scrubber').value = 0;
   updateTimelapseInfo();
 }
+
+function applyTimelapseZoom() {
+  if (!tlState) return;
+  const cvs = document.getElementById('timelapse-canvas');
+  const wrap = document.getElementById('timelapse-canvas-wrap');
+  if (!cvs || !wrap) return;
+  const wrapW = wrap.clientWidth || 900;
+  const wrapH = Math.min(window.innerHeight * 0.6, 800);
+  const baseFit = Math.max(1, Math.min(wrapW / tlState.w, wrapH / tlState.h));
+  const zoomedW = Math.round(tlState.w * baseFit * tlState.zoom);
+  const zoomedH = Math.round(tlState.h * baseFit * tlState.zoom);
+  cvs.style.width = zoomedW + 'px';
+  cvs.style.height = zoomedH + 'px';
+  const lbl = document.getElementById('timelapse-zoom-label');
+  if (lbl) lbl.textContent = Math.round(tlState.zoom * 100) + '%';
+}
+(function wireTimelapseZoom() {
+  const btnIn = document.getElementById('btn-timelapse-zoom-in');
+  const btnOut = document.getElementById('btn-timelapse-zoom-out');
+  if (btnIn) btnIn.onclick = () => { if (tlState) { tlState.zoom = Math.min(16, tlState.zoom * 1.5); applyTimelapseZoom(); } };
+  if (btnOut) btnOut.onclick = () => { if (tlState) { tlState.zoom = Math.max(0.25, tlState.zoom / 1.5); applyTimelapseZoom(); } };
+  const wrap = document.getElementById('timelapse-canvas-wrap');
+  if (wrap) wrap.addEventListener('wheel', e => {
+    if (!tlState) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.2 : (1 / 1.2);
+    tlState.zoom = Math.max(0.25, Math.min(16, tlState.zoom * factor));
+    applyTimelapseZoom();
+  }, { passive: false });
+})();
 
 function updateTimelapseInfo() {
   if (!tlState) return;
@@ -5376,14 +5422,21 @@ function fmtAgo(seconds) {
   if (m >= 1) return m + 'm';
   return seconds + 's';
 }
+let economyZoomRange = 'all';
 function drawEconomyGraph(color, delta) {
   const canvas = document.getElementById('economy-graph');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
-  const points = economyHistoryCache.map(p => ({ ts: p.ts, v: Number(p.total || 0) }))
+  let points = economyHistoryCache.map(p => ({ ts: p.ts, v: Number(p.total || 0) }))
     .concat(economyLiveBuf.map(p => ({ ts: p.ts, v: p.v })));
+  if (economyZoomRange !== 'all' && points.length) {
+    const rangeSec = parseInt(economyZoomRange, 10);
+    const cutoff = (points[points.length - 1].ts) - rangeSec;
+    const windowed = points.filter(p => p.ts >= cutoff);
+    if (windowed.length >= 2) points = windowed;
+  }
   _economyGraphPoints = points;
   if (points.length < 2) {
     ctx.fillStyle = '#888'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
@@ -5459,6 +5512,18 @@ function drawEconomyGraph(color, delta) {
   }
 }
 
+(function bindEconomyZoomButtons() {
+  document.querySelectorAll('.econ-zoom').forEach(btn => {
+    btn.onclick = () => {
+      economyZoomRange = btn.dataset.econRange;
+      document.querySelectorAll('.econ-zoom').forEach(b => {
+        b.style.background = b === btn ? 'var(--accent)' : '';
+        b.style.color = b === btn ? '#fff' : '';
+      });
+      drawEconomyGraph('rgba(147,197,253,0.9)', 0);
+    };
+  });
+})();
 (function bindEconomyGraphHover() {
   const canvas = document.getElementById('economy-graph');
   const tip = document.getElementById('economy-graph-tip');
