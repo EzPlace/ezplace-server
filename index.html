@@ -545,6 +545,31 @@
 </div>
 
 <!-- Manage lobby modal -->
+<div id="report-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
+  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:420px;max-width:100%;display:flex;flex-direction:column;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;font-size:14px;color:#d32f2f;">⚠ Report Inappropriate Drawing</div>
+      <button id="btn-report-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Cancel</button>
+    </div>
+    <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+      <div style="font-size:12px;color:var(--text-primary);line-height:1.4;">Report inappropriate drawings. <b style="color:#d32f2f;">Trash-talking is not a valid report.</b></div>
+      <div style="font-size:11px;color:var(--text-muted);">Click <b>Select area</b>, then drag a rectangle on the canvas around the inappropriate drawing. Moderators will see who painted each pixel in that area.</div>
+      <div id="report-selection-info" style="font-size:11px;color:var(--text-muted);padding:6px 10px;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px dashed var(--border);">No area selected yet.</div>
+      <textarea id="report-reason" class="win-input" placeholder="Optional: describe what's wrong (max 200 chars)" maxlength="200" rows="2" style="resize:vertical;font-family:inherit;"></textarea>
+      <div id="report-status" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+      <div style="display:flex;gap:8px;">
+        <button id="btn-report-select" class="win-btn" style="flex:1;background:var(--accent);color:#fff;">Select area</button>
+        <button id="btn-report-submit" class="win-btn" style="flex:1;background:#d32f2f;color:#fff;" disabled>Submit report</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="report-select-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:55;pointer-events:none;">
+  <div id="report-select-hint" style="position:absolute;top:12px;left:50%;transform:translateX(-50%);background:#d32f2f;color:#fff;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.4);pointer-events:none;">Drag on the canvas to select the inappropriate area · Tap outside canvas to cancel</div>
+  <div id="report-select-box" style="display:none;position:absolute;border:2px dashed #d32f2f;background:rgba(211,47,47,0.15);pointer-events:none;"></div>
+</div>
+
 <div id="account-settings-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;display:flex;flex-direction:column;">
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
@@ -1057,14 +1082,15 @@
     <span class="user-name" id="user-display"></span>
     <button id="btn-logout" class="win-btn">Logout</button>
   </div>
-  <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;justify-content:flex-end;flex-wrap:wrap;">
-    <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;">PLACEBUX: 0</span>
-    <span style="position:relative;display:inline-flex;align-items:center;">
-      <button id="btn-movies" class="win-btn" title="Watch movies" style="font-size:11px;padding:4px 10px;background:#7c5cfc;color:#fff;font-weight:700;display:inline-flex;align-items:center;">🎬 Movies</button>
+  <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;justify-content:flex-end;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;">
+    <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;flex-shrink:0;white-space:nowrap;">PLACEBUX: 0</span>
+    <span style="position:relative;display:inline-flex;align-items:center;flex-shrink:0;">
+      <button id="btn-movies" class="win-btn" title="Watch movies" style="font-size:11px;padding:4px 10px;background:#7c5cfc;color:#fff;font-weight:700;display:inline-flex;align-items:center;white-space:nowrap;">🎬 Movies</button>
       <div id="movies-tutorial-arrow" style="display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#7c5cfc;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 4px 14px rgba(124,92,252,0.5);z-index:55;cursor:pointer;white-space:nowrap;animation:movieArrowBob 1.2s ease-in-out infinite alternate;">↑ Watch movies here <span style="opacity:0.8;font-weight:400;font-size:10px;">(click to dismiss)</span></div>
     </span>
-    <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;">Shop</button>
-    <button id="btn-account-settings" class="win-btn" title="Account settings" style="font-size:11px;padding:4px 10px;">Settings</button>
+    <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;flex-shrink:0;white-space:nowrap;">Shop</button>
+    <button id="btn-account-settings" class="win-btn" title="Account settings" style="font-size:11px;padding:4px 10px;flex-shrink:0;white-space:nowrap;">Settings</button>
+    <button id="btn-report" class="win-btn" title="Report inappropriate drawings" style="font-size:11px;padding:4px 10px;background:#d32f2f;color:#fff;font-weight:700;flex-shrink:0;white-space:nowrap;">⚠ Report</button>
   </div>
   <div id="guest-bar">
     <span class="guest-name" id="guest-display"></span>
@@ -1154,6 +1180,12 @@
         <button class="win-btn" id="btn-mod-unban" style="background:#22c55e;color:#fff;font-weight:700;">Unban</button>
       </div>
       <div id="mod-status" style="font-size:11px;color:#666;min-height:14px;">School Ban: account banned + redirect (no IP/device, so other people on the same WiFi keep working).<br>Regular Ban: account + IP + device + redirect. Unban: reverses both.</div>
+      <h4 style="color:#d32f2f;margin-top:12px;">Reports Queue</h4>
+      <div class="admin-row">
+        <button class="win-btn" id="btn-mod-reports-refresh" style="background:var(--accent);color:#fff;">Load Reports</button>
+        <label style="font-size:11px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="mod-reports-show-handled"> Show handled</label>
+      </div>
+      <div id="mod-reports-list" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;font-size:11px;"></div>
     </div>
   </div>
 
@@ -3128,39 +3160,8 @@ function showLoggedIn() {
   document.getElementById('user-display').textContent = username;
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
   if (username.toLowerCase() === 'toothpaste') { document.getElementById('admin-tab-btn').style.display = 'block'; document.getElementById('fake-admin-section').style.display = ''; }
-  if (username.toLowerCase() === 'trillium') triggerTrilliumEasterEgg();
   connectSocial();
   refreshMe();
-}
-
-function triggerTrilliumEasterEgg() {
-  if (document.getElementById('trillium-egg-style')) return;
-  const url = 'https://files.catbox.moe/mihofd.jpg';
-  const style = document.createElement('style');
-  style.id = 'trillium-egg-style';
-  style.textContent = `
-    body { background-image: url("${url}") !important; background-repeat: repeat !important; background-size: 140px 140px !important; }
-    #lobby-screen { background-image: url("${url}") !important; background-repeat: repeat !important; background-size: 140px 140px !important; background-color: transparent !important; }
-    #lobby-bg-canvas, #lobby-bg-overlay { display: none !important; }
-    #trillium-egg-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 9998; background-image: url("${url}"); background-repeat: repeat; background-size: 140px 140px; opacity: 0.35; }
-    .trillium-egg-float { position: fixed; width: 90px; height: 90px; pointer-events: none; z-index: 9999; background-image: url("${url}"); background-size: cover; background-position: center; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
-  `;
-  document.head.appendChild(style);
-  const overlay = document.createElement('div');
-  overlay.id = 'trillium-egg-overlay';
-  document.body.appendChild(overlay);
-  const sprinkle = () => {
-    const n = 40;
-    for (let i = 0; i < n; i++) {
-      const img = document.createElement('div');
-      img.className = 'trillium-egg-float';
-      img.style.left = (Math.floor((i * 9301 + 49297) % 233280) / 233280 * 100) + 'vw';
-      img.style.top = (Math.floor((i * 4733 + 12345) % 99991) / 99991 * 100) + 'vh';
-      img.style.transform = 'rotate(' + ((i * 37) % 360) + 'deg)';
-      document.body.appendChild(img);
-    }
-  };
-  sprinkle();
 }
 
 let myBalance = 0;
@@ -5623,6 +5624,112 @@ function logout() {
 }
 
 document.getElementById('btn-logout').onclick = logout;
+
+(function setupReportFlow(){
+  const modal = document.getElementById('report-modal');
+  const overlay = document.getElementById('report-select-overlay');
+  const selBox = document.getElementById('report-select-box');
+  const infoEl = document.getElementById('report-selection-info');
+  const submitBtn = document.getElementById('btn-report-submit');
+  const statusEl = document.getElementById('report-status');
+  const reasonEl = document.getElementById('report-reason');
+  let selection = null;
+  let dragStart = null;
+  const setStatus = (m, ok) => { statusEl.textContent = m; statusEl.style.color = ok ? 'var(--accent)' : 'var(--red)'; };
+  const openModal = () => {
+    if (!currentLobbyId) { alert('Join a lobby before reporting.'); return; }
+    if (isGuest) { alert('Please make an account to submit reports.'); return; }
+    selection = null;
+    infoEl.textContent = 'No area selected yet.';
+    reasonEl.value = '';
+    statusEl.textContent = '';
+    submitBtn.disabled = true;
+    modal.style.display = 'flex';
+  };
+  const closeModal = () => { modal.style.display = 'none'; };
+  const beginSelect = () => {
+    closeModal();
+    overlay.style.display = 'block';
+    selBox.style.display = 'none';
+    dragStart = null;
+  };
+  const endSelect = () => {
+    overlay.style.display = 'none';
+    modal.style.display = 'flex';
+  };
+  const clientToGridSafe = (cx, cy) => {
+    const r = cvs.getBoundingClientRect();
+    if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return null;
+    return screenToGrid(cx - r.left, cy - r.top);
+  };
+  const onDown = (e) => {
+    if (overlay.style.display === 'none') return;
+    const pt = 'touches' in e && e.touches[0] ? e.touches[0] : e;
+    const g = clientToGridSafe(pt.clientX, pt.clientY);
+    if (!g) { overlay.style.display = 'none'; modal.style.display = 'flex'; return; }
+    dragStart = { gx: g.x, gy: g.y, sx: pt.clientX, sy: pt.clientY };
+    selBox.style.left = pt.clientX + 'px';
+    selBox.style.top = pt.clientY + 'px';
+    selBox.style.width = '0px';
+    selBox.style.height = '0px';
+    selBox.style.display = 'block';
+    e.preventDefault();
+  };
+  const onMove = (e) => {
+    if (!dragStart) return;
+    const pt = 'touches' in e && e.touches[0] ? e.touches[0] : e;
+    const left = Math.min(dragStart.sx, pt.clientX);
+    const top = Math.min(dragStart.sy, pt.clientY);
+    const w = Math.abs(pt.clientX - dragStart.sx);
+    const h = Math.abs(pt.clientY - dragStart.sy);
+    selBox.style.left = left + 'px'; selBox.style.top = top + 'px';
+    selBox.style.width = w + 'px'; selBox.style.height = h + 'px';
+    e.preventDefault();
+  };
+  const onUp = (e) => {
+    if (!dragStart) return;
+    const pt = 'changedTouches' in e && e.changedTouches[0] ? e.changedTouches[0] : e;
+    const g = clientToGridSafe(pt.clientX, pt.clientY);
+    if (g) {
+      const x1 = Math.max(0, Math.min(GRID_W - 1, Math.min(dragStart.gx, g.x)));
+      const y1 = Math.max(0, Math.min(GRID_H - 1, Math.min(dragStart.gy, g.y)));
+      const x2 = Math.max(0, Math.min(GRID_W - 1, Math.max(dragStart.gx, g.x)));
+      const y2 = Math.max(0, Math.min(GRID_H - 1, Math.max(dragStart.gy, g.y)));
+      if (x2 - x1 >= 1 && y2 - y1 >= 1) {
+        selection = { x1, y1, x2, y2 };
+        infoEl.textContent = `Selected: (${x1},${y1}) to (${x2},${y2}) — ${(x2-x1+1)*(y2-y1+1)} pixels`;
+        submitBtn.disabled = false;
+      }
+    }
+    dragStart = null;
+    endSelect();
+  };
+  document.getElementById('btn-report').onclick = openModal;
+  document.getElementById('btn-report-close').onclick = closeModal;
+  document.getElementById('btn-report-select').onclick = beginSelect;
+  document.addEventListener('mousedown', onDown);
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('touchstart', onDown, { passive: false });
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('touchend', onUp);
+  submitBtn.onclick = async () => {
+    if (!selection || !currentLobbyId) return;
+    setStatus('Submitting...', true); statusEl.style.color = 'var(--text-muted)';
+    submitBtn.disabled = true;
+    try {
+      const r = await fetch(BACKEND + '/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: authToken },
+        body: JSON.stringify({ lobby_id: currentLobbyId, ...selection, reason: reasonEl.value.trim().slice(0, 200) })
+      });
+      const d = await r.json();
+      if (d.error) { setStatus(d.error, false); submitBtn.disabled = false; return; }
+      setStatus('Report submitted. Thank you.', true);
+      setTimeout(closeModal, 1200);
+    } catch { setStatus('Request failed', false); submitBtn.disabled = false; }
+  };
+})();
 let lastActivityAt = Date.now();
 let isAfk = false;
 let afkSince = Date.now();
@@ -6839,8 +6946,7 @@ function connectSocial() {
     }
     if (msg.type === 'friend_accepted') { loadFriendsList(); }
     if (msg.type === 'friend_presence') {
-      const activeTab = document.querySelector('.sidebar-tab.active');
-      if (activeTab && activeTab.dataset.tab === 'friends-tab') loadFriendsList();
+      loadFriendsList();
     }
     if (msg.type === 'group_msg') {
       if (currentGroupId === msg.group_id) {
@@ -7627,6 +7733,54 @@ document.getElementById('btn-mod-unban').onclick = async () => {
     if (!d.error) document.getElementById('mod-target-input').value = '';
   } catch { status.textContent = 'Server offline.'; status.style.color = 'var(--red)'; }
 };
+
+(function setupModReports(){
+  const btn = document.getElementById('btn-mod-reports-refresh');
+  const listEl = document.getElementById('mod-reports-list');
+  const showHandled = document.getElementById('mod-reports-show-handled');
+  if (!btn || !listEl) return;
+  async function load() {
+    listEl.innerHTML = '<div style="color:var(--text-muted);">Loading...</div>';
+    try {
+      const r = await fetch(BACKEND + '/api/mod/reports', { headers: { Authorization: authToken } });
+      const d = await r.json();
+      if (d.error) { listEl.innerHTML = '<span style="color:var(--red);">' + esc(d.error) + '</span>'; return; }
+      const reps = (d.reports || []).filter(r => showHandled.checked || !r.handled);
+      listEl.innerHTML = '';
+      if (!reps.length) { listEl.innerHTML = '<div style="color:var(--text-muted);">No reports.</div>'; return; }
+      reps.forEach(rep => {
+        const when = new Date(rep.ts * 1000).toLocaleString();
+        const authors = Object.entries(rep.authors || {}).sort((a,b) => b[1]-a[1]);
+        const authorsHtml = authors.length
+          ? authors.map(([n, c]) => `<span style="background:var(--bg-elevated);padding:1px 6px;border-radius:8px;margin-right:4px;"><b>${esc(n)}</b> <span style="color:var(--text-muted);">${c}px</span></span>`).join('')
+          : '<span style="color:var(--text-muted);">(no author info — pixels placed before restart)</span>';
+        const row = document.createElement('div');
+        row.style.cssText = 'padding:8px 10px;background:var(--bg-elevated);border-radius:var(--radius-sm);border-left:3px solid ' + (rep.handled ? '#22c55e' : '#d32f2f') + ';';
+        row.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <div><b>${esc(rep.reporter)}</b> reported <b>${esc(rep.lobby_name || rep.lobby_id)}</b> <span style="color:var(--text-muted);">(${when})</span></div>
+          ${rep.handled ? `<span style="color:#22c55e;font-size:10px;">✓ handled by ${esc(rep.handled_by || '?')}</span>` : `<button class="win-btn btn-resolve" data-ts="${rep.ts}" style="background:#22c55e;color:#fff;font-size:10px;padding:2px 8px;">Mark handled</button>`}
+        </div>
+        <div style="margin-top:4px;color:var(--text-muted);">Region (${rep.x1},${rep.y1})–(${rep.x2},${rep.y2}) — ${(rep.x2-rep.x1+1)*(rep.y2-rep.y1+1)} pixels</div>
+        ${rep.reason ? `<div style="margin-top:4px;font-style:italic;">"${esc(rep.reason)}"</div>` : ''}
+        <div style="margin-top:6px;">${authorsHtml}</div>`;
+        listEl.appendChild(row);
+      });
+      listEl.querySelectorAll('.btn-resolve').forEach(b => {
+        b.onclick = async () => {
+          const ts = parseInt(b.dataset.ts, 10);
+          try {
+            const r2 = await fetch(BACKEND + '/api/mod/report-resolve', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ ts }) });
+            const d2 = await r2.json();
+            if (d2.ok) load();
+          } catch {}
+        };
+      });
+    } catch { listEl.innerHTML = '<span style="color:var(--red);">Failed to load</span>'; }
+  }
+  btn.onclick = load;
+  showHandled.onchange = load;
+})();
+
 document.getElementById('btn-admin-device-ban').onclick = async () => {
   const v = document.getElementById('admin-device-input').value.trim();
   if (!v) return;

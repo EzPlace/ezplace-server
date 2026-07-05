@@ -61,6 +61,8 @@ ranks = {}
 name_colors = {}
 presence = {}
 last_online = {}
+reports = []
+REPORTS_MAX = 500
 user_ips = {}
 fake_admins = []
 brush_perms = {}                                                     
@@ -277,6 +279,7 @@ async def save_ranks(): await db_save("store", "ranks", ranks)
 async def save_name_colors(): await db_save("store", "name_colors", name_colors)
 def get_name_color(username): return name_colors.get((username or "").lower())
 async def save_last_online(): await db_save("store", "last_online", last_online)
+async def save_reports(): await db_save("store", "reports", reports[-REPORTS_MAX:])
 def get_presence(username): return presence.get((username or "").lower()) or None
 
 async def push_friend_presence(user):
@@ -828,9 +831,10 @@ async def load_all_data():
     mod_ban_log = await db_load("store", "mod_ban_log") or []
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
-    global name_colors, last_online
+    global name_colors, last_online, reports
     name_colors = await db_load("store", "name_colors") or {}
     last_online = await db_load("store", "last_online") or {}
+    reports = await db_load("store", "reports") or []
     fake_admins = await db_load("store", "fake_admins") or []
     brush_perms = await db_load("store", "brush_perms") or {}
     clans = await db_load("store", "clans") or {}
@@ -6010,6 +6014,67 @@ async def ban_guard_middleware(request, handler):
             return web.json_response({"error": "ip_banned", "redirect": "https://www.pornhub.com"}, status=403)
     return await handler(request)
 
+async def report_submit_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "report", 5, 300):
+        return web.json_response({"error": "Too many reports - try again in a few minutes"}, status=429)
+    data = await request.json()
+    lobby_id = (data.get("lobby_id") or "").strip()
+    lobby = lobbies.get(lobby_id)
+    if not lobby: return web.json_response({"error": "Lobby not found"}, status=404)
+    try:
+        x1 = int(data.get("x1", -1)); y1 = int(data.get("y1", -1))
+        x2 = int(data.get("x2", -1)); y2 = int(data.get("y2", -1))
+    except: return web.json_response({"error": "Invalid coordinates"}, status=400)
+    lw = lobby.get("width", 256); lh = lobby.get("height", 256)
+    x1 = max(0, min(lw - 1, x1)); y1 = max(0, min(lh - 1, y1))
+    x2 = max(0, min(lw - 1, x2)); y2 = max(0, min(lh - 1, y2))
+    if x2 < x1 or y2 < y1: return web.json_response({"error": "Invalid region"}, status=400)
+    if (x2 - x1 + 1) * (y2 - y1 + 1) > 10000:
+        return web.json_response({"error": "Region too large (max 10000 pixels)"}, status=400)
+    reason = str(data.get("reason") or "").strip()[:200]
+    pauthors = lobby.get("pixel_authors") or {}
+    author_counts = {}
+    for y in range(y1, y2 + 1):
+        row_base = y * lw
+        for x in range(x1, x2 + 1):
+            author = pauthors.get(row_base + x)
+            if author:
+                author_counts[author] = author_counts.get(author, 0) + 1
+    entry = {"ts": int(time.time()), "reporter": user, "lobby_id": lobby_id, "lobby_name": lobby.get("name", ""),
+             "x1": x1, "y1": y1, "x2": x2, "y2": y2, "reason": reason, "authors": author_counts,
+             "handled": False, "handled_by": None, "handled_ts": None}
+    reports.append(entry)
+    if len(reports) > REPORTS_MAX: del reports[:len(reports) - REPORTS_MAX]
+    await save_reports()
+    print(f"[report] {user} reported ({lobby.get('name','')}, {x1},{y1}-{x2},{y2}) authors={list(author_counts.keys())[:5]} reason={reason[:60]!r}", flush=True)
+    return web.json_response({"ok": True})
+
+async def reports_list_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not (is_admin(user) or is_moderator(user)):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"reports": list(reversed(reports[-100:]))})
+
+async def report_resolve_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not (is_admin(user) or is_moderator(user)):
+        return web.json_response({"error": "Forbidden"}, status=403)
+    data = await request.json()
+    try: idx = int(data.get("ts"))
+    except: return web.json_response({"error": "Bad ts"}, status=400)
+    for r in reports:
+        if r.get("ts") == idx:
+            r["handled"] = True
+            r["handled_by"] = user
+            r["handled_ts"] = int(time.time())
+            await save_reports()
+            return web.json_response({"ok": True})
+    return web.json_response({"error": "Report not found"}, status=404)
+
 app = web.Application(middlewares=[cors_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
@@ -6042,6 +6107,7 @@ for _path, _h in (
     ("/api/admin/brush-perms", _admin_json_view("brush_perms", lambda: brush_perms)),
     ("/api/admin/fake-admins", _admin_json_view("fake_admins", lambda: fake_admins)),
     ("/api/admin/fake-log", admin_view_fake_log_handler),
+    ("/api/mod/reports", reports_list_handler),
     ("/ws", websocket_handler), ("/ws/social", social_ws_handler), ("/", index_handler),
 ): _g(_path, _h)
 for _path, _h in (
@@ -6106,6 +6172,8 @@ for _path, _h in (
     ("/api/admin/fake-admin-add", admin_fake_admin_add_handler),
     ("/api/admin/fake-admin-remove", admin_fake_admin_remove_handler),
     ("/api/admin/fake-action-log", fake_action_log_handler),
+    ("/api/report", report_submit_handler),
+    ("/api/mod/report-resolve", report_resolve_handler),
 ): _p(_path, _h)
 
 if __name__ == "__main__":
