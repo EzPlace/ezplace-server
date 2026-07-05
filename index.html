@@ -7798,7 +7798,7 @@ document.getElementById('btn-admin-device-ban').onclick = async () => {
   if (!v) return;
   // Decide whether the input is a UUID/device_id (contains a dash) or a username
   const body = v.includes('-') && v.length > 16 ? { device_id: v } : { username: v };
-  try 
+  try {
     const r = await fetch(BACKEND + '/api/admin/device-ban', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
     const d = await r.json();
     document.getElementById('admin-status').textContent = d.error || d.message || 'Done';
