@@ -1082,8 +1082,9 @@
     <span class="user-name" id="user-display"></span>
     <button id="btn-logout" class="win-btn">Logout</button>
   </div>
-  <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;justify-content:flex-end;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;">
-    <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;flex-shrink:0;white-space:nowrap;">PLACEBUX: 0</span>
+  <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;">
+    <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;flex-shrink:0;white-space:nowrap;position:sticky;left:0;z-index:2;">PLACEBUX: 0</span>
+    <span style="flex:1;min-width:0;"></span>
     <span style="position:relative;display:inline-flex;align-items:center;flex-shrink:0;">
       <button id="btn-movies" class="win-btn" title="Watch movies" style="font-size:11px;padding:4px 10px;background:#7c5cfc;color:#fff;font-weight:700;display:inline-flex;align-items:center;white-space:nowrap;">🎬 Movies</button>
       <div id="movies-tutorial-arrow" style="display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#7c5cfc;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 4px 14px rgba(124,92,252,0.5);z-index:55;cursor:pointer;white-space:nowrap;animation:movieArrowBob 1.2s ease-in-out infinite alternate;">↑ Watch movies here <span style="opacity:0.8;font-weight:400;font-size:10px;">(click to dismiss)</span></div>
