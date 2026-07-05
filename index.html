@@ -533,9 +533,9 @@
       <label><input type="checkbox" id="create-public" checked> Public</label>
       <label><input type="checkbox" id="create-whitelist"> Whitelist</label>
       <select id="create-size" class="win-input" style="width:auto;padding:5px 8px;">
-        <option value="256x256">256x256 (free)</option>
-        <option value="512x512">512x512 (10 $)</option>
-        <option value="1024x1024">1024x1024 (20 $)</option>
+        <option value="256x256" data-w="256" data-h="256">256x256 (50 $)</option>
+        <option value="512x512" data-w="512" data-h="512">512x512 (100 $)</option>
+        <option value="1024x1024" data-w="1024" data-h="1024">1024x1024 (200 $)</option>
       </select>
       <label style="font-size:11px;color:#333;">CD: <input id="create-cooldown" class="win-input" type="number" min="0" max="60" step="0.5" value="0" style="width:50px;">s</label>
       <button id="btn-create-lobby" class="win-btn">Create</button>
@@ -3226,6 +3226,16 @@ async function refreshMe() {
     myPurchases = d.purchases || {};
     myNameColor = d.name_color || null;
     myUnlimited = !!d.unlimited;
+    if (d.prices && d.prices.lobby) {
+      const sel = document.getElementById('create-size');
+      if (sel) sel.querySelectorAll('option').forEach(opt => {
+        const w = opt.dataset.w, h = opt.dataset.h;
+        if (!w || !h) return;
+        const key = w + 'x' + h;
+        const price = d.prices.lobby[key];
+        if (typeof price === 'number') opt.textContent = key + (price === 0 ? ' (free)' : ' (' + price + ' $)');
+      });
+    }
     myStreak = (d.streak && d.streak.count) || 0;
     if (d.streak_progress) myStreakProgress = d.streak_progress;
     const modTab = document.getElementById('mod-tab-btn');
@@ -7788,7 +7798,7 @@ document.getElementById('btn-admin-device-ban').onclick = async () => {
   if (!v) return;
   // Decide whether the input is a UUID/device_id (contains a dash) or a username
   const body = v.includes('-') && v.length > 16 ? { device_id: v } : { username: v };
-  try {
+  try 
     const r = await fetch(BACKEND + '/api/admin/device-ban', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
     const d = await r.json();
     document.getElementById('admin-status').textContent = d.error || d.message || 'Done';
