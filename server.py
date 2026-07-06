@@ -82,6 +82,7 @@ ECONOMY_SNAPSHOT_INTERVAL = 300
 ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "name_color": 30, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
+SHOP_SELL_PRICES = {"streak_pass": 400}
 PALETTE_SIZE = 81
 STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
@@ -2534,6 +2535,32 @@ async def shop_buy_handler(request):
         await save_ranks()
     await push_pb_update(user)
     return web.json_response({"ok": True, "balance": get_pb(user), "purchases": pu})
+
+async def shop_sell_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "shop_sell", 10, 60):
+        return web.json_response({"error": "Too many sells - slow down."}, status=429)
+    item = (data.get("item") or "").strip()
+    if item not in SHOP_SELL_PRICES:
+        return web.json_response({"error": "That item isn't sellable"}, status=400)
+    ulow = user.lower()
+    pu = purchases.setdefault(ulow, {})
+    if item in STACKABLE_ITEMS:
+        have = int(pu.get(item, 0))
+        if have <= 0: return web.json_response({"error": "You don't have any to sell"}, status=400)
+        pu[item] = have - 1
+        if pu[item] <= 0: del pu[item]
+    else:
+        if not pu.get(item): return web.json_response({"error": "You don't own that"}, status=400)
+        del pu[item]
+    refund = SHOP_SELL_PRICES[item]
+    credit_pb(user, refund)
+    await save_purchases()
+    await save_place_bucks()
+    await push_pb_update(user)
+    return web.json_response({"ok": True, "balance": get_pb(user), "purchases": purchases.get(ulow) or {}, "refund": refund, "item": item})
 
 async def pb_transfer_handler(request):
     data = await request.json()
@@ -6150,6 +6177,7 @@ for _path, _h in (
     ("/api/admin/vip-add", admin_vip_add_handler), ("/api/admin/vip-remove", admin_vip_remove_handler),
     ("/api/admin/rank-set", admin_rank_set_handler), ("/api/admin/rank-remove", admin_rank_remove_handler),
     ("/api/streak/heartbeat", streak_heartbeat_handler), ("/api/shop/buy", shop_buy_handler),
+    ("/api/shop/sell", shop_sell_handler),
     ("/api/pb/transfer", pb_transfer_handler), ("/api/casino/slots", casino_slots_handler),
     ("/api/casino/roulette", casino_roulette_handler), ("/api/casino/coinflip", casino_coinflip_handler),
     ("/api/casino/plinko", casino_plinko_handler), ("/api/casino/mines", casino_mines_handler),

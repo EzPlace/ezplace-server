@@ -797,7 +797,7 @@
           </div>
         </div>
         <div id="shop-item-streak-48hr" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">48hr Streak Window 🕐</div><div style="font-size:11px;color:var(--text-muted);">Lets you skip a day without losing your streak. Permanent.</div></div><button class="win-btn shop-buy" data-item="streak_48hr" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">1200 $</button></div>
-        <div id="shop-item-streak-pass" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">Streak Pass 🛡 <span id="streak-pass-count" style="color:var(--gold);font-size:11px;"></span></div><div style="font-size:11px;color:var(--text-muted);">Stackable insurance: auto-restores your streak if you'd otherwise reset to 1. One pass per save.</div></div><button class="win-btn shop-buy" data-item="streak_pass" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">800 $</button></div>
+        <div id="shop-item-streak-pass" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);gap:8px;"><div style="flex:1;min-width:0;"><div style="font-weight:700;">Streak Pass 🛡 <span id="streak-pass-count" style="color:var(--gold);font-size:11px;"></span></div><div style="font-size:11px;color:var(--text-muted);">Stackable insurance: auto-restores your streak if you'd otherwise reset to 1. One pass per save. Sell back for 400 $.</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button class="win-btn shop-buy" data-item="streak_pass" style="background:var(--accent);color:#fff;">800 $</button><button class="win-btn shop-sell" data-item="streak_pass" style="background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);">Sell 400 $</button></div></div>
       </div>
 
       <!-- CASINO tab (each game collapsed by default; click to open) -->
@@ -3341,7 +3341,26 @@ document.querySelectorAll('#shop-modal .shop-buy').forEach(btn => {
       myBalance = d.balance || 0;
       myPurchases = d.purchases || myPurchases;
       applyPbState();
-      openShop(); // refresh button states
+      openShop();
+    } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+  };
+});
+document.querySelectorAll('#shop-modal .shop-sell').forEach(btn => {
+  btn.onclick = async () => {
+    const item = btn.dataset.item;
+    const msg = document.getElementById('shop-msg');
+    const have = parseInt(myPurchases[item]) || 0;
+    if (have <= 0) { msg.textContent = "You don't have any to sell."; msg.style.color = 'var(--red)'; return; }
+    msg.textContent = 'Selling...'; msg.style.color = 'var(--text-muted)';
+    try {
+      const r = await fetch(BACKEND + '/api/shop/sell', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ item }) });
+      const d = await r.json();
+      if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return; }
+      msg.textContent = 'Sold for ' + (d.refund || 0) + ' $!'; msg.style.color = '#22c55e';
+      myBalance = d.balance || 0;
+      myPurchases = d.purchases || myPurchases;
+      applyPbState();
+      openShop();
     } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
   };
 });
