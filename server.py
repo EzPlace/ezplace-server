@@ -89,9 +89,17 @@ PB_TRANSFER_AMOUNT_PER_MIN = 100000
 pb_transfer_amount_window = {}
 LOBBY_PRICES = {(256, 256): 50, (512, 512): 100, (1024, 1024): 200}
 
-ALLOWED_IMAGE_HOSTS = ("https://files.catbox.moe/", "https://litter.catbox.moe/", "https://i.imgur.com/", "https://imgur.com/")
+ALLOWED_IMAGE_HOSTS = frozenset({"files.catbox.moe", "litter.catbox.moe", "i.imgur.com", "imgur.com"})
 def is_safe_image_url(url):
-    return isinstance(url, str) and any(url.startswith(h) for h in ALLOWED_IMAGE_HOSTS) and len(url) <= 500
+    if not isinstance(url, str) or not url or len(url) > 500: return False
+    if any(c in url for c in "\r\n\t\0 "): return False
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(url)
+        if p.scheme != "https": return False
+        if p.username or p.password: return False
+        return p.hostname is not None and p.hostname.lower() in ALLOWED_IMAGE_HOSTS
+    except: return False
 lobbies = {}
 clients = {}
 social_clients = {}
@@ -2738,8 +2746,9 @@ async def casino_mines_handler(request):
     return web.json_response({"error": "Bad action"}, status=400)
 
 GD_LEVEL_LENGTH = 5400
-GD_MIN_PLAY_MS_PER_PCT = 180
+GD_MIN_PLAY_MS_PER_PCT = 400
 GD_DAILY_PLAY_CAP = 30
+GD_MAX_MULT = 1.75
 gd_attempts = {}
 
 async def casino_gd_start_handler(request):
@@ -2760,7 +2769,7 @@ async def casino_gd_start_handler(request):
     else:
         seed = secrets.randbelow(1_000_000_000)
     gd_attempts[user.lower()] = {"seed": seed, "bet": amount, "start_ts": time.time(), "done": False}
-    return web.json_response({"ok": True, "seed": seed, "length": GD_LEVEL_LENGTH, "max_mult": 3.0, "balance": get_pb(user)})
+    return web.json_response({"ok": True, "seed": seed, "length": GD_LEVEL_LENGTH, "max_mult": GD_MAX_MULT, "balance": get_pb(user)})
 
 async def casino_gd_result_handler(request):
     data = await request.json()
@@ -2787,7 +2796,7 @@ async def casino_gd_result_handler(request):
     if progress < 0.5:
         multiplier = round(2 * progress, 3)
     else:
-        multiplier = round(1 + 4 * (progress - 0.5), 3)
+        multiplier = round(1 + (GD_MAX_MULT - 1) * 2 * (progress - 0.5), 3)
     winnings = int(g["bet"] * multiplier)
     credit_pb(user, winnings)
     await save_place_bucks()
@@ -4993,17 +5002,21 @@ async def admin_fake_admin_remove_handler(request):
 fake_action_log = []                                              
 
 async def fake_action_log_handler(request):
-    data = await request.json()
     user = get_auth_user(request)
     if not user or not is_fake_admin(user): return web.json_response({"ok": True})
+    if not check_rate_limit(user, "fake_log", 20, 60):
+        return web.json_response({"ok": True})
+    data = await request.json()
+    def _clean(s):
+        s = str(s or "")[:100]
+        return "".join(c for c in s if c.isprintable() and c not in "\r\n\t<>")
     fake_action_log.append({
-        "username": user,
-        "action": data.get("action", ""),
-        "target": data.get("target", ""),
-        "detail": data.get("detail", ""),
+        "username": user[:32],
+        "action": _clean(data.get("action")),
+        "target": _clean(data.get("target")),
+        "detail": _clean(data.get("detail")),
         "time": time.time()
     })
-                                 
     if len(fake_action_log) > 200: del fake_action_log[:len(fake_action_log) - 200]
     return web.json_response({"ok": True})
 
@@ -5244,7 +5257,7 @@ async def websocket_handler(request):
                     if is_ip_banned(request):
                         await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
                     lid = data.get("lobby_id", "")
-                    guest_name = data.get("guest_name", "Guest")
+                    guest_name = "Guest " + str(secrets.randbelow(9_000_000_000) + 1_000_000_000)
                     lobby = lobbies.get(lid)
                     if not lobby:
                         await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
@@ -5252,7 +5265,7 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "error", "text": "Guests can only join public lobbies"}); await ws.close(); break
                     username = guest_name; is_guest = True; lobby_id = lid
                     clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True, "ip": get_client_ip(request), "no_deflate": bool(data.get("no_deflate"))}
-                    await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)}, lobby["grid"])
+                    await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "assigned_name": username, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)}, lobby["grid"])
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined (spectating)"})
                     await broadcast_online_lobby(lobby_id)
 
@@ -5498,7 +5511,11 @@ async def websocket_handler(request):
                             lobby["last_activity"] = time.time()
                             imported_counts = data.get("pixel_counts")
                             if isinstance(imported_counts, dict):
-                                clean = {str(k)[:20]: int(v) for k, v in imported_counts.items() if isinstance(v, (int, float)) and v >= 0}
+                                clean = {str(k)[:20]: min(int(v), expected) for k, v in imported_counts.items() if isinstance(v, (int, float)) and v >= 0}
+                                total_claimed = sum(clean.values())
+                                if total_claimed > expected:
+                                    scale = expected / total_claimed
+                                    clean = {k: int(v * scale) for k, v in clean.items()}
                                 lobby["pixel_counts"] = clean
                             imported_owner = data.get("original_owner")
                             if isinstance(imported_owner, str) and imported_owner.strip():
