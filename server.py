@@ -3993,9 +3993,10 @@ async def battle_create_handler(request):
         bet = max(0, int(data.get("bet", 0)))
         draw_seconds = max(BATTLE_DRAW_SECONDS_MIN, min(BATTLE_DRAW_SECONDS_MAX, int(data.get("draw_seconds", BATTLE_DRAW_SECONDS_DEFAULT))))
     except: return web.json_response({"error": "Invalid settings"}, status=400)
+    theme = str(data.get("theme") or "").strip()[:60] or None
     rid = secrets.token_hex(5)
     battle_rooms[rid] = {
-        "id": rid, "creator": user, "bet": bet, "pool": 0, "theme": None,
+        "id": rid, "creator": user, "bet": bet, "pool": 0, "theme": theme,
         "phase": "lobby", "drawers": [], "judge": None, "spectators": [user],
         "grids": {}, "winner": None, "end_at": 0, "draw_seconds": draw_seconds,
         "done_flags": set(), "last_action_at": time.time(),
@@ -4233,6 +4234,262 @@ async def battle_say_handler(request):
     for n in _battle_participants(room):
         try: await notify_social(n, payload)
         except: pass
+    return web.json_response({"ok": True})
+
+SKETCH_W = 64
+SKETCH_H = 64
+SKETCH_ROUND_SECONDS = 60
+SKETCH_ROOM_TTL = 30 * 60
+SKETCH_MAX_PLAYERS = 8
+SKETCH_MIN_PLAYERS = 2
+SKETCH_PROMPTS = [
+    "apple","banana","orange","grape","pineapple","watermelon","strawberry","cherry",
+    "cat","dog","fish","bird","rabbit","turtle","horse","elephant","lion","tiger","bear","fox",
+    "car","truck","bicycle","motorcycle","train","airplane","boat","rocket","helicopter","bus",
+    "house","castle","tent","tree","flower","cactus","mountain","cloud","sun","moon","star","rainbow",
+    "chair","table","bed","door","window","lamp","clock","phone","computer","tv","book","pencil",
+    "hat","shirt","pants","shoe","glove","glasses","ring","crown","umbrella","backpack",
+    "pizza","hamburger","hotdog","donut","cake","ice cream","cookie","sandwich","taco","sushi",
+    "guitar","piano","drum","violin","microphone","headphones","speaker",
+    "smiley","heart","ghost","skull","alien","robot","dragon","unicorn","dinosaur","mermaid",
+    "snowman","pumpkin","football","basketball","soccer ball","tennis racket","fishing rod",
+    "camera","mirror","key","bomb","sword","shield","magic wand","treasure chest",
+]
+sketch_rooms = {}
+
+def _sketch_gc(now):
+    stale = [rid for rid, r in sketch_rooms.items() if now - r["last_action"] > SKETCH_ROOM_TTL]
+    for rid in stale: sketch_rooms.pop(rid, None)
+
+def _sketch_prompt_blanks(p):
+    return " ".join("_" if c.isalpha() else c for c in p)
+
+def _sketch_pick_prompt(room):
+    pool = room["custom_prompts"] if room["prompt_source"] == "custom" and room["custom_prompts"] else SKETCH_PROMPTS
+    return secrets.choice(pool)
+
+def _sketch_public(room, viewer):
+    ulow = (viewer or "").lower()
+    is_drawer = room.get("current_drawer") and room["current_drawer"].lower() == ulow
+    show_prompt = is_drawer or room["phase"] in ("round_end", "game_end")
+    players = [{"name": p["name"], "score": p["score"], "got_current": bool(p.get("got_current")), "drew": bool(p.get("drew_this_game"))} for p in room["players"].values()]
+    return {
+        "id": room["id"], "host": room["host"], "phase": room["phase"],
+        "players": players, "current_drawer": room.get("current_drawer"),
+        "prompt": room.get("current_prompt") if show_prompt else None,
+        "prompt_blanks": _sketch_prompt_blanks(room["current_prompt"]) if room.get("current_prompt") and not is_drawer and room["phase"] == "drawing" else None,
+        "prompt_source": room["prompt_source"],
+        "round_deadline": room.get("round_deadline", 0),
+        "round_num": room.get("round_num", 0),
+        "guesses": room.get("guesses", [])[-30:],
+        "last_stroke_idx": len(room["strokes"]),
+        "grid_w": SKETCH_W, "grid_h": SKETCH_H,
+    }
+
+async def _sketch_next_round(room):
+    remaining = [p for p in room["players"].values() if not p.get("drew_this_game")]
+    if not remaining or len(room["players"]) < SKETCH_MIN_PLAYERS:
+        room["phase"] = "game_end"
+        room["current_drawer"] = None
+        room["current_prompt"] = None
+        return
+    drawer = remaining[0]
+    drawer["drew_this_game"] = True
+    room["current_drawer"] = drawer["name"]
+    room["current_prompt"] = _sketch_pick_prompt(room)
+    for p in room["players"].values():
+        p["got_current"] = False
+    room["grid"] = bytearray(SKETCH_W * SKETCH_H)
+    room["strokes"] = []
+    room["guesses"] = []
+    room["round_num"] += 1
+    room["round_deadline"] = time.time() + SKETCH_ROUND_SECONDS
+    room["phase"] = "drawing"
+
+async def sketch_create_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await request.json()
+    prompt_source = "custom" if data.get("prompt_source") == "custom" else "random"
+    custom_prompts = []
+    if prompt_source == "custom":
+        raw = str(data.get("custom_prompts") or "")
+        for p in raw.split(","):
+            p = p.strip()[:30]
+            if p and len(custom_prompts) < 30:
+                custom_prompts.append(p)
+        if not custom_prompts:
+            return web.json_response({"error": "Provide at least one custom prompt (comma-separated)"}, status=400)
+    _sketch_gc(time.time())
+    rid = secrets.token_hex(5)
+    sketch_rooms[rid] = {
+        "id": rid, "host": user, "phase": "lobby",
+        "players": {user.lower(): {"name": user, "score": 0, "drew_this_game": False, "got_current": False}},
+        "current_drawer": None, "current_prompt": None,
+        "prompt_source": prompt_source, "custom_prompts": custom_prompts,
+        "grid": bytearray(SKETCH_W * SKETCH_H),
+        "strokes": [], "guesses": [],
+        "round_deadline": 0, "round_num": 0, "round_end_at": 0,
+        "last_action": time.time(),
+    }
+    return web.json_response({"ok": True, "room_id": rid, "state": _sketch_public(sketch_rooms[rid], user)})
+
+async def sketch_list_handler(request):
+    _sketch_gc(time.time())
+    out = [{"id": r["id"], "host": r["host"], "players": len(r["players"]), "phase": r["phase"], "prompt_source": r["prompt_source"]}
+           for r in sketch_rooms.values() if r["phase"] == "lobby"]
+    return web.json_response({"ok": True, "rooms": out})
+
+async def sketch_join_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await request.json()
+    rid = data.get("room_id", "")
+    room = sketch_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "lobby": return web.json_response({"error": "Game already started"}, status=400)
+    ulow = user.lower()
+    if ulow not in room["players"]:
+        if len(room["players"]) >= SKETCH_MAX_PLAYERS:
+            return web.json_response({"error": f"Room full ({SKETCH_MAX_PLAYERS} max)"}, status=400)
+        room["players"][ulow] = {"name": user, "score": 0, "drew_this_game": False, "got_current": False}
+    room["last_action"] = time.time()
+    return web.json_response({"ok": True, "state": _sketch_public(room, user)})
+
+async def sketch_start_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await request.json()
+    rid = data.get("room_id", "")
+    room = sketch_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["host"].lower() != user.lower():
+        return web.json_response({"error": "Only host can start"}, status=403)
+    if len(room["players"]) < SKETCH_MIN_PLAYERS:
+        return web.json_response({"error": f"Need at least {SKETCH_MIN_PLAYERS} players"}, status=400)
+    if room["phase"] != "lobby":
+        return web.json_response({"error": "Already started"}, status=400)
+    for p in room["players"].values(): p["drew_this_game"] = False
+    await _sketch_next_round(room)
+    room["last_action"] = time.time()
+    return web.json_response({"ok": True, "state": _sketch_public(room, user)})
+
+async def sketch_state_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    rid = request.query.get("room_id", "")
+    try: since = int(request.query.get("since", 0) or 0)
+    except: since = 0
+    room = sketch_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    now = time.time()
+    if room["phase"] == "drawing" and now >= room["round_deadline"]:
+        room["phase"] = "round_end"
+        room["round_end_at"] = now
+    if room["phase"] == "round_end" and now >= room.get("round_end_at", 0) + 5:
+        await _sketch_next_round(room)
+    strokes = room["strokes"][since:] if 0 <= since < len(room["strokes"]) else []
+    state = _sketch_public(room, user)
+    state["strokes"] = strokes
+    return web.json_response({"ok": True, "state": state})
+
+async def sketch_draw_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await request.json()
+    rid = data.get("room_id", "")
+    room = sketch_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "drawing":
+        return web.json_response({"error": "Not in drawing phase"}, status=400)
+    if not room.get("current_drawer") or room["current_drawer"].lower() != user.lower():
+        return web.json_response({"error": "Not your turn to draw"}, status=403)
+    if not check_rate_limit(user, "sketch_draw", 30, 1):
+        return web.json_response({"error": "Too fast"}, status=429)
+    strokes = data.get("strokes") or []
+    if not isinstance(strokes, list) or len(strokes) > 200:
+        return web.json_response({"error": "Invalid strokes"}, status=400)
+    for s in strokes:
+        try:
+            x, y, c = int(s[0]), int(s[1]), int(s[2])
+        except: continue
+        if not (0 <= x < SKETCH_W and 0 <= y < SKETCH_H and 0 <= c < PALETTE_SIZE): continue
+        room["grid"][y * SKETCH_W + x] = c
+        room["strokes"].append([x, y, c])
+    if len(room["strokes"]) > 20000:
+        room["strokes"] = room["strokes"][-15000:]
+    room["last_action"] = time.time()
+    return web.json_response({"ok": True, "idx": len(room["strokes"])})
+
+async def sketch_clear_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await request.json()
+    rid = data.get("room_id", "")
+    room = sketch_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "drawing" or not room.get("current_drawer") or room["current_drawer"].lower() != user.lower():
+        return web.json_response({"error": "Not your turn"}, status=403)
+    room["grid"] = bytearray(SKETCH_W * SKETCH_H)
+    room["strokes"].append([-1, -1, 0])
+    return web.json_response({"ok": True})
+
+async def sketch_guess_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await request.json()
+    rid = data.get("room_id", "")
+    room = sketch_rooms.get(rid)
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if room["phase"] != "drawing":
+        return web.json_response({"error": "Not in drawing phase"}, status=400)
+    if room.get("current_drawer") and room["current_drawer"].lower() == user.lower():
+        return web.json_response({"error": "The drawer can't guess"}, status=400)
+    ulow = user.lower()
+    if ulow not in room["players"]:
+        return web.json_response({"error": "Not in room"}, status=400)
+    if not check_rate_limit(user, "sketch_guess", 10, 5):
+        return web.json_response({"error": "Slow down"}, status=429)
+    player = room["players"][ulow]
+    if player.get("got_current"):
+        return web.json_response({"error": "You already got it"}, status=400)
+    guess = str(data.get("guess") or "").strip()[:60]
+    if not guess: return web.json_response({"error": "Empty guess"}, status=400)
+    correct = guess.lower() == (room.get("current_prompt") or "").lower()
+    entry = {"user": user, "text": "✓ got it!" if correct else guess, "correct": correct, "ts": int(time.time())}
+    room["guesses"].append(entry)
+    if len(room["guesses"]) > 100: del room["guesses"][:len(room["guesses"]) - 100]
+    if correct:
+        player["got_current"] = True
+        remaining_sec = max(0, room["round_deadline"] - time.time())
+        player["score"] += int(remaining_sec) + 10
+        drawer_name = room.get("current_drawer") or ""
+        non_drawer_count = sum(1 for p in room["players"].values() if p["name"].lower() != drawer_name.lower())
+        got_count = sum(1 for p in room["players"].values() if p.get("got_current"))
+        if got_count >= non_drawer_count and non_drawer_count > 0:
+            room["phase"] = "round_end"
+            room["round_end_at"] = time.time()
+    room["last_action"] = time.time()
+    return web.json_response({"ok": True, "correct": correct})
+
+async def sketch_leave_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await request.json()
+    rid = data.get("room_id", "")
+    room = sketch_rooms.get(rid)
+    if not room: return web.json_response({"ok": True})
+    ulow = user.lower()
+    room["players"].pop(ulow, None)
+    if not room["players"]:
+        sketch_rooms.pop(rid, None)
+        return web.json_response({"ok": True})
+    if room["host"].lower() == ulow:
+        room["host"] = next(iter(room["players"].values()))["name"]
+    if room.get("current_drawer") and room["current_drawer"].lower() == ulow and room["phase"] == "drawing":
+        room["phase"] = "round_end"
+        room["round_end_at"] = time.time()
+    room["last_action"] = time.time()
     return web.json_response({"ok": True})
 
 AMONGUS_MIN = 4
@@ -6143,6 +6400,7 @@ for _path, _h in (
     ("/api/casino/rps/status", casino_rps_status_handler), ("/api/uno/list", uno_list_handler),
     ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
     ("/api/battle/list", battle_list_handler), ("/api/battle/state", battle_state_handler),
+    ("/api/sketch/list", sketch_list_handler), ("/api/sketch/state", sketch_state_handler),
     ("/api/global-leaderboard", global_leaderboard_handler), ("/api/economy/stats", economy_stats_handler),
     ("/api/auth/status", auth_status_handler), ("/api/night-event/state", night_event_state_handler),
     ("/api/groups/my", groups_my_handler), ("/api/groups/messages", group_messages_handler),
@@ -6200,7 +6458,11 @@ for _path, _h in (
     ("/api/battle/assign", battle_assign_handler), ("/api/battle/start", battle_start_handler),
     ("/api/battle/paint", battle_paint_handler), ("/api/battle/done", battle_done_handler),
     ("/api/battle/judge", battle_judge_handler), ("/api/battle/leave", battle_leave_handler),
-    ("/api/battle/say", battle_say_handler), ("/api/night-event/join", night_event_join_handler),
+    ("/api/battle/say", battle_say_handler),
+    ("/api/sketch/create", sketch_create_handler), ("/api/sketch/join", sketch_join_handler),
+    ("/api/sketch/start", sketch_start_handler), ("/api/sketch/draw", sketch_draw_handler),
+    ("/api/sketch/clear", sketch_clear_handler), ("/api/sketch/guess", sketch_guess_handler),
+    ("/api/sketch/leave", sketch_leave_handler), ("/api/night-event/join", night_event_join_handler),
     ("/api/admin/night-event-trigger", admin_night_event_trigger_handler),
     ("/api/clans/remove-member", clan_remove_member_handler), ("/api/groups/create", group_create_handler),
     ("/api/groups/leave", group_leave_handler), ("/api/groups/add-member", group_add_member_handler),
