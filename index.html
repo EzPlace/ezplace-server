@@ -1081,7 +1081,7 @@
   <div id="user-bar">
     <span class="user-name" id="user-display"></span>
     <span style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;">
-      <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;white-space:nowrap;">PLACEBUX: 0</span>
+      <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;">PB: 0</span>
       <button id="btn-logout" class="win-btn" style="flex-shrink:0;">Logout</button>
     </span>
   </div>
@@ -3186,16 +3186,13 @@ function fmtRelTime(unixSec) {
 function applyPbState() {
   const el = document.getElementById('pb-balance');
   if (el) {
-    const base = myUnlimited ? 'PLACEBUX: ∞' : ('PLACEBUX: ' + myBalance);
+    const balStr = myUnlimited ? '∞' : (myBalance >= 100000 ? fmtCompact(myBalance) : String(myBalance));
     let suf = '';
-    if (myStreak > 0 || myStreakProgress.seconds > 0) {
-      if (myStreakProgress.earned_today) suf = '  🔥 ' + myStreak;
-      else suf = '  🔥 ' + myStreak + ' (' + fmtMMSS(myStreakProgress.seconds) + '/' + fmtMMSS(myStreakProgress.required) + ')';
-    }
-    el.textContent = base + suf;
-    let tip = 'PlaceBucks - earn 1 per 100 pixels placed';
+    if (myStreak > 0) suf = ' 🔥' + myStreak;
+    el.textContent = 'PB: ' + balStr + suf;
+    let tip = 'PlaceBucks: ' + (myUnlimited ? 'unlimited' : myBalance.toLocaleString()) + ' - earn 1 per 100 pixels placed';
     if (myStreak > 0) tip += ' - streak: ' + myStreak + ' day' + (myStreak === 1 ? '' : 's');
-    if (!myStreakProgress.earned_today) tip += ' - spend ' + Math.ceil((myStreakProgress.required - myStreakProgress.seconds) / 60) + ' more min on this tab to claim today';
+    if (!myStreakProgress.earned_today && myStreakProgress.required) tip += ' - spend ' + Math.ceil((myStreakProgress.required - myStreakProgress.seconds) / 60) + ' more min on this tab to claim today (' + fmtMMSS(myStreakProgress.seconds) + '/' + fmtMMSS(myStreakProgress.required) + ')';
     el.title = tip;
   }
   const sb = document.getElementById('shop-balance');
