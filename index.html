@@ -593,6 +593,44 @@
   </div>
 </div>
 
+<div id="sketch-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(6px);z-index:75;align-items:center;justify-content:center;padding:10px;">
+  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:820px;max-width:100%;max-height:95vh;display:flex;flex-direction:column;">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <div style="font-weight:700;font-size:14px;">✏️ Sketch & Guess <span id="sketch-room-code" style="color:var(--text-muted);font-size:11px;font-weight:400;"></span></div>
+        <div id="sketch-status-bar" style="font-size:11px;color:var(--text-muted);"></div>
+      </div>
+      <button id="btn-sketch-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Leave</button>
+    </div>
+    <div style="display:flex;gap:8px;padding:10px;overflow:hidden;flex:1;min-height:0;">
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;">
+        <div id="sketch-prompt-display" style="text-align:center;font-weight:700;font-size:16px;padding:6px 8px;background:var(--bg-secondary);border-radius:var(--radius-sm);letter-spacing:2px;min-height:32px;"></div>
+        <canvas id="sketch-canvas" width="64" height="64" style="width:100%;aspect-ratio:1/1;image-rendering:pixelated;background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:crosshair;touch-action:none;"></canvas>
+        <div id="sketch-drawer-tools" style="display:none;gap:4px;flex-wrap:wrap;align-items:center;">
+          <span style="font-size:10px;color:var(--text-muted);">Colors:</span>
+          <div id="sketch-palette" style="display:flex;gap:2px;flex-wrap:wrap;flex:1;"></div>
+          <button id="btn-sketch-clear" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:10px;padding:2px 6px;">Clear</button>
+        </div>
+        <div id="sketch-guess-row" style="display:none;gap:4px;">
+          <input id="sketch-guess-input" class="win-input" type="text" placeholder="Type your guess..." maxlength="60" style="flex:1;font-size:12px;">
+          <button id="btn-sketch-guess" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;">Guess</button>
+        </div>
+        <div id="sketch-lobby-panel" style="display:none;flex-direction:column;gap:6px;padding:8px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
+          <div style="font-size:12px;font-weight:700;">Waiting for host to start...</div>
+          <div id="sketch-lobby-info" style="font-size:11px;color:var(--text-muted);"></div>
+          <button id="btn-sketch-start" class="win-btn" style="display:none;background:var(--accent);color:#fff;">Start Game</button>
+        </div>
+      </div>
+      <div style="width:220px;display:flex;flex-direction:column;gap:6px;min-height:0;flex-shrink:0;">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);">Players</div>
+        <div id="sketch-players" style="display:flex;flex-direction:column;gap:3px;font-size:11px;max-height:120px;overflow-y:auto;"></div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-top:4px;">Guesses</div>
+        <div id="sketch-guesses" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;font-size:11px;background:var(--bg-secondary);border-radius:var(--radius-sm);padding:6px;min-height:0;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="movies-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(6px);z-index:70;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:900px;max-width:100%;max-height:90vh;display:flex;flex-direction:column;">
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;">
@@ -884,12 +922,31 @@
               <label style="font-size:11px;">Bet <input id="battle-bet" type="number" min="0" value="10" class="win-input" style="width:60px;font-size:12px;padding:2px 4px;"></label>
               <label style="font-size:11px;">Draw secs <input id="battle-secs" type="number" min="30" max="300" value="90" class="win-input" style="width:60px;font-size:12px;padding:2px 4px;"></label>
             </div>
+            <label style="font-size:11px;display:flex;gap:4px;align-items:center;"><span style="flex-shrink:0;">Theme (optional):</span> <input id="battle-theme" type="text" maxlength="60" placeholder="e.g. 'draw a dragon'" class="win-input" style="flex:1;font-size:12px;padding:2px 4px;"></label>
             <div style="display:flex;gap:6px;">
               <button id="btn-battle-create" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Create Room</button>
               <button id="btn-battle-list" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;">Find Room</button>
             </div>
             <div id="battle-rooms" style="display:none;flex-direction:column;gap:4px;font-size:12px;"></div>
             <div id="battle-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+          </div>
+        </details>
+
+        <details class="game-acc"><summary>Sketch & Guess <span class="game-hint">2-8 players, one draws, others guess. No PlaceBucks.</span></summary>
+          <div class="game-body">
+            <div style="font-size:11px;color:var(--text-muted);">Take turns drawing. Others try to guess the word. First correct answer wins the round. Free — no PlaceBucks earned or spent.</div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:11px;">Prompts: </label>
+              <label style="font-size:11px;"><input type="radio" name="sketch-src" value="random" checked> Random</label>
+              <label style="font-size:11px;"><input type="radio" name="sketch-src" value="custom"> Custom</label>
+            </div>
+            <textarea id="sketch-custom" placeholder="Custom prompts, comma-separated (e.g. dog, sun, pizza)" maxlength="600" rows="2" class="win-input" style="display:none;resize:vertical;font-family:inherit;font-size:12px;"></textarea>
+            <div style="display:flex;gap:6px;">
+              <button id="btn-sketch-create" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">Create Room</button>
+              <button id="btn-sketch-list" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;">Find Room</button>
+            </div>
+            <div id="sketch-rooms" style="display:none;flex-direction:column;gap:4px;font-size:12px;"></div>
+            <div id="sketch-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
         </details>
 
@@ -4321,9 +4378,10 @@ document.getElementById('btn-battle-create').onclick = async () => {
   if (!authToken) { battleMsg('Log in first.', 'var(--red)'); return; }
   const bet = parseInt(document.getElementById('battle-bet').value) || 0;
   const draw_seconds = parseInt(document.getElementById('battle-secs').value) || 90;
+  const theme = document.getElementById('battle-theme').value.trim().slice(0, 60);
   battleMsg('Creating room...');
   try {
-    const r = await fetch(BACKEND + '/api/battle/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ bet, draw_seconds }) });
+    const r = await fetch(BACKEND + '/api/battle/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ bet, draw_seconds, theme }) });
     const d = await r.json();
     if (d.error) { battleMsg(d.error, 'var(--red)'); return; }
     battleMsg('');
@@ -4362,6 +4420,258 @@ document.getElementById('btn-battle-leave').onclick = async () => {
   }
   battleCloseModal();
 };
+
+let sketchRoomId = null;
+let sketchState = null;
+let sketchPollTimer = null;
+let sketchStrokeIdx = 0;
+let sketchSelectedColor = 24;
+let sketchPendingStrokes = [];
+let sketchLastDrawer = null;
+let sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
+function sketchMsg(t, c) { const m = document.getElementById('sketch-msg'); if (m) { m.textContent = t || ''; m.style.color = c || 'var(--text-muted)'; } }
+document.querySelectorAll('input[name="sketch-src"]').forEach(r => {
+  r.addEventListener('change', () => {
+    document.getElementById('sketch-custom').style.display = r.value === 'custom' && r.checked ? '' : 'none';
+  });
+});
+async function sketchApiJoin(rid) {
+  const r = await fetch(BACKEND + '/api/sketch/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: rid }) });
+  return r.json();
+}
+async function sketchOpenAndPoll(rid, initialState) {
+  sketchRoomId = rid;
+  sketchStrokeIdx = 0;
+  sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
+  document.getElementById('sketch-modal').style.display = 'flex';
+  document.getElementById('sketch-room-code').textContent = 'Code: ' + rid;
+  if (initialState) sketchRender(initialState);
+  if (sketchPollTimer) clearInterval(sketchPollTimer);
+  sketchPollTimer = setInterval(sketchPoll, 800);
+  sketchPoll();
+}
+async function sketchPoll() {
+  if (!sketchRoomId) return;
+  try {
+    const r = await fetch(BACKEND + '/api/sketch/state?room_id=' + encodeURIComponent(sketchRoomId) + '&since=' + sketchStrokeIdx, { headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) { if (d.error === 'Room not found') sketchClose(); return; }
+    sketchRender(d.state);
+  } catch {}
+}
+function sketchClose() {
+  if (sketchPollTimer) { clearInterval(sketchPollTimer); sketchPollTimer = null; }
+  document.getElementById('sketch-modal').style.display = 'none';
+  sketchRoomId = null; sketchState = null; sketchPendingStrokes = [];
+}
+document.getElementById('btn-sketch-close').onclick = async () => {
+  if (sketchRoomId) { try { await fetch(BACKEND + '/api/sketch/leave', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId }) }); } catch {} }
+  sketchClose();
+};
+document.getElementById('btn-sketch-create').onclick = async () => {
+  if (!authToken) { sketchMsg('Log in first.', 'var(--red)'); return; }
+  const src = document.querySelector('input[name="sketch-src"]:checked').value;
+  const body = { prompt_source: src };
+  if (src === 'custom') body.custom_prompts = document.getElementById('sketch-custom').value;
+  sketchMsg('Creating room...');
+  try {
+    const r = await fetch(BACKEND + '/api/sketch/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.error) { sketchMsg(d.error, 'var(--red)'); return; }
+    sketchMsg('');
+    sketchOpenAndPoll(d.room_id, d.state);
+  } catch { sketchMsg('Server offline.', 'var(--red)'); }
+};
+document.getElementById('btn-sketch-list').onclick = async () => {
+  const list = document.getElementById('sketch-rooms');
+  list.style.display = 'flex'; list.innerHTML = 'Loading...';
+  try {
+    const r = await fetch(BACKEND + '/api/sketch/list'); const d = await r.json();
+    list.innerHTML = '';
+    if (!d.rooms || !d.rooms.length) { list.innerHTML = '<div style="color:var(--text-muted);">No open rooms.</div>'; return; }
+    d.rooms.forEach(rm => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:4px 6px;background:var(--bg-elevated);border-radius:3px;';
+      row.innerHTML = `<span><b>${esc(rm.host)}</b> · ${rm.players} player${rm.players===1?'':'s'} · ${esc(rm.prompt_source)}</span><button class="win-btn" style="font-size:10px;padding:2px 6px;background:var(--accent);color:#fff;">Join</button>`;
+      row.querySelector('button').onclick = async () => {
+        const d2 = await sketchApiJoin(rm.id);
+        if (d2.error) { sketchMsg(d2.error, 'var(--red)'); return; }
+        sketchOpenAndPoll(rm.id, d2.state);
+      };
+      list.appendChild(row);
+    });
+  } catch { list.innerHTML = '<span style="color:var(--red);">Failed</span>'; }
+};
+document.getElementById('btn-sketch-start').onclick = async () => {
+  if (!sketchRoomId) return;
+  try {
+    const r = await fetch(BACKEND + '/api/sketch/start', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId }) });
+    const d = await r.json();
+    if (d.error) alert(d.error);
+    else sketchRender(d.state);
+  } catch {}
+};
+function sketchRender(state) {
+  sketchState = state;
+  const meLow = (username || '').toLowerCase();
+  const isDrawer = state.current_drawer && state.current_drawer.toLowerCase() === meLow;
+  const isHost = state.host && state.host.toLowerCase() === meLow;
+  const now = Math.floor(Date.now() / 1000);
+  const secLeft = Math.max(0, Math.floor((state.round_deadline || 0) - now));
+  let statusText = '';
+  if (state.phase === 'lobby') statusText = `Lobby · ${state.players.length}/8 players`;
+  else if (state.phase === 'drawing') statusText = `Round ${state.round_num} · ${isDrawer ? "You're drawing!" : state.current_drawer + ' is drawing'} · ${secLeft}s left`;
+  else if (state.phase === 'round_end') statusText = `Round over. Word was: "${state.prompt || '?'}"`;
+  else if (state.phase === 'game_end') statusText = 'Game over!';
+  document.getElementById('sketch-status-bar').textContent = statusText;
+  const promptEl = document.getElementById('sketch-prompt-display');
+  if (state.phase === 'drawing' && isDrawer) promptEl.textContent = 'Draw: ' + (state.prompt || '');
+  else if (state.phase === 'drawing') promptEl.textContent = state.prompt_blanks || '';
+  else if (state.phase === 'round_end') promptEl.textContent = 'Word was: ' + (state.prompt || '');
+  else if (state.phase === 'game_end') {
+    const winner = [...state.players].sort((a,b) => b.score - a.score)[0];
+    promptEl.textContent = winner ? `🏆 Winner: ${winner.name} (${winner.score} pts)` : 'Game over!';
+  }
+  else promptEl.textContent = '';
+  document.getElementById('sketch-lobby-panel').style.display = state.phase === 'lobby' ? 'flex' : 'none';
+  document.getElementById('btn-sketch-start').style.display = state.phase === 'lobby' && isHost ? '' : 'none';
+  document.getElementById('sketch-lobby-info').textContent = state.phase === 'lobby' ? (isHost ? 'You are the host. Start when everyone is in.' : `Waiting for ${state.host} to start.`) : '';
+  document.getElementById('sketch-drawer-tools').style.display = state.phase === 'drawing' && isDrawer ? 'flex' : 'none';
+  document.getElementById('sketch-guess-row').style.display = state.phase === 'drawing' && !isDrawer ? 'flex' : 'none';
+  const playersEl = document.getElementById('sketch-players');
+  playersEl.innerHTML = '';
+  [...state.players].sort((a,b) => b.score - a.score).forEach(p => {
+    const isThisDrawer = state.current_drawer && p.name.toLowerCase() === state.current_drawer.toLowerCase();
+    const d = document.createElement('div');
+    d.style.cssText = 'display:flex;justify-content:space-between;padding:3px 6px;background:' + (p.got_current ? 'rgba(34,197,94,0.15)' : 'var(--bg-elevated)') + ';border-radius:3px;';
+    d.innerHTML = `<span>${isThisDrawer ? '✏️ ' : ''}${esc(p.name)}${p.got_current ? ' ✓' : ''}</span><span style="color:var(--gold);font-weight:700;">${p.score}</span>`;
+    playersEl.appendChild(d);
+  });
+  const gEl = document.getElementById('sketch-guesses');
+  gEl.innerHTML = '';
+  (state.guesses || []).forEach(g => {
+    const d = document.createElement('div');
+    d.style.cssText = 'padding:2px 4px;' + (g.correct ? 'color:#22c55e;font-weight:700;' : '');
+    d.innerHTML = `<b>${esc(g.user)}:</b> ${esc(g.text)}`;
+    gEl.appendChild(d);
+  });
+  gEl.scrollTop = gEl.scrollHeight;
+  if (state.current_drawer !== sketchLastDrawer) {
+    sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
+    sketchStrokeIdx = 0;
+    sketchLastDrawer = state.current_drawer;
+  }
+  const strokes = state.strokes || [];
+  strokes.forEach(s => {
+    if (s[0] === -1 && s[1] === -1) sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
+    else if (s[0] >= 0 && s[0] < 64 && s[1] >= 0 && s[1] < 64) sketchLocalGrid[s[1] * 64 + s[0]] = s[2];
+  });
+  sketchStrokeIdx = state.last_stroke_idx;
+  sketchDrawCanvas();
+  if (!document.getElementById('sketch-palette').children.length) sketchBuildPalette();
+}
+function sketchDrawCanvas() {
+  const cvs = document.getElementById('sketch-canvas');
+  const ctx = cvs.getContext('2d');
+  const img = ctx.createImageData(64, 64);
+  for (let i = 0; i < 64 * 64; i++) {
+    const c = COLOR_BYTES[sketchLocalGrid[i]] || [255, 255, 255];
+    const o = i * 4;
+    img.data[o] = c[0]; img.data[o+1] = c[1]; img.data[o+2] = c[2]; img.data[o+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function sketchBuildPalette() {
+  const pal = document.getElementById('sketch-palette');
+  pal.innerHTML = '';
+  for (let i = 0; i < Math.min(COLORS.length, 40); i++) {
+    const b = document.createElement('button');
+    b.style.cssText = 'width:18px;height:18px;padding:0;border:2px solid ' + (i === sketchSelectedColor ? '#fff' : 'transparent') + ';background:' + COLORS[i] + ';cursor:pointer;border-radius:2px;';
+    b.onclick = () => { sketchSelectedColor = i; sketchBuildPalette(); };
+    pal.appendChild(b);
+  }
+}
+(function wireSketchCanvas(){
+  const cvs = document.getElementById('sketch-canvas');
+  let drawing = false;
+  let lastX = -1, lastY = -1;
+  let sendTimer = null;
+  const canDraw = () => sketchState && sketchState.phase === 'drawing' && sketchState.current_drawer && sketchState.current_drawer.toLowerCase() === (username || '').toLowerCase();
+  const clientToGrid = (cx, cy) => {
+    const r = cvs.getBoundingClientRect();
+    const x = Math.floor((cx - r.left) / r.width * 64);
+    const y = Math.floor((cy - r.top) / r.height * 64);
+    return { x: Math.max(0, Math.min(63, x)), y: Math.max(0, Math.min(63, y)) };
+  };
+  const paint = (x, y) => {
+    if (x < 0 || x >= 64 || y < 0 || y >= 64) return;
+    if (sketchLocalGrid[y * 64 + x] === sketchSelectedColor) return;
+    sketchLocalGrid[y * 64 + x] = sketchSelectedColor;
+    sketchPendingStrokes.push([x, y, sketchSelectedColor]);
+    sketchDrawCanvas();
+    if (!sendTimer) sendTimer = setTimeout(flushStrokes, 120);
+  };
+  const line = (x0, y0, x1, y1) => {
+    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy, x = x0, y = y0;
+    while (true) {
+      paint(x, y);
+      if (x === x1 && y === y1) break;
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 < dx) { err += dx; y += sy; }
+    }
+  };
+  async function flushStrokes() {
+    sendTimer = null;
+    if (!sketchPendingStrokes.length || !sketchRoomId) return;
+    const strokes = sketchPendingStrokes.splice(0, sketchPendingStrokes.length);
+    try {
+      await fetch(BACKEND + '/api/sketch/draw', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId, strokes }) });
+    } catch {}
+  }
+  const onDown = e => {
+    if (!canDraw()) return;
+    e.preventDefault();
+    drawing = true;
+    const pt = e.touches ? e.touches[0] : e;
+    const g = clientToGrid(pt.clientX, pt.clientY);
+    lastX = g.x; lastY = g.y;
+    paint(g.x, g.y);
+  };
+  const onMove = e => {
+    if (!drawing) return;
+    e.preventDefault();
+    const pt = e.touches ? e.touches[0] : e;
+    const g = clientToGrid(pt.clientX, pt.clientY);
+    if (g.x === lastX && g.y === lastY) return;
+    line(lastX, lastY, g.x, g.y);
+    lastX = g.x; lastY = g.y;
+  };
+  const onUp = () => { drawing = false; lastX = -1; lastY = -1; };
+  cvs.addEventListener('mousedown', onDown);
+  cvs.addEventListener('mousemove', onMove);
+  cvs.addEventListener('mouseup', onUp);
+  cvs.addEventListener('mouseleave', onUp);
+  cvs.addEventListener('touchstart', onDown, { passive: false });
+  cvs.addEventListener('touchmove', onMove, { passive: false });
+  cvs.addEventListener('touchend', onUp);
+})();
+document.getElementById('btn-sketch-clear').onclick = async () => {
+  if (!sketchRoomId) return;
+  try { await fetch(BACKEND + '/api/sketch/clear', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId }) }); } catch {}
+  sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
+  sketchDrawCanvas();
+};
+document.getElementById('btn-sketch-guess').onclick = async () => {
+  const inp = document.getElementById('sketch-guess-input');
+  const g = inp.value.trim();
+  if (!g || !sketchRoomId) return;
+  inp.value = '';
+  try { await fetch(BACKEND + '/api/sketch/guess', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId, guess: g }) }); } catch {}
+};
+document.getElementById('sketch-guess-input').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-sketch-guess').click(); });
 
 let rpsGameId = null;
 let rpsPollTimer = null;
