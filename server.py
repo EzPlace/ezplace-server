@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import secrets
 import string
 import struct
@@ -62,6 +63,7 @@ name_colors = {}
 presence = {}
 last_online = {}
 reports = []
+profile_pictures = {}
 REPORTS_MAX = 500
 user_ips = {}
 fake_admins = []
@@ -289,6 +291,7 @@ async def save_name_colors(): await db_save("store", "name_colors", name_colors)
 def get_name_color(username): return name_colors.get((username or "").lower())
 async def save_last_online(): await db_save("store", "last_online", last_online)
 async def save_reports(): await db_save("store", "reports", reports[-REPORTS_MAX:])
+async def save_profile_pictures(): await db_save("store", "profile_pictures", profile_pictures)
 def get_presence(username): return presence.get((username or "").lower()) or None
 
 async def push_friend_presence(user):
@@ -840,10 +843,11 @@ async def load_all_data():
     mod_ban_log = await db_load("store", "mod_ban_log") or []
     vips = await db_load("store", "vips") or []
     ranks = await db_load("store", "ranks") or {}
-    global name_colors, last_online, reports
+    global name_colors, last_online, reports, profile_pictures
     name_colors = await db_load("store", "name_colors") or {}
     last_online = await db_load("store", "last_online") or {}
     reports = await db_load("store", "reports") or []
+    profile_pictures = await db_load("store", "profile_pictures") or {}
     fake_admins = await db_load("store", "fake_admins") or []
     brush_perms = await db_load("store", "brush_perms") or {}
     clans = await db_load("store", "clans") or {}
@@ -990,7 +994,9 @@ async def register_handler(request):
     if not check_rate_limit(get_client_ip(request), "register", 5, 600):
         return web.json_response({"error": "Too many registration attempts - try again later."}, status=429)
     uname, pwd = data.get("username", "").strip(), data.get("password", "")
-    cap_id, cap_ans = data.get("captcha_id", ""), data.get("captcha_answer", "")
+    not_robot = bool(data.get("not_robot"))
+    try: time_on_page = int(data.get("time_on_page", 0))
+    except: time_on_page = 0
     if not uname or not pwd:
         return web.json_response({"error": "Username and password required"}, status=400)
     if len(uname) < 3 or len(uname) > 20 or not uname.isalnum():
@@ -999,11 +1005,10 @@ async def register_handler(request):
         return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
     if is_banned(uname) or is_ip_banned(request):
         return web.json_response({"error": "This account is banned"}, status=403)
-    cap = captchas.pop(cap_id, None)
-    if not cap or cap["expires"] < time.time():
-        return web.json_response({"error": "Captcha expired, get a new one"}, status=400)
-    if cap_ans.strip().upper() != cap["answer"]:
-        return web.json_response({"error": "Wrong captcha answer"}, status=400)
+    if not not_robot:
+        return web.json_response({"error": "Please check the 'I'm not a robot' box"}, status=400)
+    if time_on_page < 1500:
+        return web.json_response({"error": "Please wait a moment before submitting"}, status=400)
     if uname.lower() in {u.lower() for u in accounts}:
         return web.json_response({"error": "Username already taken"}, status=400)
     pw_hash, salt = hash_password(pwd)
@@ -2548,8 +2553,9 @@ async def shop_buy_handler(request):
         if user.lower() not in vips:
             vips.append(user.lower())
             await save_vips()
-        ranks[user.lower()] = {"label": "VIP", "color": "#daa520"}
-        await save_ranks()
+        if not has_purchase(user, "custom_rank"):
+            ranks[user.lower()] = {"label": "VIP", "color": "#daa520"}
+            await save_ranks()
     await push_pb_update(user)
     return web.json_response({"ok": True, "balance": get_pb(user), "purchases": pu})
 
@@ -6479,6 +6485,50 @@ async def report_resolve_handler(request):
             return web.json_response({"ok": True})
     return web.json_response({"error": "Report not found"}, status=404)
 
+AVATAR_MAX_BYTES = 40000
+AVATAR_DATA_URL_RE = re.compile(r"^data:image/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=]+)$")
+
+async def set_avatar_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "set_avatar", 5, 60):
+        return web.json_response({"error": "Too many changes - slow down"}, status=429)
+    data = await request.json()
+    avatar = str(data.get("avatar") or "")
+    if len(avatar) > AVATAR_MAX_BYTES:
+        return web.json_response({"error": f"Image too large (max {AVATAR_MAX_BYTES // 1024}KB base64)"}, status=400)
+    if not AVATAR_DATA_URL_RE.match(avatar):
+        return web.json_response({"error": "Invalid image data (must be data:image/... base64)"}, status=400)
+    profile_pictures[user.lower()] = avatar
+    await save_profile_pictures()
+    return web.json_response({"ok": True})
+
+async def clear_avatar_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    profile_pictures.pop(user.lower(), None)
+    await save_profile_pictures()
+    return web.json_response({"ok": True})
+
+async def avatar_handler(request):
+    target = (request.query.get("user") or "").strip().lower()
+    if not target: return web.Response(status=404)
+    data_url = profile_pictures.get(target)
+    if not data_url: return web.Response(status=404)
+    m = AVATAR_DATA_URL_RE.match(data_url)
+    if not m: return web.Response(status=404)
+    content_type = "image/" + m.group(1).replace("jpg", "jpeg")
+    try: img_bytes = base64.b64decode(m.group(2), validate=True)
+    except: return web.Response(status=404)
+    etag = '"' + hashlib.md5(img_bytes).hexdigest() + '"'
+    if request.headers.get("If-None-Match", "") == etag:
+        return web.Response(status=304, headers={"ETag": etag, "Cache-Control": "no-cache, must-revalidate"})
+    return web.Response(body=img_bytes, headers={
+        "Content-Type": content_type,
+        "Cache-Control": "no-cache, must-revalidate",
+        "ETag": etag,
+    })
+
 app = web.Application(middlewares=[cors_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
@@ -6486,6 +6536,7 @@ _g, _p = app.router.add_get, app.router.add_post
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
     ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/version", version_handler),
+    ("/api/avatar", avatar_handler),
     ("/api/auth/suggest-mode", auth_suggest_mode_handler), ("/api/lobbies", lobbies_handler),
     ("/api/my-lobbies", my_lobbies_handler), ("/api/lobbies/info", lobby_detail_handler),
     ("/api/lobbies/timelapse", lobby_timelapse_handler), ("/api/lobbies/preview", lobby_preview_handler),
@@ -6584,6 +6635,8 @@ for _path, _h in (
     ("/api/admin/fake-action-log", fake_action_log_handler),
     ("/api/report", report_submit_handler),
     ("/api/mod/report-resolve", report_resolve_handler),
+    ("/api/account/set-avatar", set_avatar_handler),
+    ("/api/account/clear-avatar", clear_avatar_handler),
 ): _p(_path, _h)
 
 if __name__ == "__main__":
