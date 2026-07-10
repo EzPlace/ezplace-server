@@ -247,9 +247,9 @@
   .msg .name.vip { color: var(--gold); font-weight: 700; }
   .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; color: #daa520; }
   .msg .rank-badge { font-size: 10px; font-weight: 700; margin-right: 3px; }
-  .ez-avatar { display: inline-block; width: 18px; height: 18px; border-radius: 50%; vertical-align: middle; margin-right: 4px; object-fit: cover; background: var(--bg-elevated); flex-shrink: 0; }
-  .ez-avatar.lg { width: 28px; height: 28px; margin-right: 6px; }
-  .ez-avatar.xl { width: 64px; height: 64px; margin-right: 0; }
+  .ez-avatar { display: inline-block; width: 26px; height: 26px; border-radius: 50%; vertical-align: middle; margin-right: 5px; object-fit: cover; background: var(--bg-elevated); flex-shrink: 0; }
+  .ez-avatar.lg { width: 36px; height: 36px; margin-right: 8px; }
+  .ez-avatar.xl { width: 72px; height: 72px; margin-right: 0; }
   .msg .rank-badge.rainbow { background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
   .mod-name, .rank-badge.mod-rank { font-weight: 700; color: #3b82f6; }
   @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
@@ -6231,7 +6231,7 @@ applyPrefs();
     const statusEl = document.getElementById('settings-avatar-status');
     statusEl.style.color = 'var(--text-muted)'; statusEl.textContent = 'Resizing...';
     try {
-      const dataUrl = await resizeAvatarFile(f, 96);
+      const dataUrl = await resizeAvatarFile(f, 160);
       statusEl.textContent = 'Uploading...';
       const r = await fetch(BACKEND + '/api/account/set-avatar', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ avatar: dataUrl }) });
       const d = await r.json();
@@ -7514,7 +7514,7 @@ async function loadFriendsList() {
       let subText = '';
       if (f.online && f.afk) subText = `<span class="f-sub" style="color:#f0b232;font-weight:600;">AFK</span>`;
       else if (!f.online) subText = `<span class="f-sub">${f.last_online ? 'last online ' + fmtRelTime(f.last_online) : 'Inactive'}</span>`;
-      d.innerHTML = `<div class="f-status ${statusCls}"></div>${avatarImg(f.name)}<div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div><button class="win-btn" data-dm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
+      d.innerHTML = `<div class="f-status ${statusCls}"></div>${avatarImg(f.name, 'lg')}<div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div><button class="win-btn" data-dm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
       d.querySelector('[data-dm]').onclick = () => { openDm(f.name); };
       d.querySelector('[data-rm]').onclick = async () => { if (confirm(`Remove ${f.name}?`)) { await fetch('/api/friends/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: f.name }) }); loadFriendsList(); }};
       panel.appendChild(d);
