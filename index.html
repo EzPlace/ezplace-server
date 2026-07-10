@@ -247,6 +247,9 @@
   .msg .name.vip { color: var(--gold); font-weight: 700; }
   .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; color: #daa520; }
   .msg .rank-badge { font-size: 10px; font-weight: 700; margin-right: 3px; }
+  .ez-avatar { display: inline-block; width: 18px; height: 18px; border-radius: 50%; vertical-align: middle; margin-right: 4px; object-fit: cover; background: var(--bg-elevated); flex-shrink: 0; }
+  .ez-avatar.lg { width: 28px; height: 28px; margin-right: 6px; }
+  .ez-avatar.xl { width: 64px; height: 64px; margin-right: 0; }
   .msg .rank-badge.rainbow { background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
   .mod-name, .rank-badge.mod-rank { font-weight: 700; color: #3b82f6; }
   @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
@@ -577,6 +580,18 @@
       <button id="btn-account-settings-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
     </div>
     <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;align-items:center;gap:12px;padding:6px 0;">
+        <img id="settings-avatar-preview" class="ez-avatar xl" src="" alt="">
+        <div style="display:flex;flex-direction:column;gap:6px;flex:1;">
+          <div style="font-size:12px;font-weight:600;">Profile Picture</div>
+          <div style="display:flex;gap:6px;">
+            <button id="btn-settings-avatar-upload" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;">Upload</button>
+            <button id="btn-settings-avatar-clear" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Remove</button>
+          </div>
+          <input id="settings-avatar-file" type="file" accept="image/*" style="display:none;">
+          <div id="settings-avatar-status" style="font-size:10px;color:var(--text-muted);min-height:12px;"></div>
+        </div>
+      </div>
       <div style="font-size:11px;color:var(--text-muted);">Username: <b id="account-settings-username" style="color:var(--accent);"></b> <span style="opacity:0.7;">(cannot be changed)</span></div>
       <div style="font-size:11px;color:var(--text-muted);">AFK time: <b id="account-settings-afk" style="color:var(--text);">active</b></div>
       <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Preferences</div>
@@ -1128,12 +1143,11 @@
     <input id="auth-user" class="win-input" type="text" placeholder="Username (3-20 letters/numbers)" maxlength="20" autocomplete="username">
     <input id="auth-pass" class="win-input" type="password" placeholder="Password (min 4 characters)" maxlength="64" autocomplete="current-password">
     <div id="captcha-row" style="display:none;flex-direction:column;gap:6px;margin-bottom:4px;">
-      <div style="font-size:11px;color:var(--text-secondary);">Type the letters you see below (5 letters, not case-sensitive):</div>
-      <div style="display:flex;gap:4px;align-items:center;">
-        <img id="captcha-img" src="" alt="captcha" style="height:50px;border:1px solid var(--border);border-radius:var(--radius-sm);background:#fff;">
-        <button id="captcha-refresh" class="win-btn" title="New captcha" style="padding:4px 8px;font-size:14px;">&#x21bb;</button>
-      </div>
-      <input id="captcha-ans" class="win-input" type="text" placeholder="Type captcha here" maxlength="5" autocomplete="off" autocapitalize="characters" style="letter-spacing:3px;text-align:center;font-size:15px;">
+      <label id="notrobot-box" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid #d0d0d0;border-radius:6px;cursor:pointer;user-select:none;box-shadow:0 1px 2px rgba(0,0,0,0.08);">
+        <input type="checkbox" id="notrobot-check" style="width:22px;height:22px;cursor:pointer;flex-shrink:0;accent-color:#22c55e;">
+        <span style="color:#333;font-size:13px;font-weight:500;">I'm not a robot</span>
+        <span style="margin-left:auto;font-size:9px;color:#888;text-align:right;line-height:1.2;">EzPlace<br>Privacy - Terms</span>
+      </label>
     </div>
     <button id="btn-auth-submit" class="win-btn" style="width:100%;padding:10px;font-size:14px;font-weight:700;margin-top:4px;">Log In</button>
     <div id="auth-error">&nbsp;</div>
@@ -2922,7 +2936,7 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo, 
     replyHtml = `<div class="reply-quote" style="border-left:3px solid var(--accent);padding:1px 6px;margin:0 0 2px 0;font-size:11px;color:var(--text-muted);background:var(--accent-dim);border-radius:3px;"><b>${esc(replyTo.from)}</b>: ${esc(replyTo.text.slice(0,120))}</div>`;
   }
   const replyBtn = `<span class="reply-btn" title="Reply" style="cursor:pointer;color:var(--text-muted);font-size:11px;margin-right:4px;">&#x21A9;</span>`;
-  d.innerHTML = `${replyHtml}<span class="timestamp">${timeStr()}</span>${replyBtn}${crown}${clanBadge}${rankBadge}<span class="${nameClass}" data-user="${esc(name)}"${styleAttr}>${esc(name)}:</span> ${bodyHtml}`;
+  d.innerHTML = `${replyHtml}<span class="timestamp">${timeStr()}</span>${replyBtn}${avatarImg(name)}${crown}${clanBadge}${rankBadge}<span class="${nameClass}" data-user="${esc(name)}"${styleAttr}>${esc(name)}:</span> ${bodyHtml}`;
   if (canModerate) {
     d.querySelector('.name').addEventListener('click', e => showLobbyUserMenu(e, name));
   }
@@ -2931,6 +2945,15 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo, 
 }
 function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+const DEFAULT_AVATAR = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="%23a5a5a5"/><circle cx="32" cy="26" r="12" fill="%23f0f0f0"/><ellipse cx="32" cy="56" rx="18" ry="12" fill="%23f0f0f0"/></svg>'.replace(/%23/g, '#'));
+let _avatarBust = Date.now();
+function avatarUrl(user) {
+  if (!user) return DEFAULT_AVATAR;
+  return BACKEND + '/api/avatar?user=' + encodeURIComponent(String(user).toLowerCase()) + '&v=' + _avatarBust;
+}
+function avatarImg(user, cls) {
+  return '<img class="ez-avatar' + (cls ? ' ' + cls : '') + '" src="' + avatarUrl(user) + '" onerror="this.onerror=null;this.src=DEFAULT_AVATAR" alt="">';
+}
 function linkify(escapedHtml) {
   return escapedHtml.replace(/\bhttps?:\/\/[^\s<>"'`]+/gi, (m) => {
     let trail = '';
@@ -3253,19 +3276,21 @@ document.getElementById('btn-play-guest').onclick = () => {
   addSystemMsg('Pick any public lobby to join as a guest.');
 };
 
+const AUTH_PAGE_LOAD_TS = Date.now();
 async function doAuth(endpoint, needCaptcha) {
   const u = authUser.value.trim(), p = authPass.value;
   if (!u || !p) { authError.textContent = 'Enter username and password'; return; }
   const body = { username: u, password: p };
   if (needCaptcha) {
-    const ca = captchaAns.value.trim();
-    if (!ca) { authError.textContent = 'Solve the captcha'; return; }
-    body.captcha_id = captchaId; body.captcha_answer = ca;
+    const notRobot = document.getElementById('notrobot-check');
+    if (!notRobot || !notRobot.checked) { authError.textContent = "Please check the \"I'm not a robot\" box"; return; }
+    body.not_robot = true;
+    body.time_on_page = Date.now() - AUTH_PAGE_LOAD_TS;
   }
   try {
     const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
-    if (data.error) { authError.textContent = data.error; if (needCaptcha) fetchCaptcha(); return; }
+    if (data.error) { authError.textContent = data.error; return; }
     authToken = data.token; username = data.username;
     safeStore.setItem('ezplace_token', authToken); safeStore.setItem('ezplace_user', username);
     showLoggedIn(); loadLobbies();
@@ -6000,7 +6025,7 @@ async function loadGlobalLeaderboard() {
       const row = document.createElement('div');
       row.className = 'lb-row';
       const medal = i === 0 ? ' 🥇' : i === 1 ? ' 🥈' : i === 2 ? ' 🥉' : '';
-      row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="lb-name">${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
+      row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div>${avatarImg(p.name)}<span class="lb-name">${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
       el.appendChild(row);
     });
   } catch { el.innerHTML = '<div style="color:var(--red);font-size:11px;padding:6px;">Failed to load.</div>'; }
@@ -6190,6 +6215,9 @@ applyPrefs();
   const setStatus = (msg, ok) => { status.textContent = msg; status.style.color = ok ? 'var(--accent)' : 'var(--red)'; };
   const open = () => {
     document.getElementById('account-settings-username').textContent = username || '';
+    const previewImg = document.getElementById('settings-avatar-preview');
+    if (previewImg) { previewImg.src = avatarUrl(username); previewImg.onerror = () => { previewImg.onerror = null; previewImg.src = DEFAULT_AVATAR; }; }
+    document.getElementById('settings-avatar-status').textContent = '';
     oldEl.value = ''; newEl.value = ''; new2El.value = '';
     setStatus('', true); status.style.color = 'var(--text-muted)';
     tipsEl.checked = safeStore.getItem('ez_tips_hidden') === '1';
@@ -6200,6 +6228,64 @@ applyPrefs();
     afkTimer = setInterval(updateAfkLabel, 1000);
     modal.style.display = 'flex';
   };
+  const avatarFileEl = document.getElementById('settings-avatar-file');
+  document.getElementById('btn-settings-avatar-upload').onclick = () => avatarFileEl.click();
+  avatarFileEl.onchange = async () => {
+    const f = avatarFileEl.files && avatarFileEl.files[0];
+    if (!f) return;
+    const statusEl = document.getElementById('settings-avatar-status');
+    statusEl.style.color = 'var(--text-muted)'; statusEl.textContent = 'Resizing...';
+    try {
+      const dataUrl = await resizeAvatarFile(f, 96);
+      statusEl.textContent = 'Uploading...';
+      const r = await fetch(BACKEND + '/api/account/set-avatar', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ avatar: dataUrl }) });
+      const d = await r.json();
+      if (d.error) { statusEl.style.color = 'var(--red)'; statusEl.textContent = d.error; return; }
+      _avatarBust = Date.now();
+      const previewImg = document.getElementById('settings-avatar-preview');
+      previewImg.src = dataUrl;
+      statusEl.style.color = '#22c55e'; statusEl.textContent = 'Saved!';
+    } catch (e) { statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Upload failed: ' + (e && e.message || e); }
+    avatarFileEl.value = '';
+  };
+  document.getElementById('btn-settings-avatar-clear').onclick = async () => {
+    const statusEl = document.getElementById('settings-avatar-status');
+    statusEl.style.color = 'var(--text-muted)'; statusEl.textContent = 'Removing...';
+    try {
+      const r = await fetch(BACKEND + '/api/account/clear-avatar', { method: 'POST', headers: { Authorization: authToken } });
+      const d = await r.json();
+      if (d.error) { statusEl.style.color = 'var(--red)'; statusEl.textContent = d.error; return; }
+      _avatarBust = Date.now();
+      document.getElementById('settings-avatar-preview').src = DEFAULT_AVATAR;
+      statusEl.style.color = '#22c55e'; statusEl.textContent = 'Removed';
+    } catch { statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Request failed'; }
+  };
+async function resizeAvatarFile(file, maxSize) {
+  if (file.size > 5 * 1024 * 1024) throw new Error('Image too big (max 5MB source)');
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const w = Math.max(16, Math.round(img.width * scale));
+        const h = Math.max(16, Math.round(img.height * scale));
+        const cvs = document.createElement('canvas');
+        cvs.width = w; cvs.height = h;
+        const ctx = cvs.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        let out = null;
+        try { out = cvs.toDataURL('image/webp', 0.82); if (!out || out.length < 100) out = null; } catch {}
+        if (!out) out = cvs.toDataURL('image/jpeg', 0.85);
+        URL.revokeObjectURL(url);
+        resolve(out);
+      } catch (e) { URL.revokeObjectURL(url); reject(e); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Not a valid image')); };
+    img.src = url;
+  });
+}
   const close = () => { if (afkTimer) { clearInterval(afkTimer); afkTimer = null; } modal.style.display = 'none'; };
   tipsEl.onchange = () => { safeStore.setItem('ez_tips_hidden', tipsEl.checked ? '1' : '0'); applyPrefs(); const tb = document.getElementById('tip-banner'); if (tb && !tipsEl.checked) tb.style.display = ''; };
   panEl.onchange = () => { safeStore.setItem('ez_panorama_hidden', panEl.checked ? '1' : '0'); applyPrefs(); };
@@ -7102,7 +7188,7 @@ function renderLeaderboard(board) {
     const nameClass = p.name.toLowerCase() === 'toothpaste' ? 'lb-name rainbow' : 'lb-name';
     const canManage = (amOwner || isTPAdmin) && p.name.toLowerCase() !== username.toLowerCase();
     const nameStyle = canManage ? ' style="cursor:pointer;text-decoration:underline dotted"' : '';
-    row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div><span class="${nameClass}"${nameStyle}>${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
+    row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div>${avatarImg(p.name)}<span class="${nameClass}"${nameStyle}>${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
     if (canManage) {
       row.querySelector(`.${nameClass.split(' ')[0]}`).addEventListener('click', e => showLobbyUserMenu(e, p.name));
     }
@@ -7434,8 +7520,8 @@ async function loadFriendsList() {
       let statusCls = f.online ? (f.afk ? 'afk' : 'online') : 'offline';
       let subText = '';
       if (f.online && f.afk) subText = `<span class="f-sub" style="color:#f0b232;font-weight:600;">AFK</span>`;
-      else if (!f.online) subText = `<span class="f-sub">${f.last_online ? 'last online ' + fmtRelTime(f.last_online) : 'never seen online'}</span>`;
-      d.innerHTML = `<div class="f-status ${statusCls}"></div><div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div><button class="win-btn" data-dm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
+      else if (!f.online) subText = `<span class="f-sub">${f.last_online ? 'last online ' + fmtRelTime(f.last_online) : 'Inactive'}</span>`;
+      d.innerHTML = `<div class="f-status ${statusCls}"></div>${avatarImg(f.name)}<div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div><button class="win-btn" data-dm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
       d.querySelector('[data-dm]').onclick = () => { openDm(f.name); };
       d.querySelector('[data-rm]').onclick = async () => { if (confirm(`Remove ${f.name}?`)) { await fetch('/api/friends/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: f.name }) }); loadFriendsList(); }};
       panel.appendChild(d);
@@ -7597,7 +7683,7 @@ function appendDmMsg(from, text, t, image, replyTo) {
   let body = '';
   if (text) body = ' ' + linkify(esc(filterText(text)));
   const replyBtn = `<span class="dm-reply-btn" title="Reply" style="cursor:pointer;color:var(--text-muted);font-size:11px;margin-left:6px;">&#x21A9;</span>`;
-  d.innerHTML = `${replyHtml}<span class="dm-time">${ts}</span><b>${esc(from)}:</b>${body}${replyBtn}`;
+  d.innerHTML = `${replyHtml}<span class="dm-time">${ts}</span>${avatarImg(from)}<b>${esc(from)}:</b>${body}${replyBtn}`;
   if (image) {
     const img = document.createElement('img');
     img.src = image; img.referrerPolicy = 'no-referrer';
