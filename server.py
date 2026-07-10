@@ -952,8 +952,19 @@ def generate_captcha_svg(text):
     parts.append('</svg>')
     return ''.join(parts)
 
+try:
+    with open("index.html", "rb") as _f:
+        _INDEX_ETAG = hashlib.md5(_f.read()).hexdigest()
+except: _INDEX_ETAG = ""
+_INDEX_HEADERS = {
+    "Cache-Control": "no-cache, must-revalidate",
+    "ETag": '"' + _INDEX_ETAG + '"',
+}
+
 async def index_handler(request):
-    return web.FileResponse("index.html")
+    if _INDEX_ETAG and request.headers.get("If-None-Match", "") == '"' + _INDEX_ETAG + '"':
+        return web.Response(status=304, headers=_INDEX_HEADERS)
+    return web.FileResponse("index.html", headers=_INDEX_HEADERS)
 
 async def health_handler(request):
 
