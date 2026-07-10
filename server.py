@@ -957,14 +957,20 @@ try:
         _INDEX_ETAG = hashlib.md5(_f.read()).hexdigest()
 except: _INDEX_ETAG = ""
 _INDEX_HEADERS = {
-    "Cache-Control": "no-cache, must-revalidate",
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, private",
+    "Pragma": "no-cache",
+    "Expires": "0",
     "ETag": '"' + _INDEX_ETAG + '"',
+    "Vary": "*",
 }
 
 async def index_handler(request):
     if _INDEX_ETAG and request.headers.get("If-None-Match", "") == '"' + _INDEX_ETAG + '"':
         return web.Response(status=304, headers=_INDEX_HEADERS)
     return web.FileResponse("index.html", headers=_INDEX_HEADERS)
+
+async def version_handler(request):
+    return web.json_response({"etag": _INDEX_ETAG}, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, private", "Pragma": "no-cache", "Expires": "0"})
 
 async def health_handler(request):
 
@@ -6479,7 +6485,7 @@ app.on_cleanup.append(on_cleanup)
 _g, _p = app.router.add_get, app.router.add_post
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
-    ("/api/health", health_handler), ("/api/captcha", captcha_handler),
+    ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/version", version_handler),
     ("/api/auth/suggest-mode", auth_suggest_mode_handler), ("/api/lobbies", lobbies_handler),
     ("/api/my-lobbies", my_lobbies_handler), ("/api/lobbies/info", lobby_detail_handler),
     ("/api/lobbies/timelapse", lobby_timelapse_handler), ("/api/lobbies/preview", lobby_preview_handler),

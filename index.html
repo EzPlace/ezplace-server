@@ -8389,8 +8389,27 @@ document.addEventListener('click', (e) => {
     }, 400);
   }, TIP_ROTATE_MS);
 })();
+let ezpInitialEtag = null;
+async function ezpVersionCheck() {
+  try {
+    const url = BACKEND + '/api/version?_=' + Date.now();
+    const r = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const et = d && d.etag;
+    if (!et) return;
+    if (ezpInitialEtag === null) { ezpInitialEtag = et; return; }
+    if (et !== ezpInitialEtag) {
+      try { if (window.caches && caches.keys) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } } catch {}
+      location.reload();
+    }
+  } catch {}
+}
+setInterval(ezpVersionCheck, 45000);
+
 (async () => {
   await selectBackend(); // pick primary or proxy before any API/WS traffic
+  ezpVersionCheck();
   // Server-side ban probe. Catches users banned while offline (no WS push received).
   try {
     const r = await fetch(BACKEND + '/api/auth/status', { headers: authToken ? { Authorization: authToken } : {} });
