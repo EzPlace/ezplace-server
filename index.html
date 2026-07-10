@@ -1066,8 +1066,10 @@
     <div style="font-weight:700;font-size:14px;color:var(--text-primary);">Flashback - up to last 24 hours</div>
     <button id="btn-timelapse-close" class="win-btn" style="background:var(--bg-elevated);">Close</button>
   </div>
-  <div id="timelapse-canvas-wrap" style="overflow:auto;max-width:100%;max-height:60vh;display:flex;justify-content:center;align-items:flex-start;background:#000;border-radius:var(--radius-sm);">
-    <canvas id="timelapse-canvas" style="background:#000;image-rendering:pixelated;display:block;"></canvas>
+  <div id="timelapse-canvas-wrap" style="overflow:auto;max-width:100%;max-height:60vh;background:#000;border-radius:var(--radius-sm);cursor:grab;position:relative;">
+    <div id="timelapse-canvas-inner" style="min-width:100%;min-height:100%;display:flex;justify-content:center;align-items:center;">
+      <canvas id="timelapse-canvas" style="background:#000;image-rendering:pixelated;display:block;flex-shrink:0;"></canvas>
+    </div>
   </div>
   <div style="display:flex;align-items:center;gap:8px;width:100%;max-width:900px;margin-top:10px;flex-wrap:wrap;">
     <button id="btn-timelapse-play" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
@@ -2037,10 +2039,9 @@ async function openTimelapse() {
   }
   const t0 = events.getUint32(0, true);
   const tEnd = events.getUint32((count - 1) * TL_EVENT_SIZE, true);
-  tlState = { events, count, startGrid, w, h, t0, tEnd, idx: 0, playing: false, speed: parseFloat(document.getElementById('timelapse-speed').value), zoom: 1 };
+  tlState = { events, count, startGrid, w, h, t0, tEnd, idx: 0, playing: false, speed: parseFloat(document.getElementById('timelapse-speed').value), zoom: 1, playStartTs: null };
   const tlCvs = document.getElementById('timelapse-canvas');
   tlCvs.width = w; tlCvs.height = h;
-  applyTimelapseZoom();
   const tlCtx = tlCvs.getContext('2d');
   const imageData = tlCtx.createImageData(w, h);
   tlState.imageData = imageData;
@@ -2053,36 +2054,80 @@ async function openTimelapse() {
   tlCtx.putImageData(imageData, 0, 0);
   document.getElementById('timelapse-scrubber').value = 0;
   updateTimelapseInfo();
+  requestAnimationFrame(() => applyTimelapseZoom());
 }
 
-function applyTimelapseZoom() {
+function applyTimelapseZoom(anchor) {
   if (!tlState) return;
   const cvs = document.getElementById('timelapse-canvas');
   const wrap = document.getElementById('timelapse-canvas-wrap');
-  if (!cvs || !wrap) return;
+  const inner = document.getElementById('timelapse-canvas-inner');
+  if (!cvs || !wrap || !inner) return;
   const wrapW = wrap.clientWidth || 900;
   const wrapH = Math.min(window.innerHeight * 0.6, 800);
   const baseFit = Math.max(1, Math.min(wrapW / tlState.w, wrapH / tlState.h));
-  const zoomedW = Math.round(tlState.w * baseFit * tlState.zoom);
-  const zoomedH = Math.round(tlState.h * baseFit * tlState.zoom);
+  const prevW = cvs.clientWidth || (tlState.w * baseFit);
+  const prevH = cvs.clientHeight || (tlState.h * baseFit);
+  const zoomedW = Math.max(1, Math.round(tlState.w * baseFit * tlState.zoom));
+  const zoomedH = Math.max(1, Math.round(tlState.h * baseFit * tlState.zoom));
+  const preservedContentX = anchor ? (wrap.scrollLeft + anchor.wrapX) / Math.max(1, prevW) : null;
+  const preservedContentY = anchor ? (wrap.scrollTop + anchor.wrapY) / Math.max(1, prevH) : null;
   cvs.style.width = zoomedW + 'px';
   cvs.style.height = zoomedH + 'px';
+  inner.style.justifyContent = zoomedW <= wrapW ? 'center' : 'flex-start';
+  inner.style.alignItems = zoomedH <= wrapH ? 'center' : 'flex-start';
+  if (anchor && preservedContentX !== null) {
+    wrap.scrollLeft = Math.max(0, preservedContentX * zoomedW - anchor.wrapX);
+    wrap.scrollTop = Math.max(0, preservedContentY * zoomedH - anchor.wrapY);
+  }
   const lbl = document.getElementById('timelapse-zoom-label');
   if (lbl) lbl.textContent = Math.round(tlState.zoom * 100) + '%';
 }
 (function wireTimelapseZoom() {
   const btnIn = document.getElementById('btn-timelapse-zoom-in');
   const btnOut = document.getElementById('btn-timelapse-zoom-out');
-  if (btnIn) btnIn.onclick = () => { if (tlState) { tlState.zoom = Math.min(16, tlState.zoom * 1.5); applyTimelapseZoom(); } };
-  if (btnOut) btnOut.onclick = () => { if (tlState) { tlState.zoom = Math.max(0.25, tlState.zoom / 1.5); applyTimelapseZoom(); } };
   const wrap = document.getElementById('timelapse-canvas-wrap');
+  const centerAnchor = () => wrap ? { wrapX: wrap.clientWidth / 2, wrapY: wrap.clientHeight / 2 } : null;
+  if (btnIn) btnIn.onclick = () => { if (tlState) { tlState.zoom = Math.min(16, tlState.zoom * 1.5); applyTimelapseZoom(centerAnchor()); } };
+  if (btnOut) btnOut.onclick = () => { if (tlState) { tlState.zoom = Math.max(0.25, tlState.zoom / 1.5); applyTimelapseZoom(centerAnchor()); } };
   if (wrap) wrap.addEventListener('wheel', e => {
     if (!tlState) return;
     e.preventDefault();
+    const r = wrap.getBoundingClientRect();
+    const anchor = { wrapX: e.clientX - r.left, wrapY: e.clientY - r.top };
     const factor = e.deltaY < 0 ? 1.2 : (1 / 1.2);
     tlState.zoom = Math.max(0.25, Math.min(16, tlState.zoom * factor));
-    applyTimelapseZoom();
+    applyTimelapseZoom(anchor);
   }, { passive: false });
+  if (wrap) {
+    let panning = false, panLastX = 0, panLastY = 0, activePointer = null;
+    const isInteractive = e => {
+      const t = e.target;
+      return t && (t.tagName === 'BUTTON' || t.tagName === 'INPUT' || t.tagName === 'SELECT');
+    };
+    wrap.addEventListener('pointerdown', e => {
+      if (!tlState || isInteractive(e)) return;
+      panning = true; activePointer = e.pointerId;
+      panLastX = e.clientX; panLastY = e.clientY;
+      wrap.style.cursor = 'grabbing';
+      try { wrap.setPointerCapture(e.pointerId); } catch {}
+    });
+    wrap.addEventListener('pointermove', e => {
+      if (!panning || e.pointerId !== activePointer) return;
+      const dx = e.clientX - panLastX; const dy = e.clientY - panLastY;
+      panLastX = e.clientX; panLastY = e.clientY;
+      wrap.scrollLeft -= dx; wrap.scrollTop -= dy;
+    });
+    const endPan = e => {
+      if (!panning || (activePointer !== null && e.pointerId !== activePointer)) return;
+      panning = false; activePointer = null;
+      wrap.style.cursor = 'grab';
+      try { wrap.releasePointerCapture(e.pointerId); } catch {}
+    };
+    wrap.addEventListener('pointerup', endPan);
+    wrap.addEventListener('pointercancel', endPan);
+    wrap.addEventListener('pointerleave', endPan);
+  }
 })();
 
 function updateTimelapseInfo() {
@@ -2119,18 +2164,26 @@ function rebuildToIndex(targetIdx) {
   updateTimelapseInfo();
 }
 
-function tlTick() {
+function tlTick(now) {
   if (!tlState || !tlState.playing) { tlAnimFrame = null; return; }
-  const stepsPerFrame = Math.max(1, Math.floor(tlState.speed));
-  for (let i = 0; i < stepsPerFrame && tlState.idx < tlState.count; i++) {
+  now = now || performance.now();
+  if (tlState.playStartTs == null) { tlState.playStartTs = now; tlState.playStartIdx = tlState.idx; tlState.lastInfoTs = 0; }
+  const elapsedMs = now - tlState.playStartTs;
+  const eventsPerMs = tlState.speed / 16.67;
+  const targetIdx = Math.min(tlState.count, tlState.playStartIdx + Math.floor(elapsedMs * eventsPerMs));
+  const maxPerFrame = Math.max(1, Math.floor(tlState.speed * 4));
+  const endIdx = Math.min(targetIdx, tlState.idx + maxPerFrame);
+  while (tlState.idx < endIdx) {
     applyEventTo(tlState.idx, tlState.imageData, tlState.w);
     tlState.idx++;
   }
   tlState.tlCtx.putImageData(tlState.imageData, 0, 0);
-  document.getElementById('timelapse-scrubber').value = (tlState.idx / tlState.count) * 100;
-  updateTimelapseInfo();
+  if (!tlState.scrubberEl) tlState.scrubberEl = document.getElementById('timelapse-scrubber');
+  if (tlState.scrubberEl) tlState.scrubberEl.value = (tlState.idx / tlState.count) * 100;
+  if (now - tlState.lastInfoTs > 150) { updateTimelapseInfo(); tlState.lastInfoTs = now; }
   if (tlState.idx >= tlState.count) {
     tlState.playing = false;
+    tlState.playStartTs = null;
     document.getElementById('btn-timelapse-play').textContent = 'Play';
   }
   tlAnimFrame = requestAnimationFrame(tlTick);
@@ -2147,6 +2200,7 @@ document.getElementById('btn-timelapse-play').onclick = () => {
   if (!tlState) return;
   if (tlState.idx >= tlState.count) rebuildToIndex(0);
   tlState.playing = !tlState.playing;
+  tlState.playStartTs = null;
   document.getElementById('btn-timelapse-play').textContent = tlState.playing ? 'Pause' : 'Play';
   if (tlState.playing && !tlAnimFrame) tlAnimFrame = requestAnimationFrame(tlTick);
 };
@@ -2154,9 +2208,10 @@ document.getElementById('timelapse-scrubber').oninput = (e) => {
   if (!tlState) return;
   const target = Math.floor((parseFloat(e.target.value) / 100) * tlState.count);
   rebuildToIndex(target);
+  tlState.playStartTs = null;
 };
 document.getElementById('timelapse-speed').onchange = (e) => {
-  if (tlState) tlState.speed = parseFloat(e.target.value);
+  if (tlState) { tlState.speed = parseFloat(e.target.value); tlState.playStartTs = null; }
 };
 
 function updateCursor(sx, sy) {
@@ -4425,10 +4480,10 @@ let sketchRoomId = null;
 let sketchState = null;
 let sketchPollTimer = null;
 let sketchStrokeIdx = 0;
+let sketchStrokesEpoch = -1;
 let sketchSelectedColor = 24;
 let sketchPendingStrokes = [];
-let sketchLastDrawer = null;
-let sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
+let sketchLocalGrid = new Uint8Array(64 * 64);
 function sketchMsg(t, c) { const m = document.getElementById('sketch-msg'); if (m) { m.textContent = t || ''; m.style.color = c || 'var(--text-muted)'; } }
 document.querySelectorAll('input[name="sketch-src"]').forEach(r => {
   r.addEventListener('change', () => {
@@ -4442,7 +4497,8 @@ async function sketchApiJoin(rid) {
 async function sketchOpenAndPoll(rid, initialState) {
   sketchRoomId = rid;
   sketchStrokeIdx = 0;
-  sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
+  sketchStrokesEpoch = -1;
+  sketchLocalGrid = new Uint8Array(64 * 64);
   document.getElementById('sketch-modal').style.display = 'flex';
   document.getElementById('sketch-room-code').textContent = 'Code: ' + rid;
   if (initialState) sketchRender(initialState);
@@ -4453,9 +4509,9 @@ async function sketchOpenAndPoll(rid, initialState) {
 async function sketchPoll() {
   if (!sketchRoomId) return;
   try {
-    const r = await fetch(BACKEND + '/api/sketch/state?room_id=' + encodeURIComponent(sketchRoomId) + '&since=' + sketchStrokeIdx, { headers: { Authorization: authToken } });
+    const r = await fetch(BACKEND + '/api/sketch/state?room_id=' + encodeURIComponent(sketchRoomId) + '&since=' + sketchStrokeIdx + '&epoch=' + sketchStrokesEpoch, { headers: { Authorization: authToken } });
     const d = await r.json();
-    if (d.error) { if (d.error === 'Room not found') sketchClose(); return; }
+    if (d.error) { if (d.error === 'Room not found' || d.error === 'Not in room') sketchClose(); return; }
     sketchRender(d.state);
   } catch {}
 }
@@ -4522,7 +4578,7 @@ function sketchRender(state) {
   if (state.phase === 'lobby') statusText = `Lobby · ${state.players.length}/8 players`;
   else if (state.phase === 'drawing') statusText = `Round ${state.round_num} · ${isDrawer ? "You're drawing!" : state.current_drawer + ' is drawing'} · ${secLeft}s left`;
   else if (state.phase === 'round_end') statusText = `Round over. Word was: "${state.prompt || '?'}"`;
-  else if (state.phase === 'game_end') statusText = 'Game over!';
+  else if (state.phase === 'game_end') statusText = 'Game over! Host can start a new game.';
   document.getElementById('sketch-status-bar').textContent = statusText;
   const promptEl = document.getElementById('sketch-prompt-display');
   if (state.phase === 'drawing' && isDrawer) promptEl.textContent = 'Draw: ' + (state.prompt || '');
@@ -4533,9 +4589,11 @@ function sketchRender(state) {
     promptEl.textContent = winner ? `🏆 Winner: ${winner.name} (${winner.score} pts)` : 'Game over!';
   }
   else promptEl.textContent = '';
-  document.getElementById('sketch-lobby-panel').style.display = state.phase === 'lobby' ? 'flex' : 'none';
-  document.getElementById('btn-sketch-start').style.display = state.phase === 'lobby' && isHost ? '' : 'none';
-  document.getElementById('sketch-lobby-info').textContent = state.phase === 'lobby' ? (isHost ? 'You are the host. Start when everyone is in.' : `Waiting for ${state.host} to start.`) : '';
+  const inLobbyLike = state.phase === 'lobby' || state.phase === 'game_end';
+  document.getElementById('sketch-lobby-panel').style.display = inLobbyLike ? 'flex' : 'none';
+  document.getElementById('btn-sketch-start').style.display = inLobbyLike && isHost ? '' : 'none';
+  document.getElementById('btn-sketch-start').textContent = state.phase === 'game_end' ? 'Start New Game' : 'Start Game';
+  document.getElementById('sketch-lobby-info').textContent = inLobbyLike ? (isHost ? 'You are the host. Start when everyone is in.' : `Waiting for ${state.host} to start.`) : '';
   document.getElementById('sketch-drawer-tools').style.display = state.phase === 'drawing' && isDrawer ? 'flex' : 'none';
   document.getElementById('sketch-guess-row').style.display = state.phase === 'drawing' && !isDrawer ? 'flex' : 'none';
   const playersEl = document.getElementById('sketch-players');
@@ -4556,15 +4614,15 @@ function sketchRender(state) {
     gEl.appendChild(d);
   });
   gEl.scrollTop = gEl.scrollHeight;
-  if (state.current_drawer !== sketchLastDrawer) {
-    sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
+  const epochChanged = state.strokes_epoch !== sketchStrokesEpoch;
+  if (epochChanged) {
+    sketchLocalGrid = new Uint8Array(64 * 64);
     sketchStrokeIdx = 0;
-    sketchLastDrawer = state.current_drawer;
+    sketchStrokesEpoch = state.strokes_epoch;
   }
   const strokes = state.strokes || [];
   strokes.forEach(s => {
-    if (s[0] === -1 && s[1] === -1) sketchLocalGrid = new Uint8Array(64 * 64).fill(0);
-    else if (s[0] >= 0 && s[0] < 64 && s[1] >= 0 && s[1] < 64) sketchLocalGrid[s[1] * 64 + s[0]] = s[2];
+    if (s[0] >= 0 && s[0] < 64 && s[1] >= 0 && s[1] < 64) sketchLocalGrid[s[1] * 64 + s[0]] = s[2];
   });
   sketchStrokeIdx = state.last_stroke_idx;
   sketchDrawCanvas();
@@ -4627,8 +4685,9 @@ function sketchBuildPalette() {
     sendTimer = null;
     if (!sketchPendingStrokes.length || !sketchRoomId) return;
     const strokes = sketchPendingStrokes.splice(0, sketchPendingStrokes.length);
+    const round_num = (sketchState && sketchState.round_num) || 0;
     try {
-      await fetch(BACKEND + '/api/sketch/draw', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId, strokes }) });
+      await fetch(BACKEND + '/api/sketch/draw', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId, round_num, strokes }) });
     } catch {}
   }
   const onDown = e => {
@@ -4669,7 +4728,8 @@ document.getElementById('btn-sketch-guess').onclick = async () => {
   const g = inp.value.trim();
   if (!g || !sketchRoomId) return;
   inp.value = '';
-  try { await fetch(BACKEND + '/api/sketch/guess', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId, guess: g }) }); } catch {}
+  const round_num = (sketchState && sketchState.round_num) || 0;
+  try { await fetch(BACKEND + '/api/sketch/guess', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId, round_num, guess: g }) }); } catch {}
 };
 document.getElementById('sketch-guess-input').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-sketch-guess').click(); });
 
