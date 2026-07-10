@@ -647,6 +647,10 @@
         <iframe id="movies-iframe" src="" allow="autoplay; fullscreen" allowfullscreen style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"></iframe>
       </div>
     </div>
+    <div id="movies-paste-row" style="display:flex;gap:6px;align-items:center;padding:10px 16px 6px;border-bottom:1px solid var(--border);">
+      <input id="movies-paste-input" class="win-input" type="text" placeholder="Paste a YouTube URL (or Google Drive share link)" style="flex:1;font-size:12px;">
+      <button id="btn-movies-paste-play" class="win-btn" style="background:#d32f2f;color:#fff;font-weight:700;">▶ Play</button>
+    </div>
     <div id="movies-list" style="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;overflow-y:auto;"></div>
   </div>
 </div>
@@ -6226,6 +6230,14 @@ applyPrefs();
   const playerWrap = document.getElementById('movies-player-wrap');
   const iframe = document.getElementById('movies-iframe');
   const nowPlaying = document.getElementById('movies-now-playing');
+  function extractYouTubeId(src) {
+    if (!src) return null;
+    const s = String(src);
+    const m = s.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (m) return m[1];
+    if (/^[a-zA-Z0-9_-]{11}$/.test(s) && !/^[0-9]+$/.test(s)) return s;
+    return null;
+  }
   function extractDriveId(src) {
     if (!src) return null;
     const m = String(src).match(/\/d\/([a-zA-Z0-9_-]{20,})/);
@@ -6234,6 +6246,8 @@ applyPrefs();
     return null;
   }
   function previewUrl(src) {
+    const ytId = extractYouTubeId(src);
+    if (ytId) return 'https://www.youtube-nocookie.com/embed/' + ytId + '?rel=0&modestbranding=1';
     const id = extractDriveId(src);
     return id ? 'https://drive.google.com/file/d/' + id + '/preview' : null;
   }
@@ -6288,6 +6302,19 @@ applyPrefs();
   document.getElementById('btn-movies').onclick = open;
   document.getElementById('btn-movies-close').onclick = close;
   document.getElementById('btn-movies-back').onclick = backToList;
+  const pasteInput = document.getElementById('movies-paste-input');
+  const pasteBtn = document.getElementById('btn-movies-paste-play');
+  const pastePlay = () => {
+    const raw = pasteInput.value.trim();
+    if (!raw) return;
+    const url = previewUrl(raw);
+    if (!url) { alert('Not a recognized URL. Paste a YouTube link like https://youtube.com/watch?v=... or a Google Drive share link.'); return; }
+    const ytId = extractYouTubeId(raw);
+    playMovie({ title: ytId ? 'YouTube: ' + ytId : 'Pasted video' }, url);
+    pasteInput.value = '';
+  };
+  pasteBtn.onclick = pastePlay;
+  pasteInput.addEventListener('keydown', e => { if (e.key === 'Enter') pastePlay(); });
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
   const arrow = document.getElementById('movies-tutorial-arrow');
   if (arrow) arrow.onclick = () => { arrow.style.display = 'none'; safeStore.setItem('ez_movies_tutorial_seen', '1'); };
