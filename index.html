@@ -3206,8 +3206,6 @@ const userBar = document.getElementById('user-bar');
 const authUser = document.getElementById('auth-user');
 const authPass = document.getElementById('auth-pass');
 const captchaRow = document.getElementById('captcha-row');
-const captchaImg = document.getElementById('captcha-img');
-const captchaAns = document.getElementById('captcha-ans');
 const authError = document.getElementById('auth-error');
 function ezpReadBanFlag() {
   try { if (window.localStorage && window.localStorage.getItem('ezp_school_banned') === '1') return true; } catch {}
@@ -3230,10 +3228,7 @@ if (!deviceId) {
 let captchaId = '';
 let isRegisterMode = false;
 
-async function fetchCaptcha() {
-  try { const res = await fetch('/api/captcha'); const data = await res.json(); captchaId = data.id; captchaImg.src = data.image; captchaAns.value = ''; }
-  catch { captchaImg.alt = 'Server offline'; }
-}
+async function fetchCaptcha() { const cb = document.getElementById('notrobot-check'); if (cb) cb.checked = false; }
 
 function setAuthMode(register) {
   isRegisterMode = register;
@@ -6414,9 +6409,7 @@ function showMoviesTutorialIfNew() {
   setTimeout(() => { arr.style.display = 'none'; safeStore.setItem('ez_movies_tutorial_seen', '1'); }, 15000);
 }
 
-document.getElementById('captcha-refresh').onclick = fetchCaptcha;
 authPass.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
-captchaAns.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
 authUser.addEventListener('keydown', e => { if (e.key === 'Enter') authPass.focus(); });
 
 const lobbyScreen = document.getElementById('lobby-screen');
