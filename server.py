@@ -1069,12 +1069,10 @@ async def lobby_preview_handler(request):
     if not lobby:
         return web.Response(status=404, text="Lobby not found")
     grid_bytes = bytes(lobby["grid"])
-    compressed = gzip.compress(grid_bytes, compresslevel=6)
     return web.Response(
-        body=compressed,
+        body=grid_bytes,
         headers={
             "Content-Type": "application/octet-stream",
-            "Content-Encoding": "gzip",
             "X-Width": str(lobby.get("width", 256)),
             "X-Height": str(lobby.get("height", 256)),
             "Cache-Control": "public, max-age=60",
