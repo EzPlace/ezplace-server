@@ -1,0 +1,43 @@
+name: Sync index.html to ezplace.github.io mirror
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+  workflow_dispatch: {}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ezplace-server
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Clone ezplace.github.io
+        env:
+          MIRROR_PAT: ${{ secrets.MIRROR_PAT }}
+        run: |
+          git clone --depth=1 "https://x-access-token:${MIRROR_PAT}@github.com/EzPlace/ezplace.github.io.git" mirror
+
+      - name: Copy index.html into mirror
+        run: |
+          cp index.html mirror/index.html
+
+      - name: Commit and push if changed
+        working-directory: mirror
+        env:
+          MIRROR_PAT: ${{ secrets.MIRROR_PAT }}
+        run: |
+          git config user.name  "ezplace-mirror-bot"
+          git config user.email "ezplace-mirror-bot@users.noreply.github.com"
+          if git diff --quiet -- index.html; then
+            echo "No index.html changes to sync."
+            exit 0
+          fi
+          git add index.html
+          SRC_SHA="${GITHUB_SHA:0:7}"
+          git commit -m "Mirror index.html from ezplace-server@${SRC_SHA}"
+          git push
