@@ -2847,12 +2847,13 @@ async def save_gd_levels():
     except Exception as e:
         print("save_gd_levels failed:", e)
 
-_GD_PORTAL_COLORS = {"cube": "#3a86ff", "ufo": "#b14aed", "plane": "#ff8c42"}
+_GD_PORTAL_COLORS = {"cube": "#3a86ff", "ufo": "#b14aed", "plane": "#ff8c42", "wave": "#22d3ee"}
+_GD_SPEED_ALLOWED = (0.5, 1, 2, 3)
 
 def _validate_gd_obstacle(o):
     if not isinstance(o, dict): return None
     kind = o.get("kind")
-    if kind not in ("spike", "block", "portal"): return None
+    if kind not in ("spike", "block", "portal", "speed"): return None
     try:
         x = int(o.get("x", 0)); y = int(o.get("y", 0))
         w = int(o.get("w", 0)); h = int(o.get("h", 0))
@@ -2866,9 +2867,14 @@ def _validate_gd_obstacle(o):
         if o.get("asBlock"): out["asBlock"] = True
     elif kind == "portal":
         mode = o.get("mode")
-        if mode not in ("cube", "ufo", "plane"): return None
+        if mode not in ("cube", "ufo", "plane", "wave"): return None
         out["mode"] = mode
         out["color"] = _GD_PORTAL_COLORS[mode]
+    elif kind == "speed":
+        try: mult = float(o.get("mult", 1))
+        except: return None
+        if mult not in _GD_SPEED_ALLOWED: return None
+        out["mult"] = mult
     return out
 
 async def casino_gd_start_handler(request):

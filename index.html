@@ -805,6 +805,11 @@
     <button data-tool="portal-cube" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#3a86ff;">Portal Cube</button>
     <button data-tool="portal-ufo" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#b14aed;">Portal UFO</button>
     <button data-tool="portal-plane" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#ff8c42;">Portal Plane</button>
+    <button data-tool="portal-wave" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#22d3ee;">Portal Wave</button>
+    <button data-tool="speed-0.5" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#7c5cfc;">0.5×</button>
+    <button data-tool="speed-1" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#22c55e;">1×</button>
+    <button data-tool="speed-2" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#ffb020;">2×</button>
+    <button data-tool="speed-3" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#ff2e5a;">3×</button>
     <button data-tool="erase" class="win-btn gd-tool" style="background:var(--bg-elevated);color:var(--red);">Eraser</button>
   </div>
   <canvas id="gd-ed-canvas" width="800" height="360" style="display:block;background:#0a0a14;border:2px solid var(--accent);border-radius:6px;max-width:100%;height:auto;cursor:crosshair;"></canvas>
@@ -5338,7 +5343,7 @@ function gdLaunch(seed, bet, customObstacles, customLabel) {
     scroll: 0, y: GD_GROUND_Y - GD_PLAYER_SZ, vy: 0, mode: 'cube',
     onGround: true, pressing: false, lastTime: performance.now(),
     startTs: performance.now(), obstacles, rafId: 0, rot: 0,
-    isCustom: !!customObstacles,
+    isCustom: !!customObstacles, speedMult: 1, waveTrail: [],
   };
   const press = () => {
     if (!gdState || !gdState.alive) return;
@@ -5367,7 +5372,7 @@ function gdLaunch(seed, bet, customObstacles, customLabel) {
 }
 function gdTick(dt) {
   const s = gdState;
-  s.scroll += GD_SPEED * dt;
+  s.scroll += GD_SPEED * (s.speedMult || 1) * dt;
   const progress = Math.min(1, s.scroll / GD_LEN);
   document.getElementById('gd-progress-tag').textContent = Math.floor(progress * 100) + '%';
   if (s.mode === 'cube') {
@@ -5383,6 +5388,14 @@ function gdTick(dt) {
     if (s.y >= GD_GROUND_Y - GD_PLAYER_SZ) { s.y = GD_GROUND_Y - GD_PLAYER_SZ; s.vy = 0; s.onGround = true; }
     else s.onGround = false;
     if (s.y < 0) { s.y = 0; s.vy = 0; }
+  } else if (s.mode === 'wave') {
+    // 45-degree wave trail — vy magnitude matches horizontal speed
+    s.vy = (s.pressing ? -1 : 1) * GD_SPEED * (s.speedMult || 1);
+    s.y += s.vy * dt;
+    if (s.y >= GD_GROUND_Y - GD_PLAYER_SZ) { s.y = GD_GROUND_Y - GD_PLAYER_SZ; s.vy = 0; }
+    if (s.y < 0) { s.y = 0; s.vy = 0; }
+    s.waveTrail.push({ x: s.scroll + GD_PLAYER_X + GD_PLAYER_SZ / 2, y: s.y + GD_PLAYER_SZ / 2 });
+    if (s.waveTrail.length > 90) s.waveTrail.shift();
   } else { // plane
     const target = s.pressing ? -260 : 260;
     s.vy += (target - s.vy) * Math.min(1, dt * 6);
@@ -5409,13 +5422,19 @@ function gdTick(dt) {
       if (gdRectsOverlap(px + inset, py + inset, GD_PLAYER_SZ - inset * 2, GD_PLAYER_SZ - inset * 2, ob.x + 4, ob.y + 4, ob.w - 8, ob.h - 8)) {
         return gdDie();
       }
+    } else if (ob.kind === 'speed') {
+      if (!ob.used && px + GD_PLAYER_SZ >= ob.x && px <= ob.x + ob.w) {
+        ob.used = true;
+        s.speedMult = ob.mult;
+      }
     } else if (ob.kind === 'portal') {
       if (!ob.used && px + GD_PLAYER_SZ >= ob.x && px <= ob.x + ob.w) {
         ob.used = true;
         s.mode = ob.mode;
         s.vy = 0;
+        if (ob.mode === 'wave') s.waveTrail = [];
         document.getElementById('gd-mode-tag').textContent = ob.mode;
-        document.getElementById('gd-mode-tag').style.color = ob.mode === 'cube' ? '#3a86ff' : (ob.mode === 'ufo' ? '#b14aed' : '#ff8c42');
+        document.getElementById('gd-mode-tag').style.color = ob.mode === 'cube' ? '#3a86ff' : (ob.mode === 'ufo' ? '#b14aed' : (ob.mode === 'plane' ? '#ff8c42' : '#22d3ee'));
       }
     }
   }
@@ -5492,7 +5511,24 @@ function gdDraw(ctx) {
       ctx.fillStyle = grad; ctx.fillRect(sx, ob.y, ob.w, ob.h);
       ctx.fillStyle = '#000'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(ob.mode.toUpperCase(), sx + ob.w / 2, ob.y + ob.h / 2);
+    } else if (ob.kind === 'speed') {
+      const col = ob.mult >= 3 ? '#ff2e5a' : (ob.mult >= 2 ? '#ffb020' : (ob.mult >= 1 ? '#22c55e' : '#7c5cfc'));
+      ctx.fillStyle = col + '22'; ctx.fillRect(sx, 0, ob.w, GD_GROUND_Y);
+      ctx.fillStyle = col; ctx.fillRect(sx, ob.y, ob.w, ob.h);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(sx + 0.5, ob.y + 0.5, ob.w - 1, ob.h - 1);
+      ctx.fillStyle = '#000'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText((ob.mult < 1 ? '0.5x' : ob.mult + 'x'), sx + ob.w / 2, ob.y + ob.h / 2);
     }
+  }
+  // wave trail
+  if (s.mode === 'wave' && s.waveTrail && s.waveTrail.length > 1) {
+    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i < s.waveTrail.length; i++) {
+      const p = s.waveTrail[i];
+      const tx = p.x - s.scroll;
+      if (i === 0) ctx.moveTo(tx, p.y); else ctx.lineTo(tx, p.y);
+    }
+    ctx.stroke();
   }
   // player
   ctx.save();
@@ -5502,6 +5538,12 @@ function gdDraw(ctx) {
   else if (s.mode === 'ufo') {
     ctx.fillStyle = '#b14aed'; ctx.beginPath(); ctx.ellipse(0, 4, GD_PLAYER_SZ / 2, GD_PLAYER_SZ / 4, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, -2, GD_PLAYER_SZ / 3, Math.PI, Math.PI * 2); ctx.fill();
+  } else if (s.mode === 'wave') {
+    ctx.fillStyle = '#22d3ee'; ctx.beginPath();
+    const h = GD_PLAYER_SZ / 3;
+    ctx.moveTo(0, -h); ctx.lineTo(h, 0); ctx.lineTo(0, h); ctx.lineTo(-h, 0);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.stroke();
   } else {
     ctx.fillStyle = '#ff8c42'; ctx.beginPath(); ctx.moveTo(GD_PLAYER_SZ / 2, 0); ctx.lineTo(-GD_PLAYER_SZ / 2, -GD_PLAYER_SZ / 2); ctx.lineTo(-GD_PLAYER_SZ / 4, 0); ctx.lineTo(-GD_PLAYER_SZ / 2, GD_PLAYER_SZ / 2); ctx.closePath(); ctx.fill();
   }
@@ -5527,7 +5569,8 @@ document.getElementById('btn-gd-copy-seed').onclick = () => {
 
 // ===== GeoDash level editor =====
 const GD_ED_MAX = 240;
-const GD_PORTAL_COLORS = { cube: '#3a86ff', ufo: '#b14aed', plane: '#ff8c42' };
+const GD_PORTAL_COLORS = { cube: '#3a86ff', ufo: '#b14aed', plane: '#ff8c42', wave: '#22d3ee' };
+const GD_SPEED_COLORS = { 0.5: '#7c5cfc', 1: '#22c55e', 2: '#ffb020', 3: '#ff2e5a' };
 let gdEditor = null;
 function gdEdMakeObstacle(tool, x, y) {
   x = Math.max(0, Math.min(GD_LEN, x));
@@ -5536,6 +5579,7 @@ function gdEdMakeObstacle(tool, x, y) {
   if (tool === 'block') return { kind: 'block', x, y: Math.max(0, Math.min(GD_GROUND_Y - 40, y)), w: 60, h: 40 };
   if (tool === 'block-tall') return { kind: 'block', x, y: Math.max(0, Math.min(GD_GROUND_Y - 80, y)), w: 40, h: 80 };
   if (tool.startsWith('portal-')) { const m = tool.slice(7); return { kind: 'portal', x, y: GD_GROUND_Y - 80, w: 32, h: 64, mode: m, color: GD_PORTAL_COLORS[m] }; }
+  if (tool.startsWith('speed-')) { const mult = parseFloat(tool.slice(6)); return { kind: 'speed', x, y: GD_GROUND_Y - 64, w: 28, h: 48, mult }; }
   return null;
 }
 function gdEdDraw() {
@@ -5577,6 +5621,12 @@ function gdEdDraw() {
       ctx.strokeStyle = ob.color; ctx.lineWidth = 2; ctx.strokeRect(sx + 0.5, ob.y + 0.5, ob.w - 1, ob.h - 1);
       ctx.fillStyle = '#fff'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
       ctx.fillText(ob.mode.toUpperCase(), sx + ob.w / 2, ob.y + ob.h / 2 + 3); ctx.textAlign = 'left';
+    } else if (ob.kind === 'speed') {
+      const col = GD_SPEED_COLORS[ob.mult] || '#22c55e';
+      ctx.fillStyle = col; ctx.globalAlpha = 0.55; ctx.fillRect(sx, ob.y, ob.w, ob.h); ctx.globalAlpha = 1;
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.strokeRect(sx + 0.5, ob.y + 0.5, ob.w - 1, ob.h - 1);
+      ctx.fillStyle = '#000'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+      ctx.fillText((ob.mult < 1 ? '0.5×' : ob.mult + '×'), sx + ob.w / 2, ob.y + ob.h / 2 + 3); ctx.textAlign = 'left';
     }
   }
   // ghost preview at cursor
@@ -5592,6 +5642,7 @@ function gdEdDraw() {
         else { ctx.moveTo(sx, ghost.y); ctx.lineTo(sx + ghost.w / 2, ghost.y + ghost.h); ctx.lineTo(sx + ghost.w, ghost.y); }
         ctx.closePath(); ctx.fill();
       } else if (ghost.kind === 'portal') { ctx.fillStyle = ghost.color; ctx.fillRect(sx, ghost.y, ghost.w, ghost.h); }
+      else if (ghost.kind === 'speed') { ctx.fillStyle = GD_SPEED_COLORS[ghost.mult] || '#22c55e'; ctx.fillRect(sx, ghost.y, ghost.w, ghost.h); }
       ctx.globalAlpha = 1;
     }
   }
@@ -5601,9 +5652,14 @@ function gdEdDraw() {
 function gdEdSelectTool(name) {
   gdEditor.tool = name;
   document.querySelectorAll('#gd-ed-tools .gd-tool').forEach(b => {
-    const on = b.getAttribute('data-tool') === name;
-    b.style.background = on ? (name === 'erase' ? 'var(--red)' : 'var(--accent)') : 'var(--bg-elevated)';
-    b.style.color = on ? '#fff' : (b.getAttribute('data-tool').startsWith('portal-') ? GD_PORTAL_COLORS[b.getAttribute('data-tool').slice(7)] : (name === 'erase' && on ? '#fff' : 'var(--text-primary)'));
+    const tool = b.getAttribute('data-tool');
+    const on = tool === name;
+    b.style.background = on ? (tool === 'erase' ? 'var(--red)' : 'var(--accent)') : 'var(--bg-elevated)';
+    let restColor = 'var(--text-primary)';
+    if (tool.startsWith('portal-')) restColor = GD_PORTAL_COLORS[tool.slice(7)] || restColor;
+    else if (tool.startsWith('speed-')) restColor = GD_SPEED_COLORS[parseFloat(tool.slice(6))] || restColor;
+    else if (tool === 'erase') restColor = 'var(--red)';
+    b.style.color = on ? '#fff' : restColor;
   });
   gdEdDraw();
 }
@@ -5727,6 +5783,7 @@ document.getElementById('btn-gd-ed-save').onclick = async () => {
       const c = { kind: o.kind, x: o.x | 0, y: o.y | 0, w: o.w | 0, h: o.h | 0 };
       if (o.kind === 'spike') { c.up = !!o.up; if (o.asBlock) c.asBlock = true; }
       if (o.kind === 'portal') { c.mode = o.mode; c.color = o.color; }
+      if (o.kind === 'speed') { c.mult = o.mult; }
       return c;
     });
     const body = { name, obstacles: cleanObstacles };
