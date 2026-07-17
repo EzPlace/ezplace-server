@@ -1198,6 +1198,10 @@
   <div id="user-bar">
     <span class="user-name" id="user-display"></span>
     <span style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;">
+      <span id="level-pill" title="Your level - 1 level per 1000 lifetime pixels placed" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#22d3ee;background:rgba(34,211,238,0.12);border:1px solid #22d3ee;padding:2px 6px;border-radius:10px;white-space:nowrap;cursor:pointer;">
+        <span id="level-text">LEVEL 0</span>
+        <span style="display:inline-block;width:36px;height:5px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;"><span id="level-bar" style="display:block;height:100%;width:0%;background:#22d3ee;transition:width 0.25s;"></span></span>
+      </span>
       <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;">PB: 0</span>
       <button id="btn-logout" class="win-btn" style="flex-shrink:0;">Logout</button>
     </span>
@@ -2580,6 +2584,7 @@ function paintBrush(cx, cy) {
       ws.send(JSON.stringify({ type: 'admin_brush', pixels, color: selectedColor }));
     } else if (pixels.length === 1) {
       ws.send(JSON.stringify({ type: 'pixel', x: cx, y: cy, color: selectedColor }));
+      if (authToken && !isGuest) { myPixels += 1; updateLevelPill(); }
     }
   }
 }
@@ -3391,11 +3396,21 @@ function showLoggedIn() {
 }
 
 let myBalance = 0;
+let myPixels = 0;
 let myPurchases = {};
 let myNameColor = null;
 let myUnlimited = false;
 let myStreak = 0;
 let myStreakProgress = { seconds: 0, required: 900, earned_today: false };
+function updateLevelPill() {
+  const t = document.getElementById('level-text');
+  const b = document.getElementById('level-bar');
+  if (!t || !b) return;
+  const lvl = Math.floor(myPixels / 1000);
+  const into = myPixels % 1000;
+  t.textContent = 'LEVEL ' + lvl;
+  b.style.width = (into / 10) + '%';
+}
 function fmtMMSS(s) { const m = Math.floor(s / 60), sec = s % 60; return m + ':' + String(sec).padStart(2, '0'); }
 function fmtRelTime(unixSec) {
   if (!unixSec) return 'never';
@@ -3425,6 +3440,7 @@ function applyPbState() {
   if (wg) wg.style.display = (myUnlimited || myPurchases.custom_wheel) ? 'flex' : 'none';
   const ud = document.getElementById('user-display');
   if (ud) ud.style.color = (myNameColor && /^#[0-9a-fA-F]{3,8}$/.test(myNameColor)) ? myNameColor : '';
+  updateLevelPill();
 }
 async function refreshMe() {
   if (!authToken) return;
@@ -3444,6 +3460,7 @@ async function refreshMe() {
     }
     if (d.error) return;
     myBalance = d.balance || 0;
+    myPixels = d.lifetime_pixels || 0;
     myPurchases = d.purchases || {};
     myNameColor = d.name_color || null;
     myUnlimited = !!d.unlimited;
@@ -6485,6 +6502,7 @@ function logout() {
 }
 
 document.getElementById('btn-logout').onclick = logout;
+document.getElementById('level-pill').onclick = () => { alert('Keep drawing to level up!'); };
 
 (function setupReportFlow(){
   const modal = document.getElementById('report-modal');
@@ -7631,7 +7649,8 @@ function renderLeaderboard(board) {
     const nameClass = p.name.toLowerCase() === 'toothpaste' ? 'lb-name rainbow' : 'lb-name';
     const canManage = (amOwner || isTPAdmin) && p.name.toLowerCase() !== username.toLowerCase();
     const nameStyle = canManage ? ' style="cursor:pointer;text-decoration:underline dotted"' : '';
-    row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div>${avatarImg(p.name)}<span class="${nameClass}"${nameStyle}>${esc(p.name)}</span><span class="lb-count">${p.pixels.toLocaleString()}</span>`;
+    const lvlTag = (typeof p.level === 'number') ? `<span title="Level ${p.level}" style="font-size:9px;font-weight:700;color:#22d3ee;background:rgba(34,211,238,0.12);border:1px solid #22d3ee;padding:0 4px;border-radius:6px;margin:0 4px;">L${p.level}</span>` : '';
+    row.innerHTML = `<span class="lb-rank">#${i+1}${medal}</span><div class="lb-status ${p.online ? 'online' : 'offline'}"></div>${avatarImg(p.name)}<span class="${nameClass}"${nameStyle}>${esc(p.name)}</span>${lvlTag}<span class="lb-count">${p.pixels.toLocaleString()}</span>`;
     if (canManage) {
       row.querySelector(`.${nameClass.split(' ')[0]}`).addEventListener('click', e => showLobbyUserMenu(e, p.name));
     }
@@ -7983,7 +8002,8 @@ async function loadFriendsList() {
       let subText = '';
       if (f.online && f.afk) subText = `<span class="f-sub" style="color:#f0b232;font-weight:600;">AFK</span>`;
       else if (!f.online) subText = `<span class="f-sub">${f.last_online ? 'last online ' + fmtRelTime(f.last_online) : 'Inactive'}</span>`;
-      d.innerHTML = `<div class="f-status ${statusCls}"></div>${avatarImg(f.name, 'lg')}<div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div><button class="win-btn" data-dm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
+      const flvl = (typeof f.level === 'number') ? `<span title="Level ${f.level}" style="font-size:9px;font-weight:700;color:#22d3ee;background:rgba(34,211,238,0.12);border:1px solid #22d3ee;padding:0 4px;border-radius:6px;margin-right:4px;">L${f.level}</span>` : '';
+      d.innerHTML = `<div class="f-status ${statusCls}"></div>${avatarImg(f.name, 'lg')}<div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div>${flvl}<button class="win-btn" data-dm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
       d.querySelector('[data-dm]').onclick = () => { openDm(f.name); };
       d.querySelector('[data-rm]').onclick = async () => { if (confirm(`Remove ${f.name}?`)) { await fetch('/api/friends/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: f.name }) }); loadFriendsList(); }};
       panel.appendChild(d);
