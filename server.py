@@ -1272,6 +1272,9 @@ async def join_lobby_by_code_handler(request):
             return web.json_response({"ok": True, "lobby": lobby_info(lobby)})
     return web.json_response({"error": "Invalid code"}, status=404)
 
+def get_user_level(name):
+    return int(lifetime_pixels.get(name.lower(), 0)) // 1000
+
 async def leaderboard_handler(request):
     lid = request.query.get("lobby_id", "")
     lobby = lobbies.get(lid)
@@ -1280,7 +1283,7 @@ async def leaderboard_handler(request):
     pc = lobby.get("pixel_counts", {})
     top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:50]
     return web.json_response({
-        "leaderboard": [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top],
+        "leaderboard": [{"name": n, "pixels": c, "level": get_user_level(n), "online": is_online(n)} for n, c in top],
         "original_owner": lobby.get("original_owner"),
     })
 
@@ -1298,6 +1301,7 @@ async def friends_list_handler(request):
             "afk": bool(p.get("afk")) if online else False,
             "afk_since": p.get("since") if online and p.get("afk") else None,
             "last_online": last_online.get(f.lower()),
+            "level": get_user_level(f),
         }
     return web.json_response({"friends": [friend_entry(f) for f in fd["friends"]], "incoming": fd["incoming"], "outgoing": fd["outgoing"]})
 
@@ -5430,7 +5434,7 @@ async def global_leaderboard_handler(request):
             if is_admin(uname): continue
             totals[uname] = totals.get(uname, 0) + int(cnt)
     top = sorted(totals.items(), key=lambda x: x[1], reverse=True)[:20]
-    return web.json_response({"entries": [{"name": n, "pixels": c, "online": is_online(n)} for n, c in top]})
+    return web.json_response({"entries": [{"name": n, "pixels": c, "level": get_user_level(n), "online": is_online(n)} for n, c in top]})
 
 async def clan_remove_member_handler(request):
     data = await request.json()
