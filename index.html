@@ -3460,7 +3460,9 @@ async function refreshMe() {
     }
     if (d.error) return;
     myBalance = d.balance || 0;
-    myPixels = d.lifetime_pixels || 0;
+    // never move the level counter backward - the server's summed-lobby total is refreshed on a 30s cache,
+    // so a fresh optimistic increment on the client could otherwise be undone by a stale server reading.
+    myPixels = Math.max(myPixels, d.lifetime_pixels || 0);
     myPurchases = d.purchases || {};
     myNameColor = d.name_color || null;
     myUnlimited = !!d.unlimited;

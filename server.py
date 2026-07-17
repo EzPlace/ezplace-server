@@ -1272,8 +1272,28 @@ async def join_lobby_by_code_handler(request):
             return web.json_response({"ok": True, "lobby": lobby_info(lobby)})
     return web.json_response({"error": "Invalid code"}, status=404)
 
+_user_pixel_totals_cache = {"data": {}, "ts": 0.0}
+def compute_user_pixel_totals():
+    """Sum pixel_counts across every current lobby, keyed by lowercase name. 30s cache."""
+    now = time.time()
+    if now - _user_pixel_totals_cache["ts"] < 30 and _user_pixel_totals_cache["data"]:
+        return _user_pixel_totals_cache["data"]
+    totals = {}
+    for lobby in lobbies.values():
+        pc = lobby.get("pixel_counts") or {}
+        for uname, cnt in pc.items():
+            if not isinstance(cnt, (int, float)) or cnt <= 0: continue
+            ulow = uname.lower()
+            totals[ulow] = totals.get(ulow, 0) + int(cnt)
+    _user_pixel_totals_cache["data"] = totals
+    _user_pixel_totals_cache["ts"] = now
+    return totals
+
+def get_user_pixels(name):
+    return int(compute_user_pixel_totals().get(name.lower(), 0))
+
 def get_user_level(name):
-    return int(lifetime_pixels.get(name.lower(), 0)) // 1000
+    return get_user_pixels(name) // 1000
 
 async def leaderboard_handler(request):
     lid = request.query.get("lobby_id", "")
@@ -2518,7 +2538,7 @@ async def me_handler(request):
         "balance": get_pb(user),
         "unlimited": bool(is_admin(user)),
         "purchases": purchases.get(user.lower()) or {},
-        "lifetime_pixels": int(lifetime_pixels.get(user.lower(), 0)),
+        "lifetime_pixels": get_user_pixels(user),
         "streak": get_streak(user),
         "streak_progress": get_streak_progress(user),
         "is_moderator": bool(is_moderator(user)),
