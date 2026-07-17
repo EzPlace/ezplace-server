@@ -70,7 +70,8 @@ fake_admins = []
 brush_perms = {}                                                     
 clans = {}                                                                                                      
 groups = {}                                                          
-group_messages = {}                                                          
+group_messages = {}
+group_last_seen = {}                                                          
 
                                                                                   
 place_bucks = {}
@@ -85,7 +86,7 @@ ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "name_color": 30, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
 SHOP_SELL_PRICES = {"streak_pass": 400}
-PALETTE_SIZE = 81
+PALETTE_SIZE = 91
 STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
 PB_TRANSFER_AMOUNT_PER_MIN = 100000
@@ -800,6 +801,36 @@ def mark_dm_seen(user, peer):
         dm_last_seen[ulow] = {}
     dm_last_seen[ulow][plow] = time.time()
 
+def mark_group_seen(user, gid):
+    ulow = (user or "").lower()
+    if not ulow or not gid: return
+    if ulow not in group_last_seen: group_last_seen[ulow] = {}
+    group_last_seen[ulow][gid] = time.time()
+
+async def save_group_last_seen(): await db_save("store", "group_last_seen", group_last_seen)
+
+def get_unread_groups_summary(user):
+    """Return a list of {group_id, group_name, count, last_from, last_text, last_time} for groups with unread messages."""
+    ulow = (user or "").lower()
+    seen_map = group_last_seen.get(ulow, {})
+    out = []
+    for gid, g in groups.items():
+        if ulow not in {m.lower() for m in g.get("members", [])}: continue
+        last_seen = seen_map.get(gid, 0)
+        msgs = group_messages.get(gid, []) or []
+        unread = [m for m in msgs if m.get("from", "").lower() != ulow and m.get("time", 0) > last_seen]
+        if not unread: continue
+        last = unread[-1]
+        out.append({
+            "group_id": gid,
+            "group_name": g.get("name", ""),
+            "count": len(unread),
+            "last_from": last.get("from", ""),
+            "last_text": last.get("text") or ("[image]" if (last.get("image_url") or last.get("image")) else ""),
+            "last_time": last.get("time", 0),
+        })
+    return out
+
 def get_unread_dm_summary(user):
     """Return a list of {from, count, last_text, last_time} for threads with unread peer messages."""
     ulow = user.lower()
@@ -855,6 +886,8 @@ async def load_all_data():
     async for doc in db["group_messages"].find():
         group_messages[doc["_id"]] = doc.get("data", [])
     dm_last_seen = await db_load("store", "dm_last_seen") or {}
+    global group_last_seen
+    group_last_seen = await db_load("store", "group_last_seen") or {}
     place_bucks = await db_load("store", "place_bucks") or {}
     lifetime_pixels = await db_load("store", "lifetime_pixels") or {}
     purchases = await db_load("store", "purchases") or {}
@@ -867,6 +900,8 @@ async def load_all_data():
     global economy_history
     economy_history = await db_load("store", "economy_history") or []
     user_ips = await db_load("store", "user_ips") or {}
+    global gd_levels
+    gd_levels = await db_load("store", "gd_levels") or {}
 
     for i, pl in enumerate(PUBLIC_LOBBIES):
         lid = f"public_{i}"
@@ -2422,6 +2457,8 @@ async def group_messages_handler(request):
     if not g: return web.json_response({"error": "Group not found"}, status=404)
     if user.lower() not in [m.lower() for m in g.get("members", [])]:
         return web.json_response({"error": "Not a member"}, status=403)
+    mark_group_seen(user, gid)
+    await save_group_last_seen()
     return web.json_response({"messages": group_messages.get(gid, [])[-MAX_DM_HISTORY:], "members": g["members"], "owner": g["owner"], "name": g["name"]})
 
 async def group_leave_handler(request):
@@ -2797,12 +2834,53 @@ GD_LEVEL_LENGTH = 5400
 GD_MIN_PLAY_MS_PER_PCT = 400
 GD_DAILY_PLAY_CAP = 30
 GD_MAX_MULT = 1.75
+GD_LEVEL_MAX_OBSTACLES = 240
+GD_LEVEL_NAME_MAX = 40
+GD_LEVELS_PER_USER = 20
 gd_attempts = {}
+gd_levels = {}
+
+async def save_gd_levels():
+    if not db: return
+    try:
+        await db["store"].update_one({"_id": "gd_levels"}, {"$set": {"data": gd_levels}}, upsert=True)
+    except Exception as e:
+        print("save_gd_levels failed:", e)
+
+_GD_PORTAL_COLORS = {"cube": "#3a86ff", "ufo": "#b14aed", "plane": "#ff8c42"}
+
+def _validate_gd_obstacle(o):
+    if not isinstance(o, dict): return None
+    kind = o.get("kind")
+    if kind not in ("spike", "block", "portal"): return None
+    try:
+        x = int(o.get("x", 0)); y = int(o.get("y", 0))
+        w = int(o.get("w", 0)); h = int(o.get("h", 0))
+    except: return None
+    if x < 0 or x > GD_LEVEL_LENGTH: return None
+    if y < -8 or y > 400: return None
+    if w < 4 or w > 500 or h < 4 or h > 400: return None
+    out = {"kind": kind, "x": x, "y": y, "w": w, "h": h}
+    if kind == "spike":
+        out["up"] = bool(o.get("up", True))
+        if o.get("asBlock"): out["asBlock"] = True
+    elif kind == "portal":
+        mode = o.get("mode")
+        if mode not in ("cube", "ufo", "plane"): return None
+        out["mode"] = mode
+        out["color"] = _GD_PORTAL_COLORS[mode]
+    return out
 
 async def casino_gd_start_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    level_id = str(data.get("level_id", "")).strip()
+    if level_id:
+        lvl = gd_levels.get(level_id)
+        if not lvl: return web.json_response({"error": "Level not found"}, status=404)
+        gd_attempts[user.lower()] = {"seed": 0, "bet": 0, "start_ts": time.time(), "done": False, "custom_id": level_id}
+        return web.json_response({"ok": True, "custom": True, "level": lvl, "length": GD_LEVEL_LENGTH, "balance": get_pb(user)})
     try: amount = int(data.get("amount", 0))
     except: return web.json_response({"error": "Invalid bet"}, status=400)
     if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
@@ -2832,6 +2910,14 @@ async def casino_gd_result_handler(request):
         time_ms = max(0, int(data.get("time_ms", 0)))
         seed = int(data.get("seed", -1))
     except: return web.json_response({"error": "Bad payload"}, status=400)
+    if g.get("custom_id"):
+        g["done"] = True
+        lvl = gd_levels.get(g["custom_id"])
+        if lvl:
+            lvl["plays"] = int(lvl.get("plays", 0)) + 1
+            await save_gd_levels()
+        gd_attempts.pop(ulow, None)
+        return web.json_response({"ok": True, "progress": progress, "multiplier": 0, "winnings": 0, "bet": 0, "balance": get_pb(user), "custom": True})
     if seed != g["seed"]:
         return web.json_response({"error": "Seed mismatch"}, status=400)
     pct = progress * 100
@@ -2854,6 +2940,58 @@ async def casino_gd_result_handler(request):
     await broadcast_casino_result(user, "GeoDash", g["bet"], winnings, detail)
     gd_attempts.pop(ulow, None)
     return web.json_response({"ok": True, "progress": progress, "multiplier": multiplier, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user), "seed": g["seed"]})
+
+async def gd_save_level_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    name = str(data.get("name", "")).strip()[:GD_LEVEL_NAME_MAX]
+    if not name: return web.json_response({"error": "Name required"}, status=400)
+    raw = data.get("obstacles") or []
+    if not isinstance(raw, list) or len(raw) < 1:
+        return web.json_response({"error": "Level must have at least 1 obstacle"}, status=400)
+    if len(raw) > GD_LEVEL_MAX_OBSTACLES:
+        return web.json_response({"error": f"Max {GD_LEVEL_MAX_OBSTACLES} obstacles"}, status=400)
+    validated = []
+    for o in raw:
+        v = _validate_gd_obstacle(o)
+        if v is None: return web.json_response({"error": "Bad obstacle data"}, status=400)
+        validated.append(v)
+    ulow = user.lower()
+    edit_id = str(data.get("id", "")).strip()
+    if edit_id:
+        lvl = gd_levels.get(edit_id)
+        if not lvl: return web.json_response({"error": "Level not found"}, status=404)
+        if lvl["author"].lower() != ulow and not is_admin(user):
+            return web.json_response({"error": "Not owner"}, status=403)
+        lvl["name"] = name
+        lvl["obstacles"] = validated
+        lvl["updated"] = time.time()
+    else:
+        owned = [1 for l in gd_levels.values() if l.get("author", "").lower() == ulow]
+        if len(owned) >= GD_LEVELS_PER_USER and not is_admin(user):
+            return web.json_response({"error": f"Limit {GD_LEVELS_PER_USER} levels per user"}, status=400)
+        lid = secrets.token_urlsafe(8)
+        gd_levels[lid] = {"id": lid, "author": user, "name": name, "obstacles": validated, "created": time.time(), "plays": 0}
+    await save_gd_levels()
+    return web.json_response({"ok": True, "id": edit_id or lid})
+
+async def gd_list_levels_handler(request):
+    lst = sorted(gd_levels.values(), key=lambda l: l.get("created", 0), reverse=True)
+    return web.json_response({"levels": lst})
+
+async def gd_delete_level_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    lid = str(data.get("id", "")).strip()
+    lvl = gd_levels.get(lid)
+    if not lvl: return web.json_response({"error": "Not found"}, status=404)
+    if lvl["author"].lower() != user.lower() and not is_admin(user):
+        return web.json_response({"error": "Not owner"}, status=403)
+    gd_levels.pop(lid, None)
+    await save_gd_levels()
+    return web.json_response({"ok": True})
 
 PLINKO_ROWS = 9
 PLINKO_MULTIPLIERS = [10.0, 3.0, 1.4, 1.1, 0.5, 0.3, 0.5, 1.1, 1.4, 3.0, 10.0]
@@ -5451,6 +5589,9 @@ async def social_ws_handler(request):
                         unread = get_unread_dm_summary(username)
                         if unread:
                             await ws.send_json({"type": "unread_dms", "senders": unread})
+                        unread_grp = get_unread_groups_summary(username)
+                        if unread_grp:
+                            await ws.send_json({"type": "unread_groups", "groups": unread_grp})
                         try:
                             fd = friends_data.get(username) or {}
                             pending = list(fd.get("incoming") or [])
@@ -5471,6 +5612,11 @@ async def social_ws_handler(request):
                         print(f"[presence] {username} -> {'AFK' if afk else 'active'}", flush=True)
                         try: await push_friend_presence(username)
                         except Exception as e: print(f"[presence] push failed for {username}: {e}", flush=True)
+                elif data.get("type") == "group_seen" and username:
+                    gid = (data.get("group_id") or "").strip()
+                    if gid and gid in groups:
+                        mark_group_seen(username, gid)
+                        await save_group_last_seen()
                 elif data.get("type") == "dm_seen" and username:
                     peer = data.get("peer", "").strip()
                     if peer:
@@ -6562,6 +6708,7 @@ for _path, _h in (
     ("/api/admin/fake-admins", _admin_json_view("fake_admins", lambda: fake_admins)),
     ("/api/admin/fake-log", admin_view_fake_log_handler),
     ("/api/mod/reports", reports_list_handler),
+    ("/api/casino/gd/levels", gd_list_levels_handler),
     ("/ws", websocket_handler), ("/ws/social", social_ws_handler), ("/", index_handler),
 ): _g(_path, _h)
 for _path, _h in (
@@ -6592,6 +6739,7 @@ for _path, _h in (
     ("/api/casino/roulette", casino_roulette_handler), ("/api/casino/coinflip", casino_coinflip_handler),
     ("/api/casino/plinko", casino_plinko_handler), ("/api/casino/mines", casino_mines_handler),
     ("/api/casino/gd/start", casino_gd_start_handler), ("/api/casino/gd/result", casino_gd_result_handler),
+    ("/api/casino/gd/save-level", gd_save_level_handler), ("/api/casino/gd/delete-level", gd_delete_level_handler),
     ("/api/casino/amongus/create", amongus_create_handler), ("/api/casino/amongus/join", amongus_join_handler),
     ("/api/casino/amongus/start", amongus_start_handler), ("/api/casino/amongus/say", amongus_say_handler),
     ("/api/casino/amongus/kill", amongus_kill_handler), ("/api/casino/amongus/vote", amongus_vote_handler),

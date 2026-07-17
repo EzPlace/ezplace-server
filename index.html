@@ -93,7 +93,6 @@
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-  @keyframes movieArrowBob { from { transform: translate(-50%, 0); } to { transform: translate(-50%, -4px); } }
   .msg { animation: fadeIn 0.2s ease; }
   .lobby-card { animation: slideIn 0.2s ease; transition: all 0.2s ease; }
   .friend-item { animation: fadeIn 0.15s ease; }
@@ -113,19 +112,26 @@
      is a child of canvas-wrap (which already takes only the non-sidebar area), so
      right:0 covers the whole canvas-wrap — including the header's online count. */
   #lobby-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-secondary); z-index: 35; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
+  body.pre-auth #canvas-wrap, body.pre-auth #sidebar, body.pre-auth #header { display: none !important; }
+  body.pre-auth #auth-modal { background: var(--bg-primary); backdrop-filter: none; }
+  body.guest-mode #sidebar, body.guest-mode #mobile-chat-overlay, body.guest-mode #mobile-sidebar-toggle, body.guest-mode #mobile-chat-toggle { display: none !important; }
   #lobby-bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(4px) saturate(1.1); opacity: 0.55; image-rendering: pixelated; }
   #lobby-bg-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; background: rgba(15, 15, 17, 0.6); }
   #lobby-screen > *:not(#lobby-bg-canvas):not(#lobby-bg-overlay) { position: relative; z-index: 2; }
   #lobby-screen h2 { color: var(--accent); margin-bottom: 12px; font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
-  #lobby-screen .section-title { font-size: 13px; color: var(--text-muted); margin: 16px 0 6px; font-weight: 500; width: 100%; max-width: 480px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
-  .lobby-list { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 4px; }
-  .lobby-card { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
-  .lobby-card:hover { background: var(--bg-hover); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
+  #lobby-screen .section-title { font-size: 13px; color: var(--text-muted); margin: 16px 0 6px; font-weight: 500; width: 100%; max-width: 720px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .lobby-list { width: 100%; max-width: 720px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .lobby-card { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; position: relative; overflow: hidden; }
+  .lobby-card:hover { background: var(--bg-hover); border-color: var(--accent); box-shadow: 0 4px 16px rgba(0,0,0,0.35), 0 0 0 1px var(--accent-dim); transform: translateY(-2px); }
   .lobby-card:hover .lobby-meta { color: var(--text-secondary); }
-  .lobby-card .lobby-info { flex: 1; }
-  .lobby-card .lobby-title { font-size: 13px; font-weight: 600; }
-  .lobby-card .lobby-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-  .lobby-card .lobby-online { color: var(--green); font-size: 12px; font-weight: 600; }
+  .lobby-card .lobby-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .lobby-card .lobby-title { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lobby-card .lobby-meta { font-size: 10px; color: var(--text-muted); line-height: 1.3; }
+  .lobby-card .lobby-thumb-wrap { position: relative; width: 100%; aspect-ratio: 1 / 1; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .lobby-card .lobby-thumb-wrap canvas { width: 100%; height: 100%; image-rendering: auto; display: block; }
+  .lobby-card .lobby-thumb-wrap .lobby-thumb-loading { font-size: 10px; color: var(--text-muted); position: absolute; }
+  .lobby-card .lobby-bottom { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .lobby-card .lobby-online { color: var(--green); font-size: 11px; font-weight: 700; }
   .lobby-card:hover .lobby-online { color: var(--green); }
   .lobby-card .lobby-actions { display: flex; gap: 4px; }
   .lobby-card .lobby-actions button { font-size: 10px; padding: 3px 8px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; }
@@ -262,7 +268,6 @@
   .msg-thread.has-unread { background: rgba(238,90,82,0.12); border-left: 3px solid var(--accent); }
 
   /* Admin panel */
-  #admin-tab-btn { display: none; }
   #admin-panel { padding: 8px; overflow-y: auto; flex: 1; background: var(--surface); margin: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
   #admin-panel h4 { color: var(--red); font-size: 13px; font-weight: 600; margin: 8px 0 4px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
   .admin-row { display: flex; gap: 4px; padding: 3px 0; font-size: 12px; align-items: center; }
@@ -596,6 +601,8 @@
       <div style="font-size:11px;color:var(--text-muted);">AFK time: <b id="account-settings-afk" style="color:var(--text);">active</b></div>
       <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Preferences</div>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-tips"> Hide "DID YOU KNOW?" banner permanently</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-sound-off"> Mute DM / group notification sound</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-gridlines"> Hide pixel grid lines when zoomed in</label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-panorama"> Disable main menu panorama</label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-disable-anim"> Disable animations</label>
       <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Change Password</div>
@@ -643,30 +650,6 @@
         <div id="sketch-guesses" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;font-size:11px;background:var(--bg-secondary);border-radius:var(--radius-sm);padding:6px;min-height:0;"></div>
       </div>
     </div>
-  </div>
-</div>
-
-<div id="movies-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(6px);z-index:70;align-items:center;justify-content:center;padding:14px;">
-  <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:900px;max-width:100%;max-height:90vh;display:flex;flex-direction:column;">
-    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;">
-      <div style="font-weight:700;font-size:14px;">🎬 Movies</div>
-      <button id="btn-movies-close" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Close</button>
-    </div>
-    <div id="movies-player-wrap" style="display:none;padding:0;background:#000;position:relative;">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border);">
-        <button id="btn-movies-back" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">← Back to list</button>
-        <div id="movies-now-playing" style="font-weight:700;font-size:13px;color:var(--accent);"></div>
-        <div style="width:120px;"></div>
-      </div>
-      <div style="position:relative;width:100%;padding-top:56.25%;background:#000;">
-        <iframe id="movies-iframe" src="" allow="autoplay; fullscreen" allowfullscreen style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"></iframe>
-      </div>
-    </div>
-    <div id="movies-paste-row" style="display:flex;gap:6px;align-items:center;padding:10px 16px 6px;border-bottom:1px solid var(--border);">
-      <input id="movies-paste-input" class="win-input" type="text" placeholder="Paste a YouTube URL (or Google Drive share link)" style="flex:1;font-size:12px;">
-      <button id="btn-movies-paste-play" class="win-btn" style="background:#d32f2f;color:#fff;font-weight:700;">▶ Play</button>
-    </div>
-    <div id="movies-list" style="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;overflow-y:auto;"></div>
   </div>
 </div>
 
@@ -803,6 +786,46 @@
   <canvas id="gd-canvas" width="800" height="360" style="display:block;background:#0a0a14;border:2px solid var(--accent);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.6);max-width:100%;height:auto;touch-action:none;cursor:pointer;"></canvas>
   <div id="gd-hint" style="font-size:11px;color:var(--text-muted);text-align:center;max-width:600px;">Tap / click / spacebar to jump (cube) or flap (UFO). HOLD to ascend in plane mode. Avoid the orange spikes. Mode portals: 🟦cube 🟪ufo 🟧plane</div>
   <div id="gd-result" style="font-size:14px;font-weight:700;text-align:center;min-height:20px;"></div>
+</div>
+
+<div id="gd-editor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(4px);z-index:87;flex-direction:column;align-items:center;justify-content:flex-start;padding:10px;gap:6px;color:var(--text-primary);overflow:auto;">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;">
+    <strong style="font-size:13px;">Level Editor</strong>
+    <input id="gd-ed-name" type="text" placeholder="Level name" class="win-input" style="width:160px;font-size:12px;padding:3px 6px;" maxlength="40">
+    <button id="btn-gd-ed-save" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;">Save</button>
+    <button id="btn-gd-ed-test" class="win-btn" style="background:var(--gold);color:#000;font-size:11px;">Test Play</button>
+    <button id="btn-gd-ed-clear" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;">Clear</button>
+    <button id="btn-gd-ed-close" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;">Close</button>
+  </div>
+  <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;font-size:11px;" id="gd-ed-tools">
+    <button data-tool="spike-up" class="win-btn gd-tool" style="background:var(--accent);color:#fff;">Spike ▲</button>
+    <button data-tool="spike-down" class="win-btn gd-tool" style="background:var(--bg-elevated);color:var(--text-primary);">Spike ▼</button>
+    <button data-tool="block" class="win-btn gd-tool" style="background:var(--bg-elevated);color:var(--text-primary);">Block</button>
+    <button data-tool="block-tall" class="win-btn gd-tool" style="background:var(--bg-elevated);color:var(--text-primary);">Tall Block</button>
+    <button data-tool="portal-cube" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#3a86ff;">Portal Cube</button>
+    <button data-tool="portal-ufo" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#b14aed;">Portal UFO</button>
+    <button data-tool="portal-plane" class="win-btn gd-tool" style="background:var(--bg-elevated);color:#ff8c42;">Portal Plane</button>
+    <button data-tool="erase" class="win-btn gd-tool" style="background:var(--bg-elevated);color:var(--red);">Eraser</button>
+  </div>
+  <canvas id="gd-ed-canvas" width="800" height="360" style="display:block;background:#0a0a14;border:2px solid var(--accent);border-radius:6px;max-width:100%;height:auto;cursor:crosshair;"></canvas>
+  <div style="display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted);flex-wrap:wrap;justify-content:center;width:100%;max-width:800px;">
+    <button id="btn-gd-ed-left" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;">◀</button>
+    <input id="gd-ed-scroll" type="range" min="0" max="4600" value="0" step="20" style="flex:1;">
+    <button id="btn-gd-ed-right" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;">▶</button>
+    <span id="gd-ed-pos">x: 0</span> / <span id="gd-ed-count">0</span> obstacles
+  </div>
+  <div id="gd-ed-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);">Left click: place · Right click: erase · Level ends at x=5400</div>
+</div>
+
+<div id="gd-browse-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);backdrop-filter:blur(4px);z-index:87;flex-direction:column;align-items:center;justify-content:center;padding:10px;gap:8px;color:var(--text-primary);">
+  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:12px;max-width:520px;width:100%;max-height:80vh;display:flex;flex-direction:column;gap:8px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <strong style="font-size:14px;">Custom Levels</strong>
+      <button id="btn-gd-browse-close" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;">Close</button>
+    </div>
+    <div id="gd-browse-list" style="overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:80px;"></div>
+    <div style="font-size:11px;color:var(--text-muted);text-align:center;">Playing custom levels never awards or costs PlaceBucks.</div>
+  </div>
 </div>
 
 <div id="flappy-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);z-index:80;align-items:center;justify-content:center;padding:14px;flex-direction:column;gap:8px;">
@@ -1007,6 +1030,11 @@
               <label style="font-size:11px;">Seed (optional) <input id="gd-seed" type="text" placeholder="random" class="win-input" style="width:110px;font-size:12px;padding:2px 4px;" maxlength="12"></label>
               <button id="btn-gd-play" class="win-btn" style="background:var(--accent);color:#fff;">Play</button>
             </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+              <button id="btn-gd-editor" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;">Level Editor</button>
+              <button id="btn-gd-browse" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;">Custom Levels</button>
+              <span style="font-size:10px;color:var(--text-muted);">(no PB from custom levels)</span>
+            </div>
             <div id="gd-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);">Die at 0% lose bet · die at 50% break even · clear 100% = 3x. Multiplier scales linearly with progress.</div>
           </div>
         </details>
@@ -1132,29 +1160,36 @@
   </div>
 </div>
 
-<div id="sidebar">
-  <div id="auth-panel">
-    <div id="auth-mode-switch" style="display:flex;gap:0;margin-bottom:10px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">
-      <button id="mode-login" class="win-btn" style="flex:1;border-radius:0;border:none;background:var(--accent);color:#fff;font-weight:600;">Log In</button>
-      <button id="mode-register" class="win-btn" style="flex:1;border-radius:0;border:none;background:var(--bg-tertiary);color:var(--text-secondary);font-weight:600;">Sign Up</button>
+<div id="auth-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(10,10,12,0.85);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:90;display:none;align-items:center;justify-content:center;padding:20px;">
+  <div id="auth-panel" style="width:100%;max-width:380px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+    <div style="text-align:center;margin-bottom:14px;">
+      <div style="font-size:28px;font-weight:800;color:var(--accent);letter-spacing:-0.5px;">EzPlace</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Place pixels. Chat. Play games.</div>
     </div>
-    <h2 id="auth-title">Log in to place pixels</h2>
-    <div id="auth-helper" style="font-size:11px;color:var(--text-muted);margin:-4px 0 8px;line-height:1.4;">Welcome back! Enter your username and password.</div>
-    <input id="auth-user" class="win-input" type="text" placeholder="Username (3-20 letters/numbers)" maxlength="20" autocomplete="username">
-    <input id="auth-pass" class="win-input" type="password" placeholder="Password (min 4 characters)" maxlength="64" autocomplete="current-password">
-    <div id="captcha-row" style="display:none;flex-direction:column;gap:6px;margin-bottom:4px;">
-      <label id="notrobot-box" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid #d0d0d0;border-radius:6px;cursor:pointer;user-select:none;box-shadow:0 1px 2px rgba(0,0,0,0.08);">
-        <input type="checkbox" id="notrobot-check" style="width:22px;height:22px;cursor:pointer;flex-shrink:0;accent-color:#22c55e;">
-        <span style="color:#333;font-size:13px;font-weight:500;">I'm not a robot</span>
-        <span style="margin-left:auto;font-size:9px;color:#888;text-align:right;line-height:1.2;">EzPlace<br>Privacy - Terms</span>
-      </label>
-    </div>
-    <button id="btn-auth-submit" class="win-btn" style="width:100%;padding:10px;font-size:14px;font-weight:700;margin-top:4px;">Log In</button>
-    <div id="auth-error">&nbsp;</div>
-    <div style="display:flex;align-items:center;gap:6px;margin:8px 0;color:var(--text-muted);font-size:10px;"><div style="flex:1;height:1px;background:var(--border);"></div>OR<div style="flex:1;height:1px;background:var(--border);"></div></div>
+      <div id="auth-mode-switch" style="display:flex;gap:0;margin-bottom:10px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">
+        <button id="mode-login" class="win-btn" style="flex:1;border-radius:0;border:none;background:var(--accent);color:#fff;font-weight:600;">Log In</button>
+        <button id="mode-register" class="win-btn" style="flex:1;border-radius:0;border:none;background:var(--bg-tertiary);color:var(--text-secondary);font-weight:600;">Sign Up</button>
+      </div>
+      <h2 id="auth-title" style="font-size:15px;color:var(--accent);margin-bottom:8px;text-align:center;font-weight:700;">Log in to place pixels</h2>
+      <div id="auth-helper" style="font-size:11px;color:var(--text-muted);margin:-4px 0 8px;line-height:1.4;">Welcome back! Enter your username and password.</div>
+      <input id="auth-user" class="win-input" type="text" placeholder="Username (3-20 letters/numbers)" maxlength="20" autocomplete="username" style="width:100%;margin-bottom:6px;">
+      <input id="auth-pass" class="win-input" type="password" placeholder="Password (min 4 characters)" maxlength="64" autocomplete="current-password" style="width:100%;margin-bottom:6px;">
+      <div id="captcha-row" style="display:none;flex-direction:column;gap:6px;margin-bottom:4px;">
+        <label id="notrobot-box" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid #d0d0d0;border-radius:6px;cursor:pointer;user-select:none;box-shadow:0 1px 2px rgba(0,0,0,0.08);">
+          <input type="checkbox" id="notrobot-check" style="width:22px;height:22px;cursor:pointer;flex-shrink:0;accent-color:#22c55e;">
+          <span style="color:#333;font-size:13px;font-weight:500;">I'm not a robot</span>
+          <span style="margin-left:auto;font-size:9px;color:#888;text-align:right;line-height:1.2;">EzPlace<br>Privacy - Terms</span>
+        </label>
+      </div>
+      <button id="btn-auth-submit" class="win-btn" style="width:100%;padding:10px;font-size:14px;font-weight:700;margin-top:4px;">Log In</button>
+      <div id="auth-error" style="min-height:16px;font-size:11px;color:var(--red);text-align:center;margin-top:6px;">&nbsp;</div>
+      <div style="display:flex;align-items:center;gap:6px;margin:8px 0;color:var(--text-muted);font-size:10px;"><div style="flex:1;height:1px;background:var(--border);"></div>OR<div style="flex:1;height:1px;background:var(--border);"></div></div>
     <button id="btn-play-guest" class="win-btn" style="width:100%;padding:9px;font-size:13px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);">&#x1F464; Play as Guest (view only)</button>
     <div style="font-size:10px;color:var(--text-muted);text-align:center;margin-top:4px;">Guests can chat and watch but can't place pixels.</div>
   </div>
+</div>
+
+<div id="sidebar">
   <div id="user-bar">
     <span class="user-name" id="user-display"></span>
     <span style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;">
@@ -1163,10 +1198,6 @@
     </span>
   </div>
   <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-    <span style="position:relative;display:inline-flex;align-items:center;flex-shrink:0;">
-      <button id="btn-movies" class="win-btn" title="Watch movies" style="font-size:11px;padding:4px 10px;background:#7c5cfc;color:#fff;font-weight:700;display:inline-flex;align-items:center;white-space:nowrap;">🎬 Movies</button>
-      <div id="movies-tutorial-arrow" style="display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#7c5cfc;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 4px 14px rgba(124,92,252,0.5);z-index:55;cursor:pointer;white-space:nowrap;animation:movieArrowBob 1.2s ease-in-out infinite alternate;">↑ Watch movies here <span style="opacity:0.8;font-weight:400;font-size:10px;">(click to dismiss)</span></div>
-    </span>
     <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;flex-shrink:0;white-space:nowrap;">Shop</button>
     <button id="btn-account-settings" class="win-btn" title="Account settings" style="font-size:11px;padding:4px 10px;flex-shrink:0;white-space:nowrap;">Settings</button>
     <button id="btn-report" class="win-btn" title="Report inappropriate drawings" style="font-size:11px;padding:4px 10px;background:#d32f2f;color:#fff;font-weight:700;flex-shrink:0;white-space:nowrap;">⚠ Report</button>
@@ -1179,10 +1210,9 @@
   <div id="sidebar-tabs">
     <div class="sidebar-tab active" data-tab="chat-tab">Chat</div>
     <div class="sidebar-tab" data-tab="lb-tab">Leaderboard</div>
-    <div class="sidebar-tab" data-tab="friends-tab">Friends<span id="friend-notif" class="notif-badge" style="display:none"></span></div>
-    <div class="sidebar-tab" data-tab="msgs-tab">DMs<span id="dm-notif" class="notif-badge" style="display:none"></span></div>
+    <div class="sidebar-tab" data-tab="friends-tab">Friends & DMs<span id="friend-notif" class="notif-badge" style="display:none"></span><span id="dm-notif" class="notif-badge" style="display:none"></span></div>
     <div class="sidebar-tab" data-tab="mod-tab" id="mod-tab-btn" style="display:none;">Mod</div>
-    <div class="sidebar-tab" data-tab="admin-tab" id="admin-tab-btn">Admin</div>
+    <div class="sidebar-tab" data-tab="admin-tab" id="admin-tab-btn" style="display:none;">Admin</div>
   </div>
 
   <!-- Chat tab -->
@@ -1214,22 +1244,18 @@
     </div>
   </div>
 
-  <!-- Friends tab -->
+  <!-- Friends & DMs tab (merged) -->
   <div id="friends-tab" class="tab-panel">
-    <div id="friend-add-row">
-      <input id="friend-add-input" class="win-input" type="text" placeholder="Add friend..." maxlength="20">
-      <button id="btn-friend-add" class="win-btn">Add</button>
-    </div>
-    <div id="friends-panel"></div>
-  </div>
-
-  <!-- DMs tab -->
-  <div id="msgs-tab" class="tab-panel">
     <div id="msg-list-view">
+      <div id="friend-add-row">
+        <input id="friend-add-input" class="win-input" type="text" placeholder="Add friend..." maxlength="20">
+        <button id="btn-friend-add" class="win-btn">Add</button>
+      </div>
       <div style="padding:6px 8px;border-bottom:1px solid var(--border);">
         <button id="btn-create-group" class="win-btn" style="width:100%;font-size:11px;background:var(--accent);color:#fff;font-weight:700;">+ New Group Chat</button>
       </div>
       <div id="msg-list"></div>
+      <div id="friends-panel"></div>
     </div>
     <div id="msg-view">
       <div id="msg-view-header">
@@ -1499,20 +1525,6 @@ const safeStore = (function () {
   }
 })();
 
-// ============================================================
-// MOVIES CONFIG - drop your Google Drive share links (or raw file IDs) into the `src` field.
-// Share URL format: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
-// The code will auto-extract the file ID and build the /preview embed URL.
-// You can also pass just "FILE_ID" directly if you prefer.
-// ============================================================
-const MOVIES = [
-  { title: "A Minecraft Movie", src: "1Hd98_27UNxYQvvqqOjmHC_25S6VG8UG9" },
-  { title: "Michael Jackson Movie", src: "1CWpY2A2nEoNo0YZ8XpCPo5YYlA-m5x_r" },
-  { title: "FNAF 2 Movie", src: "1DR8vuiCDiBosdZCywL8hB-Q5I-5tg8yv" },
-  { title: "Backrooms Movie", src: "18nLws3FusSwXgQxTmAv-JmQijlCytXzD" },
-  { title: "More coming soon...", comingSoon: true },
-];
-
 const TIPS = [
   "DID YOU KNOW? You can create clans, you can join them and create them on the homepage.",
   "DID YOU KNOW? You earn 1 PLACEBUX for every 100 pixels you place.",
@@ -1551,7 +1563,9 @@ const COLORS = [
   '#B0E0E6','#ADD8E6','#00008B','#483D8B',
   '#9370DB','#BA55D3','#DA70D6','#EE82EE',
   '#FFC0CB','#FFB6C1','#C71585','#FFA07A',
-  '#CD853F','#DEB887','#FFE4C4','#FFFACD'
+  '#CD853F','#DEB887','#FFE4C4','#FFFACD',
+  '#00FA9A','#FFB347','#E6BE8A','#FFEFD5','#708090',
+  '#191970','#FDFD96','#F49AC2','#77DD77','#AEC6CF'
 ];
 let COOLDOWN = 500; // ms, updated per lobby
 let userHasInteracted = false; // becomes true once the user manually zooms or pans, locking the auto-fit
@@ -1568,6 +1582,34 @@ let cooldownTimer = null;
 let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
+function updateSidebarTabs() {
+  const authed = !!authToken && !isGuest;
+  const inLobby = !!currentLobbyId || isGuest;
+  const tabs = document.getElementById('sidebar-tabs');
+  if (!tabs) return;
+  const chat = document.querySelector('[data-tab="chat-tab"]');
+  const lb = document.querySelector('[data-tab="lb-tab"]');
+  const friends = document.querySelector('[data-tab="friends-tab"]');
+  const mod = document.getElementById('mod-tab-btn');
+  const admin = document.getElementById('admin-tab-btn');
+  const setVis = (el, show) => { if (el) el.style.display = show ? '' : 'none'; };
+  setVis(chat, inLobby);
+  setVis(lb, inLobby);
+  setVis(friends, authed);
+  const isRealAdminUser = authed && (username || '').toLowerCase() === 'toothpaste';
+  const showMod = authed && (isRealAdminUser || !!(typeof userIsMod !== 'undefined' && userIsMod));
+  const showAdmin = authed && (isRealAdminUser || (typeof isFakeAdmin !== 'undefined' && isFakeAdmin));
+  setVis(mod, showMod);
+  setVis(admin, showAdmin);
+  const anyVisible = authed || inLobby;
+  tabs.style.display = anyVisible ? '' : 'none';
+  document.body.classList.toggle('guest-mode', !authed);
+  const activeTab = document.querySelector('.sidebar-tab.active');
+  if (activeTab && activeTab.style.display === 'none') {
+    const firstVisible = [...document.querySelectorAll('#sidebar-tabs .sidebar-tab')].find(t => t.style.display !== 'none');
+    if (firstVisible) firstVisible.click();
+  }
+}
 let canPlace = true;
 let brushPerm = { size: 1, drag: false };
 function effectiveMaxBrush() { return isAdminUser() ? 25 : (brushPerm.size || 1); }
@@ -1746,7 +1788,7 @@ _renderImpl = function() {
     const dh = Math.ceil((endY - startY) * zoom);
     ctx.drawImage(offCvs, startX, startY, endX - startX, endY - startY, dx, dy, dw, dh);
   }
-  if (zoom >= GRID_LINE_MIN_ZOOM) {
+  if (zoom >= GRID_LINE_MIN_ZOOM && !gridLinesHidden) {
     ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1; ctx.beginPath();
     for (let gx = startX; gx <= endX; gx++) { const sx = Math.floor((gx - left) * zoom) + 0.5; ctx.moveTo(sx, Math.floor((startY - top) * zoom)); ctx.lineTo(sx, Math.floor((endY - top) * zoom)); }
     for (let gy = startY; gy <= endY; gy++) { const sy = Math.floor((gy - top) * zoom) + 0.5; ctx.moveTo(Math.floor((startX - left) * zoom), sy); ctx.lineTo(Math.floor((endX - left) * zoom), sy); }
@@ -2624,14 +2666,15 @@ async function lobbyBgFetch() {
   if (lobbyBg.fetching) return;
   lobbyBg.fetching = true;
   try {
-    // Pick a random main lobby each refresh (256/512/1024) for variety.
-    const lid = ['public_0', 'public_1', 'public_2'][Math.floor(Math.random() * 3)];
-    const r = await fetch(BACKEND + '/api/lobbies/preview?id=' + lid);
+    const pick = [{ id: 'public_0', w: 256, h: 256 }, { id: 'public_1', w: 512, h: 512 }, { id: 'public_2', w: 1024, h: 1024 }][Math.floor(Math.random() * 3)];
+    const r = await fetch(BACKEND + '/api/lobbies/preview?id=' + pick.id + '&t=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) return;
-    const w = parseInt(r.headers.get('X-Width') || '256', 10);
-    const h = parseInt(r.headers.get('X-Height') || '256', 10);
     const bytes = new Uint8Array(await r.arrayBuffer());
-    if (bytes.length !== w * h) return;
+    let w = pick.w, h = pick.h;
+    if (bytes.length !== w * h) {
+      const side = Math.round(Math.sqrt(bytes.length));
+      if (side * side === bytes.length) { w = side; h = side; } else { return; }
+    }
     // Build the ImageData once; we'll keep blitting from it.
     const off = document.createElement('canvas');
     off.width = w; off.height = h;
@@ -2771,7 +2814,8 @@ function applyPick() {
   document.getElementById('color-preview-snap').style.background = COLORS[selectedColor];
   document.querySelectorAll('#palette-row .color-btn').forEach(b => { b.style.borderColor = 'transparent'; b.classList.remove('selected'); });
   const swatches = document.querySelectorAll('#palette-row .color-btn');
-  if (swatches[selectedColor]) { swatches[selectedColor].style.borderColor = '#fff'; swatches[selectedColor].classList.add('selected'); }
+  const displayPos = (typeof PALETTE_DISPLAY_ORDER !== 'undefined') ? PALETTE_DISPLAY_ORDER.indexOf(selectedColor) : selectedColor;
+  if (displayPos >= 0 && swatches[displayPos]) { swatches[displayPos].style.borderColor = '#fff'; swatches[displayPos].classList.add('selected'); }
   drawColorWheel(pickLight);
 }
 
@@ -2804,14 +2848,47 @@ document.getElementById('color-lightness').addEventListener('input', e => {
   applyPick();
 });
 
+function _hexToHsl(hex) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  const l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn;
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  let hue;
+  if (mx === r) hue = ((g - b) / d + (g < b ? 6 : 0));
+  else if (mx === g) hue = (b - r) / d + 2;
+  else hue = (r - g) / d + 4;
+  return [hue * 60, s, l];
+}
+function _computePaletteOrder() {
+  const items = COLORS.map((hex, idx) => {
+    const [h, s, l] = _hexToHsl(hex);
+    return { idx, hex, h, s, l };
+  });
+  const greys = items.filter(c => c.s < 0.1).sort((a, b) => a.l - b.l);
+  const colored = items.filter(c => c.s >= 0.1).sort((a, b) => {
+    const ah = (a.h + 15) % 360, bh = (b.h + 15) % 360;
+    if (Math.floor(ah / 30) !== Math.floor(bh / 30)) return ah - bh;
+    return b.s - a.s || a.l - b.l;
+  });
+  return [...greys, ...colored].map(c => c.idx);
+}
+const PALETTE_DISPLAY_ORDER = _computePaletteOrder();
+
 pickHue = 0; pickSat = 1.0; pickLight = 0.5;
 applyPick();
 
 const paletteEl = document.getElementById('palette-row');
-COLORS.forEach((c, i) => {
+PALETTE_DISPLAY_ORDER.forEach(i => {
+  const c = COLORS[i];
   const btn = document.createElement('div');
-  btn.className = 'color-btn' + (i === 3 ? ' selected' : '');
+  btn.className = 'color-btn' + (i === selectedColor ? ' selected' : '');
   btn.style.cssText = 'width:28px;height:28px;min-width:28px;border:2px solid transparent;border-radius:5px;cursor:pointer;flex-shrink:0;';
+  if (i === selectedColor) btn.style.borderColor = '#fff';
   btn.style.background = c; btn.title = c;
   btn.addEventListener('click', () => {
     document.querySelectorAll('#palette-row .color-btn').forEach(b => { b.style.borderColor = 'transparent'; b.classList.remove('selected'); });
@@ -2844,8 +2921,9 @@ function timeStr() { return new Date().toLocaleTimeString([], { hour: '2-digit',
 function formatExpires(secs) {
   if (secs === null || secs === undefined) return '';
   if (secs <= 0) return 'expiring...';
-  if (secs < 3600) return `${Math.ceil(secs / 60)}min until expiration`;
-  return `${Math.floor(secs / 3600)}h until expiration`;
+  if (secs < 3600) return `${Math.ceil(secs / 60)}m`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
+  return `${Math.floor(secs / 86400)}d`;
 }
 const MAX_MOBILE_BUBBLES = 4;
 const MOBILE_BUBBLE_DURATION = 5000;
@@ -3201,7 +3279,7 @@ chatInput.addEventListener('blur', () => { if (myTypingStopTimer) { clearTimeout
 document.getElementById('chat-filter-toggle').onchange = e => { chatFilterEnabled = e.target.checked; };
 if (einkMode) applyEinkMode();
 
-const authPanel = document.getElementById('auth-panel');
+const authPanel = document.getElementById('auth-modal');
 const userBar = document.getElementById('user-bar');
 const authUser = document.getElementById('auth-user');
 const authPass = document.getElementById('auth-pass');
@@ -3267,8 +3345,11 @@ document.getElementById('btn-auth-submit').onclick = () => {
   else doAuth('/api/login', false);
 };
 document.getElementById('btn-play-guest').onclick = () => {
+  document.body.classList.remove('pre-auth');
+  authPanel.style.display = 'none';
   document.getElementById('lobby-screen').style.display = 'flex'; lobbyBgStart();
   addSystemMsg('Pick any public lobby to join as a guest.');
+  updateSidebarTabs();
 };
 
 const AUTH_PAGE_LOAD_TS = Date.now();
@@ -3293,7 +3374,9 @@ async function doAuth(endpoint, needCaptcha) {
 }
 
 function showLoggedIn() {
+  document.body.classList.remove('pre-auth');
   authPanel.style.display = 'none'; userBar.style.display = 'flex';
+  updateSidebarTabs();
   const ub2 = document.getElementById('user-bar-row2'); if (ub2) ub2.style.display = 'flex';
   document.getElementById('user-display').textContent = username;
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
@@ -5239,21 +5322,23 @@ async function gdStart() {
     gdLaunch(d.seed, amount);
   } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
 }
-function gdLaunch(seed, bet) {
+function gdLaunch(seed, bet, customObstacles, customLabel) {
   gdReset();
   document.getElementById('gd-modal').style.display = 'flex';
-  document.getElementById('gd-seed-tag').textContent = seed;
-  document.getElementById('gd-result').textContent = '';
+  document.getElementById('gd-seed-tag').textContent = customLabel || seed;
+  document.getElementById('gd-result').textContent = customObstacles ? '(custom level — no PlaceBucks)' : '';
+  document.getElementById('gd-result').style.color = 'var(--text-muted)';
   document.getElementById('gd-progress-tag').textContent = '0%';
   document.getElementById('gd-mode-tag').textContent = 'cube';
   const canvas = document.getElementById('gd-canvas');
   const ctx = canvas.getContext('2d');
-  const obstacles = gdMakeLevel(seed);
+  const obstacles = customObstacles ? JSON.parse(JSON.stringify(customObstacles)) : gdMakeLevel(seed);
   gdState = {
     seed, bet, alive: true, dead: false, won: false, reported: false,
     scroll: 0, y: GD_GROUND_Y - GD_PLAYER_SZ, vy: 0, mode: 'cube',
     onGround: true, pressing: false, lastTime: performance.now(),
     startTs: performance.now(), obstacles, rafId: 0, rot: 0,
+    isCustom: !!customObstacles,
   };
   const press = () => {
     if (!gdState || !gdState.alive) return;
@@ -5347,12 +5432,22 @@ async function gdFinish(progress) {
   s.reported = true; s.alive = false;
   const time_ms = Math.floor(performance.now() - s.startTs);
   const resEl = document.getElementById('gd-result');
+  if (s.isTest) {
+    resEl.textContent = 'Test run — ' + Math.floor(progress * 100) + '% reached';
+    resEl.style.color = 'var(--gold)';
+    return;
+  }
   resEl.textContent = 'Reporting...';
   try {
     const r = await fetch(BACKEND + '/api/casino/gd/result', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ seed: s.seed, progress, time_ms }) });
     const d = await r.json();
     if (d.error) { resEl.textContent = d.error; resEl.style.color = 'var(--red)'; return; }
     if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
+    if (d.custom) {
+      resEl.textContent = 'Custom level — ' + Math.floor(progress * 100) + '% reached (no PlaceBucks)';
+      resEl.style.color = 'var(--gold)';
+      return;
+    }
     const net = d.winnings - d.bet;
     if (net > 0) { resEl.textContent = '🎉 ' + Math.floor(progress * 100) + '% reached - won ' + d.winnings + ' $ (x' + d.multiplier + ', net +' + net + ')'; resEl.style.color = '#22c55e'; }
     else if (net === 0) { resEl.textContent = '↔ ' + Math.floor(progress * 100) + '% - broke even (x' + d.multiplier + ')'; resEl.style.color = 'var(--gold)'; }
@@ -5428,6 +5523,281 @@ document.getElementById('btn-gd-copy-seed').onclick = () => {
   if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => {
     const b = document.getElementById('btn-gd-copy-seed'); const old = b.textContent; b.textContent = 'Copied!'; setTimeout(() => b.textContent = old, 1200);
   });
+};
+
+// ===== GeoDash level editor =====
+const GD_ED_MAX = 240;
+const GD_PORTAL_COLORS = { cube: '#3a86ff', ufo: '#b14aed', plane: '#ff8c42' };
+let gdEditor = null;
+function gdEdMakeObstacle(tool, x, y) {
+  x = Math.max(0, Math.min(GD_LEN, x));
+  if (tool === 'spike-up') return { kind: 'spike', x, y: GD_GROUND_Y - 24, w: 24, h: 24, up: true };
+  if (tool === 'spike-down') return { kind: 'spike', x, y: Math.max(0, Math.min(GD_GROUND_Y - 40, y)), w: 24, h: 24, up: false };
+  if (tool === 'block') return { kind: 'block', x, y: Math.max(0, Math.min(GD_GROUND_Y - 40, y)), w: 60, h: 40 };
+  if (tool === 'block-tall') return { kind: 'block', x, y: Math.max(0, Math.min(GD_GROUND_Y - 80, y)), w: 40, h: 80 };
+  if (tool.startsWith('portal-')) { const m = tool.slice(7); return { kind: 'portal', x, y: GD_GROUND_Y - 80, w: 32, h: 64, mode: m, color: GD_PORTAL_COLORS[m] }; }
+  return null;
+}
+function gdEdDraw() {
+  const cvs = document.getElementById('gd-ed-canvas');
+  const ctx = cvs.getContext('2d');
+  ctx.fillStyle = '#0a0a14'; ctx.fillRect(0, 0, GD_W, GD_H);
+  ctx.strokeStyle = 'rgba(124,92,252,0.1)'; ctx.lineWidth = 1;
+  const g = 40, offX = gdEditor.scroll % g;
+  for (let x = -offX; x < GD_W; x += g) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GD_H); ctx.stroke(); }
+  for (let y = 0; y < GD_H; y += g) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GD_W, y); ctx.stroke(); }
+  // 24-snap dots
+  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  const s24 = 24, offS = gdEditor.scroll % s24;
+  for (let x = -offS; x < GD_W; x += s24) for (let y = 0; y < GD_GROUND_Y; y += s24) ctx.fillRect(x, y, 1, 1);
+  // ground
+  ctx.fillStyle = '#1a1632'; ctx.fillRect(0, GD_GROUND_Y, GD_W, GD_H - GD_GROUND_Y);
+  ctx.strokeStyle = '#7c5cfc'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, GD_GROUND_Y); ctx.lineTo(GD_W, GD_GROUND_Y); ctx.stroke();
+  // level end marker
+  const endX = GD_LEN - gdEditor.scroll;
+  if (endX >= 0 && endX <= GD_W) {
+    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(endX, 0); ctx.lineTo(endX, GD_H); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#22c55e'; ctx.font = '10px monospace'; ctx.fillText('END', endX + 4, 12);
+  }
+  // obstacles
+  for (const ob of gdEditor.obstacles) {
+    const sx = ob.x - gdEditor.scroll;
+    if (sx + ob.w < -10 || sx > GD_W + 10) continue;
+    if (ob.kind === 'block') { ctx.fillStyle = '#3a3060'; ctx.fillRect(sx, ob.y, ob.w, ob.h); ctx.strokeStyle = '#7c5cfc'; ctx.lineWidth = 1; ctx.strokeRect(sx + 0.5, ob.y + 0.5, ob.w - 1, ob.h - 1); }
+    else if (ob.kind === 'spike') {
+      ctx.fillStyle = '#ff8c42'; ctx.strokeStyle = '#ff6b1a'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (ob.up) { ctx.moveTo(sx, ob.y + ob.h); ctx.lineTo(sx + ob.w / 2, ob.y); ctx.lineTo(sx + ob.w, ob.y + ob.h); }
+      else { ctx.moveTo(sx, ob.y); ctx.lineTo(sx + ob.w / 2, ob.y + ob.h); ctx.lineTo(sx + ob.w, ob.y); }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (ob.kind === 'portal') {
+      ctx.fillStyle = ob.color; ctx.globalAlpha = 0.45; ctx.fillRect(sx, ob.y, ob.w, ob.h); ctx.globalAlpha = 1;
+      ctx.strokeStyle = ob.color; ctx.lineWidth = 2; ctx.strokeRect(sx + 0.5, ob.y + 0.5, ob.w - 1, ob.h - 1);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(ob.mode.toUpperCase(), sx + ob.w / 2, ob.y + ob.h / 2 + 3); ctx.textAlign = 'left';
+    }
+  }
+  // ghost preview at cursor
+  if (gdEditor.hover && gdEditor.tool !== 'erase') {
+    const ghost = gdEdMakeObstacle(gdEditor.tool, gdEditor.hover.x, gdEditor.hover.y);
+    if (ghost) {
+      const sx = ghost.x - gdEditor.scroll;
+      ctx.globalAlpha = 0.4;
+      if (ghost.kind === 'block') { ctx.fillStyle = '#7c5cfc'; ctx.fillRect(sx, ghost.y, ghost.w, ghost.h); }
+      else if (ghost.kind === 'spike') {
+        ctx.fillStyle = '#ff8c42'; ctx.beginPath();
+        if (ghost.up) { ctx.moveTo(sx, ghost.y + ghost.h); ctx.lineTo(sx + ghost.w / 2, ghost.y); ctx.lineTo(sx + ghost.w, ghost.y + ghost.h); }
+        else { ctx.moveTo(sx, ghost.y); ctx.lineTo(sx + ghost.w / 2, ghost.y + ghost.h); ctx.lineTo(sx + ghost.w, ghost.y); }
+        ctx.closePath(); ctx.fill();
+      } else if (ghost.kind === 'portal') { ctx.fillStyle = ghost.color; ctx.fillRect(sx, ghost.y, ghost.w, ghost.h); }
+      ctx.globalAlpha = 1;
+    }
+  }
+  document.getElementById('gd-ed-count').textContent = gdEditor.obstacles.length;
+  document.getElementById('gd-ed-pos').textContent = 'x: ' + gdEditor.scroll;
+}
+function gdEdSelectTool(name) {
+  gdEditor.tool = name;
+  document.querySelectorAll('#gd-ed-tools .gd-tool').forEach(b => {
+    const on = b.getAttribute('data-tool') === name;
+    b.style.background = on ? (name === 'erase' ? 'var(--red)' : 'var(--accent)') : 'var(--bg-elevated)';
+    b.style.color = on ? '#fff' : (b.getAttribute('data-tool').startsWith('portal-') ? GD_PORTAL_COLORS[b.getAttribute('data-tool').slice(7)] : (name === 'erase' && on ? '#fff' : 'var(--text-primary)'));
+  });
+  gdEdDraw();
+}
+function gdEdEraseAt(wx, wy) {
+  for (let i = gdEditor.obstacles.length - 1; i >= 0; i--) {
+    const ob = gdEditor.obstacles[i];
+    if (wx >= ob.x && wx <= ob.x + ob.w && wy >= ob.y && wy <= ob.y + ob.h) { gdEditor.obstacles.splice(i, 1); return true; }
+  }
+  return false;
+}
+function gdEdPlace(wx, wy) {
+  if (gdEditor.tool === 'erase') return gdEdEraseAt(wx, wy);
+  if (gdEditor.obstacles.length >= GD_ED_MAX) return false;
+  const sx = Math.round(wx / 12) * 12;
+  const sy = Math.round(wy / 12) * 12;
+  const ob = gdEdMakeObstacle(gdEditor.tool, sx, sy);
+  if (!ob) return false;
+  // dedupe exact spot
+  if (gdEditor.obstacles.some(o => o.kind === ob.kind && o.x === ob.x && o.y === ob.y)) return false;
+  gdEditor.obstacles.push(ob);
+  return true;
+}
+function gdEdEventXY(ev) {
+  const cvs = document.getElementById('gd-ed-canvas');
+  const rect = cvs.getBoundingClientRect();
+  const scaleX = cvs.width / rect.width, scaleY = cvs.height / rect.height;
+  const cx = (ev.clientX - rect.left) * scaleX;
+  const cy = (ev.clientY - rect.top) * scaleY;
+  return { x: gdEditor.scroll + cx, y: cy };
+}
+function gdEdOpen(existing) {
+  gdEditor = {
+    obstacles: existing ? JSON.parse(JSON.stringify(existing.obstacles || [])) : [],
+    tool: 'spike-up', scroll: 0, hover: null, drag: false, dragErase: false,
+    editingId: existing ? existing.id : null,
+  };
+  document.getElementById('gd-ed-name').value = existing ? existing.name : '';
+  document.getElementById('gd-ed-scroll').value = 0;
+  document.getElementById('gd-ed-msg').textContent = existing ? ('Editing "' + existing.name + '"') : 'Left click: place · Right click: erase · Level ends at x=5400';
+  document.getElementById('gd-ed-msg').style.color = 'var(--text-muted)';
+  document.getElementById('gd-editor-modal').style.display = 'flex';
+  gdEdSelectTool('spike-up');
+}
+document.getElementById('btn-gd-editor').onclick = () => {
+  if (!authToken) { alert('Sign in first.'); return; }
+  gdEdOpen(null);
+};
+document.getElementById('btn-gd-ed-close').onclick = () => {
+  document.getElementById('gd-editor-modal').style.display = 'none';
+  gdEditor = null;
+};
+document.getElementById('btn-gd-ed-clear').onclick = () => {
+  if (!gdEditor) return;
+  if (!confirm('Clear all obstacles?')) return;
+  gdEditor.obstacles = [];
+  gdEdDraw();
+};
+document.getElementById('btn-gd-ed-left').onclick = () => {
+  if (!gdEditor) return;
+  gdEditor.scroll = Math.max(0, gdEditor.scroll - 200);
+  document.getElementById('gd-ed-scroll').value = gdEditor.scroll;
+  gdEdDraw();
+};
+document.getElementById('btn-gd-ed-right').onclick = () => {
+  if (!gdEditor) return;
+  gdEditor.scroll = Math.min(GD_LEN - GD_W + 200, gdEditor.scroll + 200);
+  document.getElementById('gd-ed-scroll').value = gdEditor.scroll;
+  gdEdDraw();
+};
+document.getElementById('gd-ed-scroll').oninput = (e) => {
+  if (!gdEditor) return;
+  gdEditor.scroll = parseInt(e.target.value) || 0;
+  gdEdDraw();
+};
+document.querySelectorAll('#gd-ed-tools .gd-tool').forEach(b => {
+  b.onclick = () => { if (gdEditor) gdEdSelectTool(b.getAttribute('data-tool')); };
+});
+(function(){
+  const cvs = document.getElementById('gd-ed-canvas');
+  cvs.addEventListener('contextmenu', (e) => e.preventDefault());
+  cvs.addEventListener('mousedown', (e) => {
+    if (!gdEditor) return;
+    e.preventDefault();
+    const p = gdEdEventXY(e);
+    gdEditor.drag = true;
+    gdEditor.dragErase = (e.button === 2 || gdEditor.tool === 'erase');
+    if (gdEditor.dragErase) gdEdEraseAt(p.x, p.y);
+    else gdEdPlace(p.x, p.y);
+    gdEdDraw();
+  });
+  cvs.addEventListener('mousemove', (e) => {
+    if (!gdEditor) return;
+    const p = gdEdEventXY(e);
+    gdEditor.hover = p;
+    if (gdEditor.drag) {
+      if (gdEditor.dragErase) gdEdEraseAt(p.x, p.y);
+      else gdEdPlace(p.x, p.y);
+    }
+    gdEdDraw();
+  });
+  const stopDrag = () => { if (gdEditor) gdEditor.drag = false; };
+  cvs.addEventListener('mouseup', stopDrag);
+  cvs.addEventListener('mouseleave', () => { if (gdEditor) { gdEditor.drag = false; gdEditor.hover = null; gdEdDraw(); } });
+})();
+document.getElementById('btn-gd-ed-test').onclick = () => {
+  if (!gdEditor || !gdEditor.obstacles.length) { document.getElementById('gd-ed-msg').textContent = 'Add at least one obstacle first.'; document.getElementById('gd-ed-msg').style.color = 'var(--red)'; return; }
+  document.getElementById('gd-editor-modal').style.display = 'none';
+  gdLaunch(0, 0, gdEditor.obstacles, 'test');
+  gdState.isTest = true;
+};
+document.getElementById('btn-gd-ed-save').onclick = async () => {
+  if (!gdEditor) return;
+  const msg = document.getElementById('gd-ed-msg');
+  const name = (document.getElementById('gd-ed-name').value || '').trim();
+  if (!name) { msg.textContent = 'Name required.'; msg.style.color = 'var(--red)'; return; }
+  if (!gdEditor.obstacles.length) { msg.textContent = 'Add at least one obstacle.'; msg.style.color = 'var(--red)'; return; }
+  msg.textContent = 'Saving...'; msg.style.color = 'var(--text-muted)';
+  try {
+    const body = { name, obstacles: gdEditor.obstacles };
+    if (gdEditor.editingId) body.id = gdEditor.editingId;
+    const r = await fetch(BACKEND + '/api/casino/gd/save-level', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return; }
+    msg.textContent = 'Saved!'; msg.style.color = '#22c55e';
+    if (d.id) gdEditor.editingId = d.id;
+  } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+};
+
+// ===== GeoDash level browser =====
+async function gdBrowseOpen() {
+  const modal = document.getElementById('gd-browse-modal');
+  const list = document.getElementById('gd-browse-list');
+  list.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">Loading...</span>';
+  modal.style.display = 'flex';
+  try {
+    const r = await fetch(BACKEND + '/api/casino/gd/levels', { headers: { Authorization: authToken || '' } });
+    const d = await r.json();
+    const levels = d.levels || [];
+    if (!levels.length) { list.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">No custom levels yet. Click "Level Editor" to make one.</span>'; return; }
+    list.innerHTML = '';
+    for (const lvl of levels) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-elevated);border-radius:4px;';
+      const meta = document.createElement('div');
+      meta.style.cssText = 'flex:1;min-width:0;';
+      const nameEl = document.createElement('div');
+      nameEl.textContent = lvl.name;
+      nameEl.style.cssText = 'font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      const sub = document.createElement('div');
+      sub.textContent = 'by ' + lvl.author + ' · ' + (lvl.obstacles || []).length + ' obstacles · ' + (lvl.plays || 0) + ' plays';
+      sub.style.cssText = 'font-size:10px;color:var(--text-muted);';
+      meta.appendChild(nameEl); meta.appendChild(sub);
+      const playBtn = document.createElement('button');
+      playBtn.className = 'win-btn'; playBtn.textContent = 'Play';
+      playBtn.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;';
+      playBtn.onclick = () => gdPlayCustom(lvl.id);
+      row.appendChild(meta); row.appendChild(playBtn);
+      if (authToken && (username || '').toLowerCase() === (lvl.author || '').toLowerCase()) {
+        const editBtn = document.createElement('button');
+        editBtn.className = 'win-btn'; editBtn.textContent = 'Edit';
+        editBtn.style.cssText = 'background:var(--bg-secondary);color:var(--text-primary);font-size:11px;';
+        editBtn.onclick = () => { document.getElementById('gd-browse-modal').style.display = 'none'; gdEdOpen(lvl); };
+        const delBtn = document.createElement('button');
+        delBtn.className = 'win-btn'; delBtn.textContent = '✕';
+        delBtn.style.cssText = 'background:var(--red);color:#fff;font-size:11px;';
+        delBtn.onclick = async () => {
+          if (!confirm('Delete "' + lvl.name + '"?')) return;
+          try {
+            const rr = await fetch(BACKEND + '/api/casino/gd/delete-level', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ id: lvl.id }) });
+            const dd = await rr.json();
+            if (dd.error) alert(dd.error); else gdBrowseOpen();
+          } catch { alert('Server offline.'); }
+        };
+        row.appendChild(editBtn); row.appendChild(delBtn);
+      }
+      list.appendChild(row);
+    }
+  } catch { list.innerHTML = '<span style="color:var(--red);font-size:12px;">Failed to load.</span>'; }
+}
+async function gdPlayCustom(levelId) {
+  document.getElementById('gd-browse-modal').style.display = 'none';
+  try {
+    const r = await fetch(BACKEND + '/api/casino/gd/start', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ level_id: levelId }) });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    gdLaunch(0, 0, d.level.obstacles, d.level.name);
+  } catch { alert('Server offline.'); }
+}
+document.getElementById('btn-gd-browse').onclick = () => {
+  if (!authToken) { alert('Sign in first.'); return; }
+  gdBrowseOpen();
+};
+document.getElementById('btn-gd-browse-close').onclick = () => {
+  document.getElementById('gd-browse-modal').style.display = 'none';
 };
 
 const MINES_N = 25;
@@ -6034,8 +6404,10 @@ function logout() {
   document.getElementById('dm-toast-container').innerHTML = '';
   if (ws) ws.close();
   if (socialWs) socialWs.close();
-  authPanel.style.display = ''; userBar.style.display = 'none';
+  document.body.classList.add('pre-auth');
+  authPanel.style.display = 'flex'; userBar.style.display = 'none';
   const ub2 = document.getElementById('user-bar-row2'); if (ub2) ub2.style.display = 'none';
+  updateSidebarTabs();
   document.getElementById('guest-bar').style.display = 'none';
   document.getElementById('admin-tab-btn').style.display = 'none';
   chatInput.disabled = true; chatBtn.disabled = true;
@@ -6174,6 +6546,7 @@ function refreshAfk() {
 document.addEventListener('visibilitychange', refreshAfk);
 setInterval(refreshAfk, 5000);
 
+let gridLinesHidden = false;
 function applyPrefs() {
   const noAnim = safeStore.getItem('ez_anim_disabled') === '1';
   document.body.classList.toggle('no-anim', noAnim);
@@ -6182,6 +6555,7 @@ function applyPrefs() {
   const noTips = safeStore.getItem('ez_tips_hidden') === '1';
   const tipBar = document.getElementById('tip-banner');
   if (tipBar && noTips) tipBar.style.display = 'none';
+  gridLinesHidden = safeStore.getItem('ez_hide_gridlines') === '1';
 }
 applyPrefs();
 (function(){
@@ -6194,6 +6568,8 @@ applyPrefs();
   const tipsEl = document.getElementById('pref-hide-tips');
   const panEl = document.getElementById('pref-hide-panorama');
   const animEl = document.getElementById('pref-disable-anim');
+  const soundEl = document.getElementById('pref-sound-off');
+  const gridEl = document.getElementById('pref-hide-gridlines');
   let afkTimer = null;
   const fmtAfkDur = (ms) => {
     const s = Math.max(0, Math.floor(ms / 1000));
@@ -6218,6 +6594,8 @@ applyPrefs();
     tipsEl.checked = safeStore.getItem('ez_tips_hidden') === '1';
     panEl.checked = safeStore.getItem('ez_panorama_hidden') === '1';
     animEl.checked = safeStore.getItem('ez_anim_disabled') === '1';
+    if (soundEl) soundEl.checked = safeStore.getItem('ez_sound_disabled') === '1';
+    if (gridEl) gridEl.checked = safeStore.getItem('ez_hide_gridlines') === '1';
     updateAfkLabel();
     if (afkTimer) clearInterval(afkTimer);
     afkTimer = setInterval(updateAfkLabel, 1000);
@@ -6285,6 +6663,8 @@ async function resizeAvatarFile(file, maxSize) {
   tipsEl.onchange = () => { safeStore.setItem('ez_tips_hidden', tipsEl.checked ? '1' : '0'); applyPrefs(); const tb = document.getElementById('tip-banner'); if (tb && !tipsEl.checked) tb.style.display = ''; };
   panEl.onchange = () => { safeStore.setItem('ez_panorama_hidden', panEl.checked ? '1' : '0'); applyPrefs(); };
   animEl.onchange = () => { safeStore.setItem('ez_anim_disabled', animEl.checked ? '1' : '0'); applyPrefs(); };
+  if (soundEl) soundEl.onchange = () => { safeStore.setItem('ez_sound_disabled', soundEl.checked ? '1' : '0'); if (!soundEl.checked) playNotifSound(); };
+  if (gridEl) gridEl.onchange = () => { safeStore.setItem('ez_hide_gridlines', gridEl.checked ? '1' : '0'); applyPrefs(); try { render(); } catch {} };
   document.getElementById('btn-account-settings').onclick = open;
   document.getElementById('btn-account-settings-close').onclick = close;
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
@@ -6304,110 +6684,6 @@ async function resizeAvatarFile(file, maxSize) {
     } catch { setStatus('Request failed', false); }
   };
 })();
-
-(function setupMovies() {
-  const modal = document.getElementById('movies-modal');
-  const list = document.getElementById('movies-list');
-  const playerWrap = document.getElementById('movies-player-wrap');
-  const iframe = document.getElementById('movies-iframe');
-  const nowPlaying = document.getElementById('movies-now-playing');
-  function extractYouTubeId(src) {
-    if (!src) return null;
-    const s = String(src);
-    const m = s.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-    if (m) return m[1];
-    if (/^[a-zA-Z0-9_-]{11}$/.test(s) && !/^[0-9]+$/.test(s)) return s;
-    return null;
-  }
-  function extractDriveId(src) {
-    if (!src) return null;
-    const m = String(src).match(/\/d\/([a-zA-Z0-9_-]{20,})/);
-    if (m) return m[1];
-    if (/^[a-zA-Z0-9_-]{20,}$/.test(src)) return src;
-    return null;
-  }
-  function previewUrl(src) {
-    const ytId = extractYouTubeId(src);
-    if (ytId) return 'https://www.youtube-nocookie.com/embed/' + ytId + '?rel=0&modestbranding=1';
-    const id = extractDriveId(src);
-    return id ? 'https://drive.google.com/file/d/' + id + '/preview' : null;
-  }
-  function renderList() {
-    list.innerHTML = '';
-    if (!MOVIES.length) {
-      list.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px;color:var(--text-muted);font-size:12px;">No movies have been added yet. The site owner needs to fill in the MOVIES config array.</div>';
-      return;
-    }
-    MOVIES.forEach((m, i) => {
-      const card = document.createElement('div');
-      if (m.comingSoon) {
-        card.style.cssText = 'background:var(--bg-secondary);border:1px dashed var(--border);border-radius:var(--radius-sm);padding:12px;opacity:0.6;cursor:default;';
-        card.innerHTML = '<div style="font-weight:700;font-size:13px;margin-bottom:4px;color:var(--text-muted);">⏳ ' + esc(m.title || 'More coming soon...') + '</div><div style="font-size:10px;color:var(--text-muted);">Stay tuned</div>';
-        list.appendChild(card);
-        return;
-      }
-      const url = previewUrl(m.src);
-      card.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;cursor:' + (url ? 'pointer' : 'not-allowed') + ';transition:transform 0.15s, border-color 0.15s;';
-      card.innerHTML = '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">🎬 ' + esc(m.title || ('Movie ' + (i+1))) + '</div><div style="font-size:10px;color:var(--text-muted);">' + (url ? 'Click to play' : 'Invalid Drive URL') + '</div>';
-      if (url) {
-        card.onmouseenter = () => { card.style.borderColor = 'var(--accent)'; card.style.transform = 'translateY(-2px)'; };
-        card.onmouseleave = () => { card.style.borderColor = 'var(--border)'; card.style.transform = ''; };
-        card.onclick = () => playMovie(m, url);
-      }
-      list.appendChild(card);
-    });
-  }
-  function playMovie(m, url) {
-    iframe.src = url;
-    nowPlaying.textContent = m.title || 'Movie';
-    playerWrap.style.display = 'block';
-    list.style.display = 'none';
-  }
-  function backToList() {
-    iframe.src = '';
-    playerWrap.style.display = 'none';
-    list.style.display = 'grid';
-  }
-  function open() {
-    backToList();
-    renderList();
-    modal.style.display = 'flex';
-    safeStore.setItem('ez_movies_tutorial_seen', '1');
-    const arr = document.getElementById('movies-tutorial-arrow');
-    if (arr) arr.style.display = 'none';
-  }
-  function close() {
-    iframe.src = '';
-    modal.style.display = 'none';
-  }
-  document.getElementById('btn-movies').onclick = open;
-  document.getElementById('btn-movies-close').onclick = close;
-  document.getElementById('btn-movies-back').onclick = backToList;
-  const pasteInput = document.getElementById('movies-paste-input');
-  const pasteBtn = document.getElementById('btn-movies-paste-play');
-  const pastePlay = () => {
-    const raw = pasteInput.value.trim();
-    if (!raw) return;
-    const url = previewUrl(raw);
-    if (!url) { alert('Not a recognized URL. Paste a YouTube link like https://youtube.com/watch?v=... or a Google Drive share link.'); return; }
-    const ytId = extractYouTubeId(raw);
-    playMovie({ title: ytId ? 'YouTube: ' + ytId : 'Pasted video' }, url);
-    pasteInput.value = '';
-  };
-  pasteBtn.onclick = pastePlay;
-  pasteInput.addEventListener('keydown', e => { if (e.key === 'Enter') pastePlay(); });
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
-  const arrow = document.getElementById('movies-tutorial-arrow');
-  if (arrow) arrow.onclick = () => { arrow.style.display = 'none'; safeStore.setItem('ez_movies_tutorial_seen', '1'); };
-})();
-
-function showMoviesTutorialIfNew() {
-  if (safeStore.getItem('ez_movies_tutorial_seen') === '1') return;
-  const arr = document.getElementById('movies-tutorial-arrow');
-  if (!arr) return;
-  arr.style.display = 'block';
-  setTimeout(() => { arr.style.display = 'none'; safeStore.setItem('ez_movies_tutorial_seen', '1'); }, 15000);
-}
 
 authPass.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-auth-submit').click(); });
 authUser.addEventListener('keydown', e => { if (e.key === 'Enter') authPass.focus(); });
@@ -6685,6 +6961,75 @@ document.getElementById('btn-clan-create-submit').onclick = async () => {
   } catch { err.textContent = 'Server offline.'; }
 };
 
+const _lobbyThumbCache = new Map();
+async function _inflateGzip(buf) {
+  if (typeof DecompressionStream === 'undefined') return buf;
+  try {
+    const ds = new DecompressionStream('gzip');
+    const stream = new Response(buf).body.pipeThrough(ds);
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch (e) {
+    return buf;
+  }
+}
+async function fetchLobbyThumb(lobbyId, expectedW, expectedH) {
+  const cacheKey = lobbyId + ':' + expectedW + 'x' + expectedH;
+  if (_lobbyThumbCache.has(cacheKey)) return _lobbyThumbCache.get(cacheKey);
+  const p = (async () => {
+    const r = await fetch(BACKEND + '/api/lobbies/preview?id=' + encodeURIComponent(lobbyId) + '&t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('preview http ' + r.status);
+    let buf = new Uint8Array(await r.arrayBuffer());
+    const hdrW = parseInt(r.headers.get('X-Width') || '0', 10);
+    const hdrH = parseInt(r.headers.get('X-Height') || '0', 10);
+    let w = expectedW || hdrW;
+    let h = expectedH || hdrH;
+    if (!w || !h) {
+      const side = Math.round(Math.sqrt(buf.length));
+      if (side * side === buf.length) { w = h = side; }
+      else { w = h = 256; }
+    }
+    if (buf.length !== w * h) {
+      const magic0 = buf[0], magic1 = buf[1];
+      if (magic0 === 0x1f && magic1 === 0x8b) {
+        buf = await _inflateGzip(buf);
+      }
+    }
+    if (buf.length < w * h) {
+      const padded = new Uint8Array(w * h);
+      padded.set(buf.subarray(0, Math.min(buf.length, padded.length)));
+      buf = padded;
+    }
+    return { w, h, grid: buf };
+  })();
+  _lobbyThumbCache.set(cacheKey, p);
+  p.catch(() => _lobbyThumbCache.delete(cacheKey));
+  return p;
+}
+async function attachLobbyThumb(wrap, lobbyId, w, h) {
+  try {
+    const data = await fetchLobbyThumb(lobbyId, w, h);
+    if (!wrap.isConnected) return;
+    wrap.innerHTML = '';
+    const cvs = document.createElement('canvas');
+    wrap.appendChild(cvs);
+    paintLobbyThumb(cvs, data.w, data.h, data.grid);
+  } catch {
+    if (!wrap.isConnected) return;
+    wrap.innerHTML = '<div class="lobby-thumb-loading">preview unavailable</div>';
+  }
+}
+function paintLobbyThumb(canvas, w, h, grid) {
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const src = i < grid.length ? grid[i] : 0;
+    const c = COLOR_BYTES[src] || COLOR_BYTES[0];
+    const o = i * 4;
+    img.data[o] = c[0]; img.data[o+1] = c[1]; img.data[o+2] = c[2]; img.data[o+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
 async function loadLobbies() {
   loadClans();
   loadGlobalLeaderboard();
@@ -6712,10 +7057,11 @@ async function loadLobbies() {
     data.lobbies.forEach(l => {
       const card = document.createElement('div'); card.className = 'lobby-card';
       const ownerLabel = l.id.startsWith('public_') ? 'Public' : `by ${esc(l.owner)}`;
-      const expiryLine = l.expires_in !== null && l.expires_in !== undefined ? `<div class="lobby-expiry">${formatExpires(l.expires_in)}</div>` : '';
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${ownerLabel} | ${l.width}x${l.height} | ${l.cooldown}s cooldown</div>${expiryLine}</div><div class="lobby-online">${l.online} online</div>`;
+      const expiryLine = l.expires_in !== null && l.expires_in !== undefined ? `<div class="lobby-expiry">expires in ${formatExpires(l.expires_in)}</div>` : '';
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${ownerLabel} · ${l.width}x${l.height} · ${l.cooldown}s cd</div></div><div class="lobby-thumb-wrap"><div class="lobby-thumb-loading">loading...</div></div><div class="lobby-bottom"><div class="lobby-online">${l.online} online</div></div>${expiryLine}`;
       card.onclick = () => joinLobby(l.id, l.name, true);
       el.appendChild(card);
+      attachLobbyThumb(card.querySelector('.lobby-thumb-wrap'), l.id, l.width, l.height);
     });
   } catch {}
   if (authToken) {
@@ -6726,19 +7072,22 @@ async function loadLobbies() {
       if (data.lobbies.length === 0) { el.innerHTML = '<div style="color:#555;font-size:12px;">No lobbies yet</div>'; }
       data.lobbies.forEach(l => {
         const card = document.createElement('div'); card.className = 'lobby-card';
-        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' | Whitelist' : ''} | ${l.width}x${l.height} | ${l.cooldown}s cd</div><div class="lobby-expiry">${formatExpires(l.expires_in)}</div></div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div><div class="lobby-online">${l.online} online</div>`;
-        card.querySelector('.lobby-info').onclick = () => joinLobby(l.id, l.name, l.public);
+        card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${l.public ? 'Public' : 'Code: ' + l.code}${l.whitelist_enabled ? ' · Whitelist' : ''} · ${l.width}x${l.height} · ${l.cooldown}s cd</div></div><div class="lobby-thumb-wrap"><div class="lobby-thumb-loading">loading...</div></div><div class="lobby-bottom"><div class="lobby-online">${l.online} online</div><div class="lobby-actions"><button class="win-btn manage" data-id="${l.id}">Manage</button><button class="win-btn del" data-id="${l.id}">Delete</button></div></div><div class="lobby-expiry">expires in ${formatExpires(l.expires_in)}</div>`;
+        card.onclick = e => { if (!e.target.closest('.lobby-actions')) joinLobby(l.id, l.name, l.public); };
         card.querySelector('.manage').onclick = e => { e.stopPropagation(); openManage(l); };
         card.querySelector('.del').onclick = e => { e.stopPropagation(); deleteLobby(l.id); };
         el.appendChild(card);
+        attachLobbyThumb(card.querySelector('.lobby-thumb-wrap'), l.id, l.width, l.height);
       });
       if (data.whitelisted && data.whitelisted.length) {
-        const hdr = document.createElement('div'); hdr.className = 'friend-section'; hdr.textContent = 'Invited Lobbies'; el.appendChild(hdr);
+        const hdr = document.createElement('div'); hdr.className = 'friend-section'; hdr.textContent = 'Invited Lobbies'; hdr.style.gridColumn = '1 / -1'; hdr.style.marginTop = '10px'; el.appendChild(hdr);
         data.whitelisted.forEach(l => {
           const card = document.createElement('div'); card.className = 'lobby-card';
-          card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">by ${esc(l.owner)} | ${l.width}x${l.height} | ${l.cooldown}s cd</div><div class="lobby-expiry">${formatExpires(l.expires_in)}</div></div><div class="lobby-online">${l.online} online</div>`;
+          const expiryLine = l.expires_in !== null && l.expires_in !== undefined ? `<div class="lobby-expiry">expires in ${formatExpires(l.expires_in)}</div>` : '';
+          card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">by ${esc(l.owner)} · ${l.width}x${l.height} · ${l.cooldown}s cd</div></div><div class="lobby-thumb-wrap"><div class="lobby-thumb-loading">loading...</div></div><div class="lobby-bottom"><div class="lobby-online">${l.online} online</div></div>${expiryLine}`;
           card.onclick = () => joinLobby(l.id, l.name, false);
           el.appendChild(card);
+          attachLobbyThumb(card.querySelector('.lobby-thumb-wrap'), l.id, l.width, l.height);
         });
       }
     } catch {}
@@ -6754,10 +7103,9 @@ function joinLobby(id, name, isPublic) {
     document.getElementById('guest-bar').style.display = 'flex';
     document.getElementById('guest-display').textContent = guestName;
     chatInput.disabled = false; chatBtn.disabled = false;
-    setTimeout(() => alert('Make an account to get access to drawing and friends list and movies!'), 200);
+    setTimeout(() => alert('Make an account to get access to drawing and the friends list!'), 200);
   } else {
     isGuest = false;
-    setTimeout(showMoviesTutorialIfNew, 400);
   }
   currentLobbyId = id; currentLobbyName = name;
   stopEconomyPoll();
@@ -6773,6 +7121,7 @@ function joinLobby(id, name, isPublic) {
   messagesEl.innerHTML = '';
   grid = new Uint8Array(GRID_W * GRID_H); resetOffscreen(); render();
   connectToLobby(id, name);
+  updateSidebarTabs();
 }
 
 document.getElementById('btn-leave-lobby').onclick = () => {
@@ -6797,8 +7146,11 @@ document.getElementById('btn-leave-lobby').onclick = () => {
     isGuest = false; guestName = ''; username = '';
     document.getElementById('guest-bar').style.display = 'none';
     chatInput.disabled = true; chatBtn.disabled = true;
+    document.body.classList.add('pre-auth');
+    authPanel.style.display = 'flex';
   }
   loadLobbies();
+  updateSidebarTabs();
 };
 
 document.getElementById('btn-manage-current').onclick = async () => {
@@ -7012,6 +7364,34 @@ let intentionalClose = false;
 const EZP_BASE_TITLE = 'EzPlace';
 const EZP_NOTIF_TITLE = 'EzPlace (New Messages)';
 let ezpHasUnseenNotif = false;
+let _ezAudioCtx = null;
+let _ezLastDingAt = 0;
+function playNotifSound() {
+  if (safeStore.getItem('ez_sound_disabled') === '1') return;
+  const now = Date.now();
+  if (now - _ezLastDingAt < 400) return;
+  _ezLastDingAt = now;
+  try {
+    if (!_ezAudioCtx) _ezAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _ezAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const t0 = ctx.currentTime;
+    const notes = [880, 1320];
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const start = t0 + i * 0.11;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.14, start + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.2);
+    });
+  } catch {}
+}
 function ezpMarkUnseen() {
   if (document.visibilityState === 'visible') return;
   ezpHasUnseenNotif = true;
@@ -7134,8 +7514,11 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById(tab.dataset.tab).classList.add('active');
-    if (tab.dataset.tab === 'friends-tab' && authToken) { loadFriendsList(); const fb = document.getElementById('friend-notif'); fb.style.display = 'none'; fb.textContent = ''; }
-    if (tab.dataset.tab === 'msgs-tab' && authToken) { loadMsgList(); }
+    if (tab.dataset.tab === 'friends-tab' && authToken) {
+      loadMsgList();
+      const fb = document.getElementById('friend-notif'); if (fb) { fb.style.display = 'none'; fb.textContent = ''; }
+      const dn = document.getElementById('dm-notif'); if (dn) { dn.style.display = 'none'; dn.textContent = ''; }
+    }
     if (tab.dataset.tab === 'lb-tab') loadLeaderboard();
   };
 });
@@ -7276,7 +7659,19 @@ function connectSocial() {
       });
       updateDmTabBadge();
       const activeTab = document.querySelector('.sidebar-tab.active');
-      if (activeTab && activeTab.dataset.tab === 'msgs-tab') loadMsgList();
+      if (activeTab && activeTab.dataset.tab === 'friends-tab') loadMsgList();
+    }
+    if (msg.type === 'unread_groups') {
+      unreadGroups = {};
+      (msg.groups || []).forEach(g => {
+        unreadGroups[g.group_id] = g.count;
+        const gid = g.group_id;
+        showDmToast((g.last_from || 'group') + ' (in ' + (g.group_name || 'group') + ')', g.last_text || '(message)', () => openGroup(gid), true);
+        ezpMarkUnseen();
+      });
+      updateDmTabBadge();
+      const activeTab = document.querySelector('.sidebar-tab.active');
+      if (activeTab && activeTab.dataset.tab === 'friends-tab') loadMsgList();
     }
     if (msg.type === 'pb_update') {
       myBalance = msg.balance || 0;
@@ -7415,7 +7810,7 @@ function connectSocial() {
     if (msg.type === 'dm') {
       const activeTab = document.querySelector('.sidebar-tab.active');
       const fromLow = msg.from.toLowerCase();
-      const isViewingThisThread = currentDmWith && currentDmWith.toLowerCase() === fromLow && activeTab && activeTab.dataset.tab === 'msgs-tab';
+      const isViewingThisThread = currentDmWith && currentDmWith.toLowerCase() === fromLow && activeTab && activeTab.dataset.tab === 'friends-tab';
       if (isViewingThisThread) {
         const ti = document.getElementById('dm-typing-ind'); if (ti) ti.style.display = 'none';
         appendDmMsg(msg.from, msg.text || '', msg.time, msg.image_url || msg.image, msg.reply_to);
@@ -7426,9 +7821,10 @@ function connectSocial() {
         unreadDms[fromLow] = (unreadDms[fromLow] || 0) + 1;
         updateDmTabBadge();
         ezpMarkUnseen();
+        playNotifSound();
         showDmToast(msg.from, msg.text || ((msg.image_url || msg.image) ? '[image]' : ''), undefined, true);
         // Only refresh the list view if user is actually looking at the list (not inside a different thread)
-        const inListView = activeTab && activeTab.dataset.tab === 'msgs-tab' && document.getElementById('msg-list-view').style.display !== 'none';
+        const inListView = activeTab && activeTab.dataset.tab === 'friends-tab' && document.getElementById('msg-list-view').style.display !== 'none';
         if (inListView) loadMsgList();
       }
     }
@@ -7461,12 +7857,13 @@ function connectSocial() {
         unreadGroups[gid] = (unreadGroups[gid] || 0) + 1;
         updateDmTabBadge();
         ezpMarkUnseen();
+        playNotifSound();
       }
     }
     if (msg.type === 'group_added') {
       addSystemMsg(`${msg.by} added you to group "${msg.group_name}".`);
       const activeTab = document.querySelector('.sidebar-tab.active');
-      const inListView = activeTab && activeTab.dataset.tab === 'msgs-tab' && document.getElementById('msg-list-view').style.display !== 'none';
+      const inListView = activeTab && activeTab.dataset.tab === 'friends-tab' && document.getElementById('msg-list-view').style.display !== 'none';
       if (inListView) loadMsgList();
     }
     if (msg.type === 'group_dissolved') {
@@ -7508,7 +7905,12 @@ async function loadFriendsList() {
     if (!data.friends.length) {
       const empty = document.createElement('div'); empty.style.cssText = 'font-size:10px;color:#999;padding:4px;'; empty.textContent = 'No friends yet'; panel.appendChild(empty);
     }
-    data.friends.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0)).forEach(f => {
+    data.friends.sort((a, b) => {
+      if (!!a.online !== !!b.online) return a.online ? -1 : 1;
+      const at = Number(a.last_online || 0), bt = Number(b.last_online || 0);
+      if (at !== bt) return bt - at;
+      return (a.name || '').localeCompare(b.name || '');
+    }).forEach(f => {
       const d = document.createElement('div'); d.className = 'friend-item';
       let statusCls = f.online ? (f.afk ? 'afk' : 'online') : 'offline';
       let subText = '';
@@ -7539,7 +7941,7 @@ document.addEventListener('visibilitychange', () => {
   if (!currentDmWith) return;
   if (!socialWs || socialWs.readyState !== WebSocket.OPEN) return;
   const activeTab = document.querySelector('.sidebar-tab.active');
-  const inThread = activeTab && activeTab.dataset.tab === 'msgs-tab' && document.getElementById('msg-view').style.display !== 'none';
+  const inThread = activeTab && activeTab.dataset.tab === 'friends-tab' && document.getElementById('msg-view').style.display !== 'none';
   if (inThread) socialWs.send(JSON.stringify({ type: 'dm_seen', peer: currentDmWith }));
 });
 
@@ -7548,61 +7950,38 @@ async function loadMsgList() {
   document.getElementById('msg-list-view').style.display = '';
   document.getElementById('msg-view').style.display = 'none';
   currentDmWith = null; currentGroupId = null;
+  loadFriendsList();
   try {
-    const [friendsRes, groupsRes] = await Promise.all([
-      fetch(BACKEND + '/api/friends', { headers: { Authorization: authToken } }),
-      fetch(BACKEND + '/api/groups/my', { headers: { Authorization: authToken } }),
-    ]);
-    const fdata = await friendsRes.json();
-    const gdata = await groupsRes.json();
-    myFriendsCache = fdata.friends || [];
+    const gdata = await (await fetch(BACKEND + '/api/groups/my', { headers: { Authorization: authToken } })).json();
     const groupsArr = gdata.groups || [];
     if (groupsArr.length) {
       const hdr = document.createElement('div'); hdr.style.cssText = 'font-size:10px;color:var(--text-muted);padding:6px 8px 2px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;'; hdr.textContent = 'Group Chats';
       list.appendChild(hdr);
       groupsArr.forEach(g => {
         const d = document.createElement('div'); d.className = 'msg-thread';
-        d.innerHTML = `<span style="font-weight:700;color:var(--accent);">[G]</span> ${esc(g.name)} <span style="font-size:10px;color:var(--text-muted);">${g.members.length}</span>`;
+        const unread = unreadGroups[g.id] || 0;
+        if (unread > 0) d.classList.add('has-unread');
+        const badge = unread > 0 ? `<span style="margin-left:auto;font-size:10px;font-weight:700;color:#fff;background:var(--accent);padding:1px 6px;border-radius:8px;">${unread}</span>` : '';
+        d.innerHTML = `<div style="display:flex;align-items:center;gap:6px;"><span style="font-weight:700;color:var(--accent);">[G]</span><span style="flex:1;font-weight:${unread > 0 ? 700 : 400};">${esc(g.name)}</span><span style="font-size:10px;color:var(--text-muted);">${g.members.length}</span>${badge}</div>`;
         d.onclick = () => openGroup(g.id);
         list.appendChild(d);
       });
-      const sep = document.createElement('div'); sep.style.cssText = 'font-size:10px;color:var(--text-muted);padding:6px 8px 2px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;'; sep.textContent = 'Friends';
-      list.appendChild(sep);
     }
-    if (!myFriendsCache.length) {
-      const empty = document.createElement('div'); empty.style.cssText = 'font-size:10px;color:#999;padding:8px;'; empty.textContent = 'Add friends to start messaging';
-      list.appendChild(empty); return;
-    }
-    const sorted = [...myFriendsCache].sort((a, b) => {
-      const ua = unreadDms[a.name.toLowerCase()] || 0;
-      const ub = unreadDms[b.name.toLowerCase()] || 0;
-      if (ua !== ub) return ub - ua;
-      if (a.online !== b.online) return a.online ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-    sorted.forEach(f => {
-      const d = document.createElement('div'); d.className = 'msg-thread';
-      const unread = unreadDms[f.name.toLowerCase()] || 0;
-      if (unread > 0) d.classList.add('has-unread');
-      let label = '';
-      if (unread === 1) label = `<div style="font-size:11px;font-weight:700;color:var(--accent);margin-top:2px;display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:9px;height:9px;background:var(--accent);border-radius:50%;"></span>New Chat</div>`;
-      else if (unread > 1) label = `<div style="font-size:11px;font-weight:700;color:var(--accent);margin-top:2px;display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:9px;height:9px;background:var(--accent);border-radius:50%;"></span>${unread} New Chats</div>`;
-      d.innerHTML = `<div style="display:flex;align-items:center;gap:6px;"><div class="f-status ${f.online ? 'online' : 'offline'}" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></div><div style="flex:1;font-weight:${unread > 0 ? 700 : 400};">${esc(f.name)}</div></div>${label}`;
-      d.onclick = () => openDm(f.name);
-      list.appendChild(d);
-    });
   } catch {}
 }
 
 async function openGroup(gid) {
   document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelector('[data-tab="msgs-tab"]').classList.add('active');
-  document.getElementById('msgs-tab').classList.add('active');
+  document.querySelector('[data-tab="friends-tab"]').classList.add('active');
+  document.getElementById('friends-tab').classList.add('active');
   document.getElementById('sidebar').classList.add('open');
   currentDmWith = null; currentGroupId = gid;
   delete unreadGroups[gid];
   updateDmTabBadge();
+  if (socialWs && socialWs.readyState === WebSocket.OPEN && !document.hidden) {
+    try { socialWs.send(JSON.stringify({ type: 'group_seen', group_id: gid })); } catch {}
+  }
   document.getElementById('msg-list-view').style.display = 'none';
   document.getElementById('msg-view').style.display = 'flex';
   const el = document.getElementById('msg-view-msgs'); el.innerHTML = '';
@@ -7633,8 +8012,8 @@ async function openGroup(gid) {
 async function openDm(friendName) {
   document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelector('[data-tab="msgs-tab"]').classList.add('active');
-  document.getElementById('msgs-tab').classList.add('active');
+  document.querySelector('[data-tab="friends-tab"]').classList.add('active');
+  document.getElementById('friends-tab').classList.add('active');
   document.getElementById('sidebar').classList.add('open');
   currentDmWith = friendName;
   lastSelfDmEl = null;
@@ -8514,6 +8893,12 @@ async function ezpVersionCheck() {
 setInterval(ezpVersionCheck, 45000);
 
 (async () => {
+  const _hasStoredAuth = !!(authToken && safeStore.getItem('ezplace_user'));
+  if (!_hasStoredAuth) {
+    document.body.classList.add('pre-auth');
+    authPanel.style.display = 'flex';
+    setAuthMode(false);
+  }
   await selectBackend(); // pick primary or proxy before any API/WS traffic
   ezpVersionCheck();
   // Server-side ban probe. Catches users banned while offline (no WS push received).
@@ -8528,6 +8913,9 @@ setInterval(ezpVersionCheck, 45000);
     username = safeStore.getItem('ezplace_user');
     showLoggedIn();
   } else {
+    document.body.classList.add('pre-auth');
+    authPanel.style.display = 'flex';
+    setAuthMode(false);
     fetch(BACKEND + '/api/auth/suggest-mode').then(r => r.json()).then(d => {
       if (d && d.mode === 'register') setAuthMode(true);
       else setAuthMode(false);
