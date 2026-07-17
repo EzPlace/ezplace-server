@@ -6437,6 +6437,23 @@ async def on_startup(app):
         migrations_doc["pb_sync_v1"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"pb_sync_v1: raised PB balances for {raised} users from real pixel_counts across lobbies")
+    if not migrations_doc.get("lifetime_pixels_reconcile_v2"):
+        totals = {}
+        for lobby in lobbies.values():
+            pc = lobby.get("pixel_counts") or {}
+            for uname, cnt in pc.items():
+                if not isinstance(cnt, (int, float)) or cnt <= 0: continue
+                ulow = uname.lower()
+                totals[ulow] = totals.get(ulow, 0) + int(cnt)
+        raised = 0
+        for ulow, tot in totals.items():
+            if tot > int(lifetime_pixels.get(ulow, 0)):
+                lifetime_pixels[ulow] = tot
+                raised += 1
+        await save_lifetime_pixels()
+        migrations_doc["lifetime_pixels_reconcile_v2"] = True
+        await db_save("store", "migrations", migrations_doc)
+        print(f"lifetime_pixels_reconcile_v2: raised lifetime_pixels for {raised} users to match summed pixel_counts across lobbies (fixes level display for legacy accounts)")
     if not migrations_doc.get("starting_floor_v1"):
         floor = 50
         for uname in accounts.keys():
