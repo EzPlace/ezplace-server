@@ -5720,16 +5720,26 @@ document.getElementById('btn-gd-ed-save').onclick = async () => {
   const name = (document.getElementById('gd-ed-name').value || '').trim();
   if (!name) { msg.textContent = 'Name required.'; msg.style.color = 'var(--red)'; return; }
   if (!gdEditor.obstacles.length) { msg.textContent = 'Add at least one obstacle.'; msg.style.color = 'var(--red)'; return; }
+  if (!authToken) { msg.textContent = 'Not signed in.'; msg.style.color = 'var(--red)'; return; }
   msg.textContent = 'Saving...'; msg.style.color = 'var(--text-muted)';
   try {
-    const body = { name, obstacles: gdEditor.obstacles };
+    const cleanObstacles = gdEditor.obstacles.map(o => {
+      const c = { kind: o.kind, x: o.x | 0, y: o.y | 0, w: o.w | 0, h: o.h | 0 };
+      if (o.kind === 'spike') { c.up = !!o.up; if (o.asBlock) c.asBlock = true; }
+      if (o.kind === 'portal') { c.mode = o.mode; c.color = o.color; }
+      return c;
+    });
+    const body = { name, obstacles: cleanObstacles };
     if (gdEditor.editingId) body.id = gdEditor.editingId;
     const r = await fetch(BACKEND + '/api/casino/gd/save-level', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
-    const d = await r.json();
+    let d = null;
+    try { d = await r.json(); } catch {}
+    if (!d) { msg.textContent = 'Server returned HTTP ' + r.status + ' (no JSON body)'; msg.style.color = 'var(--red)'; return; }
     if (d.error) { msg.textContent = d.error; msg.style.color = 'var(--red)'; return; }
-    msg.textContent = 'Saved!'; msg.style.color = '#22c55e';
+    if (!r.ok) { msg.textContent = 'HTTP ' + r.status; msg.style.color = 'var(--red)'; return; }
+    msg.textContent = 'Saved! Others can now see it under Custom Levels.'; msg.style.color = '#22c55e';
     if (d.id) gdEditor.editingId = d.id;
-  } catch { msg.textContent = 'Server offline.'; msg.style.color = 'var(--red)'; }
+  } catch (err) { msg.textContent = 'Save failed: ' + (err && err.message ? err.message : String(err)); msg.style.color = 'var(--red)'; }
 };
 
 // ===== GeoDash level browser =====
