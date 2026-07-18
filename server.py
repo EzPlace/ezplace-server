@@ -23,7 +23,7 @@ import motor.motor_asyncio
 
 MAX_LOBBIES_PER_USER = 5
 MAX_DM_HISTORY = 100
-VALID_SIZES = [(256, 256), (512, 512), (1024, 1024)]
+VALID_SIZES = [(256, 256), (512, 512), (1024, 1024), (2048, 2048)]
 PUBLIC_LOBBIES = [
     {"name": "OFFICIAL 256x256", "cooldown": 0, "width": 256, "height": 256},
     {"name": "OFFICIAL 512x512", "cooldown": 0, "width": 512, "height": 512},
@@ -91,7 +91,7 @@ STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
 PB_TRANSFER_AMOUNT_PER_MIN = 100000
 pb_transfer_amount_window = {}
-LOBBY_PRICES = {(256, 256): 50, (512, 512): 100, (1024, 1024): 200}
+LOBBY_PRICES = {(256, 256): 50, (512, 512): 100, (1024, 1024): 200, (2048, 2048): 400}
 
 ALLOWED_IMAGE_HOSTS = frozenset({"files.catbox.moe", "litter.catbox.moe", "i.imgur.com", "imgur.com"})
 def is_safe_image_url(url):
