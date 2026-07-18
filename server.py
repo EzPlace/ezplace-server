@@ -28,6 +28,7 @@ PUBLIC_LOBBIES = [
     {"name": "OFFICIAL 256x256", "cooldown": 0, "width": 256, "height": 256},
     {"name": "OFFICIAL 512x512", "cooldown": 0, "width": 512, "height": 512},
     {"name": "OFFICIAL 1024x1024", "cooldown": 0, "width": 1024, "height": 1024},
+    {"name": "OFFICIAL 2048x2048", "cooldown": 0, "width": 2048, "height": 2048},
 ]
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
