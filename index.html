@@ -471,6 +471,7 @@
         <div id="color-preview-snap" title="Color used" style="width:32px;height:32px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);align-self:center;"></div>
       </div>
       <button id="btn-undo" title="Undo last placement (Ctrl+Z)" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">&#x21B6; Undo</button>
+      <button id="btn-save-png" title="Save this lobby as a PNG" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">💾 PNG</button>
       <select id="brush-size-select" class="win-input" style="display:none;font-size:11px;padding:2px 4px;align-self:center;">
         <option value="1">1x1</option>
         <option value="3">3x3</option>
@@ -578,6 +579,37 @@
   <div id="report-select-hint" style="position:absolute;top:12px;left:50%;transform:translateX(-50%);background:#d32f2f;color:#fff;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.4);pointer-events:none;">Drag on the canvas to select the inappropriate area · Tap outside canvas to cancel</div>
   <div id="report-select-box" style="display:none;position:absolute;border:2px dashed #d32f2f;background:rgba(211,47,47,0.15);pointer-events:none;"></div>
 </div>
+
+<div id="achievements-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);z-index:88;flex-direction:column;align-items:center;justify-content:center;padding:14px;color:var(--text-primary);">
+  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px;max-width:640px;width:100%;max-height:85vh;display:flex;flex-direction:column;gap:8px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <strong style="font-size:15px;">🏆 Achievements <span id="ach-count" style="font-weight:400;color:var(--text-muted);font-size:12px;">(0 / 0)</span></strong>
+      <button id="btn-ach-close" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;">Close</button>
+    </div>
+    <div id="ach-list" style="overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;padding:2px;"></div>
+  </div>
+</div>
+
+<div id="notifications-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);z-index:88;flex-direction:column;align-items:center;justify-content:center;padding:14px;color:var(--text-primary);">
+  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px;max-width:520px;width:100%;max-height:80vh;display:flex;flex-direction:column;gap:8px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <strong style="font-size:14px;">🔔 Notifications</strong>
+      <button id="btn-notif-close" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;">Close</button>
+    </div>
+    <div id="notif-list" style="overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:60px;"></div>
+  </div>
+</div>
+
+<div id="profile-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);z-index:88;flex-direction:column;align-items:center;justify-content:center;padding:14px;color:var(--text-primary);">
+  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:16px;max-width:440px;width:100%;max-height:85vh;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
+    <div style="display:flex;justify-content:flex-end;">
+      <button id="btn-profile-close" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;">Close</button>
+    </div>
+    <div id="profile-body" style="display:flex;flex-direction:column;gap:10px;"></div>
+  </div>
+</div>
+
+<div id="ach-toast-container" style="position:fixed;top:60px;right:12px;display:flex;flex-direction:column;gap:6px;z-index:200;pointer-events:none;"></div>
 
 <div id="account-settings-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;display:flex;flex-direction:column;">
@@ -1209,6 +1241,8 @@
   </div>
   <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
     <button id="btn-shop" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--gold);color:#000;font-weight:700;flex-shrink:0;white-space:nowrap;">Shop</button>
+    <button id="btn-notifications" class="win-btn" title="Notifications" style="font-size:11px;padding:4px 10px;flex-shrink:0;white-space:nowrap;position:relative;">🔔<span id="notif-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 5px;min-width:14px;text-align:center;">0</span></button>
+    <button id="btn-achievements" class="win-btn" title="Achievements" style="font-size:11px;padding:4px 10px;flex-shrink:0;white-space:nowrap;">🏆</button>
     <button id="btn-account-settings" class="win-btn" title="Account settings" style="font-size:11px;padding:4px 10px;flex-shrink:0;white-space:nowrap;">Settings</button>
     <button id="btn-report" class="win-btn" title="Report inappropriate drawings" style="font-size:11px;padding:4px 10px;background:#d32f2f;color:#fff;font-weight:700;flex-shrink:0;white-space:nowrap;">⚠ Report</button>
   </div>
@@ -1579,7 +1613,7 @@ const COLORS = [
 ];
 let COOLDOWN = 500; // ms, updated per lobby
 let userHasInteracted = false; // becomes true once the user manually zooms or pans, locking the auto-fit
-const MIN_ZOOM = 0.5;
+const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 40;
 const GRID_LINE_MIN_ZOOM = 4;
 
@@ -2632,6 +2666,21 @@ function performUndo() {
 }
 
 document.getElementById('btn-undo').onclick = performUndo;
+document.getElementById('btn-save-png').onclick = () => {
+  if (!currentLobbyId) { alert('Join a lobby first.'); return; }
+  try {
+    // offCvs is the fully-painted lobby canvas at 1:1 pixel scale.
+    offCvs.toBlob((blob) => {
+      if (!blob) { alert('Export failed.'); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const safe = (currentLobbyId + '').replace(/[^a-z0-9_-]/gi, '_') || 'lobby';
+      a.href = url; a.download = 'ezplace_' + safe + '_' + Date.now() + '.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    }, 'image/png');
+  } catch (e) { alert('Export failed: ' + (e.message || e)); }
+};
 window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     const tag = (e.target && e.target.tagName) || '';
@@ -3041,7 +3090,8 @@ function avatarUrl(user) {
   return BACKEND + '/api/avatar?user=' + encodeURIComponent(String(user).toLowerCase()) + '&v=' + _avatarBust;
 }
 function avatarImg(user, cls) {
-  return '<img class="ez-avatar' + (cls ? ' ' + cls : '') + '" src="' + avatarUrl(user) + '" onerror="this.onerror=null;this.src=DEFAULT_AVATAR" alt="">';
+  const safeUser = String(user || '').replace(/"/g, '&quot;');
+  return '<img class="ez-avatar' + (cls ? ' ' + cls : '') + '" src="' + avatarUrl(user) + '" onerror="this.onerror=null;this.src=DEFAULT_AVATAR" alt="" style="cursor:pointer;" data-open-profile="' + safeUser + '" title="View profile">';
 }
 function linkify(escapedHtml) {
   return escapedHtml.replace(/\bhttps?:\/\/[^\s<>"'`]+/gi, (m) => {
@@ -3483,10 +3533,195 @@ async function refreshMe() {
     if (modTab) modTab.style.display = d.is_moderator ? 'block' : 'none';
     userIsMod = !!d.is_moderator;
     applyPbState();
+    loadNotifications();
   } catch {}
 }
 let userIsMod = false;
 function canSeePixelOwner() { return isRealAdmin() || userIsMod; }
+
+// ================= Achievements / Notifications / Profile =================
+let achievementDefs = null;
+let achievementUnlocked = {};
+let notifItems = [];
+let notifUnread = 0;
+
+async function loadAchievements() {
+  if (!authToken) return;
+  try {
+    const r = await fetch(BACKEND + '/api/achievements', { headers: { Authorization: authToken } });
+    const d = await r.json();
+    achievementDefs = d.definitions || [];
+    achievementUnlocked = d.unlocked || {};
+  } catch {}
+}
+function renderAchievementsPanel() {
+  const list = document.getElementById('ach-list');
+  const count = document.getElementById('ach-count');
+  if (!list) return;
+  list.innerHTML = '';
+  const defs = achievementDefs || [];
+  const unlocked = Object.keys(achievementUnlocked).length;
+  count.textContent = `(${unlocked} / ${defs.length})`;
+  defs.forEach(a => {
+    const isUnlocked = !!achievementUnlocked[a.id];
+    const card = document.createElement('div');
+    card.style.cssText = `background:var(--bg-elevated);border:1px solid ${isUnlocked ? '#ffd700' : 'var(--border)'};border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:2px;${isUnlocked ? '' : 'opacity:0.55;filter:grayscale(0.8);'}`;
+    card.innerHTML = `
+      <div style="font-size:20px;text-align:center;">${isUnlocked ? a.icon : '🔒'}</div>
+      <div style="font-size:11px;font-weight:700;text-align:center;">${esc(a.name)}</div>
+      <div style="font-size:10px;color:var(--text-muted);text-align:center;line-height:1.25;">${esc(a.desc)}</div>
+      <div style="font-size:10px;text-align:center;color:var(--gold);font-weight:700;margin-top:2px;">+${a.reward} $</div>`;
+    list.appendChild(card);
+  });
+}
+async function openAchievementsModal() {
+  if (!authToken) { alert('Sign in first.'); return; }
+  document.getElementById('achievements-modal').style.display = 'flex';
+  await loadAchievements();
+  renderAchievementsPanel();
+}
+function achievementToast(payload) {
+  const c = document.getElementById('ach-toast-container');
+  const t = document.createElement('div');
+  t.style.cssText = 'background:linear-gradient(135deg,#ffd700,#ff8c42);color:#000;padding:10px 14px;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.5);pointer-events:auto;cursor:pointer;max-width:260px;';
+  t.innerHTML = `<div style="font-size:18px;">${payload.icon || '🏆'} Achievement unlocked!</div><div style="font-size:13px;">${esc(payload.name || '')}</div><div style="font-size:11px;font-weight:400;">${esc(payload.desc || '')} · +${payload.reward || 0} $</div>`;
+  t.onclick = () => t.remove();
+  c.appendChild(t);
+  setTimeout(() => { t.style.transition = 'opacity 0.4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 5500);
+  achievementUnlocked[payload.ach_id] = Date.now() / 1000;
+}
+
+async function loadNotifications() {
+  if (!authToken) return;
+  try {
+    const r = await fetch(BACKEND + '/api/notifications', { headers: { Authorization: authToken } });
+    const d = await r.json();
+    notifItems = d.notifications || [];
+    notifUnread = notifItems.filter(n => !n.seen).length;
+    updateNotifBadge();
+  } catch {}
+}
+function updateNotifBadge() {
+  const b = document.getElementById('notif-badge');
+  if (!b) return;
+  if (notifUnread > 0) { b.textContent = notifUnread > 99 ? '99+' : notifUnread; b.style.display = 'inline-block'; }
+  else b.style.display = 'none';
+}
+function notifRow(n) {
+  const div = document.createElement('div');
+  div.style.cssText = `padding:8px;border-radius:4px;background:${n.seen ? 'var(--bg-elevated)' : 'rgba(34,211,238,0.12)'};border-left:3px solid ${n.seen ? 'transparent' : '#22d3ee'};display:flex;flex-direction:column;gap:2px;cursor:pointer;`;
+  let title = '', body = '', icon = '';
+  if (n.type === 'achievement') { icon = n.icon || '🏆'; title = 'Achievement: ' + (n.name || ''); body = (n.desc || '') + ' · +' + (n.reward || 0) + ' $'; }
+  else if (n.type === 'friend_request') { icon = '👋'; title = 'Friend request'; body = n.text || (n.username + ' sent you a friend request'); }
+  else if (n.type === 'friend_accepted') { icon = '🤝'; title = 'Friend accepted'; body = n.text || ''; }
+  else if (n.type === 'dm') { icon = '💬'; title = 'DM from ' + (n.from || ''); body = n.text || ''; }
+  else if (n.type === 'rps_challenge') { icon = '✂️'; title = 'RPS challenge'; body = (n.from || '') + ' challenged you for ' + (n.bet || 0) + ' $'; }
+  else { icon = '🔔'; title = n.type || 'Notification'; body = n.text || ''; }
+  const ago = n.ts ? fmtRelTime(n.ts) : '';
+  div.innerHTML = `<div style="font-size:12px;font-weight:700;">${icon} ${esc(title)}</div><div style="font-size:11px;color:var(--text-muted);">${esc(body)}</div><div style="font-size:9px;color:var(--text-muted);">${esc(ago)}</div>`;
+  if (n.type === 'dm' && n.from) div.onclick = () => { closeNotifs(); openDm(n.from); };
+  return div;
+}
+function renderNotifications() {
+  const list = document.getElementById('notif-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!notifItems.length) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px;">No notifications yet.</div>';
+    return;
+  }
+  notifItems.forEach(n => list.appendChild(notifRow(n)));
+}
+function closeNotifs() { document.getElementById('notifications-modal').style.display = 'none'; }
+async function openNotifsModal() {
+  if (!authToken) { alert('Sign in first.'); return; }
+  await loadNotifications();
+  document.getElementById('notifications-modal').style.display = 'flex';
+  renderNotifications();
+  try {
+    await fetch(BACKEND + '/api/notifications/seen', { method: 'POST', headers: { Authorization: authToken } });
+    notifItems.forEach(n => n.seen = true);
+    notifUnread = 0;
+    updateNotifBadge();
+  } catch {}
+}
+function pushLiveNotification(n) {
+  notifItems.unshift({ ...n, ts: Date.now() / 1000, seen: false });
+  if (notifItems.length > 100) notifItems.length = 100;
+  notifUnread += 1;
+  updateNotifBadge();
+}
+
+async function openProfile(name) {
+  if (!name) return;
+  const modal = document.getElementById('profile-modal');
+  const body = document.getElementById('profile-body');
+  body.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;">Loading...</div>';
+  modal.style.display = 'flex';
+  try {
+    const r = await fetch(BACKEND + '/api/profile?user=' + encodeURIComponent(name));
+    const d = await r.json();
+    if (d.error) { body.innerHTML = '<div style="color:var(--red);font-size:12px;text-align:center;">' + esc(d.error) + '</div>'; return; }
+    if (!achievementDefs) await loadAchievements();
+    const rankBadge = d.rank && d.rank.label ? `<span style="background:${esc(d.rank.color || '#7c5cfc')};color:#fff;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;margin-left:6px;">${esc(d.rank.label)}</span>` : (d.vip ? '<span style="background:#daa520;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;margin-left:6px;">VIP</span>' : '');
+    const clanBadge = d.clan && d.clan.tag ? `<span style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:2px 8px;border-radius:8px;font-size:10px;margin-left:6px;">[${esc(d.clan.tag)}]</span>` : '';
+    const nameStyle = d.name_color && /^#[0-9a-fA-F]{3,8}$/.test(d.name_color) ? `color:${d.name_color};` : '';
+    const joinStr = d.join_ts ? new Date(d.join_ts * 1000).toLocaleDateString() : 'Unknown';
+    const online = d.online ? '<span style="color:#22c55e;font-size:11px;">● Online</span>' : `<span style="color:var(--text-muted);font-size:11px;">Last online ${esc(d.last_online ? fmtRelTime(d.last_online) : 'Inactive')}</span>`;
+    const pct = (d.pixels % 1000) / 10;
+    const achIds = d.achievement_ids || [];
+    const defs = achievementDefs || [];
+    const defsById = Object.fromEntries(defs.map(a => [a.id, a]));
+    const badges = achIds.slice(-10).reverse().map(id => defsById[id]).filter(Boolean).map(a =>
+      `<span title="${esc(a.name)} — ${esc(a.desc)}" style="background:var(--bg-elevated);border:1px solid #ffd700;border-radius:6px;padding:3px 6px;font-size:14px;cursor:help;">${a.icon}</span>`).join('');
+    body.innerHTML = `
+      <div style="display:flex;gap:12px;align-items:center;">
+        <img src="${avatarUrl(d.name)}" onerror="this.onerror=null;this.src=DEFAULT_AVATAR;" style="width:72px;height:72px;border-radius:8px;border:2px solid var(--border);">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:18px;font-weight:800;${nameStyle}">${esc(d.name)}${rankBadge}${clanBadge}</div>
+          <div>${online}</div>
+          <div style="font-size:11px;color:var(--text-muted);">Joined ${esc(joinStr)}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;background:var(--bg-elevated);padding:8px;border-radius:6px;">
+        <span style="font-size:16px;font-weight:800;color:#22d3ee;">LEVEL ${d.level}</span>
+        <div style="flex:1;height:8px;background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;"><div style="width:${pct}%;height:100%;background:#22d3ee;"></div></div>
+        <span style="font-size:11px;color:var(--text-muted);">${(d.pixels % 1000)}/1000</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;font-size:12px;">
+        <div style="background:var(--bg-elevated);padding:6px 8px;border-radius:4px;">Pixels placed<br><b>${d.pixels.toLocaleString()}</b></div>
+        <div style="background:var(--bg-elevated);padding:6px 8px;border-radius:4px;">Friends<br><b>${d.friends}</b></div>
+        <div style="background:var(--bg-elevated);padding:6px 8px;border-radius:4px;">Lobbies owned<br><b>${d.lobbies_owned}</b></div>
+        <div style="background:var(--bg-elevated);padding:6px 8px;border-radius:4px;">GD levels made<br><b>${d.gd_levels_made}</b></div>
+      </div>
+      <div style="background:var(--bg-elevated);padding:8px;border-radius:6px;">
+        <div style="font-size:11px;font-weight:700;margin-bottom:4px;">🏆 Achievements (${d.achievements_unlocked} / ${d.achievement_total})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;">${badges || '<span style="color:var(--text-muted);font-size:11px;">None yet</span>'}</div>
+      </div>`;
+  } catch (e) {
+    body.innerHTML = '<div style="color:var(--red);font-size:12px;text-align:center;">Server offline.</div>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const nb = document.getElementById('btn-notifications');
+  if (nb) nb.onclick = openNotifsModal;
+  const ab = document.getElementById('btn-achievements');
+  if (ab) ab.onclick = openAchievementsModal;
+  const nc = document.getElementById('btn-notif-close');
+  if (nc) nc.onclick = closeNotifs;
+  const ac = document.getElementById('btn-ach-close');
+  if (ac) ac.onclick = () => { document.getElementById('achievements-modal').style.display = 'none'; };
+  const pc = document.getElementById('btn-profile-close');
+  if (pc) pc.onclick = () => { document.getElementById('profile-modal').style.display = 'none'; };
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest && e.target.closest('[data-open-profile]');
+    if (el) {
+      const u = el.getAttribute('data-open-profile');
+      if (u) { e.preventDefault(); e.stopPropagation(); openProfile(u); }
+    }
+  });
+});
 
 const streakTabId = Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
 let streakChan = null;
@@ -7726,6 +7961,14 @@ function connectSocial() {
   };
   socialWs.onmessage = async e => {
     const msg = JSON.parse(e.data);
+    if (msg.type === 'achievement') {
+      achievementToast(msg);
+      pushLiveNotification(msg);
+      return;
+    }
+    if (msg.type === 'friend_request' || msg.type === 'friend_accepted') {
+      pushLiveNotification(msg);
+    }
     if (msg.type === 'client_alert') { alert(msg.text); return; }
     if (msg.type === 'client_redirect' && typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; return; }
     if (msg.type === 'client_school_ban') {

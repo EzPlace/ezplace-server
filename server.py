@@ -559,6 +559,9 @@ async def award_pixel_placement(username, count=1):
         place_bucks[ulow] = int(place_bucks.get(ulow, 0)) + delta
         await save_place_bucks()
         await push_pb_update(username)
+    # Pixel-threshold achievements fire only when a boundary is actually crossed.
+    try: await check_pixel_thresholds(username)
+    except Exception: pass
 
                                                                                      
 dirty_lobbies = set()
@@ -903,6 +906,9 @@ async def load_all_data():
     user_ips = await db_load("store", "user_ips") or {}
     global gd_levels
     gd_levels = await db_load("store", "gd_levels") or {}
+    global user_achievements, notification_log
+    user_achievements = await db_load("store", "user_achievements") or {}
+    notification_log = await db_load("store", "notification_log") or {}
 
     for i, pl in enumerate(PUBLIC_LOBBIES):
         lid = f"public_{i}"
@@ -1048,7 +1054,7 @@ async def register_handler(request):
     if uname.lower() in {u.lower() for u in accounts}:
         return web.json_response({"error": "Username already taken"}, status=400)
     pw_hash, salt = hash_password(pwd)
-    accounts[uname] = {"password_hash": pw_hash, "salt": salt}
+    accounts[uname] = {"password_hash": pw_hash, "salt": salt, "created": time.time()}
     await save_accounts()
     token = secrets.token_hex(16)
     sessions[token] = uname
@@ -1191,6 +1197,8 @@ async def create_lobby_handler(request):
         "width": lw, "height": lh
     }
     await save_lobby(lid)
+    try: await unlock_achievement(user, "first_lobby")
+    except Exception: pass
     return web.json_response({"ok": True, "lobby": lobby_info(lobbies[lid], True)})
 
 async def delete_lobby_handler(request):
@@ -1345,11 +1353,11 @@ async def friend_add_handler(request):
         if user in fd["incoming"]: fd["incoming"].remove(user)
         fd["friends"].append(found); td["friends"].append(user)
         await save_friends()
-        await notify_social(found, {"type": "friend_accepted", "username": user})
+        await push_notification(found, {"type": "friend_accepted", "username": user, "text": f"{user} accepted your friend request"})
         return web.json_response({"ok": True, "accepted": True})
     fd["outgoing"].append(found); td["incoming"].append(user)
     await save_friends()
-    await notify_social(found, {"type": "friend_request", "username": user})
+    await push_notification(found, {"type": "friend_request", "username": user, "text": f"{user} sent you a friend request"})
     return web.json_response({"ok": True, "sent": True})
 
 async def friend_accept_handler(request):
@@ -1364,7 +1372,7 @@ async def friend_accept_handler(request):
     if user in td["outgoing"]: td["outgoing"].remove(user)
     fd["friends"].append(target); td["friends"].append(user)
     await save_friends()
-    await notify_social(target, {"type": "friend_accepted", "username": user})
+    await push_notification(target, {"type": "friend_accepted", "username": user, "text": f"You are now friends with {user}"})
     return web.json_response({"ok": True})
 
 async def friend_decline_handler(request):
@@ -1376,6 +1384,10 @@ async def friend_decline_handler(request):
     if target in fd["incoming"]: fd["incoming"].remove(target)
     if user in td["outgoing"]: td["outgoing"].remove(user)
     await save_friends()
+    try:
+        await check_friend_achievements(user)
+        await check_friend_achievements(target)
+    except Exception: pass
     return web.json_response({"ok": True})
 
 async def friend_remove_handler(request):
@@ -1483,6 +1495,12 @@ async def dm_send_handler(request):
     if text: payload["text"] = text
     if image_url: payload["image_url"] = image_url
     await notify_social(target, payload)
+    # Persist to notification log with a compact preview
+    log_payload = {"type": "dm", "from": user, "text": (text[:80] if text else "[image]")}
+    push_to_notification_log(target, log_payload)
+    await save_notifications()
+    try: await unlock_achievement(user, "first_dm")
+    except Exception: pass
     return web.json_response({"ok": True})
 
 async def admin_accounts_handler(request):
@@ -2617,6 +2635,10 @@ async def shop_buy_handler(request):
             ranks[user.lower()] = {"label": "VIP", "color": "#daa520"}
             await save_ranks()
     await push_pb_update(user)
+    try:
+        if item == "vip": await unlock_achievement(user, "vip")
+        elif item == "custom_rank": await unlock_achievement(user, "custom_rank")
+    except Exception: pass
     return web.json_response({"ok": True, "balance": get_pb(user), "purchases": pu})
 
 async def shop_sell_handler(request):
@@ -2846,6 +2868,10 @@ async def casino_mines_handler(request):
         await save_place_bucks()
         await push_pb_update(user)
         await broadcast_casino_result(user, "Mines", g["bet"], winnings, f"cashed out at x{cur_mult} ({revealed_count} reveals)")
+        try:
+            await unlock_achievement(user, "casino_first")
+            await unlock_achievement(user, "casino_mines_win")
+        except Exception: pass
         payload = {"ok": True, "phase": "done", "hit_mine": False, "cashed_out": True, "mines": list(g["mines"]), "revealed": list(g["revealed"]), "multiplier": cur_mult, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user)}
         mines_games.pop(ulow, None)
         return web.json_response(payload)
@@ -2871,6 +2897,192 @@ async def save_gd_levels():
         await db["store"].update_one({"_id": "gd_levels"}, {"$set": {"data": gd_levels}}, upsert=True)
     except Exception as e:
         print("save_gd_levels failed:", e)
+
+# ============ Achievements + Notification Log ============
+
+ACHIEVEMENTS = {
+    "first_pixel": {"name": "First Pixel", "desc": "Place your first pixel", "reward": 10, "icon": "🎨", "category": "pixels"},
+    "pixels_100": {"name": "Getting Started", "desc": "Place 100 pixels", "reward": 25, "icon": "🖌️", "category": "pixels"},
+    "pixels_1k": {"name": "Level 1", "desc": "Place 1,000 pixels", "reward": 50, "icon": "🖼️", "category": "pixels"},
+    "pixels_10k": {"name": "Dedicated Artist", "desc": "Place 10,000 pixels", "reward": 100, "icon": "🎭", "category": "pixels"},
+    "pixels_50k": {"name": "Prolific", "desc": "Place 50,000 pixels", "reward": 250, "icon": "🖋️", "category": "pixels"},
+    "pixels_100k": {"name": "Six Figures", "desc": "Place 100,000 pixels", "reward": 500, "icon": "🏆", "category": "pixels"},
+    "pixels_500k": {"name": "Legend", "desc": "Place 500,000 pixels", "reward": 1000, "icon": "🌟", "category": "pixels"},
+    "pixels_1m": {"name": "One Million Pixels", "desc": "Place 1,000,000 pixels", "reward": 5000, "icon": "💎", "category": "pixels"},
+    "level_10": {"name": "Level 10", "desc": "Reach level 10", "reward": 100, "icon": "🔟", "category": "level"},
+    "level_50": {"name": "Level 50", "desc": "Reach level 50", "reward": 500, "icon": "🎖️", "category": "level"},
+    "level_100": {"name": "Level 100", "desc": "Reach level 100", "reward": 1000, "icon": "🏅", "category": "level"},
+    "first_friend": {"name": "New Friend", "desc": "Make your first friend", "reward": 25, "icon": "🤝", "category": "social"},
+    "five_friends": {"name": "Popular", "desc": "Have 5 friends", "reward": 100, "icon": "👥", "category": "social"},
+    "first_lobby": {"name": "Founder", "desc": "Create your first lobby", "reward": 25, "icon": "🏠", "category": "social"},
+    "first_dm": {"name": "First DM", "desc": "Send your first DM", "reward": 10, "icon": "💬", "category": "social"},
+    "first_chat": {"name": "Hello World", "desc": "Send your first chat message", "reward": 10, "icon": "🗣️", "category": "social"},
+    "vip": {"name": "VIP", "desc": "Become a VIP", "reward": 50, "icon": "⭐", "category": "shop"},
+    "custom_rank": {"name": "Ranked", "desc": "Purchase a custom rank", "reward": 50, "icon": "🎗️", "category": "shop"},
+    "clan_member": {"name": "Clan Member", "desc": "Join a clan", "reward": 25, "icon": "🛡️", "category": "social"},
+    "casino_first": {"name": "High Roller", "desc": "Play a casino game", "reward": 25, "icon": "🎰", "category": "games"},
+    "casino_bj_win": {"name": "Blackjack Winner", "desc": "Win a hand of blackjack", "reward": 25, "icon": "🃏", "category": "games"},
+    "casino_mines_win": {"name": "Cashed Out", "desc": "Cash out at mines", "reward": 25, "icon": "💣", "category": "games"},
+    "casino_rps_win": {"name": "Rock Star", "desc": "Win at Rock Paper Scissors", "reward": 25, "icon": "✂️", "category": "games"},
+    "gd_clear": {"name": "GeoDash Champion", "desc": "Clear a GeoDash level", "reward": 100, "icon": "🚀", "category": "games"},
+    "gd_level_maker": {"name": "Level Designer", "desc": "Create a custom GeoDash level", "reward": 100, "icon": "🛠️", "category": "games"},
+    "streak_7": {"name": "Weekly Regular", "desc": "Reach a 7-day streak", "reward": 100, "icon": "🔥", "category": "special"},
+    "streak_30": {"name": "Monthly Regular", "desc": "Reach a 30-day streak", "reward": 500, "icon": "🌋", "category": "special"},
+    "avatar_set": {"name": "Show Your Face", "desc": "Upload a profile picture", "reward": 25, "icon": "🖼️", "category": "social"},
+}
+
+user_achievements = {}   # {user_lower: {ach_id: unlock_ts}}
+notification_log = {}    # {user_lower: [{type, text, ts, seen, ...}]}
+NOTIF_CAP = 100
+
+async def save_achievements():
+    await db_save("store", "user_achievements", user_achievements)
+
+async def save_notifications():
+    await db_save("store", "notification_log", notification_log)
+
+async def unlock_achievement(user, ach_id, silent=False):
+    """Grant achievement + reward if not already unlocked. Returns True on first unlock."""
+    if not user: return False
+    ach = ACHIEVEMENTS.get(ach_id)
+    if not ach: return False
+    ulow = user.lower()
+    if is_admin(user): return False  # admin is unlimited, skip
+    slot = user_achievements.setdefault(ulow, {})
+    if ach_id in slot: return False
+    slot[ach_id] = time.time()
+    credit_pb(user, ach["reward"])
+    await save_place_bucks()
+    await save_achievements()
+    await push_pb_update(user)
+    if not silent:
+        await push_notification(user, {"type": "achievement", "ach_id": ach_id, "name": ach["name"], "desc": ach["desc"], "reward": ach["reward"], "icon": ach["icon"]})
+    return True
+
+def push_to_notification_log(user, notif):
+    ulow = user.lower()
+    lst = notification_log.setdefault(ulow, [])
+    entry = dict(notif)
+    entry["ts"] = time.time()
+    entry["seen"] = False
+    lst.append(entry)
+    if len(lst) > NOTIF_CAP:
+        del lst[:len(lst) - NOTIF_CAP]
+
+async def push_notification(user, notif):
+    """Log + deliver a notification to the user."""
+    push_to_notification_log(user, notif)
+    await save_notifications()
+    try: await notify_social(user, notif)
+    except Exception: pass
+
+async def check_pixel_thresholds(user, silent=False):
+    """Check pixel-count-based + level-based achievements against lifetime_pixels."""
+    if not user or is_admin(user): return
+    pixels = int(lifetime_pixels.get(user.lower(), 0))
+    for threshold, aid in ((1, "first_pixel"), (100, "pixels_100"), (1000, "pixels_1k"),
+                           (10000, "pixels_10k"), (50000, "pixels_50k"), (100000, "pixels_100k"),
+                           (500000, "pixels_500k"), (1000000, "pixels_1m")):
+        if pixels >= threshold: await unlock_achievement(user, aid, silent=silent)
+    lvl = pixels // 1000
+    for threshold, aid in ((10, "level_10"), (50, "level_50"), (100, "level_100")):
+        if lvl >= threshold: await unlock_achievement(user, aid, silent=silent)
+
+async def check_friend_achievements(user, silent=False):
+    fd = friends_data.get(user.lower()) or {}
+    fc = len(fd.get("friends", []))
+    if fc >= 1: await unlock_achievement(user, "first_friend", silent=silent)
+    if fc >= 5: await unlock_achievement(user, "five_friends", silent=silent)
+
+async def check_streak_achievements(user, silent=False):
+    st = get_streak(user) or {}
+    n = int(st.get("count", 0))
+    if n >= 7: await unlock_achievement(user, "streak_7", silent=silent)
+    if n >= 30: await unlock_achievement(user, "streak_30", silent=silent)
+
+async def backfill_achievements_once(migrations_doc):
+    if migrations_doc.get("achievements_backfill_v1"): return
+    print("achievements_backfill_v1: scanning every account for retroactive unlocks...")
+    scanned = 0
+    for uname in list(accounts.keys()):
+        if is_admin(uname): continue
+        scanned += 1
+        await check_pixel_thresholds(uname, silent=True)
+        await check_friend_achievements(uname, silent=True)
+        await check_streak_achievements(uname, silent=True)
+        ulow = uname.lower()
+        if any(l.get("owner", "").lower() == ulow for l in lobbies.values()):
+            await unlock_achievement(uname, "first_lobby", silent=True)
+        if is_vip(uname): await unlock_achievement(uname, "vip", silent=True)
+        rk = ranks.get(ulow)
+        if rk and (rk.get("label") not in (None, "", "VIP")):
+            await unlock_achievement(uname, "custom_rank", silent=True)
+        for c in clans.values():
+            if any((m or "").lower() == ulow for m in c.get("members", [])):
+                await unlock_achievement(uname, "clan_member", silent=True); break
+        if any(l.get("author", "").lower() == ulow for l in gd_levels.values()):
+            await unlock_achievement(uname, "gd_level_maker", silent=True)
+        if profile_pictures.get(ulow):
+            await unlock_achievement(uname, "avatar_set", silent=True)
+    migrations_doc["achievements_backfill_v1"] = True
+    await db_save("store", "migrations", migrations_doc)
+    print(f"achievements_backfill_v1: scanned {scanned} accounts")
+
+# ---- API handlers ----
+
+async def achievements_list_handler(request):
+    """Public: definitions + your unlocked ids and timestamps."""
+    user = get_auth_user(request)
+    defs = [{"id": k, **v} for k, v in ACHIEVEMENTS.items()]
+    my = user_achievements.get((user or "").lower(), {}) if user else {}
+    return web.json_response({"definitions": defs, "unlocked": my, "total": len(ACHIEVEMENTS)})
+
+async def notifications_list_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    lst = notification_log.get(user.lower()) or []
+    return web.json_response({"notifications": list(reversed(lst))[:NOTIF_CAP]})
+
+async def notifications_seen_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    lst = notification_log.get(user.lower()) or []
+    for n in lst: n["seen"] = True
+    await save_notifications()
+    return web.json_response({"ok": True})
+
+async def profile_handler(request):
+    target = (request.query.get("user") or "").strip()
+    if not target: return web.json_response({"error": "user query required"}, status=400)
+    canonical = next((u for u in accounts if u.lower() == target.lower()), None)
+    if not canonical: return web.json_response({"error": "User not found"}, status=404)
+    ulow = canonical.lower()
+    pixels = get_user_pixels(canonical)
+    ach_map = user_achievements.get(ulow, {})
+    account = accounts.get(canonical) or {}
+    my_clan = None
+    for cid, c in clans.items():
+        if any((m or "").lower() == ulow for m in c.get("members", [])):
+            my_clan = {"id": cid, "name": c.get("name"), "tag": c.get("tag")}
+            break
+    return web.json_response({
+        "name": canonical,
+        "pixels": pixels,
+        "level": pixels // 1000,
+        "friends": len((friends_data.get(ulow) or {}).get("friends", [])),
+        "lobbies_owned": sum(1 for l in lobbies.values() if l.get("owner", "").lower() == ulow),
+        "gd_levels_made": sum(1 for l in gd_levels.values() if l.get("author", "").lower() == ulow),
+        "achievements_unlocked": len(ach_map),
+        "achievement_ids": list(ach_map.keys()),
+        "achievement_total": len(ACHIEVEMENTS),
+        "join_ts": account.get("created"),
+        "online": is_online(canonical),
+        "vip": is_vip(canonical),
+        "rank": get_rank(canonical),
+        "clan": my_clan,
+        "name_color": get_name_color(canonical),
+        "last_online": last_online.get(ulow),
+    })
 
 _GD_PORTAL_COLORS = {"cube": "#3a86ff", "ufo": "#b14aed", "plane": "#ff8c42", "wave": "#22d3ee"}
 _GD_SPEED_ALLOWED = (0.5, 1, 2, 3)
@@ -2973,6 +3185,10 @@ async def casino_gd_result_handler(request):
     g["done"] = True
     detail = f"reached {pct:.0f}% (x{multiplier}) seed {g['seed']}"
     await broadcast_casino_result(user, "GeoDash", g["bet"], winnings, detail)
+    try:
+        await unlock_achievement(user, "casino_first")
+        if progress >= 0.999: await unlock_achievement(user, "gd_clear")
+    except Exception: pass
     gd_attempts.pop(ulow, None)
     return web.json_response({"ok": True, "progress": progress, "multiplier": multiplier, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user), "seed": g["seed"]})
 
@@ -3009,6 +3225,8 @@ async def gd_save_level_handler(request):
         lid = secrets.token_urlsafe(8)
         gd_levels[lid] = {"id": lid, "author": user, "name": name, "obstacles": validated, "created": time.time(), "plays": 0}
     await save_gd_levels()
+    try: await unlock_achievement(user, "gd_level_maker")
+    except Exception: pass
     return web.json_response({"ok": True, "id": edit_id or lid})
 
 async def gd_list_levels_handler(request):
@@ -3109,6 +3327,10 @@ async def _bj_resolve(user, game):
     await push_pb_update(user)
     detail = "bust" if psc > 21 else f"{psc} vs dealer {dsc}"
     await broadcast_casino_result(user, "Blackjack", bet, winnings, detail)
+    try:
+        await unlock_achievement(user, "casino_first")
+        if outcome == "win": await unlock_achievement(user, "casino_bj_win")
+    except Exception: pass
     return outcome, winnings, psc, dsc
 
 async def casino_blackjack_handler(request):
@@ -3347,6 +3569,10 @@ async def _rps_finish(gid, requesting_user):
             await broadcast_casino_result(u, "RPS", bet, bet * 2, ("forfeit by " + opp) if timeout else f"beat {opp}")
         else:
             await broadcast_casino_result(u, "RPS", bet, 0, ("forfeited to " + opp) if timeout else f"lost to {opp}")
+        try:
+            await unlock_achievement(u, "casino_first")
+            if my_out == "win": await unlock_achievement(u, "casino_rps_win")
+        except Exception: pass
     is_p1 = requesting_user.lower() == p1l
     my_choice = c1 if is_p1 else c2
     opp_choice = c2 if is_p1 else c1
@@ -5991,6 +6217,8 @@ async def websocket_handler(request):
                             await ws.send_json({"type": "system", "text": "Stop repeating the same message."})
                             continue
                         chat_times.append(now2)
+                        try: await unlock_achievement(username, "first_chat")
+                        except Exception: pass
                         last_chat_text = text
                         lobby = lobbies.get(lobby_id)
                         if lobby: lobby["last_activity"] = now2
@@ -6504,6 +6732,7 @@ async def on_startup(app):
         migrations_doc["lifetime_pixels_reconcile_v2"] = True
         await db_save("store", "migrations", migrations_doc)
         print(f"lifetime_pixels_reconcile_v2: raised lifetime_pixels for {raised} users to match summed pixel_counts across lobbies (fixes level display for legacy accounts)")
+    await backfill_achievements_once(migrations_doc)
     if not migrations_doc.get("starting_floor_v1"):
         floor = 50
         for uname in accounts.keys():
@@ -6722,6 +6951,8 @@ async def set_avatar_handler(request):
         return web.json_response({"error": "Invalid image data (must be data:image/... base64)"}, status=400)
     profile_pictures[user.lower()] = avatar
     await save_profile_pictures()
+    try: await unlock_achievement(user, "avatar_set")
+    except Exception: pass
     return web.json_response({"ok": True})
 
 async def clear_avatar_handler(request):
@@ -6786,6 +7017,9 @@ for _path, _h in (
     ("/api/admin/fake-log", admin_view_fake_log_handler),
     ("/api/mod/reports", reports_list_handler),
     ("/api/casino/gd/levels", gd_list_levels_handler),
+    ("/api/achievements", achievements_list_handler),
+    ("/api/notifications", notifications_list_handler),
+    ("/api/profile", profile_handler),
     ("/ws", websocket_handler), ("/ws/social", social_ws_handler), ("/", index_handler),
 ): _g(_path, _h)
 for _path, _h in (
@@ -6817,6 +7051,7 @@ for _path, _h in (
     ("/api/casino/plinko", casino_plinko_handler), ("/api/casino/mines", casino_mines_handler),
     ("/api/casino/gd/start", casino_gd_start_handler), ("/api/casino/gd/result", casino_gd_result_handler),
     ("/api/casino/gd/save-level", gd_save_level_handler), ("/api/casino/gd/delete-level", gd_delete_level_handler),
+    ("/api/notifications/seen", notifications_seen_handler),
     ("/api/casino/amongus/create", amongus_create_handler), ("/api/casino/amongus/join", amongus_join_handler),
     ("/api/casino/amongus/start", amongus_start_handler), ("/api/casino/amongus/say", amongus_say_handler),
     ("/api/casino/amongus/kill", amongus_kill_handler), ("/api/casino/amongus/vote", amongus_vote_handler),
