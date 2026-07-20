@@ -2916,7 +2916,6 @@ ACHIEVEMENTS = {
     "five_friends": {"name": "Popular", "desc": "Have 5 friends", "reward": 100, "icon": "👥", "category": "social"},
     "first_lobby": {"name": "Founder", "desc": "Create your first lobby", "reward": 25, "icon": "🏠", "category": "social"},
     "first_dm": {"name": "First DM", "desc": "Send your first DM", "reward": 10, "icon": "💬", "category": "social"},
-    "first_chat": {"name": "Hello World", "desc": "Send your first chat message", "reward": 10, "icon": "🗣️", "category": "social"},
     "vip": {"name": "VIP", "desc": "Become a VIP", "reward": 50, "icon": "⭐", "category": "shop"},
     "custom_rank": {"name": "Ranked", "desc": "Purchase a custom rank", "reward": 50, "icon": "🎗️", "category": "shop"},
     "clan_member": {"name": "Clan Member", "desc": "Join a clan", "reward": 25, "icon": "🛡️", "category": "social"},
@@ -6217,8 +6216,6 @@ async def websocket_handler(request):
                             await ws.send_json({"type": "system", "text": "Stop repeating the same message."})
                             continue
                         chat_times.append(now2)
-                        try: await unlock_achievement(username, "first_chat")
-                        except Exception: pass
                         last_chat_text = text
                         lobby = lobbies.get(lobby_id)
                         if lobby: lobby["last_activity"] = now2
