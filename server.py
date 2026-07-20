@@ -3147,9 +3147,14 @@ async def casino_gd_start_handler(request):
     return web.json_response({"ok": True, "seed": seed, "length": GD_LEVEL_LENGTH, "max_mult": GD_MAX_MULT, "balance": get_pb(user)})
 
 async def casino_gd_result_handler(request):
-    data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Body must be JSON"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "Body must be a JSON object"}, status=400)
     ulow = user.lower()
     g = gd_attempts.get(ulow)
     if not g or g.get("done"):
@@ -3195,58 +3200,81 @@ async def casino_gd_result_handler(request):
     return web.json_response({"ok": True, "progress": progress, "multiplier": multiplier, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user), "seed": g["seed"]})
 
 async def gd_save_level_handler(request):
-    data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    name = str(data.get("name", "")).strip()[:GD_LEVEL_NAME_MAX]
-    if not name: return web.json_response({"error": "Name required"}, status=400)
-    raw = data.get("obstacles") or []
-    if not isinstance(raw, list) or len(raw) < 1:
-        return web.json_response({"error": "Level must have at least 1 obstacle"}, status=400)
-    if len(raw) > GD_LEVEL_MAX_OBSTACLES:
-        return web.json_response({"error": f"Max {GD_LEVEL_MAX_OBSTACLES} obstacles"}, status=400)
-    validated = []
-    for o in raw:
-        v = _validate_gd_obstacle(o)
-        if v is None: return web.json_response({"error": "Bad obstacle data"}, status=400)
-        validated.append(v)
-    ulow = user.lower()
-    edit_id = str(data.get("id", "")).strip()
-    if edit_id:
-        lvl = gd_levels.get(edit_id)
-        if not lvl: return web.json_response({"error": "Level not found"}, status=404)
-        if lvl["author"].lower() != ulow and not is_admin(user):
-            return web.json_response({"error": "Not owner"}, status=403)
-        lvl["name"] = name
-        lvl["obstacles"] = validated
-        lvl["updated"] = time.time()
-    else:
-        owned = [1 for l in gd_levels.values() if l.get("author", "").lower() == ulow]
-        if len(owned) >= GD_LEVELS_PER_USER and not is_admin(user):
-            return web.json_response({"error": f"Limit {GD_LEVELS_PER_USER} levels per user"}, status=400)
-        lid = secrets.token_urlsafe(8)
-        gd_levels[lid] = {"id": lid, "author": user, "name": name, "obstacles": validated, "created": time.time(), "plays": 0}
-    await save_gd_levels()
-    try: await unlock_achievement(user, "gd_level_maker")
-    except Exception: pass
-    return web.json_response({"ok": True, "id": edit_id or lid})
+    if not check_rate_limit(user, "gd_save_level", 6, 60):
+        return web.json_response({"error": "Too many saves - wait a moment (6/min)"}, status=429)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Body must be JSON"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "Body must be a JSON object"}, status=400)
+    try:
+        name = str(data.get("name", "")).strip()[:GD_LEVEL_NAME_MAX]
+        if not name: return web.json_response({"error": "Name required"}, status=400)
+        raw = data.get("obstacles") or []
+        if not isinstance(raw, list) or len(raw) < 1:
+            return web.json_response({"error": "Level must have at least 1 obstacle"}, status=400)
+        if len(raw) > GD_LEVEL_MAX_OBSTACLES:
+            return web.json_response({"error": f"Max {GD_LEVEL_MAX_OBSTACLES} obstacles"}, status=400)
+        validated = []
+        for o in raw:
+            v = _validate_gd_obstacle(o)
+            if v is None: return web.json_response({"error": "Bad obstacle data"}, status=400)
+            validated.append(v)
+        ulow = user.lower()
+        edit_id = str(data.get("id", "")).strip()
+        new_id = None
+        if edit_id:
+            lvl = gd_levels.get(edit_id)
+            if not lvl: return web.json_response({"error": "Level not found"}, status=404)
+            if lvl["author"].lower() != ulow and not is_admin(user):
+                return web.json_response({"error": "Not owner"}, status=403)
+            lvl["name"] = name
+            lvl["obstacles"] = validated
+            lvl["updated"] = time.time()
+        else:
+            owned = sum(1 for l in gd_levels.values() if l.get("author", "").lower() == ulow)
+            if owned >= GD_LEVELS_PER_USER and not is_admin(user):
+                return web.json_response({"error": f"Limit {GD_LEVELS_PER_USER} levels per user"}, status=400)
+            new_id = secrets.token_urlsafe(8)
+            gd_levels[new_id] = {"id": new_id, "author": user, "name": name, "obstacles": validated, "created": time.time(), "plays": 0}
+        await save_gd_levels()
+        try: await unlock_achievement(user, "gd_level_maker")
+        except Exception: pass
+        return web.json_response({"ok": True, "id": edit_id or new_id})
+    except Exception as e:
+        print(f"gd_save_level_handler error for {user}: {type(e).__name__}: {e}")
+        return web.json_response({"error": "Internal error saving level"}, status=500)
 
 async def gd_list_levels_handler(request):
     lst = sorted(gd_levels.values(), key=lambda l: l.get("created", 0), reverse=True)
     return web.json_response({"levels": lst})
 
 async def gd_delete_level_handler(request):
-    data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    lid = str(data.get("id", "")).strip()
-    lvl = gd_levels.get(lid)
-    if not lvl: return web.json_response({"error": "Not found"}, status=404)
-    if lvl["author"].lower() != user.lower() and not is_admin(user):
-        return web.json_response({"error": "Not owner"}, status=403)
-    gd_levels.pop(lid, None)
-    await save_gd_levels()
-    return web.json_response({"ok": True})
+    if not check_rate_limit(user, "gd_delete_level", 10, 60):
+        return web.json_response({"error": "Too many deletes - slow down"}, status=429)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Body must be JSON"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "Body must be a JSON object"}, status=400)
+    try:
+        lid = str(data.get("id", "")).strip()
+        lvl = gd_levels.get(lid)
+        if not lvl: return web.json_response({"error": "Not found"}, status=404)
+        if lvl["author"].lower() != user.lower() and not is_admin(user):
+            return web.json_response({"error": "Not owner"}, status=403)
+        gd_levels.pop(lid, None)
+        await save_gd_levels()
+        return web.json_response({"ok": True})
+    except Exception as e:
+        print(f"gd_delete_level_handler error for {user}: {type(e).__name__}: {e}")
+        return web.json_response({"error": "Internal error deleting level"}, status=500)
 
 PLINKO_ROWS = 9
 PLINKO_MULTIPLIERS = [10.0, 3.0, 1.4, 1.1, 0.5, 0.3, 0.5, 1.1, 1.4, 3.0, 10.0]
