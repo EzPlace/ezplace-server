@@ -907,8 +907,24 @@ async def load_all_data():
     global economy_history
     economy_history = await db_load("store", "economy_history") or []
     user_ips = await db_load("store", "user_ips") or {}
-    global gd_levels
+    global gd_levels, _gd_levels_max_seen
     gd_levels = await db_load("store", "gd_levels") or {}
+    # If primary is empty, try the backup - this catches the case where a bad save
+    # (e.g. an aborted transaction, a bug that wrote {} over real data) wiped it.
+    if not gd_levels:
+        try:
+            bak_doc = await db["store"].find_one({"_id": "gd_levels_backup_latest"})
+            if bak_doc and bak_doc.get("data"):
+                gd_levels = bak_doc["data"]
+                print(f"gd_levels: primary empty, RESTORED {len(gd_levels)} levels from backup (ts={bak_doc.get('ts')})")
+                await db["store"].update_one({"_id": "gd_levels"}, {"$set": {"data": gd_levels}}, upsert=True)
+        except Exception as e:
+            print("gd_levels backup restore failed:", e)
+    _gd_levels_max_seen = len(gd_levels)
+    print(f"gd_levels loaded: {_gd_levels_max_seen} level(s)")
+    if gd_levels:
+        try: await snapshot_gd_levels_backup()
+        except Exception as e: print("initial gd_levels backup snapshot failed:", e)
     global user_achievements, notification_log
     user_achievements = await db_load("store", "user_achievements") or {}
     notification_log = await db_load("store", "notification_log") or {}
@@ -2894,12 +2910,35 @@ GD_LEVELS_PER_USER = 20
 gd_attempts = {}
 gd_levels = {}
 
+_gd_levels_max_seen = 0  # highest in-memory count ever seen, protects against accidental wipe
+
 async def save_gd_levels():
     if not db: return
+    global _gd_levels_max_seen
+    cur_count = len(gd_levels)
+    if cur_count > _gd_levels_max_seen: _gd_levels_max_seen = cur_count
+    # Refuse to overwrite Mongo with an empty dict when we've previously seen data
+    # this process. A single delete of the last level is still allowed via the
+    # delete handler explicitly setting _gd_levels_allow_empty; otherwise skip.
+    if cur_count == 0 and _gd_levels_max_seen > 0 and not globals().get("_gd_levels_allow_empty"):
+        print(f"save_gd_levels REFUSED: would overwrite Mongo (had {_gd_levels_max_seen} levels) with empty dict")
+        return
     try:
         await db["store"].update_one({"_id": "gd_levels"}, {"$set": {"data": gd_levels}}, upsert=True)
     except Exception as e:
         print("save_gd_levels failed:", e)
+
+async def snapshot_gd_levels_backup():
+    """Take a timestamped backup of the current gd_levels dict."""
+    if not db or not gd_levels: return
+    try:
+        await db["store"].update_one(
+            {"_id": "gd_levels_backup_latest"},
+            {"$set": {"data": gd_levels, "ts": time.time(), "count": len(gd_levels)}},
+            upsert=True,
+        )
+    except Exception as e:
+        print("snapshot_gd_levels_backup failed:", e)
 
 # ============ Achievements + Notification Log ============
 
@@ -3270,7 +3309,10 @@ async def gd_delete_level_handler(request):
         if lvl["author"].lower() != user.lower() and not is_admin(user):
             return web.json_response({"error": "Not owner"}, status=403)
         gd_levels.pop(lid, None)
+        # If this was the last level, explicitly permit save_gd_levels to persist the empty state.
+        if not gd_levels: globals()["_gd_levels_allow_empty"] = True
         await save_gd_levels()
+        globals().pop("_gd_levels_allow_empty", None)
         return web.json_response({"ok": True})
     except Exception as e:
         print(f"gd_delete_level_handler error for {user}: {type(e).__name__}: {e}")
