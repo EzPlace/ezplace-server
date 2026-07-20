@@ -2324,10 +2324,12 @@ async def clan_handle_request_handler(request):
     if not found: return web.json_response({"error": "No such pending request"}, status=404)
     clan["pending_requests"] = [r for r in pr if r.lower() != target.lower()]
     if approve:
-                                                       
+
         if not find_clan_by_member(found):
             clan.setdefault("members", []).append(found)
             await apply_clan_rank(found, clan)
+            try: await unlock_achievement(found, "clan_member")
+            except Exception: pass
     await save_clans()
     await notify_social(found, {"type": "clan_request_handled", "clan_name": clan["name"], "approved": approve})
     return web.json_response({"ok": True, "message": ("Approved " if approve else "Rejected ") + found})
@@ -2448,6 +2450,8 @@ async def admin_clan_approve_handler(request):
     clan["status"] = "approved"
     await save_clans()
     await apply_clan_rank(clan["owner"], clan)
+    try: await unlock_achievement(clan["owner"], "clan_member")
+    except Exception: pass
     await notify_social(clan["owner"], {"type": "clan_approved", "clan_name": clan["name"]})
     return web.json_response({"ok": True})
 
@@ -3036,38 +3040,57 @@ async def check_friend_achievements(user, silent=False):
     if fc >= 5: await unlock_achievement(user, "five_friends", silent=silent)
 
 async def check_streak_achievements(user, silent=False):
-    st = get_streak(user) or {}
-    n = int(st.get("count", 0))
+    # Read the raw stored count, not get_streak() which returns 0 when broken.
+    # Achievements are "did you EVER reach X" not "is your current streak X".
+    s = streaks.get(user.lower()) or {}
+    n = int(s.get("count", 0))
     if n >= 7: await unlock_achievement(user, "streak_7", silent=silent)
     if n >= 30: await unlock_achievement(user, "streak_30", silent=silent)
 
 async def backfill_achievements_once(migrations_doc):
-    if migrations_doc.get("achievements_backfill_v1"): return
-    print("achievements_backfill_v1: scanning every account for retroactive unlocks...")
+    # v2 re-runs on every account and covers first_dm + clan_member correctly.
+    # v1 left DM history, streak (when broken), and some clan members un-credited.
+    if migrations_doc.get("achievements_backfill_v2"): return
+    print("achievements_backfill_v2: scanning every account for retroactive unlocks...")
+    # Precompute: which lowercase names have ever sent a DM (from stored dm history).
+    dm_senders = set()
+    for key, msgs in (dms or {}).items():
+        for m in (msgs or []):
+            frm = (m.get("from") if isinstance(m, dict) else None) or ""
+            if frm: dm_senders.add(frm.lower())
+    # Precompute: which lowercase names are in any clan's members list.
+    clan_members = set()
+    for c in clans.values():
+        if c.get("status") != "approved": continue
+        for m in c.get("members", []):
+            if isinstance(m, str) and m: clan_members.add(m.lower())
+        ow = c.get("owner")
+        if isinstance(ow, str) and ow: clan_members.add(ow.lower())
     scanned = 0
     for uname in list(accounts.keys()):
         if is_admin(uname): continue
         scanned += 1
+        ulow = uname.lower()
         await check_pixel_thresholds(uname, silent=True)
         await check_friend_achievements(uname, silent=True)
         await check_streak_achievements(uname, silent=True)
-        ulow = uname.lower()
         if any(l.get("owner", "").lower() == ulow for l in lobbies.values()):
             await unlock_achievement(uname, "first_lobby", silent=True)
         if is_vip(uname): await unlock_achievement(uname, "vip", silent=True)
         rk = ranks.get(ulow)
         if rk and (rk.get("label") not in (None, "", "VIP")):
             await unlock_achievement(uname, "custom_rank", silent=True)
-        for c in clans.values():
-            if any((m or "").lower() == ulow for m in c.get("members", [])):
-                await unlock_achievement(uname, "clan_member", silent=True); break
+        if ulow in clan_members:
+            await unlock_achievement(uname, "clan_member", silent=True)
+        if ulow in dm_senders:
+            await unlock_achievement(uname, "first_dm", silent=True)
         if any(l.get("author", "").lower() == ulow for l in gd_levels.values()):
             await unlock_achievement(uname, "gd_level_maker", silent=True)
         if profile_pictures.get(ulow):
             await unlock_achievement(uname, "avatar_set", silent=True)
-    migrations_doc["achievements_backfill_v1"] = True
+    migrations_doc["achievements_backfill_v2"] = True
     await db_save("store", "migrations", migrations_doc)
-    print(f"achievements_backfill_v1: scanned {scanned} accounts")
+    print(f"achievements_backfill_v2: scanned {scanned} accounts")
 
 # ---- API handlers ----
 
