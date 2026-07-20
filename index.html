@@ -3452,6 +3452,8 @@ let myPurchases = {};
 let myNameColor = null;
 let myUnlimited = false;
 let myStreak = 0;
+let myStreakBroken = false;
+let myStreakPrev = 0;
 let myStreakProgress = { seconds: 0, required: 900, earned_today: false };
 function updateLevelPill() {
   const t = document.getElementById('level-text');
@@ -3478,10 +3480,16 @@ function applyPbState() {
   if (el) {
     const balStr = myUnlimited ? '∞' : (myBalance >= 100000 ? fmtCompact(myBalance) : String(myBalance));
     let suf = '';
+    const passes = (myPurchases && myPurchases.streak_pass) || 0;
     if (myStreak > 0) suf = ' 🔥' + myStreak;
+    else if (myStreakBroken && myStreakPrev > 0 && passes > 0) suf = ' ⏸' + myStreakPrev; // paused, revivable
     el.textContent = 'PB: ' + balStr + suf;
     let tip = 'PlaceBucks: ' + (myUnlimited ? 'unlimited' : myBalance.toLocaleString()) + ' - earn 1 per 100 pixels placed';
     if (myStreak > 0) tip += ' - streak: ' + myStreak + ' day' + (myStreak === 1 ? '' : 's');
+    else if (myStreakBroken && myStreakPrev > 0) {
+      if (passes > 0) tip += ' - streak PAUSED at ' + myStreakPrev + ' days. Stay active today to use a Streak Pass (' + passes + ' left) and continue at ' + (myStreakPrev + 1) + '.';
+      else tip += ' - streak PAUSED at ' + myStreakPrev + ' days. Buy a Streak Pass in the shop to revive.';
+    }
     if (!myStreakProgress.earned_today && myStreakProgress.required) tip += ' - spend ' + Math.ceil((myStreakProgress.required - myStreakProgress.seconds) / 60) + ' more min on this tab to claim today (' + fmtMMSS(myStreakProgress.seconds) + '/' + fmtMMSS(myStreakProgress.required) + ')';
     el.title = tip;
   }
@@ -3528,6 +3536,8 @@ async function refreshMe() {
       });
     }
     myStreak = (d.streak && d.streak.count) || 0;
+    myStreakBroken = !!(d.streak && d.streak.broken);
+    myStreakPrev = (d.streak && d.streak.prev_count) || 0;
     if (d.streak_progress) myStreakProgress = d.streak_progress;
     const modTab = document.getElementById('mod-tab-btn');
     if (modTab) modTab.style.display = d.is_moderator ? 'block' : 'none';

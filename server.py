@@ -417,7 +417,10 @@ def get_streak(user, tz_offset_min=None):
     for i in range(1, allowed_days + 1):
         valid.add((base - timedelta(days=i)).date().isoformat())
     if last_date not in valid:
-        return {"count": 0, "last_date": last_date, "broken": True, "prev_count": count}
+        # Broken but recoverable via streak_pass. Report both the paused count and
+        # the actual stored value so the client can show "your 45 will revive today".
+        pu2 = purchases.get(user.lower()) or {}
+        return {"count": 0, "last_date": last_date, "broken": True, "prev_count": count, "passes_available": int(pu2.get("streak_pass", 0))}
     return {"count": count, "last_date": last_date}
 
 def get_streak_progress(user):
