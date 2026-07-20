@@ -5724,7 +5724,14 @@ async function gdFinish(progress) {
   resEl.textContent = 'Reporting...';
   try {
     const r = await fetch(BACKEND + '/api/casino/gd/result', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ seed: s.seed, progress, time_ms }) });
-    const d = await r.json();
+    let d = null;
+    try { d = await r.json(); } catch {}
+    if (!d) {
+      // Non-JSON response (typically a Render 502 / cold-start HTML page). Distinguish from a network throw.
+      resEl.textContent = 'Server error ' + r.status + ' - run recorded on next reconnect.';
+      resEl.style.color = 'var(--red)';
+      return;
+    }
     if (d.error) { resEl.textContent = d.error; resEl.style.color = 'var(--red)'; return; }
     if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
     if (d.custom) {
@@ -5736,7 +5743,7 @@ async function gdFinish(progress) {
     if (net > 0) { resEl.textContent = '🎉 ' + Math.floor(progress * 100) + '% reached - won ' + d.winnings + ' $ (x' + d.multiplier + ', net +' + net + ')'; resEl.style.color = '#22c55e'; }
     else if (net === 0) { resEl.textContent = '↔ ' + Math.floor(progress * 100) + '% - broke even (x' + d.multiplier + ')'; resEl.style.color = 'var(--gold)'; }
     else { resEl.textContent = '💀 ' + Math.floor(progress * 100) + '% - net ' + net + ' $'; resEl.style.color = 'var(--red)'; }
-  } catch { resEl.textContent = 'Server offline - result not saved.'; resEl.style.color = 'var(--red)'; }
+  } catch (err) { resEl.textContent = 'Network error: ' + (err && err.message ? err.message : 'no connection'); resEl.style.color = 'var(--red)'; }
 }
 function gdDraw(ctx) {
   const s = gdState;
@@ -6105,9 +6112,11 @@ async function gdBrowseOpen() {
           if (!confirm('Delete "' + lvl.name + '"?')) return;
           try {
             const rr = await fetch(BACKEND + '/api/casino/gd/delete-level', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ id: lvl.id }) });
-            const dd = await rr.json();
+            let dd = null;
+            try { dd = await rr.json(); } catch {}
+            if (!dd) { alert('Server error ' + rr.status); return; }
             if (dd.error) alert(dd.error); else gdBrowseOpen();
-          } catch { alert('Server offline.'); }
+          } catch (err) { alert('Network error: ' + (err && err.message ? err.message : 'no connection')); }
         };
         row.appendChild(editBtn); row.appendChild(delBtn);
       }
