@@ -2824,11 +2824,11 @@ async def casino_mines_handler(request):
         cur_mult = _mines_mult(g["n_mines"], len(g["revealed"]))
         nxt_mult = _mines_mult(g["n_mines"], len(g["revealed"]) + 1)
         if len(g["revealed"]) >= MINES_GRID_N - g["n_mines"]:
+            g["done"] = True
             winnings = int(g["bet"] * cur_mult)
             credit_pb(user, winnings)
             await save_place_bucks()
             await push_pb_update(user)
-            g["done"] = True
             await broadcast_casino_result(user, "Mines", g["bet"], winnings, f"cleared all safe tiles x{cur_mult}")
             payload = {"ok": True, "phase": "done", "hit_mine": False, "cleared": True, "mines": list(g["mines"]), "revealed": list(g["revealed"]), "multiplier": cur_mult, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user)}
             mines_games.pop(ulow, None)
@@ -2839,12 +2839,12 @@ async def casino_mines_handler(request):
         if not g or g["done"]: return web.json_response({"error": "No active game"}, status=400)
         revealed_count = len(g["revealed"])
         if revealed_count < 1: return web.json_response({"error": "Reveal at least one tile before cashing out"}, status=400)
+        g["done"] = True
         cur_mult = _mines_mult(g["n_mines"], revealed_count)
         winnings = int(g["bet"] * cur_mult)
         credit_pb(user, winnings)
         await save_place_bucks()
         await push_pb_update(user)
-        g["done"] = True
         await broadcast_casino_result(user, "Mines", g["bet"], winnings, f"cashed out at x{cur_mult} ({revealed_count} reveals)")
         payload = {"ok": True, "phase": "done", "hit_mine": False, "cashed_out": True, "mines": list(g["mines"]), "revealed": list(g["revealed"]), "multiplier": cur_mult, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user)}
         mines_games.pop(ulow, None)
@@ -2910,6 +2910,10 @@ async def casino_gd_start_handler(request):
     if level_id:
         lvl = gd_levels.get(level_id)
         if not lvl: return web.json_response({"error": "Level not found"}, status=404)
+        # Refuse to clobber an in-flight paid attempt with a free custom play.
+        existing = gd_attempts.get(user.lower())
+        if existing and not existing.get("done") and not existing.get("custom_id"):
+            return web.json_response({"error": "Finish your current paid attempt first"}, status=400)
         gd_attempts[user.lower()] = {"seed": 0, "bet": 0, "start_ts": time.time(), "done": False, "custom_id": level_id}
         return web.json_response({"ok": True, "custom": True, "level": lvl, "length": GD_LEVEL_LENGTH, "balance": get_pb(user)})
     try: amount = int(data.get("amount", 0))
@@ -3087,6 +3091,8 @@ def _bj_view(hand, hide_first=False):
     return out
 
 async def _bj_resolve(user, game):
+    # Caller MUST set game["done"] = True synchronously (before any await) after
+    # passing the guard, so concurrent hit/stand requests can't both reach here.
     bet = game["bet"]
     psc = _bj_score(game["player"])
     dsc = _bj_score(game["dealer"])
@@ -3101,7 +3107,6 @@ async def _bj_resolve(user, game):
     if winnings > 0: credit_pb(user, winnings)
     await save_place_bucks()
     await push_pb_update(user)
-    game["done"] = True
     detail = "bust" if psc > 21 else f"{psc} vs dealer {dsc}"
     await broadcast_casino_result(user, "Blackjack", bet, winnings, detail)
     return outcome, winnings, psc, dsc
@@ -3116,6 +3121,8 @@ async def casino_blackjack_handler(request):
     if action == "start":
         if ulow in bj_games and not bj_games[ulow].get("done"):
             return web.json_response({"error": "Finish your current hand first (hit or stand)"}, status=400)
+        if not check_rate_limit(user, "bj_start", 30, 60):
+            return web.json_response({"error": "Too many blackjack starts (30/min)"}, status=429)
         try: amount = int(data.get("amount", 0))
         except: return web.json_response({"error": "Invalid bet"}, status=400)
         if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
@@ -3124,28 +3131,28 @@ async def casino_blackjack_handler(request):
             return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
         deck = list(range(52))
         secrets.SystemRandom().shuffle(deck)
-                                                                         
+
         player = [deck.pop(), deck.pop()]
         dealer = [deck.pop(), deck.pop()]
         game = {"deck": deck, "player": player, "dealer": dealer, "bet": amount, "done": False}
         bj_games[ulow] = game
         psc = _bj_score(player); dsc_up = _bj_score([dealer[0]])
-                          
+
         if psc == 21:
             if _bj_score(dealer) == 21:
-                      
-                credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
+
                 game["done"] = True
+                credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
                 await broadcast_casino_result(user, "Blackjack", amount, amount, "double 21 push")
                 return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": 21, "outcome": "push", "winnings": amount, "bet": amount, "balance": get_pb(user)})
             else:
+                game["done"] = True
                 pay = int(amount * 2.5)
                 credit_pb(user, pay); await save_place_bucks(); await push_pb_update(user)
-                game["done"] = True
                 await broadcast_casino_result(user, "Blackjack", amount, pay, "NATURAL 21")
                 return web.json_response({"ok": True, "phase": "done", "player": _bj_view(player), "dealer": _bj_view(dealer), "player_score": 21, "dealer_score": _bj_score(dealer), "outcome": "blackjack", "winnings": pay, "bet": amount, "balance": get_pb(user)})
         return web.json_response({"ok": True, "phase": "player", "player": _bj_view(player), "dealer_up": _bj_label(dealer[0]), "player_score": psc, "dealer_up_score": dsc_up, "bet": amount, "balance": get_pb(user)})
-                                      
+
     game = bj_games.get(ulow)
     if not game or game.get("done"):
         return web.json_response({"error": "No active blackjack game - deal first"}, status=400)
@@ -3153,11 +3160,12 @@ async def casino_blackjack_handler(request):
         game["player"].append(game["deck"].pop())
         psc = _bj_score(game["player"])
         if psc > 21:
+            game["done"] = True
             outcome, winnings, _, dsc = await _bj_resolve(user, game)
             return web.json_response({"ok": True, "phase": "done", "player": _bj_view(game["player"]), "dealer": _bj_view(game["dealer"]), "player_score": psc, "dealer_score": dsc, "outcome": "bust", "winnings": 0, "bet": game["bet"], "balance": get_pb(user)})
         return web.json_response({"ok": True, "phase": "player", "player": _bj_view(game["player"]), "dealer_up": _bj_label(game["dealer"][0]), "player_score": psc, "bet": game["bet"], "balance": get_pb(user)})
     if action == "stand":
-                                
+        game["done"] = True
         while _bj_score(game["dealer"]) < 17:
             game["dealer"].append(game["deck"].pop())
         outcome, winnings, psc, dsc = await _bj_resolve(user, game)
@@ -3237,6 +3245,8 @@ async def casino_rps_challenge_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "rps_challenge", 10, 60):
+        return web.json_response({"error": "Too many RPS challenges (10/min)"}, status=429)
     target = (data.get("opponent") or "").strip()
     try: amount = int(data.get("amount", 0))
     except: return web.json_response({"error": "Invalid bet"}, status=400)
@@ -3248,6 +3258,10 @@ async def casino_rps_challenge_handler(request):
     if not found: return web.json_response({"error": "User not found"}, status=404)
     if get_pb(user) < amount and not is_admin(user):
         return web.json_response({"error": f"Not enough PlaceBucks (need {amount})"}, status=400)
+    # Bound in-flight challenges per user to prevent memory growth from spam.
+    outbound = sum(1 for c in rps_challenges.values() if c.get("challenger", "").lower() == user.lower())
+    if outbound >= 20:
+        return web.json_response({"error": "Too many open challenges - wait for them to expire"}, status=429)
     cid = secrets.token_hex(6)
     rps_challenges[cid] = {"challenger": user, "opponent": found, "bet": amount, "created_at": time.time()}
     await notify_social(found, {"type": "rps_challenge", "from": user, "bet": amount, "challenge_id": cid})
@@ -3302,7 +3316,9 @@ async def casino_rps_cancel_handler(request):
     return web.json_response({"error": "Not in queue"}, status=404)
 
 async def _rps_finish(gid, requesting_user):
-    g = rps_games.get(gid)
+    # Atomic pop BEFORE any await so parallel callers can't double-credit.
+    # Any second caller sees rps_games[gid] gone and returns None.
+    g = rps_games.pop(gid, None)
     if not g: return None
     p1, p2, bet = g["p1"], g["p2"], g["bet"]
     p1l, p2l = p1.lower(), p2.lower()
@@ -3321,7 +3337,7 @@ async def _rps_finish(gid, requesting_user):
         outcome_for = lambda u: "tie" if winner is None else ("win" if u.lower() == winner.lower() else "lose")
     await save_place_bucks()
     await push_pb_update(p1); await push_pb_update(p2)
-                      
+
     for u in (p1, p2):
         my_out = outcome_for(u)
         opp = p2 if u.lower() == p1l else p1
@@ -3331,7 +3347,6 @@ async def _rps_finish(gid, requesting_user):
             await broadcast_casino_result(u, "RPS", bet, bet * 2, ("forfeit by " + opp) if timeout else f"beat {opp}")
         else:
             await broadcast_casino_result(u, "RPS", bet, 0, ("forfeited to " + opp) if timeout else f"lost to {opp}")
-    del rps_games[gid]
     is_p1 = requesting_user.lower() == p1l
     my_choice = c1 if is_p1 else c2
     opp_choice = c2 if is_p1 else c1
@@ -3358,6 +3373,7 @@ async def casino_rps_play_handler(request):
     g["choices"][ulow] = choice
     if all(v is not None for v in g["choices"].values()):
         result = await _rps_finish(gid, user)
+        if result is None: return web.json_response({"phase": "gone"})
         return web.json_response(result)
     return web.json_response({"ok": True, "phase": "waiting"})
 
@@ -3374,6 +3390,7 @@ async def casino_rps_status_handler(request):
     other = next(k for k in g["choices"] if k != ulow)
     if elapsed > RPS_GAME_TIMEOUT and not all(v is not None for v in g["choices"].values()):
         result = await _rps_finish(gid, user)
+        if result is None: return web.json_response({"phase": "gone"})
         return web.json_response(result)
     return web.json_response({"ok": True, "phase": "playing", "you_played": g["choices"][ulow] is not None, "opponent_played": g["choices"][other] is not None, "elapsed": int(elapsed), "timeout": RPS_GAME_TIMEOUT})
 
@@ -5891,9 +5908,13 @@ async def websocket_handler(request):
                     last_pixel = now
                     lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
                     if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
+                        # Only the current author of a pixel may undo it (admins bypass).
+                        author = (lobby.get("pixel_authors") or {}).get(y * lw + x)
+                        if not is_admin(username) and author and author.lower() != username.lower():
+                            continue
                         old_color = lobby["grid"][y * lw + x]
                         if isinstance(from_color, int) and old_color != from_color:
-                            continue                                                                     
+                            continue
                         lobby["grid"][y * lw + x] = color
                         lobby["last_activity"] = now
                         if color != old_color:
@@ -5907,6 +5928,8 @@ async def websocket_handler(request):
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
                 elif data["type"] == "brush_undo" and username and lobby_id and not is_guest:
+                    if not clients.get(ws, {}).get("can_place", True):
+                        continue
                     perm = get_brush_perm(username)
                     if perm["size"] <= 1: continue
 
@@ -5956,6 +5979,10 @@ async def websocket_handler(request):
                     if text:
                         mark_active(username)
                         now2 = time.time()
+                        # Per-user cap (survives multi-socket spam) plus per-socket window.
+                        if not check_rate_limit(username, "chat", 8, 5):
+                            await ws.send_json({"type": "system", "text": "Slow down! Max 8 messages per 5 seconds."})
+                            continue
                         chat_times = [t for t in chat_times if now2 - t < 5]
                         if len(chat_times) >= 5:
                             await ws.send_json({"type": "system", "text": "Slow down! Max 5 messages per 5 seconds."})
@@ -6023,9 +6050,11 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "system", "text": f"Unbanned {target} from this lobby"})
 
                 elif data["type"] == "admin_brush" and username and lobby_id and not is_guest:
+                    if not clients.get(ws, {}).get("can_place", True):
+                        continue
                     perm = get_brush_perm(username)
                     if perm["size"] <= 1:
-                        continue                         
+                        continue
 
                     lobby = lobbies.get(lobby_id)
                     now = time.time()
