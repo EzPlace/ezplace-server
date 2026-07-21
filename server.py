@@ -2931,6 +2931,11 @@ async def save_gd_levels():
         await db["store"].update_one({"_id": "gd_levels"}, {"$set": {"data": gd_levels}}, upsert=True)
     except Exception as e:
         print("save_gd_levels failed:", e)
+    # Mirror to backup on every non-empty save so an accidental empty on a later
+    # restart can be recovered without needing an intermediate startup snapshot.
+    if cur_count > 0:
+        try: await snapshot_gd_levels_backup()
+        except Exception as e: print("gd_levels backup snapshot after save failed:", e)
 
 async def snapshot_gd_levels_backup():
     """Take a timestamped backup of the current gd_levels dict."""
@@ -3226,40 +3231,44 @@ async def casino_gd_result_handler(request):
         time_ms = max(0, int(data.get("time_ms", 0)))
         seed = int(data.get("seed", -1))
     except: return web.json_response({"error": "Bad payload"}, status=400)
-    if g.get("custom_id"):
-        g["done"] = True
-        lvl = gd_levels.get(g["custom_id"])
-        if lvl:
-            lvl["plays"] = int(lvl.get("plays", 0)) + 1
-            await save_gd_levels()
-        gd_attempts.pop(ulow, None)
-        return web.json_response({"ok": True, "progress": progress, "multiplier": 0, "winnings": 0, "bet": 0, "balance": get_pb(user), "custom": True})
-    if seed != g["seed"]:
-        return web.json_response({"error": "Seed mismatch"}, status=400)
-    pct = progress * 100
-    server_elapsed_ms = int((time.time() - g["start_ts"]) * 1000)
-    min_required_ms = int(pct * GD_MIN_PLAY_MS_PER_PCT)
-    if time_ms < min_required_ms or server_elapsed_ms < min_required_ms:
-        g["done"] = True
-        gd_attempts.pop(ulow, None)
-        return web.json_response({"error": "Run too fast to be real (anti-cheat)"}, status=400)
-    if progress < 0.5:
-        multiplier = round(2 * progress, 3)
-    else:
-        multiplier = round(1 + (GD_MAX_MULT - 1) * 2 * (progress - 0.5), 3)
-    winnings = int(g["bet"] * multiplier)
-    credit_pb(user, winnings)
-    await save_place_bucks()
-    await push_pb_update(user)
-    g["done"] = True
-    detail = f"reached {pct:.0f}% (x{multiplier}) seed {g['seed']}"
-    await broadcast_casino_result(user, "GeoDash", g["bet"], winnings, detail)
     try:
-        await unlock_achievement(user, "casino_first")
-        if progress >= 0.999: await unlock_achievement(user, "gd_clear")
-    except Exception: pass
-    gd_attempts.pop(ulow, None)
-    return web.json_response({"ok": True, "progress": progress, "multiplier": multiplier, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user), "seed": g["seed"]})
+        if g.get("custom_id"):
+            g["done"] = True
+            lvl = gd_levels.get(g["custom_id"])
+            if lvl:
+                lvl["plays"] = int(lvl.get("plays", 0)) + 1
+                await save_gd_levels()
+            gd_attempts.pop(ulow, None)
+            return web.json_response({"ok": True, "progress": progress, "multiplier": 0, "winnings": 0, "bet": 0, "balance": get_pb(user), "custom": True})
+        if seed != g["seed"]:
+            return web.json_response({"error": "Seed mismatch"}, status=400)
+        pct = progress * 100
+        server_elapsed_ms = int((time.time() - g["start_ts"]) * 1000)
+        min_required_ms = int(pct * GD_MIN_PLAY_MS_PER_PCT)
+        if time_ms < min_required_ms or server_elapsed_ms < min_required_ms:
+            g["done"] = True
+            gd_attempts.pop(ulow, None)
+            return web.json_response({"error": "Run too fast to be real (anti-cheat)"}, status=400)
+        if progress < 0.5:
+            multiplier = round(2 * progress, 3)
+        else:
+            multiplier = round(1 + (GD_MAX_MULT - 1) * 2 * (progress - 0.5), 3)
+        winnings = int(g["bet"] * multiplier)
+        credit_pb(user, winnings)
+        await save_place_bucks()
+        await push_pb_update(user)
+        g["done"] = True
+        detail = f"reached {pct:.0f}% (x{multiplier}) seed {g['seed']}"
+        await broadcast_casino_result(user, "GeoDash", g["bet"], winnings, detail)
+        try:
+            await unlock_achievement(user, "casino_first")
+            if progress >= 0.999: await unlock_achievement(user, "gd_clear")
+        except Exception: pass
+        gd_attempts.pop(ulow, None)
+        return web.json_response({"ok": True, "progress": progress, "multiplier": multiplier, "winnings": winnings, "bet": g["bet"], "balance": get_pb(user), "seed": g["seed"]})
+    except Exception as e:
+        print(f"casino_gd_result_handler error for {user}: {type(e).__name__}: {e}")
+        return web.json_response({"error": "Internal error - your PB is safe, the attempt has been cleared"}, status=500)
 
 async def gd_save_level_handler(request):
     user = get_auth_user(request)
