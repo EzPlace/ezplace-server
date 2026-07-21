@@ -3053,10 +3053,11 @@ async def check_streak_achievements(user, silent=False):
     if n >= 30: await unlock_achievement(user, "streak_30", silent=silent)
 
 async def backfill_achievements_once(migrations_doc):
-    # v2 re-runs on every account and covers first_dm + clan_member correctly.
-    # v1 left DM history, streak (when broken), and some clan members un-credited.
-    if migrations_doc.get("achievements_backfill_v2"): return
-    print("achievements_backfill_v2: scanning every account for retroactive unlocks...")
+    # Runs on every startup now. unlock_achievement is idempotent (returns False
+    # if already unlocked) and every call here is silent=True (no notifications,
+    # no toasts), so re-scanning costs one iteration over accounts per boot and
+    # any future fix to the definitions or triggers takes effect immediately.
+    print("achievements_backfill: scanning every account for retroactive unlocks...")
     # Precompute: which lowercase names have ever sent a DM (from stored dm history).
     dm_senders = set()
     for key, msgs in (dms or {}).items():
@@ -3093,9 +3094,7 @@ async def backfill_achievements_once(migrations_doc):
             await unlock_achievement(uname, "gd_level_maker", silent=True)
         if profile_pictures.get(ulow):
             await unlock_achievement(uname, "avatar_set", silent=True)
-    migrations_doc["achievements_backfill_v2"] = True
-    await db_save("store", "migrations", migrations_doc)
-    print(f"achievements_backfill_v2: scanned {scanned} accounts")
+    print(f"achievements_backfill: scanned {scanned} accounts")
 
 # ---- API handlers ----
 

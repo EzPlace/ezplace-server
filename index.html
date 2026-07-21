@@ -3677,7 +3677,6 @@ async function openProfile(name) {
     const rankBadge = d.rank && d.rank.label ? `<span style="background:${esc(d.rank.color || '#7c5cfc')};color:#fff;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;margin-left:6px;">${esc(d.rank.label)}</span>` : (d.vip ? '<span style="background:#daa520;color:#000;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;margin-left:6px;">VIP</span>' : '');
     const clanBadge = d.clan && d.clan.tag ? `<span style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:2px 8px;border-radius:8px;font-size:10px;margin-left:6px;">[${esc(d.clan.tag)}]</span>` : '';
     const nameStyle = d.name_color && /^#[0-9a-fA-F]{3,8}$/.test(d.name_color) ? `color:${d.name_color};` : '';
-    const joinStr = d.join_ts ? new Date(d.join_ts * 1000).toLocaleDateString() : 'Unknown';
     const online = d.online ? '<span style="color:#22c55e;font-size:11px;">● Online</span>' : `<span style="color:var(--text-muted);font-size:11px;">Last online ${esc(d.last_online ? fmtRelTime(d.last_online) : 'Inactive')}</span>`;
     const pct = (d.pixels % 1000) / 10;
     const achIds = d.achievement_ids || [];
@@ -3691,7 +3690,6 @@ async function openProfile(name) {
         <div style="flex:1;min-width:0;">
           <div style="font-size:18px;font-weight:800;${nameStyle}">${esc(d.name)}${rankBadge}${clanBadge}</div>
           <div>${online}</div>
-          <div style="font-size:11px;color:var(--text-muted);">Joined ${esc(joinStr)}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;background:var(--bg-elevated);padding:8px;border-radius:6px;">
