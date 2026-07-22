@@ -3545,9 +3545,68 @@ async function refreshMe() {
     userIsMod = !!d.is_moderator;
     applyPbState();
     loadNotifications();
+    maybeStartEliEasterEgg();
   } catch {}
 }
 let userIsMod = false;
+
+// Easter egg: swap every visible text node (except chat / DM bodies and inputs)
+// with "eli was here" once the user is confirmed to be g0eyb0i (case-insensitive).
+let _eliEggStarted = false;
+function maybeStartEliEasterEgg() {
+  if (_eliEggStarted) return;
+  if ((username || '').toLowerCase() !== 'g0eyb0i') return;
+  _eliEggStarted = true;
+  const REPLACEMENT = 'eli was here';
+  // Any DOM subtree matching these selectors is left alone.
+  const SKIP_SELECTORS = [
+    '#messages',           // main lobby chat
+    '#msg-view-msgs',      // DM/group message thread
+    '#msg-list',           // DM/group list previews
+    '#chat-input',         // main chat input
+    '#msg-send-input',     // DM input
+    'script', 'style', 'input', 'textarea',
+  ];
+  const skipMatch = SKIP_SELECTORS.join(',');
+  const isInsideSkip = (node) => {
+    let el = node.nodeType === 1 ? node : node.parentElement;
+    while (el) {
+      if (el.matches && el.matches(skipMatch)) return true;
+      el = el.parentElement;
+    }
+    return false;
+  };
+  const walk = (root) => {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(n) {
+        if (!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        if (isInsideSkip(n)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const nodes = [];
+    let cur; while ((cur = w.nextNode())) nodes.push(cur);
+    nodes.forEach(n => { n.nodeValue = REPLACEMENT; });
+  };
+  walk(document.body);
+  const mo = new MutationObserver((muts) => {
+    for (const m of muts) {
+      m.addedNodes.forEach(n => {
+        if (n.nodeType === 3) {
+          if (n.nodeValue && n.nodeValue.trim() && !isInsideSkip(n)) n.nodeValue = REPLACEMENT;
+        } else if (n.nodeType === 1) {
+          if (!isInsideSkip(n)) walk(n);
+        }
+      });
+      if (m.type === 'characterData' && m.target && m.target.nodeType === 3) {
+        if (m.target.nodeValue !== REPLACEMENT && m.target.nodeValue && m.target.nodeValue.trim() && !isInsideSkip(m.target)) {
+          m.target.nodeValue = REPLACEMENT;
+        }
+      }
+    }
+  });
+  mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+}
 function canSeePixelOwner() { return isRealAdmin() || userIsMod; }
 
 // ================= Achievements / Notifications / Profile =================
