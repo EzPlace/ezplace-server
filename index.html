@@ -3581,7 +3581,7 @@ function renderAchievementsPanel() {
       <div style="font-size:20px;text-align:center;">${isUnlocked ? a.icon : '🔒'}</div>
       <div style="font-size:11px;font-weight:700;text-align:center;">${esc(a.name)}</div>
       <div style="font-size:10px;color:var(--text-muted);text-align:center;line-height:1.25;">${esc(a.desc)}</div>
-      <div style="font-size:10px;text-align:center;color:var(--gold);font-weight:700;margin-top:2px;">+${a.reward} $</div>`;
+      `;
     list.appendChild(card);
   });
 }
@@ -3595,7 +3595,7 @@ function achievementToast(payload) {
   const c = document.getElementById('ach-toast-container');
   const t = document.createElement('div');
   t.style.cssText = 'background:linear-gradient(135deg,#ffd700,#ff8c42);color:#000;padding:10px 14px;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.5);pointer-events:auto;cursor:pointer;max-width:260px;';
-  t.innerHTML = `<div style="font-size:18px;">${payload.icon || '🏆'} Achievement unlocked!</div><div style="font-size:13px;">${esc(payload.name || '')}</div><div style="font-size:11px;font-weight:400;">${esc(payload.desc || '')} · +${payload.reward || 0} $</div>`;
+  t.innerHTML = `<div style="font-size:18px;">${payload.icon || '🏆'} Achievement unlocked!</div><div style="font-size:13px;">${esc(payload.name || '')}</div><div style="font-size:11px;font-weight:400;">${esc(payload.desc || '')}</div>`;
   t.onclick = () => t.remove();
   c.appendChild(t);
   setTimeout(() => { t.style.transition = 'opacity 0.4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 5500);
@@ -3622,7 +3622,7 @@ function notifRow(n) {
   const div = document.createElement('div');
   div.style.cssText = `padding:8px;border-radius:4px;background:${n.seen ? 'var(--bg-elevated)' : 'rgba(34,211,238,0.12)'};border-left:3px solid ${n.seen ? 'transparent' : '#22d3ee'};display:flex;flex-direction:column;gap:2px;cursor:pointer;`;
   let title = '', body = '', icon = '';
-  if (n.type === 'achievement') { icon = n.icon || '🏆'; title = 'Achievement: ' + (n.name || ''); body = (n.desc || '') + ' · +' + (n.reward || 0) + ' $'; }
+  if (n.type === 'achievement') { icon = n.icon || '🏆'; title = 'Achievement: ' + (n.name || ''); body = n.desc || ''; }
   else if (n.type === 'friend_request') { icon = '👋'; title = 'Friend request'; body = n.text || (n.username + ' sent you a friend request'); }
   else if (n.type === 'friend_accepted') { icon = '🤝'; title = 'Friend accepted'; body = n.text || ''; }
   else if (n.type === 'dm') { icon = '💬'; title = 'DM from ' + (n.from || ''); body = n.text || ''; }
