@@ -3545,29 +3545,9 @@ async function refreshMe() {
     userIsMod = !!d.is_moderator;
     applyPbState();
     loadNotifications();
-    maybeStartEliEasterEgg();
   } catch {}
 }
 let userIsMod = false;
-
-// Easter egg: for g0eyb0i (case-insensitive), overlay a full-screen black div
-// so the site appears completely down for them and only them. Client-side only.
-let _eggStarted = false;
-function maybeStartEliEasterEgg() {
-  if (_eggStarted) return;
-  if ((username || '').toLowerCase() !== 'g0eyb0i') return;
-  _eggStarted = true;
-  const cover = document.createElement('div');
-  cover.id = '_egg_blackout';
-  cover.style.cssText = 'position:fixed;inset:0;background:#000;z-index:2147483647;';
-  document.body.appendChild(cover);
-  // Keep it in front even if some later code re-appends elements above it.
-  const mo = new MutationObserver(() => {
-    if (cover.parentNode !== document.body) document.body.appendChild(cover);
-    else if (document.body.lastElementChild !== cover) document.body.appendChild(cover);
-  });
-  mo.observe(document.body, { childList: true });
-}
 function canSeePixelOwner() { return isRealAdmin() || userIsMod; }
 
 // ================= Achievements / Notifications / Profile =================
