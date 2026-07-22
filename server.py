@@ -2992,7 +2992,7 @@ async def save_notifications():
     await db_save("store", "notification_log", notification_log)
 
 async def unlock_achievement(user, ach_id, silent=False):
-    """Grant achievement + reward if not already unlocked. Returns True on first unlock."""
+    """Grant achievement if not already unlocked. Returns True on first unlock. No PB reward."""
     if not user: return False
     ach = ACHIEVEMENTS.get(ach_id)
     if not ach: return False
@@ -3001,12 +3001,9 @@ async def unlock_achievement(user, ach_id, silent=False):
     slot = user_achievements.setdefault(ulow, {})
     if ach_id in slot: return False
     slot[ach_id] = time.time()
-    credit_pb(user, ach["reward"])
-    await save_place_bucks()
     await save_achievements()
-    await push_pb_update(user)
     if not silent:
-        await push_notification(user, {"type": "achievement", "ach_id": ach_id, "name": ach["name"], "desc": ach["desc"], "reward": ach["reward"], "icon": ach["icon"]})
+        await push_notification(user, {"type": "achievement", "ach_id": ach_id, "name": ach["name"], "desc": ach["desc"], "icon": ach["icon"]})
     return True
 
 def push_to_notification_log(user, notif):
