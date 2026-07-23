@@ -1641,7 +1641,7 @@ function updateSidebarTabs() {
   setVis(chat, inLobby);
   setVis(lb, inLobby);
   setVis(friends, authed);
-  const isRealAdminUser = authed && (username || '').toLowerCase() === 'toothpaste';
+  const isRealAdminUser = authed && ['toothpaste','juicebox'].includes((username || '').toLowerCase());
   const showMod = authed && (isRealAdminUser || !!(typeof userIsMod !== 'undefined' && userIsMod));
   const showAdmin = authed && (isRealAdminUser || (typeof isFakeAdmin !== 'undefined' && isFakeAdmin));
   setVis(mod, showMod);
@@ -2576,8 +2576,8 @@ let cooldownWarnTimer = null;
 function showCooldownWarn(ms) { cooldownWarn.textContent = `Cooldown! Wait ${(ms/1000).toFixed(1)}s`; if (cooldownWarnTimer) clearTimeout(cooldownWarnTimer); cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, ms); }
 function startCooldownBar() { lastPlaceTime = Date.now(); cooldownFill.style.width = '100%'; if (cooldownTimer) clearInterval(cooldownTimer); cooldownTimer = setInterval(() => { const pct = Math.max(0, 100 - ((Date.now() - lastPlaceTime) / COOLDOWN) * 100); cooldownFill.style.width = pct + '%'; if (pct <= 0) clearInterval(cooldownTimer); }, 30); }
 
-function isAdminUser() { return username && (username.toLowerCase() === 'toothpaste' || isFakeAdmin); }
-function isRealAdmin() { return username && username.toLowerCase() === 'toothpaste'; }
+function isAdminUser() { return username && (['toothpaste','juicebox'].includes(username.toLowerCase()) || isFakeAdmin); }
+function isRealAdmin() { return username && ['toothpaste','juicebox'].includes(username.toLowerCase()); }
 const UNDO_MAX = 30;
 const undoStack = [];
 function pushUndoAction(action) {
@@ -3044,7 +3044,7 @@ function addMsg(name, text, isOwner, isMsgGuest, isMsgVip, rank, clan, replyTo, 
   }
   const canModerate = !isGuest && username && name.toLowerCase() !== username.toLowerCase() && (
     (currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase()) ||
-    username.toLowerCase() === 'toothpaste'
+    ['toothpaste','juicebox'].includes(username.toLowerCase())
   );
   if (canModerate) styleParts.push('cursor:pointer', 'text-decoration:underline dotted');
   const styleAttr = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
@@ -3442,7 +3442,7 @@ function showLoggedIn() {
   const ub2 = document.getElementById('user-bar-row2'); if (ub2) ub2.style.display = 'flex';
   document.getElementById('user-display').textContent = username;
   chatInput.disabled = false; chatBtn.disabled = false; authError.innerHTML = '&nbsp;';
-  if (username.toLowerCase() === 'toothpaste') { document.getElementById('admin-tab-btn').style.display = 'block'; document.getElementById('fake-admin-section').style.display = ''; }
+  if (['toothpaste','juicebox'].includes(username.toLowerCase())) { document.getElementById('admin-tab-btn').style.display = 'block'; document.getElementById('fake-admin-section').style.display = ''; }
   connectSocial();
   refreshMe();
 }
@@ -7828,7 +7828,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'streak_bonus': { myStreak = msg.count || myStreak; myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true }; if (msg.used_pass && myPurchases) myPurchases.streak_pass = msg.passes_left; applyPbState(); showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); if (isGuest && msg.assigned_name) { guestName = msg.assigned_name; username = msg.assigned_name; const gd = document.getElementById('guest-display'); if (gd) gd.textContent = guestName; } COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && username.toLowerCase() === 'toothpaste'; document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
+      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false && !msg.guest; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); if (isGuest && msg.assigned_name) { guestName = msg.assigned_name; username = msg.assigned_name; const gd = document.getElementById('guest-display'); if (gd) gd.textContent = guestName; } COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace && !isGuest) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (!isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = !isGuest && username && ['toothpaste','juicebox'].includes(username.toLowerCase()); document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
       case 'pixel_owner_result': {
         if (!canSeePixelOwner()) break;
         if (pixelOwnerCell !== msg.y * GRID_W + msg.x) break;
@@ -7898,7 +7898,7 @@ function renderLeaderboard(board) {
   title.textContent = 'Top Pixels Placed';
   panel.appendChild(title);
   const amOwner = !isGuest && currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase();
-  const isTPAdmin = !isGuest && username && username.toLowerCase() === 'toothpaste';
+  const isTPAdmin = !isGuest && username && ['toothpaste','juicebox'].includes(username.toLowerCase());
   entries.forEach((p, i) => {
     const row = document.createElement('div'); row.className = 'lb-row';
     const medal = i === 0 ? ' &#x1F947;' : i === 1 ? ' &#x1F948;' : i === 2 ? ' &#x1F949;' : '';

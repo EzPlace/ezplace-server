@@ -33,6 +33,7 @@ PUBLIC_LOBBIES = [
 DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
 ADMIN_USER = "toothpaste"
+ADMIN_USERS = {"toothpaste", "juicebox"}
 LOBBY_TIMEOUT_PUBLIC = 48 * 60 * 60                                        
 LOBBY_TIMEOUT_PRIVATE = 168 * 60 * 60                                    
                                                                                
@@ -114,7 +115,7 @@ def is_fake_admin(user):
     return user and user.lower() in [f.lower() for f in fake_admins]
 
 def is_admin(user):
-    return user and user.lower() == ADMIN_USER
+    return bool(user) and user.lower() in ADMIN_USERS
 
 def get_friend_data(user):
     if user not in friends_data:
