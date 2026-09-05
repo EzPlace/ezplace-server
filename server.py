@@ -128,7 +128,7 @@ def dm_key(a, b):
 def is_online(username):
     ulow = username.lower()
     for info in clients.values():
-        if info and not info.get("guest") and info.get("username", "").lower() == ulow:
+        if info and info.get("username", "").lower() == ulow:
             return True
     for u in social_clients.values():
         if u and u.lower() == ulow:
@@ -742,7 +742,7 @@ async def idle_reward_loop(app):
             await asyncio.sleep(60)
             online_users = set()
             for info in clients.values():
-                if not info or info.get("guest"): continue
+                if not info: continue
                 n = info.get("username")
                 if n and not is_admin(n): online_users.add(n)
             for uname in social_clients.values():
@@ -1567,7 +1567,7 @@ async def admin_ban_handler(request):
     for tok in [t for t, u in sessions.items() if u.lower() == target.lower()]:
         del sessions[tok]
     for ws, info in list(clients.items()):
-        if info and not info.get("guest") and info.get("username", "").lower() == target.lower():
+        if info and info.get("username", "").lower() == target.lower():
             try: await ws.send_json({"type": "kicked", "text": "You have been banned"}); await ws.close()
             except: pass
     for ws, uname in list(social_clients.items()):
@@ -1852,7 +1852,7 @@ async def admin_kick_handler(request):
     target = data.get("username", "").strip()
     kicked = False
     for ws, info in list(clients.items()):
-        if info and not info.get("guest") and info.get("username", "").lower() == target.lower():
+        if info and info.get("username", "").lower() == target.lower():
             try: await ws.send_json({"type": "kicked", "text": "Kicked by admin"}); await ws.close()
             except: pass
             kicked = True
@@ -1987,7 +1987,7 @@ async def admin_relay_handler(request):
     if not lobby_id: return web.json_response({"error": f"{target} is not in a lobby"}, status=404)
     lobby = lobbies.get(lobby_id)
     is_owner = bool(lobby and lobby.get("owner") and lobby["owner"].lower() == tlow)
-    payload = {"type": "chat", "username": real_name, "text": text, "is_owner": is_owner, "is_guest": False, "is_vip": is_vip(real_name), "rank": get_rank(real_name), "clan": get_clan_tag(real_name), "name_color": get_name_color(real_name)}
+    payload = {"type": "chat", "username": real_name, "text": text, "is_owner": is_owner, "is_vip": is_vip(real_name), "rank": get_rank(real_name), "clan": get_clan_tag(real_name), "name_color": get_name_color(real_name)}
     await broadcast_to_lobby(lobby_id, payload)
     return web.json_response({"ok": True})
 
@@ -2084,7 +2084,7 @@ async def admin_delete_account_handler(request):
     for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
         del sessions[tok]
     for ws, info in list(clients.items()):
-        if info and not info.get("guest") and info.get("username", "").lower() == tlow:
+        if info and info.get("username", "").lower() == tlow:
             try: await ws.send_json({"type": "kicked", "text": "Your account was deleted"}); await ws.close()
             except: pass
     for ws, uname in list(social_clients.items()):
@@ -5826,14 +5826,10 @@ async def clan_remove_member_handler(request):
 async def online_summary_handler(request):
     """Total online + per-lobby online + flat user list, for the homepage.
     `total` counts unique authenticated users across both lobby (clients) and
-    homepage (social_clients) WebSocket connections, plus guest connections."""
+    homepage (social_clients) WebSocket connections."""
     seen = set(); users = []
-    guest_count = 0
     for info in clients.values():
         if not info: continue
-        if info.get("guest"):
-            guest_count += 1
-            continue
         n = info.get("username")
         if n and n.lower() not in seen:
             seen.add(n.lower()); users.append(n)
@@ -5847,7 +5843,7 @@ async def online_summary_handler(request):
         lid = info.get("lobby_id")
         if not lid: continue
         per_lobby[lid] = per_lobby.get(lid, 0) + 1
-    total = len(users) + guest_count
+    total = len(users)
     return web.json_response({"total": total, "users": users, "per_lobby": per_lobby})
 
 async def admin_brush_perm_set_handler(request):
@@ -6119,7 +6115,6 @@ async def websocket_handler(request):
     await ws.prepare(request)
     username = None
     lobby_id = None
-    is_guest = False
     last_pixel = 0
     last_cursor = 0
     last_rate_warn = 0
@@ -6157,7 +6152,7 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
                     can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
                     lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": False, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate"))}
+                    clients[ws] = {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate"))}
                     await track_ip(username, request)
                     grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                     if is_fake_admin(username): grid_msg["fake_admin"] = True
@@ -6165,23 +6160,7 @@ async def websocket_handler(request):
                     await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                     await broadcast_online_lobby(lobby_id)
 
-                elif data["type"] == "guest_join":
-                    if is_ip_banned(request):
-                        await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
-                    lid = data.get("lobby_id", "")
-                    guest_name = "Guest " + str(secrets.randbelow(9_000_000_000) + 1_000_000_000)
-                    lobby = lobbies.get(lid)
-                    if not lobby:
-                        await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
-                    if not lobby["public"]:
-                        await ws.send_json({"type": "error", "text": "Guests can only join public lobbies"}); await ws.close(); break
-                    username = guest_name; is_guest = True; lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "guest": True, "ip": get_client_ip(request), "no_deflate": bool(data.get("no_deflate"))}
-                    await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "assigned_name": username, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256)}, lobby["grid"])
-                    await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined (spectating)"})
-                    await broadcast_online_lobby(lobby_id)
-
-                elif data["type"] == "pixel" and username and lobby_id and not is_guest:
+                elif data["type"] == "pixel" and username and lobby_id:
                     if not clients.get(ws, {}).get("can_place", True):
                         continue
                     x, y, color = data["x"], data["y"], data["color"]
@@ -6219,7 +6198,7 @@ async def websocket_handler(request):
                             await award_pixel_placement(username, 1)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
-                elif data["type"] == "pixel_undo" and username and lobby_id and not is_guest:
+                elif data["type"] == "pixel_undo" and username and lobby_id:
 
                                                                                               
                     if not clients.get(ws, {}).get("can_place", True):
@@ -6254,7 +6233,7 @@ async def websocket_handler(request):
                             mark_lobby_dirty(lobby_id)
                         await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
-                elif data["type"] == "brush_undo" and username and lobby_id and not is_guest:
+                elif data["type"] == "brush_undo" and username and lobby_id:
                     if not clients.get(ws, {}).get("can_place", True):
                         continue
                     perm = get_brush_perm(username)
@@ -6321,8 +6300,8 @@ async def websocket_handler(request):
                         last_chat_text = text
                         lobby = lobbies.get(lobby_id)
                         if lobby: lobby["last_activity"] = now2
-                        is_owner = not is_guest and lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
-                        chat_payload = {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_guest": is_guest, "is_vip": is_vip(username), "rank": get_rank(username), "clan": get_clan_tag(username), "name_color": get_name_color(username)}
+                        is_owner = lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
+                        chat_payload = {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_vip": is_vip(username), "rank": get_rank(username), "clan": get_clan_tag(username), "name_color": get_name_color(username)}
                         rt = data.get("reply_to")
                         if isinstance(rt, dict):
                             rfrom = str(rt.get("from", ""))[:30]
@@ -6336,7 +6315,7 @@ async def websocket_handler(request):
                         except: pass
                         await broadcast_to_lobby(lobby_id, chat_payload)
 
-                elif data["type"] == "lobby_kick" and username and lobby_id and not is_guest:
+                elif data["type"] == "lobby_kick" and username and lobby_id:
                     lobby = lobbies.get(lobby_id)
                     if lobby and (lobby["owner"].lower() == username.lower() or is_admin(username)):
                         target = data.get("target", "").strip()
@@ -6349,7 +6328,7 @@ async def websocket_handler(request):
                                 except: pass
                         await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was kicked by the lobby owner"})
 
-                elif data["type"] == "lobby_ban" and username and lobby_id and not is_guest:
+                elif data["type"] == "lobby_ban" and username and lobby_id:
                     lobby = lobbies.get(lobby_id)
                     if lobby and (lobby["owner"].lower() == username.lower() or is_admin(username)):
                         target = data.get("target", "").strip()
@@ -6367,7 +6346,7 @@ async def websocket_handler(request):
                                     except: pass
                             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was banned from this lobby"})
 
-                elif data["type"] == "lobby_unban" and username and lobby_id and not is_guest:
+                elif data["type"] == "lobby_unban" and username and lobby_id:
                     lobby = lobbies.get(lobby_id)
                     if lobby and lobby["owner"].lower() == username.lower():
                         target = data.get("target", "").strip()
@@ -6376,7 +6355,7 @@ async def websocket_handler(request):
                         await save_lobby(lobby_id)
                         await ws.send_json({"type": "system", "text": f"Unbanned {target} from this lobby"})
 
-                elif data["type"] == "admin_brush" and username and lobby_id and not is_guest:
+                elif data["type"] == "admin_brush" and username and lobby_id:
                     if not clients.get(ws, {}).get("can_place", True):
                         continue
                     perm = get_brush_perm(username)
@@ -6423,7 +6402,7 @@ async def websocket_handler(request):
                                 mark_lobby_dirty(lobby_id)
                                 if changed_count: await award_pixel_placement(username, changed_count)
 
-                elif data["type"] == "import_grid" and username and lobby_id and not is_guest:
+                elif data["type"] == "import_grid" and username and lobby_id:
                     lobby = lobbies.get(lobby_id)
                     if lobby and lobby["owner"].lower() == username.lower():
                         new_grid = data.get("grid", [])
@@ -6451,7 +6430,7 @@ async def websocket_handler(request):
                         else:
                             await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
 
-                elif data["type"] in ("rtc_join", "rtc_leave", "rtc_offer", "rtc_answer", "rtc_ice") and username and lobby_id and not is_guest:
+                elif data["type"] in ("rtc_join", "rtc_leave", "rtc_offer", "rtc_answer", "rtc_ice") and username and lobby_id:
                                                                                                                     
                     msg_type = data["type"]
                     if msg_type in ("rtc_join", "rtc_leave"):
@@ -6465,7 +6444,7 @@ async def websocket_handler(request):
                                 try: await cws.send_json(payload)
                                 except: pass
 
-                elif data["type"] == "typing" and username and lobby_id and not is_guest:
+                elif data["type"] == "typing" and username and lobby_id:
                     state = bool(data.get("typing"))
                     await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": state}, exclude=ws)
                                                                                               
@@ -6491,7 +6470,7 @@ async def websocket_handler(request):
                     if x is None or y is None:
                         await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username}, exclude=ws)
                     elif isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
-                        await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y, "guest": is_guest}, exclude=ws)
+                        await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y}, exclude=ws)
 
                 elif data["type"] == "pixel_owner" and username and lobby_id and (is_admin(username) or is_moderator(username)):
                                                                                   
@@ -6575,20 +6554,18 @@ async def broadcast_online_lobby(lobby_id):
     count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
                                                                                                
     total_seen = set()
-    guest_count = 0
     for info in clients.values():
         if not info: continue
-        if info.get("guest"): guest_count += 1; continue
         n = info.get("username")
         if n: total_seen.add(n.lower())
     for uname in social_clients.values():
         if uname: total_seen.add(uname.lower())
-    total = len(total_seen) + guest_count
+    total = len(total_seen)
                                                                                                                     
     seen = set()
     users = []
     for info in clients.values():
-        if not info or info.get("lobby_id") != lobby_id or info.get("guest"):
+        if not info or info.get("lobby_id") != lobby_id:
             continue
         n = info.get("username")
         if n and n.lower() not in seen:
