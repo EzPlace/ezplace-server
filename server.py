@@ -2267,6 +2267,67 @@ async def admin_ranks_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"ranks": ranks})
 
+CLAN_INACTIVE_DAYS = 7
+CLAN_MIN_MEMBERS = 3
+CLAN_MIN_MEMBERS_DEADLINE_DAYS = 21
+
+def _clan_people(clan):
+    return [clan.get("owner", "")] + list(clan.get("members", []))
+
+def _clan_last_active(clan, now=None):
+    now = now or time.time()
+    best = float(clan.get("created_at") or now)
+    for p in _clan_people(clan):
+        if not p: continue
+        if is_online(p): return now
+        best = max(best, float(last_online.get(p.lower(), 0) or 0))
+    return best
+
+def clan_lifecycle_info(clan, now=None):
+    now = now or time.time()
+    people = [p for p in _clan_people(clan) if p]
+    inactive_for = now - _clan_last_active(clan, now)
+    age = now - float(clan.get("created_at") or now)
+    return {
+        "member_count": len(people),
+        "needs_members": max(0, CLAN_MIN_MEMBERS - len(people)),
+        "member_deadline_in": max(0, CLAN_MIN_MEMBERS_DEADLINE_DAYS * 86400 - age) if len(people) < CLAN_MIN_MEMBERS else None,
+        "inactive_for": max(0, inactive_for),
+        "inactive_delete_in": max(0, CLAN_INACTIVE_DAYS * 86400 - inactive_for),
+        "rules": f"Clans are deleted after {CLAN_INACTIVE_DAYS} days with no member online, or after {CLAN_MIN_MEMBERS_DEADLINE_DAYS // 7} weeks with fewer than {CLAN_MIN_MEMBERS} people.",
+    }
+
+async def delete_clan(cid, reason):
+    clan = clans.pop(cid, None)
+    if not clan: return
+    people = [p for p in _clan_people(clan) if p]
+    for p in people:
+        await remove_user_clan_rank(p)
+    await save_clans()
+    text = f"Your clan \"{clan.get('name', '')}\" was deleted because {reason}."
+    for p in people:
+        try: await push_notification(p, {"type": "clan_deleted", "clan_name": clan.get("name", ""), "reason": reason, "text": text})
+        except Exception: pass
+    print(f"[clans] deleted {clan.get('name','')} ({cid}): {reason}", flush=True)
+
+async def cleanup_clans(app):
+    while True:
+        await asyncio.sleep(600)
+        try:
+            now = time.time()
+            for cid, clan in list(clans.items()):
+                if clan.get("status") == "pending":
+                    clan["status"] = "approved"
+                    await save_clans()
+                    await apply_clan_rank(clan.get("owner", ""), clan)
+                info = clan_lifecycle_info(clan, now)
+                if info["inactive_delete_in"] <= 0:
+                    await delete_clan(cid, f"nobody in the clan was online for {CLAN_INACTIVE_DAYS} days")
+                elif info["member_deadline_in"] is not None and info["member_deadline_in"] <= 0:
+                    await delete_clan(cid, f"it still had fewer than {CLAN_MIN_MEMBERS} people after {CLAN_MIN_MEMBERS_DEADLINE_DAYS // 7} weeks")
+        except Exception as e:
+            print(f"[clans] cleanup error: {type(e).__name__}: {e}", flush=True)
+
 async def clans_list_handler(request):
     """Public list of approved clans."""
     out = []
@@ -2277,9 +2338,10 @@ async def clans_list_handler(request):
             "color": clan["color"], "rank_label": clan["rank_label"],
             "members": clan.get("members", []),
             "member_ranks": clan.get("member_ranks", {}),
-            "member_count": 1 + len(clan.get("members", [])),
+            "created_at": clan.get("created_at"),
+            **clan_lifecycle_info(clan),
         })
-    return web.json_response({"clans": out})
+    return web.json_response({"clans": out, "rules": f"Clans are deleted after {CLAN_INACTIVE_DAYS} days with no member online, or after {CLAN_MIN_MEMBERS_DEADLINE_DAYS // 7} weeks with fewer than {CLAN_MIN_MEMBERS} people."})
 
 async def clan_my_handler(request):
     user = get_auth_user(request)
@@ -2323,10 +2385,13 @@ async def clan_create_handler(request):
 
     clans[cid] = {
         "id": cid, "name": name, "owner": user, "color": color, "rank_label": name,
-        "status": "pending", "members": [], "pending_requests": [], "created_at": time.time(),
+        "status": "approved", "members": [], "pending_requests": [], "created_at": time.time(),
     }
     await save_clans()
-    return web.json_response({"ok": True, "message": "Clan request submitted, waiting for admin approval", "clan_id": cid})
+    await apply_clan_rank(user, clans[cid])
+    try: await unlock_achievement(user, "clan_member")
+    except Exception: pass
+    return web.json_response({"ok": True, "message": "Clan created. Players can now request to join.", "clan_id": cid})
 
 async def clan_request_join_handler(request):
     data = await request.json()
@@ -2489,42 +2554,13 @@ async def admin_clans_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"clans": list(clans.values())})
 
-async def admin_clan_approve_handler(request):
-    data = await request.json()
-    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    cid = data.get("clan_id", "")
-    clan = clans.get(cid)
-    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
-    clan["status"] = "approved"
-    await save_clans()
-    await apply_clan_rank(clan["owner"], clan)
-    try: await unlock_achievement(clan["owner"], "clan_member")
-    except Exception: pass
-    await notify_social(clan["owner"], {"type": "clan_approved", "clan_name": clan["name"]})
-    return web.json_response({"ok": True})
-
-async def admin_clan_reject_handler(request):
-    data = await request.json()
-    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    cid = data.get("clan_id", "")
-    clan = clans.get(cid)
-    if not clan: return web.json_response({"error": "Clan not found"}, status=404)
-    owner = clan.get("owner", "")
-    del clans[cid]
-    await save_clans()
-    if owner: await notify_social(owner, {"type": "clan_rejected", "clan_name": clan["name"]})
-    return web.json_response({"ok": True})
-
 async def admin_clan_disband_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     cid = data.get("clan_id", "")
     clan = clans.get(cid)
     if not clan: return web.json_response({"error": "Clan not found"}, status=404)
-    for m in clan.get("members", []): await remove_user_clan_rank(m)
-    await remove_user_clan_rank(clan.get("owner", ""))
-    del clans[cid]
-    await save_clans()
+    await delete_clan(cid, "it was disbanded by an admin")
     return web.json_response({"ok": True})
 
 async def groups_my_handler(request):
@@ -6449,12 +6485,19 @@ async def cleanup_inactive_lobbies(app):
             if now - lobby.get("last_activity", now) > lobby_timeout_for(lobby):
                 to_delete.append(lid)
         for lid in to_delete:
+            lobby = lobbies.get(lid) or {}
             for ws, info in list(clients.items()):
                 if info and info.get("lobby_id") == lid:
                     try: await ws.send_json({"type": "kicked", "text": "Lobby deleted (inactive)"}); await ws.close()
                     except: pass
             del lobbies[lid]
             await delete_lobby_db(lid)
+            owner = lobby.get("owner")
+            if owner:
+                hours = int(lobby_timeout_for(lobby) // 3600)
+                reason = f"nobody placed a pixel or chatted in it for {hours} hours"
+                try: await push_notification(owner, {"type": "lobby_deleted", "lobby_name": lobby.get("name", ""), "reason": reason, "text": f"Your lobby \"{lobby.get('name', '')}\" was deleted because {reason}."})
+                except Exception: pass
 
 async def migrate_colors_16_to_24():
     """One-time migration: remap old 16-color indices to new 24-color palette."""
@@ -6755,6 +6798,7 @@ async def on_startup(app):
             await db["lobbies"].delete_one({"_id": lid})
             print(f"Deleted ASG lobby: {lobby.get('name')} ({lid})")
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
+    app["clan_cleanup_task"] = asyncio.create_task(cleanup_clans(app))
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
     app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
@@ -6767,6 +6811,7 @@ async def on_startup(app):
 
 async def on_cleanup(app):
     app["cleanup_task"].cancel()
+    app["clan_cleanup_task"].cancel()
     app["lb_task"].cancel()
     app["flush_task"].cancel()
     app["rl_task"].cancel()
@@ -7150,8 +7195,6 @@ for _path, _h in (
     ("/api/clans/update-color", clan_update_color_handler),
     ("/api/clans/set-member-rank", clan_set_member_rank_handler),
     ("/api/clans/transfer-owner", clan_transfer_owner_handler), ("/api/clans/leave", clan_leave_handler),
-    ("/api/admin/clan-approve", admin_clan_approve_handler),
-    ("/api/admin/clan-reject", admin_clan_reject_handler),
     ("/api/admin/clan-disband", admin_clan_disband_handler),
     ("/api/admin/brush-perm-set", admin_brush_perm_set_handler),
     ("/api/admin/brush-perm-remove", admin_brush_perm_remove_handler),
