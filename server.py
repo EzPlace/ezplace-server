@@ -578,7 +578,7 @@ async def push_pb_update(username):
             except: pass
 
 async def award_pixel_placement(username, count=1):
-    """Increment lifetime pixel count and credit PlaceBucks for each new 100-mark crossed."""
+    """Increment lifetime pixel count and credit PlaceBux for each new 100-mark crossed."""
     if not username or count <= 0: return
     mark_active(username)
     ulow = username.lower()
@@ -1244,7 +1244,7 @@ async def create_lobby_handler(request):
     cost = LOBBY_PRICES.get((lw, lh), 0)
     if cost > 0:
         if not spend_pb(user, cost):
-            return web.json_response({"error": f"Need {cost} PlaceBucks for a {lw}x{lh} lobby (you have {get_pb(user)})"}, status=400)
+            return web.json_response({"error": f"Need {cost} PlaceBux for a {lw}x{lh} lobby (you have {get_pb(user)})"}, status=400)
         await save_place_bucks()
         await push_pb_update(user)
     lid = secrets.token_hex(6)
@@ -2660,7 +2660,7 @@ async def shop_buy_handler(request):
         if first_time:
             price = SHOP_PRICES["custom_rank"]
             if not spend_pb(user, price):
-                return web.json_response({"error": f"Not enough PlaceBucks (need {price})"}, status=400)
+                return web.json_response({"error": f"Not enough PlaceBux (need {price})"}, status=400)
             purchases.setdefault(user.lower(), {})["custom_rank"] = True
             await save_purchases()
             await save_place_bucks()
@@ -2676,7 +2676,7 @@ async def shop_buy_handler(request):
         if first_time:
             price = SHOP_PRICES["name_color"]
             if not spend_pb(user, price):
-                return web.json_response({"error": f"Not enough PlaceBucks (need {price})"}, status=400)
+                return web.json_response({"error": f"Not enough PlaceBux (need {price})"}, status=400)
             purchases.setdefault(user.lower(), {})["name_color"] = True
             await save_purchases()
             await save_place_bucks()
@@ -2689,7 +2689,7 @@ async def shop_buy_handler(request):
         return web.json_response({"error": "You already own that"}, status=400)
     price = SHOP_PRICES[item]
     if not spend_pb(user, price):
-        return web.json_response({"error": f"Not enough PlaceBucks (need {price})"}, status=400)
+        return web.json_response({"error": f"Not enough PlaceBux (need {price})"}, status=400)
     pu = purchases.setdefault(user.lower(), {})
     if stackable:
         pu[item] = int(pu.get(item, 0)) + 1
@@ -2763,7 +2763,7 @@ async def pb_transfer_handler(request):
         remaining = max(0, PB_TRANSFER_AMOUNT_PER_MIN - spent_last_min)
         return web.json_response({"error": f"Transfer cap is {PB_TRANSFER_AMOUNT_PER_MIN} $/min. You can send {remaining} more this minute."}, status=429)
     if not spend_pb(user, amount):
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
     bucket.append((now_ts, amount))
     credit_pb(found, amount)
     await save_place_bucks()
@@ -2788,7 +2788,7 @@ async def _casino_open(request, rate_key):
     if rate_key and not check_rate_limit(user, rate_key, 60, 60):
         return None, web.json_response({"error": "Slow down - too many plays this minute."}, status=429)
     if not spend_pb(user, amount):
-        return None, web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        return None, web.json_response({"error": "Not enough PlaceBux"}, status=400)
     return (user, amount, data), None
 
 async def _casino_payout(user, winnings):
@@ -2894,7 +2894,7 @@ async def casino_mines_handler(request):
         if ulow in mines_games and not mines_games[ulow].get("done"):
             return web.json_response({"error": "Finish your current game first (cash out or reveal)"}, status=400)
         if not spend_pb(user, amount):
-            return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+            return web.json_response({"error": "Not enough PlaceBux"}, status=400)
         positions = list(range(MINES_GRID_N))
         secrets.SystemRandom().shuffle(positions)
         mine_set = set(positions[:mines])
@@ -3250,7 +3250,7 @@ async def casino_gd_start_handler(request):
     if not check_rate_limit(user, "gd_start", GD_DAILY_PLAY_CAP, 60 * 60 * 24):
         return web.json_response({"error": f"Daily play cap reached ({GD_DAILY_PLAY_CAP} attempts/24h)"}, status=429)
     if not spend_pb(user, amount):
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
     seed_in = str(data.get("seed", "")).strip()[:12]
     if seed_in and seed_in.isdigit():
         seed = int(seed_in)
@@ -3500,7 +3500,7 @@ async def casino_blackjack_handler(request):
         if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
         if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
         if not spend_pb(user, amount):
-            return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+            return web.json_response({"error": "Not enough PlaceBux"}, status=400)
         deck = list(range(52))
         secrets.SystemRandom().shuffle(deck)
 
@@ -3821,7 +3821,7 @@ async def uno_create_handler(request):
     if bet < 0: return web.json_response({"error": "Bet must be >= 0"}, status=400)
     if bet > MAX_CASINO_BET: return web.json_response({"error": f"Max UNO bet is {MAX_CASINO_BET} $"}, status=400)
     if bet > 0 and not spend_pb(user, bet):
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
     rid = secrets.token_hex(5)
     players = [{"name": user, "hand": [], "is_ai": False, "connected": True}]
     for i in range(ai_count):
@@ -3917,7 +3917,7 @@ async def uno_join_handler(request):
         return web.json_response({"error": "Room is full"}, status=400)
     bet = room["settings"]["bet"]
     if bet > 0 and not spend_pb(user, bet):
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
     room["players"].append({"name": user, "hand": [], "is_ai": False, "connected": True})
     room["pool"] += bet
     await save_place_bucks(); await push_pb_update(user)
@@ -5086,7 +5086,7 @@ async def amongus_create_handler(request):
     except: return web.json_response({"error": "Invalid bet"}, status=400)
     if bet > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
     if bet > 0 and not spend_pb(user, bet):
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
     rid = secrets.token_hex(5)
     amongus_rooms[rid] = {
         "id": rid, "creator": user, "bet": bet, "pool": bet,
@@ -5122,7 +5122,7 @@ async def amongus_join_handler(request):
     if len(room["players"]) >= AMONGUS_MAX:
         return web.json_response({"error": f"Room is full ({AMONGUS_MAX} players)"}, status=400)
     if room["bet"] > 0 and not spend_pb(user, room["bet"]):
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
+        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
     room["players"].append({"name": user, "alive": True, "role": None, "revealed_role": False})
     room["pool"] += room["bet"]
     await save_place_bucks(); await push_pb_update(user)
@@ -6568,7 +6568,7 @@ async def on_startup(app):
         await save_place_bucks()
         migrations_doc["pb_backfill_v1"] = True
         await db_save("store", "migrations", migrations_doc)
-        print(f"pb_backfill_v1: credited {credited} PlaceBucks across {len(totals)} users")
+        print(f"pb_backfill_v1: credited {credited} PlaceBux across {len(totals)} users")
     if not migrations_doc.get("economy_reset_v2"):
         place_bucks.clear()
         for ulow, lp in lifetime_pixels.items():
@@ -6989,7 +6989,7 @@ async def fishing_cast_handler(request):
     if not check_rate_limit(user, "fish_cast_day", FISH_DAILY_CAP, 86400):
         return web.json_response({"error": f"Daily cast limit reached ({FISH_DAILY_CAP} per day)", "state": _fish_state(user, now)}, status=429)
     if FISH_CAST_COST and not spend_pb(user, FISH_CAST_COST):
-        return web.json_response({"error": f"Casting costs {FISH_CAST_COST} PlaceBucks", "state": _fish_state(user, now)}, status=400)
+        return web.json_response({"error": f"Casting costs {FISH_CAST_COST} PlaceBux", "state": _fish_state(user, now)}, status=400)
     item = _fish_roll()
     inv = st.setdefault("inv", {}); seen = st.setdefault("seen", {})
     inv[item["id"]] = int(inv.get(item["id"], 0)) + 1
