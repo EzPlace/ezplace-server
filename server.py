@@ -2325,6 +2325,8 @@ async def cleanup_clans(app):
                     await delete_clan(cid, f"nobody in the clan was online for {CLAN_INACTIVE_DAYS} days")
                 elif info["member_deadline_in"] is not None and info["member_deadline_in"] <= 0:
                     await delete_clan(cid, f"it still had fewer than {CLAN_MIN_MEMBERS} people after {CLAN_MIN_MEMBERS_DEADLINE_DAYS // 7} weeks")
+            if prune_all_notifications():
+                await save_notifications()
         except Exception as e:
             print(f"[clans] cleanup error: {type(e).__name__}: {e}", flush=True)
 
@@ -3070,6 +3072,32 @@ ACHIEVEMENTS = {
 user_achievements = {}   # {user_lower: {ach_id: unlock_ts}}
 notification_log = {}    # {user_lower: [{type, text, ts, seen, ...}]}
 NOTIF_CAP = 100
+NOTIF_SEEN_TTL = 48 * 3600
+NOTIF_UNSEEN_TTL = 14 * 86400
+
+def prune_notifications(ulow, now=None):
+    """Drop notifications seen more than 48h ago, or unseen for more than 2 weeks. Returns True if anything changed."""
+    now = now or time.time()
+    lst = notification_log.get(ulow)
+    if not lst: return False
+    keep = []
+    for n in lst:
+        ts = float(n.get("ts") or 0)
+        if n.get("seen"):
+            if now - float(n.get("seen_ts") or ts) > NOTIF_SEEN_TTL: continue
+        elif now - ts > NOTIF_UNSEEN_TTL: continue
+        keep.append(n)
+    if len(keep) == len(lst): return False
+    if keep: notification_log[ulow] = keep
+    else: notification_log.pop(ulow, None)
+    return True
+
+def prune_all_notifications():
+    changed = False
+    now = time.time()
+    for ulow in list(notification_log.keys()):
+        if prune_notifications(ulow, now): changed = True
+    return changed
 
 async def save_achievements():
     await db_save("store", "user_achievements", user_achievements)
@@ -3094,6 +3122,7 @@ async def unlock_achievement(user, ach_id, silent=False):
 
 def push_to_notification_log(user, notif):
     ulow = user.lower()
+    prune_notifications(ulow)
     lst = notification_log.setdefault(ulow, [])
     entry = dict(notif)
     entry["ts"] = time.time()
@@ -3191,6 +3220,7 @@ async def achievements_list_handler(request):
 async def notifications_list_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if prune_notifications(user.lower()): await save_notifications()
     lst = notification_log.get(user.lower()) or []
     return web.json_response({"notifications": list(reversed(lst))[:NOTIF_CAP]})
 
@@ -3198,7 +3228,11 @@ async def notifications_seen_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     lst = notification_log.get(user.lower()) or []
-    for n in lst: n["seen"] = True
+    now = time.time()
+    for n in lst:
+        if not n.get("seen"):
+            n["seen"] = True
+            n["seen_ts"] = now
     await save_notifications()
     return web.json_response({"ok": True})
 
