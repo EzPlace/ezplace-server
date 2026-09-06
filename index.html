@@ -214,7 +214,9 @@
   .tab-panel { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
   .tab-panel.active { display: flex; }
 
-  #friends-panel { padding: 6px; overflow-y: auto; flex: 1; }
+  #friends-panel, #requests-panel { padding: 6px; overflow-y: auto; flex: 1; min-height: 0; }
+  #friends-tabs { margin: 6px 6px 0; flex-shrink: 0; }
+  .fr-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
   .friend-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; font-size: 12px; border-bottom: 1px solid var(--border); border-radius: var(--radius-sm); }
   .friend-item:hover { background: var(--bg-hover); }
   .friend-item .f-status { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
@@ -769,7 +771,7 @@
       <button id="btn-gd-browse-close" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;">Close</button>
     </div>
     <div id="gd-browse-list" style="overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:80px;"></div>
-    <div style="font-size:11px;color:var(--text-muted);text-align:center;">Playing custom levels never awards or costs PlaceBucks.</div>
+    <div style="font-size:11px;color:var(--text-muted);text-align:center;">Playing custom levels never awards or costs PlaceBux.</div>
   </div>
 </div>
 
@@ -861,7 +863,7 @@
         <span id="level-text">LEVEL 0</span>
         <span style="display:inline-block;width:36px;height:5px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;"><span id="level-bar" style="display:block;height:100%;width:0%;background:#22d3ee;transition:width 0.25s;"></span></span>
       </span>
-      <span id="pb-balance" title="PlaceBucks - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;">PB: 0</span>
+      <span id="pb-balance" title="PlaceBux - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;">PlaceBux: 0</span>
     </span>
   </div>
   <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
@@ -922,7 +924,7 @@
 
   <div id="admin-tab" class="tab-panel">
     <div id="admin-panel">
-      <h4>Grant / Take PlaceBucks</h4>
+      <h4>Grant / Take PlaceBux</h4>
       <div class="admin-row">
         <input id="admin-pb-user" class="win-input" type="text" placeholder="Username">
         <input id="admin-pb-amt" class="win-input" type="number" placeholder="Amount (+/-)" style="max-width:120px;">
@@ -1200,15 +1202,27 @@
 
       <div class="menu-view" id="menu-view-friends">
     <div id="msg-list-view">
-      <div id="friend-add-row">
-        <input id="friend-add-input" class="win-input" type="text" placeholder="Add friend..." maxlength="20">
-        <button id="btn-friend-add" class="win-btn">Add</button>
+      <div class="menu-tabs" id="friends-tabs">
+        <button class="menu-tab active" data-frtab="friends">Friends</button>
+        <button class="menu-tab" data-frtab="groups">Group Chats</button>
+        <button class="menu-tab" data-frtab="requests">Requests<span id="friend-req-badge" class="notif-badge" style="display:none"></span></button>
       </div>
-      <div style="padding:6px 8px;border-bottom:1px solid var(--border);">
-        <button id="btn-create-group" class="win-btn" style="width:100%;font-size:11px;background:var(--accent);color:#fff;font-weight:700;">+ New Group Chat</button>
+      <div id="fr-friends" class="fr-panel">
+        <div id="friend-add-row">
+          <input id="friend-add-input" class="win-input" type="text" placeholder="Add friend..." maxlength="20">
+          <button id="btn-friend-add" class="win-btn">Add</button>
+        </div>
+        <div id="friends-panel"></div>
       </div>
-      <div id="msg-list"></div>
-      <div id="friends-panel"></div>
+      <div id="fr-groups" class="fr-panel" style="display:none">
+        <div style="padding:6px 8px;border-bottom:1px solid var(--border);">
+          <button id="btn-create-group" class="win-btn" style="width:100%;font-size:11px;background:var(--accent);color:#fff;font-weight:700;">+ New Group Chat</button>
+        </div>
+        <div id="msg-list"></div>
+      </div>
+      <div id="fr-requests" class="fr-panel" style="display:none">
+        <div id="requests-panel"></div>
+      </div>
     </div>
     <div id="msg-view">
       <div id="msg-view-header">
@@ -1336,9 +1350,9 @@
           </div>
         </details>
 
-        <details class="game-acc"><summary>Sketch & Guess <span class="game-hint">2-8 players, one draws, others guess. No PlaceBucks.</span></summary>
+        <details class="game-acc"><summary>Sketch & Guess <span class="game-hint">2-8 players, one draws, others guess. No PlaceBux.</span></summary>
           <div class="game-body">
-            <div style="font-size:11px;color:var(--text-muted);">Take turns drawing. Others try to guess the word. First correct answer wins the round. Free — no PlaceBucks earned or spent.</div>
+            <div style="font-size:11px;color:var(--text-muted);">Take turns drawing. Others try to guess the word. First correct answer wins the round. Free — no PlaceBux earned or spent.</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <label style="font-size:11px;">Prompts: </label>
               <label style="font-size:11px;"><input type="radio" name="sketch-src" value="random" checked> Random</label>
@@ -1395,7 +1409,7 @@
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px;">
               <button id="btn-gd-editor" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;">Level Editor</button>
               <button id="btn-gd-browse" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;">Custom Levels</button>
-              <span style="font-size:10px;color:var(--text-muted);">(no PB from custom levels)</span>
+              <span style="font-size:10px;color:var(--text-muted);">(no PlaceBux from custom levels)</span>
             </div>
             <div id="gd-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);">Die at 0% lose bet · die at 50% break even · clear 100% = 3x. Multiplier scales linearly with progress.</div>
           </div>
@@ -1438,7 +1452,7 @@
       </div>
 
       <div class="shop-panel" data-panel="transfer" style="display:none;flex-direction:column;gap:10px;">
-        <div style="font-size:11px;color:var(--text-muted);">Send PlaceBucks to another player. Max 100,000 $ per minute outbound; can't send to yourself.</div>
+        <div style="font-size:11px;color:var(--text-muted);">Send PlaceBux to another player. Max 100,000 $ per minute outbound; can't send to yourself.</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
           <input id="pb-xfer-to" class="win-input" type="text" placeholder="Recipient username" style="flex:1;min-width:140px;" maxlength="20">
           <input id="pb-xfer-amt" class="win-input" type="number" placeholder="Amount" min="1" style="width:90px;">
@@ -1472,7 +1486,7 @@
       <div style="font-size:11px;color:var(--text-muted);">AFK time: <b id="account-settings-afk" style="color:var(--text);">active</b></div>
       <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Preferences</div>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-tips"> Hide "DID YOU KNOW?" banner permanently</label>
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-sound-off"> Mute DM / group notification sound</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-sound-off"> Mute chat / group notification sound</label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-gridlines"> Hide pixel grid lines when zoomed in</label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-panorama"> Disable main menu panorama</label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-disable-anim"> Disable animations</label>
@@ -1493,7 +1507,7 @@
       <div class="menu-view" id="menu-view-economy">
         <div class="menu-section">Total Economy</div>
     <div style="width:100%;max-width:480px;display:flex;flex-direction:column;gap:6px;align-items:center;">
-      <div style="font-size:11px;color:var(--text-muted);">Sum of every player's PlaceBucks (toothpaste excluded)</div>
+      <div style="font-size:11px;color:var(--text-muted);">Sum of every player's PlaceBux (toothpaste excluded)</div>
       <div id="economy-total" style="font-size:24px;font-weight:800;font-family:'JetBrains Mono','Fira Code',monospace;color:var(--text-primary);">- $</div>
       <div style="position:relative;width:100%;max-width:460px;">
         <canvas id="economy-graph" width="460" height="180" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:crosshair;"></canvas>
@@ -1607,7 +1621,7 @@ const TIPS = [
   "DID YOU KNOW? Private lobbies last 168 hours (1 week) after inactivity; public ones 48 hours.",
   "DID YOU KNOW? Click on a clan card to see its members and their ranks.",
   "DID YOU KNOW? Owners can transfer clan ownership or kick members from the manage modal.",
-  "DID YOU KNOW? You can send images in DMs and group chats.",
+  "DID YOU KNOW? You can send images in chats and group chats.",
   "DID YOU KNOW? The 24h flashback button replays the last day of placements on the current lobby.",
   "DID YOU KNOW? You pull no women."
 ];
@@ -1759,7 +1773,7 @@ function fishTile(it, opts) {
   const color = FISH_RARITY_COLORS[it.rarity] || 'var(--text-muted)';
   const known = !opts.hidden;
   const name = known ? esc(it.name) : 'Undiscovered';
-  const meta = known ? `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ${it.value} PB${opts.qty ? ' &middot; x' + opts.qty : ''}${opts.caught ? ' &middot; caught ' + opts.caught : ''}` : `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ? PB`;
+  const meta = known ? `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ${it.value} PlaceBux${opts.qty ? ' &middot; x' + opts.qty : ''}${opts.caught ? ' &middot; caught ' + opts.caught : ''}` : `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ? PlaceBux`;
   const actions = opts.sell ? `<div class="fish-actions"><button data-sell="${esc(it.id)}" data-qty="1">Sell 1</button><button data-sell="${esc(it.id)}" data-qty="all">Sell all</button></div>` : '';
   return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
 }
@@ -1770,7 +1784,7 @@ function fishRender() {
   const discovered = cat.filter(it => seen[it.id]).length;
   const stats = document.getElementById('fish-stats');
   const bucketValue = cat.reduce((s, it) => s + (inv[it.id] || 0) * it.value, 0);
-  stats.textContent = `${discovered} / ${cat.length} discovered \u00b7 ${fishState.casts || 0} casts \u00b7 bucket worth ${bucketValue} PB \u00b7 ${fishState.casts_left_today} casts left today`;
+  stats.textContent = `${discovered} / ${cat.length} discovered \u00b7 ${fishState.casts || 0} casts \u00b7 bucket worth ${bucketValue} PlaceBux \u00b7 ${fishState.casts_left_today} casts left today`;
   const invEl = document.getElementById('fish-inventory');
   const owned = cat.filter(it => inv[it.id] > 0).sort((a, b) => b.value - a.value || rank(b) - rank(a));
   invEl.innerHTML = owned.length ? owned.map(it => fishTile(it, { qty: inv[it.id], sell: true })).join('') : '<div class="lobby-empty" style="grid-column:1/-1;">Your bucket is empty. Cast a line!</div>';
@@ -1789,7 +1803,7 @@ function fishUpdateCooldown() {
   if (left > 0) { btn.disabled = true; btn.textContent = `Line is out \u00b7 ${left}s`; return; }
   if (fishState.casts_left_today <= 0) { btn.disabled = true; btn.textContent = 'No casts left today'; return; }
   btn.disabled = false;
-  btn.textContent = fishState.cast_cost ? `Cast line (${fishState.cast_cost} PB)` : 'Cast line';
+  btn.textContent = fishState.cast_cost ? `Cast line (${fishState.cast_cost} PlaceBux)` : 'Cast line';
 }
 async function fishCast() {
   if (fishBusy || !authToken) return;
@@ -1805,7 +1819,7 @@ async function fishCast() {
     else if (d.item) {
       const it = d.item;
       catchEl.style.setProperty('--rc', FISH_RARITY_COLORS[it.rarity] || 'var(--text-primary)');
-      catchEl.innerHTML = `<b>${esc(it.name)}</b><span class="fish-rarity">${esc(it.rarity)}</span> \u00b7 worth ${it.value} PB${d.new ? ' \u00b7 new discovery' : ''}`;
+      catchEl.innerHTML = `<b>${esc(it.name)}</b><span class="fish-rarity">${esc(it.rarity)}</span> \u00b7 worth ${it.value} PlaceBux${d.new ? ' \u00b7 new discovery' : ''}`;
       void catchEl.offsetWidth; catchEl.classList.add('pop');
     }
   } catch { fishSetStatus('Server offline', 'var(--red)'); catchEl.textContent = 'The line snapped.'; }
@@ -1818,7 +1832,7 @@ async function fishSell(itemId, qty) {
     const d = await r.json();
     if (d.state) fishApplyState(d.state);
     if (d.error) fishSetStatus(d.error, 'var(--red)');
-    else fishSetStatus(`Sold ${d.sold} for ${d.earned} PB`, 'var(--green)');
+    else fishSetStatus(`Sold ${d.sold} for ${d.earned} PlaceBux`, 'var(--green)');
   } catch { fishSetStatus('Server offline', 'var(--red)'); }
 }
 document.getElementById('btn-fish-cast').onclick = fishCast;
@@ -3660,8 +3674,8 @@ function applyPbState() {
     const passes = (myPurchases && myPurchases.streak_pass) || 0;
     if (myStreak > 0) suf = ' 🔥' + myStreak;
     else if (myStreakBroken && myStreakPrev > 0 && passes > 0) suf = ' ⏸' + myStreakPrev;
-    el.textContent = 'PB: ' + balStr + suf;
-    let tip = 'PlaceBucks: ' + (myUnlimited ? 'unlimited' : myBalance.toLocaleString()) + ' - earn 1 per 100 pixels placed';
+    el.textContent = 'PlaceBux: ' + balStr + suf;
+    let tip = 'PlaceBux: ' + (myUnlimited ? 'unlimited' : myBalance.toLocaleString()) + ' - earn 1 per 100 pixels placed';
     if (myStreak > 0) tip += ' - streak: ' + myStreak + ' day' + (myStreak === 1 ? '' : 's');
     else if (myStreakBroken && myStreakPrev > 0) {
       if (passes > 0) tip += ' - streak PAUSED at ' + myStreakPrev + ' days. Stay active today to use a Streak Pass (' + passes + ' left) and continue at ' + (myStreakPrev + 1) + '.';
@@ -3671,7 +3685,7 @@ function applyPbState() {
     el.title = tip;
   }
   const mp = document.getElementById('menu-pb');
-  if (mp) mp.textContent = (myUnlimited ? '∞' : (myBalance >= 100000 ? fmtCompact(myBalance) : String(myBalance))) + ' PB' + (myStreak > 0 ? ' · ' + myStreak + ' day streak' : '');
+  if (mp) mp.textContent = (myUnlimited ? '∞' : (myBalance >= 100000 ? fmtCompact(myBalance) : String(myBalance))) + ' PlaceBux' + (myStreak > 0 ? ' · ' + myStreak + ' day streak' : '');
   const sb = document.getElementById('shop-balance');
   if (sb) sb.textContent = (myUnlimited ? '∞' : myBalance) + (myStreak > 0 ? '  🔥 ' + myStreak : '');
   const wg = document.getElementById('wheel-group');
@@ -3797,7 +3811,7 @@ function notifRow(n) {
   if (n.type === 'achievement') { icon = n.icon || '🏆'; title = 'Achievement: ' + (n.name || ''); body = n.desc || ''; }
   else if (n.type === 'friend_request') { icon = '👋'; title = 'Friend request'; body = n.text || (n.username + ' sent you a friend request'); }
   else if (n.type === 'friend_accepted') { icon = '🤝'; title = 'Friend accepted'; body = n.text || ''; }
-  else if (n.type === 'dm') { icon = '💬'; title = 'DM from ' + (n.from || ''); body = n.text || ''; }
+  else if (n.type === 'dm') { icon = '💬'; title = 'Chat from ' + (n.from || ''); body = n.text || ''; }
   else { icon = '🔔'; title = n.type || 'Notification'; body = n.text || ''; }
   const ago = n.ts ? fmtRelTime(n.ts) : '';
   div.innerHTML = `<div style="font-size:12px;font-weight:700;">${icon} ${esc(title)}</div><div style="font-size:11px;color:var(--text-muted);">${esc(body)}</div><div style="font-size:9px;color:var(--text-muted);">${esc(ago)}</div>`;
@@ -5607,7 +5621,7 @@ function gdLaunch(seed, bet, customObstacles, customLabel) {
   gdReset();
   document.getElementById('gd-modal').style.display = 'flex';
   document.getElementById('gd-seed-tag').textContent = customLabel || seed;
-  document.getElementById('gd-result').textContent = customObstacles ? '(custom level — no PlaceBucks)' : '';
+  document.getElementById('gd-result').textContent = customObstacles ? '(custom level — no PlaceBux)' : '';
   document.getElementById('gd-result').style.color = 'var(--text-muted)';
   document.getElementById('gd-progress-tag').textContent = '0%';
   document.getElementById('gd-mode-tag').textContent = 'cube';
@@ -5743,7 +5757,7 @@ async function gdFinish(progress) {
     if (d.error) { resEl.textContent = d.error; resEl.style.color = 'var(--red)'; return; }
     if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; }
     if (d.custom) {
-      resEl.textContent = 'Custom level — ' + Math.floor(progress * 100) + '% reached (no PlaceBucks)';
+      resEl.textContent = 'Custom level — ' + Math.floor(progress * 100) + '% reached (no PlaceBux)';
       resEl.style.color = 'var(--gold)';
       return;
     }
@@ -7680,7 +7694,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'system': if (msg.text && msg.text.indexOf(' joined') !== -1) ezpMarkUnseen(); addSystemMsg(msg.text); break;
       case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
       case 'night_event_state': if (msg.state) { nightEventState = msg.state; nightEventServerOffset = (msg.state.server_now_ts || 0) - Math.floor(Date.now() / 1000); renderNightEvent(); } break;
-      case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBucks', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
+      case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBux', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
       case 'streak_bonus': { myStreak = msg.count || myStreak; myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true }; if (msg.used_pass && myPurchases) myPurchases.streak_pass = msg.passes_left; applyPbState(); showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
@@ -7907,7 +7921,7 @@ function connectSocial() {
       myBalance += (msg.amount || 0);
       applyPbState();
       const fromName = msg.from;
-      showDmToast('PlaceBucks', `+${msg.amount} $ from ${fromName}`, () => openDm(fromName));
+      showDmToast('PlaceBux', `+${msg.amount} $ from ${fromName}`, () => openDm(fromName));
     }
     if (msg.type === 'uno_chat' && msg.msg) {
       if (unoRoomId === msg.room_id) { unoAppendChat(msg.msg); if (msg.msg && msg.msg.from && msg.msg.from.toLowerCase() !== (username || '').toLowerCase()) ezpMarkUnseen(); }
@@ -8046,30 +8060,36 @@ function addSection(panel, text) {
 async function loadFriendsList() {
   if (!authToken) return;
   const panel = document.getElementById('friends-panel'); panel.innerHTML = '';
+  const reqPanel = document.getElementById('requests-panel'); reqPanel.innerHTML = '';
   try {
     const res = await fetch('/api/friends', { headers: { Authorization: authToken } });
     const data = await res.json();
+    const incomingCount = (data.incoming || []).length;
+    const reqBadge = document.getElementById('friend-req-badge');
+    if (reqBadge) { reqBadge.textContent = incomingCount; reqBadge.style.display = incomingCount ? '' : 'none'; }
+    if (!incomingCount && !(data.outgoing && data.outgoing.length)) {
+      const empty = document.createElement('div'); empty.className = 'lobby-empty'; empty.textContent = 'No friend requests. Add someone from the Friends tab.'; reqPanel.appendChild(empty);
+    }
     if (data.incoming && data.incoming.length) {
-      addSection(panel, 'Incoming Requests');
+      addSection(reqPanel, 'Incoming');
       data.incoming.forEach(u => {
         const d = document.createElement('div'); d.className = 'friend-item';
         d.innerHTML = `<span class="f-name">${esc(u)}</span><button class="win-btn" data-accept="${esc(u)}">Accept</button><button class="win-btn" data-decline="${esc(u)}">X</button>`;
         d.querySelector('[data-accept]').onclick = async () => { await fetch('/api/friends/accept', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) }); loadFriendsList(); };
         d.querySelector('[data-decline]').onclick = async () => { await fetch('/api/friends/decline', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: u }) }); loadFriendsList(); };
-        panel.appendChild(d);
+        reqPanel.appendChild(d);
       });
     }
     if (data.outgoing && data.outgoing.length) {
-      addSection(panel, 'Pending Sent');
+      addSection(reqPanel, 'Sent');
       data.outgoing.forEach(u => {
         const d = document.createElement('div'); d.className = 'friend-item';
         d.innerHTML = `<span class="f-name" style="color:#999">${esc(u)}</span><span style="font-size:10px;color:#999">pending</span>`;
-        panel.appendChild(d);
+        reqPanel.appendChild(d);
       });
     }
-    addSection(panel, 'Friends');
     if (!data.friends.length) {
-      const empty = document.createElement('div'); empty.style.cssText = 'font-size:10px;color:#999;padding:4px;'; empty.textContent = 'No friends yet'; panel.appendChild(empty);
+      const empty = document.createElement('div'); empty.className = 'lobby-empty'; empty.textContent = 'No friends yet. Add someone above.'; panel.appendChild(empty);
     }
     data.friends.sort((a, b) => {
       if (!!a.online !== !!b.online) return a.online ? -1 : 1;
@@ -8083,13 +8103,22 @@ async function loadFriendsList() {
       if (f.online && f.afk) subText = `<span class="f-sub" style="color:#f0b232;font-weight:600;">AFK</span>`;
       else if (!f.online) subText = `<span class="f-sub">${f.last_online ? 'last online ' + fmtRelTime(f.last_online) : 'Inactive'}</span>`;
       const flvl = (typeof f.level === 'number') ? `<span title="Level ${f.level}" style="font-size:9px;font-weight:700;color:#22d3ee;background:rgba(34,211,238,0.12);border:1px solid #22d3ee;padding:0 4px;border-radius:6px;margin-right:4px;">L${f.level}</span>` : '';
-      d.innerHTML = `<div class="f-status ${statusCls}"></div>${avatarImg(f.name, 'lg')}<div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div>${flvl}<button class="win-btn" data-dm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;">DM</button><button class="win-btn" data-rm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
+      d.innerHTML = `<div class="f-status ${statusCls}"></div>${avatarImg(f.name, 'lg')}<div class="f-info"><span class="f-name">${esc(f.name)}</span>${subText}</div>${flvl}<button class="win-btn" data-dm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;">Chat</button><button class="win-btn" data-rm="${esc(f.name)}" style="font-size:10px;padding:1px 4px;color:red;">X</button>`;
       d.querySelector('[data-dm]').onclick = () => { openDm(f.name); };
       d.querySelector('[data-rm]').onclick = async () => { if (confirm(`Remove ${f.name}?`)) { await fetch('/api/friends/remove', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ username: f.name }) }); loadFriendsList(); }};
       panel.appendChild(d);
     });
   } catch {}
 }
+let friendsTab = 'friends';
+function setFriendsTab(name) {
+  friendsTab = name;
+  document.querySelectorAll('#friends-tabs .menu-tab').forEach(t => t.classList.toggle('active', t.dataset.frtab === name));
+  document.getElementById('fr-friends').style.display = name === 'friends' ? '' : 'none';
+  document.getElementById('fr-groups').style.display = name === 'groups' ? '' : 'none';
+  document.getElementById('fr-requests').style.display = name === 'requests' ? '' : 'none';
+}
+document.querySelectorAll('#friends-tabs .menu-tab').forEach(t => { t.onclick = () => setFriendsTab(t.dataset.frtab); });
 document.getElementById('btn-friend-add').onclick = async () => {
   const inp = document.getElementById('friend-add-input');
   const name = inp.value.trim(); if (!name) return;
@@ -8862,7 +8891,7 @@ document.getElementById('btn-admin-device-list').onclick = async () => {
 document.getElementById('btn-admin-del-account').onclick = () => {
   const u = document.getElementById('admin-del-input').value.trim();
   if (!u) return;
-  if (!confirm(`PERMANENTLY delete account "${u}"? This removes their account, friends, DMs, owned lobbies, and all leaderboard entries.`)) return;
+  if (!confirm(`PERMANENTLY delete account "${u}"? This removes their account, friends, chats, owned lobbies, and all leaderboard entries.`)) return;
   adminAction('/api/admin/delete-account', { username: u });
 };
 document.getElementById('btn-admin-reset-pw').onclick = async () => {
