@@ -86,7 +86,7 @@ economy_history = []
 ECONOMY_SNAPSHOT_INTERVAL = 300
 ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
-SHOP_PRICES = {"custom_wheel": 5, "vip": 45, "name_color": 30, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
+SHOP_PRICES = {"vip": 45, "name_color": 30, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
 SHOP_SELL_PRICES = {"streak_pass": 400}
 PALETTE_SIZE = 91
 STACKABLE_ITEMS = {"streak_pass"}
@@ -172,7 +172,7 @@ def lobby_info(lobby, include_code=False):
     info = {
         "id": lobby["id"], "name": lobby["name"], "owner": lobby["owner"],
         "public": lobby["public"], "whitelist_enabled": lobby["whitelist_enabled"],
-        "online": sum(1 for c in clients.values() if c and c.get("lobby_id") == lobby["id"]),
+        "online": sum(1 for c in clients.values() if c and c.get("username") and c.get("lobby_id") == lobby["id"]),
         "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN),
         "width": lobby.get("width", 256), "height": lobby.get("height", 256),
         "last_activity": lobby.get("last_activity", time.time()),
@@ -5665,7 +5665,7 @@ async def online_summary_handler(request):
     for info in clients.values():
         if not info: continue
         lid = info.get("lobby_id")
-        if not lid: continue
+        if not lid or not info.get("username"): continue
         per_lobby[lid] = per_lobby.get(lid, 0) + 1
     total = len(users)
     return web.json_response({"total": total, "users": users, "per_lobby": per_lobby})
@@ -5997,6 +5997,19 @@ async def websocket_handler(request):
                         await send_grid_to_ws(ws, grid_msg, lobby["grid"])
                         await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                         await broadcast_online_lobby(lobby_id)
+
+                    elif data["type"] == "guest_join" and not username and not lobby_id:
+                        if is_ip_banned(request):
+                            await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
+                        if not check_rate_limit(get_client_ip(request), "guest_join", 20, 60):
+                            await ws.send_json({"type": "error", "text": "Too many joins - slow down"}); await ws.close(); break
+                        lid = str(data.get("lobby_id") or "")
+                        lobby = lobbies.get(lid)
+                        if not lobby or not lobby.get("public"):
+                            await ws.send_json({"type": "error", "text": "Guests can only watch public lobbies"}); await ws.close(); break
+                        username = ""; lobby_id = lid
+                        clients[ws] = {"username": "", "guest": True, "lobby_id": lobby_id, "ip": get_client_ip(request), "can_place": False, "no_deflate": bool(data.get("no_deflate"))}
+                        await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": False, "brush_perm": {"size": 1, "drag": False}}, lobby["grid"])
 
                     elif data["type"] == "pixel" and username and lobby_id:
                         if not clients.get(ws, {}).get("can_place", True):
@@ -6396,7 +6409,7 @@ async def broadcast_online_all_lobbies():
         await broadcast_online_lobby(lid)
 
 async def broadcast_online_lobby(lobby_id):
-    count = sum(1 for info in clients.values() if info and info.get("lobby_id") == lobby_id)
+    count = sum(1 for info in clients.values() if info and info.get("username") and info.get("lobby_id") == lobby_id)
                                                                                                
     total_seen = set()
     for info in clients.values():
