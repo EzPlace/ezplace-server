@@ -77,11 +77,6 @@
   #zoom-buttons button { width: 34px; height: 34px; font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer; transition: all 0.15s; }
   #zoom-buttons button:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-  #palette-row { display: flex; gap: 4px; padding: 8px 10px; flex-wrap: wrap; justify-content: center; max-width: 680px; flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); }
-  #palette-scroll-hint { display: none; }
-  .color-btn { width: 26px; height: 26px; border: 2px solid transparent; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-  .color-btn:hover { transform: scale(1.2); border-color: rgba(255,255,255,0.5); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
-  .color-btn.selected { border-color: #fff; transform: scale(1.15); box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(238,90,82,0.4); }
 
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
@@ -95,6 +90,26 @@
   #cooldown-warn { transition: opacity 0.2s; }
   .lobby-expiry { font-size: 10px; color: var(--yellow); font-style: italic; opacity: 0.8; }
 
+  #bottom-bar { flex-wrap: wrap; }
+  #wheel-group { display: flex; align-items: center; gap: 10px; padding: 2px 0; }
+  #color-wheel { width: 128px; height: 128px; border-radius: 50%; touch-action: none; cursor: crosshair; display: block; box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 4px 14px rgba(0,0,0,0.45); }
+  #wheel-light-col { display: flex; align-items: center; justify-content: center; height: 128px; width: 26px; }
+  #color-lightness { writing-mode: vertical-lr; direction: rtl; -webkit-appearance: slider-vertical; appearance: slider-vertical; width: 22px; height: 120px; accent-color: var(--accent); margin: 0; }
+  #wheel-side { display: flex; flex-direction: column; gap: 6px; min-width: 100px; }
+  #wheel-swatches { display: flex; gap: 6px; }
+  #color-preview-pick, #color-preview-snap { width: 46px; height: 28px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #f00; }
+  #color-preview-snap { box-shadow: 0 0 0 2px var(--accent); }
+  #color-hex { width: 98px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; padding: 4px 6px; text-transform: uppercase; }
+  #color-snap-label { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+  #color-recent { display: flex; gap: 4px; flex-wrap: wrap; max-width: 120px; min-height: 16px; }
+  #color-recent div { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.18); cursor: pointer; }
+  #color-recent div:hover { transform: scale(1.15); border-color: #fff; }
+  .menu-btn.locked, .menu-btn.locked:hover { opacity: 0.38; cursor: not-allowed; background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.06); }
+  .menu-btn.locked .mi, .menu-btn.locked:hover .mi { color: var(--text-muted); }
+  #menu-guest-note { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 6px 0 2px; font-size: 12px; color: var(--text-muted); }
+  #menu-guest-note .menu-btn { height: 40px; padding: 0 22px; }
+  body.guest-mode #sidebar, body.guest-mode #bottom-bar, body.guest-mode #info-row, body.guest-mode #cooldown-warn, body.guest-mode #cooldown-bar, body.guest-mode #mobile-sidebar-toggle, body.guest-mode #mobile-pan-toggle, body.guest-mode #tip-banner, body.guest-mode #mobile-chat-overlay, body.guest-mode #rtc-tiles { display: none !important; }
+  body.guest-mode #header-right > :not(#btn-leave-lobby) { display: none !important; }
   #tab-warning { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-primary); z-index: 100; align-items: center; justify-content: center; font-size: 18px; color: var(--text-primary); }
   #tab-warning.show { display: flex; }
 
@@ -394,9 +409,9 @@
   #mobile-sidebar-toggle { display: none; position: fixed; bottom: 14px; right: 14px; z-index: 45; width: 48px; height: 48px; font-size: 20px; border-radius: 50%; background: var(--accent); border: none; color: #fff; box-shadow: 0 4px 16px rgba(238,90,82,0.4); }
   #mobile-sidebar-toggle:hover { background: var(--accent-hover); }
 
-  #mobile-pan-toggle { display: flex; align-items: center; justify-content: center; position: fixed; bottom: 14px; left: 14px; z-index: 45; width: 48px; height: 48px; font-size: 11px; font-weight: 700; border-radius: 50%; background: var(--bg-elevated); border: 1px solid var(--accent); color: var(--accent); box-shadow: 0 4px 16px rgba(0,0,0,0.4); cursor: pointer; }
+  #mobile-pan-toggle { display: inline-flex; align-items: center; justify-content: center; align-self: center; padding: 6px 12px; font-size: 11px; font-weight: 700; border-radius: var(--radius-sm); background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border); min-width: 54px; }
   #mobile-pan-toggle.pan { background: var(--accent); color: #fff; }
-  #mobile-pan-toggle:hover { transform: scale(1.05); }
+  #mobile-pan-toggle:hover { border-color: var(--accent); }
 
   @media (max-width: 700px) {
     html, body { overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -405,7 +420,6 @@
     #sidebar { width: 100%; height: 65vh; position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; transform: translateY(100%); transition: transform 0.25s ease; border-left: none; border-top: 1px solid var(--border); }
     #sidebar.open { transform: translateY(0); }
     #mobile-sidebar-toggle { display: flex; align-items: center; justify-content: center; bottom: 18px; right: 18px; width: 56px; height: 56px; font-size: 24px; }
-    #mobile-pan-toggle { display: flex; align-items: center; justify-content: center; bottom: 18px; left: 18px; width: 56px; height: 56px; font-size: 12px; }
     #mobile-chat-overlay { display: flex; }
     #header { padding: 6px 8px; }
     #header h1 { font-size: 13px; }
@@ -417,14 +431,11 @@
     #btn-export-grid, #btn-import-grid, #btn-manage-current { font-size: 10px; padding: 4px 8px; }
     #zoom-buttons { right: 10px; gap: 6px; }
     #zoom-buttons button { width: 44px; height: 44px; font-size: 22px; }
-    #palette-wrap { width: 100%; }
-    #palette-row { gap: 6px; padding: 8px 28px 8px 8px; max-width: 100%; width: 100%; min-height: 54px; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; justify-content: flex-start; -webkit-overflow-scrolling: touch; scrollbar-width: thin; white-space: nowrap; touch-action: pan-x; mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 36px), transparent 100%); -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 36px), transparent 100%); }
-    #palette-row::-webkit-scrollbar { height: 4px; }
+    #color-wheel { width: 104px; height: 104px; }
+    #wheel-light-col { height: 104px; }
+    #color-lightness { height: 96px; }
     #palette-row.at-end { mask-image: none; -webkit-mask-image: none; padding-right: 8px; }
-    #palette-scroll-hint { display: flex; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 20px; font-weight: 900; color: var(--accent); pointer-events: none; animation: scroll-pulse 1.4s ease-in-out infinite; z-index: 2; text-shadow: 0 0 6px rgba(238,90,82,0.8); }
     #palette-wrap.at-end #palette-scroll-hint { display: none; }
-    @keyframes scroll-pulse { 0%, 100% { transform: translate(0, -50%); opacity: 0.55; } 50% { transform: translate(4px, -50%); opacity: 1; } }
-    .color-btn { width: 36px; height: 36px; min-width: 36px; flex-shrink: 0; touch-action: manipulation; }
     .sidebar-tab { font-size: 11px; padding: 10px 4px; }
     #menu { padding: 8px; }
     #menu-bubble { border-radius: 18px; max-height: calc(100svh - 16px); }
@@ -457,7 +468,6 @@
   <button class="win-btn" id="lm-unban" style="width:100%;background:var(--green);color:#fff;border:1px solid #5dd49a;">Unban from lobby</button>
 </div>
 <button id="mobile-sidebar-toggle" class="win-btn">&#x1F4AC;</button>
-<button id="mobile-pan-toggle" class="win-btn" title="Toggle pan / draw mode">Draw</button>
 
 <div id="canvas-wrap">
   <div id="header" class="win-titlebar">
@@ -493,17 +503,19 @@
   </div>
   <div id="bottom-bar" style="display:flex;align-items:stretch;gap:8px;padding:6px 8px;background:var(--bg-secondary);border-top:1px solid var(--border);flex-shrink:0;">
     <div id="color-picker" style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-      <div id="wheel-group" style="display:none;align-items:center;gap:6px;">
-        <canvas id="color-wheel" width="80" height="80" style="touch-action:none;cursor:crosshair;border-radius:50%;"></canvas>
-        <div style="display:flex;flex-direction:column;align-items:center;gap:2px;height:80px;">
-          <span style="font-size:8px;color:var(--text-muted);">+</span>
-          <input id="color-lightness" type="range" min="0" max="100" value="50" style="writing-mode:bt-lr;-webkit-appearance:slider-vertical;appearance:slider-vertical;width:20px;flex:1;accent-color:var(--accent);" orient="vertical">
-          <span style="font-size:8px;color:var(--text-muted);">-</span>
+      <div id="wheel-group">
+        <canvas id="color-wheel" width="280" height="280"></canvas>
+        <div id="wheel-light-col" title="Lightness"><input id="color-lightness" type="range" min="0" max="100" value="50" orient="vertical"></div>
+        <div id="wheel-side">
+          <div id="wheel-swatches"><div id="color-preview-pick" title="Picked color"></div><div id="color-preview-snap" title="Nearest palette color (what gets placed)"></div></div>
+          <input id="color-hex" class="win-input" type="text" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#hex">
+          <div id="color-snap-label"></div>
+          <div id="color-recent" title="Recent colors"></div>
         </div>
-        <div id="color-preview-snap" title="Color used" style="width:32px;height:32px;border-radius:6px;background:#FF0000;border:2px solid #fff;box-shadow:0 0 0 1px var(--accent);align-self:center;"></div>
       </div>
       <button id="btn-undo" title="Undo last placement (Ctrl+Z)" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">&#x21B6; Undo</button>
       <button id="btn-save-png" title="Save this lobby as a PNG" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">💾 PNG</button>
+      <button id="mobile-pan-toggle" class="win-btn" title="Toggle pan / draw mode">Draw</button>
       <select id="brush-size-select" class="win-input" style="display:none;font-size:11px;padding:2px 4px;align-self:center;">
         <option value="1">1x1</option>
         <option value="3">3x3</option>
@@ -513,9 +525,6 @@
         <option value="15">15x15</option>
         <option value="25">25x25</option>
       </select>
-    </div>
-    <div id="palette-wrap" style="position:relative;flex:1;min-width:0;display:flex;align-items:center;">
-      <div id="palette-row" style="display:flex;gap:4px;overflow-x:auto;overflow-y:hidden;flex:1;padding:4px;scrollbar-width:thin;"></div>
     </div>
   </div>
 
@@ -1112,10 +1121,11 @@
         <div id="menu-home-auth" class="menu-grid">
           <button class="menu-btn primary wide" id="btn-menu-register">Create Account</button>
           <button class="menu-btn wide" id="btn-menu-login">I already have an account</button>
+          <button class="menu-btn wide" id="btn-menu-guest">Play as guest</button>
         </div>
         <div id="menu-home-user" style="display:none;flex-direction:column;gap:12px;">
           <div id="menu-user-row">
-            <div id="menu-user-info">Logged in as <b id="menu-user-name"></b><span id="menu-pb"></span></div>
+            <div id="menu-user-info"><span id="menu-user-prefix">Logged in as </span><b id="menu-user-name"></b><span id="menu-pb"></span></div>
             <button class="menu-btn danger" id="btn-logout"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Logout</button>
           </div>
           <div class="menu-grid">
@@ -1129,6 +1139,10 @@
             <button class="menu-btn" id="btn-achievements"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg><span class="menu-label">Achievements</span></button>
             <button class="menu-btn" id="btn-menu-clans"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="menu-label">Clans</span></button>
             <button class="menu-btn" id="btn-menu-fishing"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg><span class="menu-label">Fishing</span></button>
+          </div>
+          <div id="menu-guest-note" style="display:none">
+            <span>Make an account to access more features</span>
+            <button class="menu-btn primary" id="btn-guest-register">Create Account</button>
           </div>
         </div>
       </div>
@@ -1152,6 +1166,7 @@
       </div>
       <button id="btn-auth-submit" class="win-btn" style="width:100%;padding:10px;font-size:14px;font-weight:700;margin-top:4px;">Log In</button>
       <div id="auth-error" style="min-height:16px;font-size:11px;color:var(--red);text-align:center;margin-top:6px;">&nbsp;</div>
+      <button class="menu-btn wide" id="btn-auth-guest" style="margin-top:4px;">Play as guest instead</button>
         </div>
       </div>
 
@@ -1252,7 +1267,6 @@
 
       <div class="shop-panel" data-panel="buy" style="display:flex;flex-direction:column;gap:10px;">
         <div style="font-size:11px;color:var(--text-muted);">You earn 1 $ per 100 pixels placed, 1 $ per 15 min online, and 1 $ per Flappy pipe.</div>
-        <div id="shop-item-wheel" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">Custom Color Wheel</div><div style="font-size:11px;color:var(--text-muted);">Unlock the color wheel + lightness slider so you can pick any shade (snapped to the nearest palette color).</div></div><button class="win-btn shop-buy" data-item="custom_wheel" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">5 $</button></div>
         <div id="shop-item-vip" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">VIP Rank</div><div style="font-size:11px;color:var(--text-muted);">Adds a [VIP] gold tag to your name in chat.</div></div><button class="win-btn shop-buy" data-item="vip" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">45 $</button></div>
         <div id="shop-item-custom-rank" style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
@@ -1671,13 +1685,34 @@ let currentLobbyOwner = null;
 const MENU_TITLES = { auth: '', lobbies: 'Lobbies', friends: 'Friends & Chats', shop: 'Shop', notifications: 'Notifications', settings: 'Settings', leaderboard: 'Leaderboard', economy: 'Economy', achievements: 'Achievements', clans: 'Clans', fishing: 'Fishing' };
 const menuViewHooks = {};
 let menuView = 'home';
+let isGuest = false;
+const GUEST_VIEWS = new Set(['home', 'auth', 'lobbies', 'leaderboard', 'economy']);
+const GUEST_BUTTONS = new Set(['btn-menu-lobbies', 'btn-menu-leaderboard', 'btn-menu-economy']);
 function menuIsOpen() { return document.body.classList.contains('menu-open'); }
 function friendsViewOpen() { return menuIsOpen() && menuView === 'friends'; }
 function renderMenuHome() {
   const authed = !!authToken;
-  document.getElementById('menu-home-auth').style.display = authed ? 'none' : '';
-  document.getElementById('menu-home-user').style.display = authed ? 'flex' : 'none';
-  document.getElementById('menu-user-name').textContent = authed ? (username || '') : '';
+  const guest = !authed && isGuest;
+  document.getElementById('menu-home-auth').style.display = (authed || guest) ? 'none' : '';
+  document.getElementById('menu-home-user').style.display = (authed || guest) ? 'flex' : 'none';
+  document.getElementById('menu-user-prefix').textContent = guest ? 'Playing as ' : 'Logged in as ';
+  document.getElementById('menu-user-name').textContent = authed ? (username || '') : (guest ? 'guest' : '');
+  document.getElementById('menu-pb').style.display = guest ? 'none' : '';
+  const lo = document.getElementById('btn-logout');
+  lo.lastChild.textContent = guest ? 'Exit guest' : 'Logout';
+  document.getElementById('menu-guest-note').style.display = guest ? '' : 'none';
+  document.querySelectorAll('#menu-home-user .menu-grid .menu-btn').forEach(b => {
+    const locked = guest && !GUEST_BUTTONS.has(b.id);
+    b.classList.toggle('locked', locked);
+    b.disabled = locked;
+    b.title = locked ? 'Make an account to access this' : '';
+  });
+}
+function startGuest() {
+  if (authToken) return;
+  isGuest = true;
+  username = '';
+  openMenuView('home', true);
 }
 function leaveMenuView() {
   const h = menuViewHooks[menuView];
@@ -1685,6 +1720,7 @@ function leaveMenuView() {
 }
 function openMenuView(name, resetHistory) {
   if (!document.getElementById('menu-view-' + name)) name = 'home';
+  if (isGuest && !authToken && !GUEST_VIEWS.has(name)) name = 'home';
   if (!menuIsOpen()) { document.body.classList.add('menu-open'); lobbyBgStart(); }
   document.getElementById('menu-close').style.display = currentLobbyId ? '' : 'none';
   if (menuView !== name) leaveMenuView();
@@ -1718,6 +1754,9 @@ document.getElementById('menu-close').onclick = hideMenu;
 document.getElementById('btn-menu').onclick = () => showMenu('home');
 document.getElementById('btn-menu-register').onclick = () => { openMenuView('auth'); setAuthMode(true); };
 document.getElementById('btn-menu-login').onclick = () => { openMenuView('auth'); setAuthMode(false); };
+document.getElementById('btn-menu-guest').onclick = startGuest;
+document.getElementById('btn-auth-guest').onclick = startGuest;
+document.getElementById('btn-guest-register').onclick = () => { isGuest = false; openMenuView('auth'); setAuthMode(true); };
 document.getElementById('btn-menu-friends').onclick = () => requireAuthView('friends');
 document.getElementById('btn-menu-lobbies').onclick = () => { if (currentLobbyId) leaveLobby(); else openMenuView('lobbies'); };
 document.getElementById('btn-menu-leaderboard').onclick = () => openMenuView('leaderboard');
@@ -1729,8 +1768,18 @@ document.querySelectorAll('.menu-tab[data-ltab]').forEach(t => {
     document.getElementById('lobbies-private').style.display = t.dataset.ltab === 'private' ? '' : 'none';
   };
 });
-menuViewHooks.auth = { enter: () => { try { document.getElementById('auth-user').focus(); } catch {} } };
-menuViewHooks.lobbies = { enter: () => { loadLobbies(); loadNightEventState(); } };
+menuViewHooks.auth = { enter: () => { const g = document.getElementById('btn-auth-guest'); if (g) g.style.display = (authToken || isGuest) ? 'none' : ''; try { document.getElementById('auth-user').focus(); } catch {} } };
+menuViewHooks.lobbies = { enter: () => {
+  const guest = isGuest && !authToken;
+  const tabs = document.querySelector('#menu-view-lobbies .menu-tabs');
+  if (tabs) tabs.style.display = guest ? 'none' : '';
+  if (guest) {
+    document.getElementById('lobbies-public').style.display = '';
+    document.getElementById('lobbies-private').style.display = 'none';
+    document.querySelectorAll('.menu-tab[data-ltab]').forEach(x => x.classList.toggle('active', x.dataset.ltab === 'public'));
+  }
+  loadLobbies(); loadNightEventState();
+} };
 menuViewHooks.friends = { enter: () => {
   loadMsgList();
   const fb = document.getElementById('friend-notif'); if (fb) { fb.style.display = 'none'; fb.textContent = ''; }
@@ -1922,7 +1971,7 @@ window.addEventListener('focus', () => {
   if (blocked) {
     blocked = false; tabWarning.classList.remove('show');
     tabChannel.postMessage({ type: 'claim', id: tabId });
-    if (authToken && currentLobbyId && (!ws || ws.readyState !== WebSocket.OPEN)) connectToLobby(currentLobbyId, currentLobbyName);
+    if ((authToken || isGuest) && currentLobbyId && (!ws || ws.readyState !== WebSocket.OPEN)) connectToLobby(currentLobbyId, currentLobbyName);
   }
 });
 
@@ -2772,12 +2821,13 @@ document.getElementById('mobile-sidebar-toggle').onclick = () => {
 };
 
 const mobilePanToggle = document.getElementById('mobile-pan-toggle');
-mobilePanToggle.onclick = () => {
-  forcePanMode = !forcePanMode;
+function setForcePan(v) {
+  forcePanMode = !!v;
   mobilePanToggle.textContent = forcePanMode ? 'Pan' : 'Draw';
   mobilePanToggle.classList.toggle('pan', forcePanMode);
   if (forcePanMode && touchDrawing) { touchDrawing = false; touchDrawLastX = -1; touchDrawLastY = -1; }
-};
+}
+mobilePanToggle.onclick = () => { setForcePan(!forcePanMode); };
 
 const cooldownFill = document.getElementById('cooldown-fill');
 const cooldownWarn = document.getElementById('cooldown-warn');
@@ -2917,8 +2967,10 @@ cvs.addEventListener('click', e => {
 
 const wheelCanvas = document.getElementById('color-wheel');
 const wheelCtx = wheelCanvas.getContext('2d');
-const WHEEL_SIZE = 100;
+const WHEEL_SIZE = 280;
 const WHEEL_R = WHEEL_SIZE / 2;
+let wheelCacheLight = -1, wheelCacheImg = null;
+const recentColors = [];
 
 const PALETTE_RGB = COLORS.map(hex => [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)]);
 
@@ -3034,24 +3086,27 @@ function rgbToHex(r, g, b) {
 let pickHue = 0, pickSat = 1.0, pickLight = 0.5;
 
 function drawColorWheel(currentLight) {
-  const img = wheelCtx.createImageData(WHEEL_SIZE, WHEEL_SIZE);
-  for (let y = 0; y < WHEEL_SIZE; y++) {
-    for (let x = 0; x < WHEEL_SIZE; x++) {
-      const dx = x - WHEEL_R + 0.5, dy = y - WHEEL_R + 0.5;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const o = (y * WHEEL_SIZE + x) * 4;
-      if (dist > WHEEL_R) {
-        img.data[o] = 0; img.data[o+1] = 0; img.data[o+2] = 0; img.data[o+3] = 0;
-        continue;
+  if (wheelCacheLight !== currentLight || !wheelCacheImg) {
+    const img = wheelCtx.createImageData(WHEEL_SIZE, WHEEL_SIZE);
+    const data = img.data;
+    for (let y = 0; y < WHEEL_SIZE; y++) {
+      for (let x = 0; x < WHEEL_SIZE; x++) {
+        const dx = x - WHEEL_R + 0.5, dy = y - WHEEL_R + 0.5;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const o = (y * WHEEL_SIZE + x) * 4;
+        const edge = WHEEL_R - dist + 0.5;
+        if (edge <= 0) { data[o + 3] = 0; continue; }
+        const sat = Math.min(1, dist / WHEEL_R);
+        let h = Math.atan2(dy, dx) * 180 / Math.PI;
+        if (h < 0) h += 360;
+        const [cr, cg, cb] = hslToRgb(h, sat, currentLight);
+        data[o] = cr; data[o + 1] = cg; data[o + 2] = cb; data[o + 3] = Math.round(Math.min(1, edge) * 255);
       }
-      const sat = Math.min(1, dist / WHEEL_R);
-      let h = Math.atan2(dy, dx) * 180 / Math.PI;
-      if (h < 0) h += 360;
-      const [r, g, b] = hslToRgb(h, sat, currentLight);
-      img.data[o] = r; img.data[o+1] = g; img.data[o+2] = b; img.data[o+3] = 255;
     }
+    wheelCacheImg = img; wheelCacheLight = currentLight;
   }
-  wheelCtx.putImageData(img, 0, 0);
+  wheelCtx.clearRect(0, 0, WHEEL_SIZE, WHEEL_SIZE);
+  wheelCtx.putImageData(wheelCacheImg, 0, 0);
   drawPickerIndicator();
 }
 
@@ -3060,23 +3115,50 @@ function drawPickerIndicator() {
   const rad = pickHue * Math.PI / 180;
   const x = WHEEL_R + Math.cos(rad) * dist;
   const y = WHEEL_R + Math.sin(rad) * dist;
-  wheelCtx.strokeStyle = '#000';
-  wheelCtx.lineWidth = 3;
-  wheelCtx.beginPath(); wheelCtx.arc(x, y, 5, 0, Math.PI * 2); wheelCtx.stroke();
-  wheelCtx.strokeStyle = '#fff';
-  wheelCtx.lineWidth = 1.5;
-  wheelCtx.beginPath(); wheelCtx.arc(x, y, 5, 0, Math.PI * 2); wheelCtx.stroke();
+  const [cr, cg, cb] = hslToRgb(pickHue, pickSat, pickLight);
+  wheelCtx.beginPath(); wheelCtx.arc(x, y, 11, 0, Math.PI * 2);
+  wheelCtx.fillStyle = `rgb(${cr},${cg},${cb})`; wheelCtx.fill();
+  wheelCtx.lineWidth = 5; wheelCtx.strokeStyle = 'rgba(0,0,0,0.55)'; wheelCtx.stroke();
+  wheelCtx.lineWidth = 2.5; wheelCtx.strokeStyle = '#fff'; wheelCtx.stroke();
 }
 
 function applyPick() {
-  const [r, g, b] = hslToRgb(pickHue, pickSat, pickLight);
-  selectedColor = nearestPaletteIndex(r, g, b);
+  const [cr, cg, cb] = hslToRgb(pickHue, pickSat, pickLight);
+  const pickedHex = rgbToHex(cr, cg, cb);
+  selectedColor = nearestPaletteIndex(cr, cg, cb);
+  const pickEl = document.getElementById('color-preview-pick');
+  if (pickEl) pickEl.style.background = pickedHex;
   document.getElementById('color-preview-snap').style.background = COLORS[selectedColor];
-  document.querySelectorAll('#palette-row .color-btn').forEach(b => { b.style.borderColor = 'transparent'; b.classList.remove('selected'); });
-  const swatches = document.querySelectorAll('#palette-row .color-btn');
-  const displayPos = (typeof PALETTE_DISPLAY_ORDER !== 'undefined') ? PALETTE_DISPLAY_ORDER.indexOf(selectedColor) : selectedColor;
-  if (displayPos >= 0 && swatches[displayPos]) { swatches[displayPos].style.borderColor = '#fff'; swatches[displayPos].classList.add('selected'); }
+  const hexEl = document.getElementById('color-hex');
+  if (hexEl && document.activeElement !== hexEl) hexEl.value = pickedHex.toUpperCase();
+  const lbl = document.getElementById('color-snap-label');
+  if (lbl) lbl.textContent = 'places ' + COLORS[selectedColor].toUpperCase();
   drawColorWheel(pickLight);
+}
+function setPickFromHex(hex) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return false;
+  const [h, s, l] = _hexToHsl(hex);
+  pickHue = h; pickSat = Math.min(1, s); pickLight = l;
+  const slider = document.getElementById('color-lightness');
+  if (slider) slider.value = Math.round(l * 100);
+  applyPick();
+  return true;
+}
+function addRecentColor() {
+  const hex = COLORS[selectedColor];
+  const i = recentColors.indexOf(hex);
+  if (i !== -1) recentColors.splice(i, 1);
+  recentColors.unshift(hex);
+  if (recentColors.length > 8) recentColors.length = 8;
+  const el = document.getElementById('color-recent');
+  if (!el) return;
+  el.innerHTML = '';
+  recentColors.forEach(c => {
+    const d = document.createElement('div');
+    d.style.background = c; d.title = c;
+    d.onclick = () => { setPickFromHex(c); addRecentColor(); };
+    el.appendChild(d);
+  });
 }
 
 function pickFromEvent(e) {
@@ -3098,10 +3180,17 @@ function pickFromEvent(e) {
 let wheelDragging = false;
 wheelCanvas.addEventListener('mousedown', e => { e.preventDefault(); wheelDragging = true; pickFromEvent(e); });
 window.addEventListener('mousemove', e => { if (wheelDragging) pickFromEvent(e); });
-window.addEventListener('mouseup', () => { wheelDragging = false; });
+window.addEventListener('mouseup', () => { if (wheelDragging) addRecentColor(); wheelDragging = false; });
 wheelCanvas.addEventListener('touchstart', e => { e.preventDefault(); wheelDragging = true; pickFromEvent(e); }, { passive: false });
 wheelCanvas.addEventListener('touchmove', e => { e.preventDefault(); if (wheelDragging) pickFromEvent(e); }, { passive: false });
-wheelCanvas.addEventListener('touchend', () => { wheelDragging = false; });
+wheelCanvas.addEventListener('touchend', () => { if (wheelDragging) addRecentColor(); wheelDragging = false; });
+document.getElementById('color-hex').addEventListener('input', e => {
+  let v = e.target.value.trim();
+  if (v && v[0] !== '#') v = '#' + v;
+  if (/^#[0-9a-fA-F]{3}$/.test(v)) v = '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
+  if (setPickFromHex(v)) addRecentColor();
+});
+document.getElementById('color-hex').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
 
 document.getElementById('color-lightness').addEventListener('input', e => {
   pickLight = parseFloat(e.target.value) / 100;
@@ -3124,41 +3213,8 @@ function _hexToHsl(hex) {
   else hue = (r - g) / d + 4;
   return [hue * 60, s, l];
 }
-function _computePaletteOrder() {
-  const items = COLORS.map((hex, idx) => {
-    const [h, s, l] = _hexToHsl(hex);
-    return { idx, hex, h, s, l };
-  });
-  const greys = items.filter(c => c.s < 0.1).sort((a, b) => a.l - b.l);
-  const colored = items.filter(c => c.s >= 0.1).sort((a, b) => {
-    const ah = (a.h + 15) % 360, bh = (b.h + 15) % 360;
-    if (Math.floor(ah / 30) !== Math.floor(bh / 30)) return ah - bh;
-    return b.s - a.s || a.l - b.l;
-  });
-  return [...greys, ...colored].map(c => c.idx);
-}
-const PALETTE_DISPLAY_ORDER = _computePaletteOrder();
-
 pickHue = 0; pickSat = 1.0; pickLight = 0.5;
 applyPick();
-
-const paletteEl = document.getElementById('palette-row');
-PALETTE_DISPLAY_ORDER.forEach(i => {
-  const c = COLORS[i];
-  const btn = document.createElement('div');
-  btn.className = 'color-btn' + (i === selectedColor ? ' selected' : '');
-  btn.style.cssText = 'width:28px;height:28px;min-width:28px;border:2px solid transparent;border-radius:5px;cursor:pointer;flex-shrink:0;';
-  if (i === selectedColor) btn.style.borderColor = '#fff';
-  btn.style.background = c; btn.title = c;
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#palette-row .color-btn').forEach(b => { b.style.borderColor = 'transparent'; b.classList.remove('selected'); });
-    btn.style.borderColor = '#fff';
-    btn.classList.add('selected');
-    selectedColor = i;
-    document.getElementById('color-preview-snap').style.background = c;
-  });
-  paletteEl.appendChild(btn);
-});
 
 document.getElementById('brush-size-select').addEventListener('change', e => {
   adminBrushSize = parseInt(e.target.value) || 1;
@@ -3621,6 +3677,7 @@ async function doAuth(endpoint, needCaptcha) {
     if (data.error) { authError.textContent = data.error; return; }
     authToken = data.token; username = data.username;
     safeStore.setItem('ezplace_token', authToken); safeStore.setItem('ezplace_user', username);
+    isGuest = false; document.body.classList.remove('guest-mode');
     showLoggedIn(); openMenuView('home', true);
   } catch { authError.textContent = 'Server offline'; }
 }
@@ -3646,7 +3703,14 @@ let myStreak = 0;
 let myStreakBroken = false;
 let myStreakPrev = 0;
 let myStreakProgress = { seconds: 0, required: 900, earned_today: false };
+function updateMenuPb() {
+  const mp = document.getElementById('menu-pb');
+  if (!mp) return;
+  const bal = myUnlimited ? '∞' : (myBalance >= 100000 ? fmtCompact(myBalance) : String(myBalance));
+  mp.textContent = bal + ' PlaceBux · Level ' + Math.floor(myPixels / 1000) + (myStreak > 0 ? ' · ' + myStreak + ' day streak' : '');
+}
 function updateLevelPill() {
+  updateMenuPb();
   const t = document.getElementById('level-text');
   const b = document.getElementById('level-bar');
   if (!t || !b) return;
@@ -3684,12 +3748,9 @@ function applyPbState() {
     if (!myStreakProgress.earned_today && myStreakProgress.required) tip += ' - spend ' + Math.ceil((myStreakProgress.required - myStreakProgress.seconds) / 60) + ' more min on this tab to claim today (' + fmtMMSS(myStreakProgress.seconds) + '/' + fmtMMSS(myStreakProgress.required) + ')';
     el.title = tip;
   }
-  const mp = document.getElementById('menu-pb');
-  if (mp) mp.textContent = (myUnlimited ? '∞' : (myBalance >= 100000 ? fmtCompact(myBalance) : String(myBalance))) + ' PlaceBux' + (myStreak > 0 ? ' · ' + myStreak + ' day streak' : '');
+  updateMenuPb();
   const sb = document.getElementById('shop-balance');
   if (sb) sb.textContent = (myUnlimited ? '∞' : myBalance) + (myStreak > 0 ? '  🔥 ' + myStreak : '');
-  const wg = document.getElementById('wheel-group');
-  if (wg) wg.style.display = (myUnlimited || myPurchases.custom_wheel) ? 'flex' : 'none';
   const ud = document.getElementById('user-display');
   if (ud) ud.style.color = (myNameColor && /^#[0-9a-fA-F]{3,8}$/.test(myNameColor)) ? myNameColor : '';
   updateLevelPill();
@@ -3955,7 +4016,7 @@ setInterval(streakHeartbeat, 30000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') streakHeartbeat(); });
 
 const SHOP_STACKABLE = new Set(['streak_pass']);
-const SHOP_PRICES_LABEL = { custom_wheel: '5 $', vip: '45 $', custom_rank: '70 $', streak_48hr: '1200 $', streak_pass: '800 $' };
+const SHOP_PRICES_LABEL = { vip: '45 $', custom_rank: '70 $', streak_48hr: '1200 $', streak_pass: '800 $' };
 function openShop() {
   if (!authToken) { alert('Log in to use the shop.'); return; }
   document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance;
@@ -6738,6 +6799,7 @@ async function loadGlobalLeaderboard() {
 }
 
 function logout() {
+  isGuest = false; document.body.classList.remove('guest-mode'); setForcePan(false);
   safeStore.removeItem('ezplace_token'); safeStore.removeItem('ezplace_user');
   authToken = ''; username = ''; currentLobbyId = null; currentLobbyName = '';
   unreadDms = {}; updateDmTabBadge();
@@ -7339,7 +7401,10 @@ function resetLobbyUi() {
 }
 
 function joinLobby(id, name) {
-  if (!authToken) { lobbyError.textContent = 'Login first'; return; }
+  if (!authToken && !isGuest) { lobbyError.textContent = 'Login first'; return; }
+  const guest = !authToken && isGuest;
+  document.body.classList.toggle('guest-mode', guest);
+  setForcePan(guest);
   currentLobbyId = id; currentLobbyName = name;
   stopEconomyPoll();
   hideMenu();
@@ -7356,6 +7421,7 @@ function joinLobby(id, name) {
 }
 
 function leaveLobby() {
+  document.body.classList.remove('guest-mode'); setForcePan(false);
   intentionalClose = true;
   if (ws) ws.close();
   currentLobbyId = null; currentLobbyName = '';
@@ -7619,7 +7685,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 function connectToLobby(lobbyId, lobbyName) {
-  if (!authToken) return;
+  if (!authToken && !isGuest) return;
   intentionalClose = true;
   if (ws) ws.close();
   intentionalClose = false;
@@ -7629,7 +7695,8 @@ function connectToLobby(lobbyId, lobbyName) {
   ws.binaryType = 'arraybuffer';
   const noDeflate = (typeof DecompressionStream === 'undefined' || typeof ReadableStream === 'undefined' || typeof Response === 'undefined' || !Blob.prototype.stream);
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate }));
+    if (authToken) ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate }));
+    else ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, no_deflate: noDeflate }));
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
   };
