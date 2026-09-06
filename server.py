@@ -145,6 +145,10 @@ def is_ip_banned(request):
 def is_vip(username):
     return username and username.lower() in vips
 
+HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+def is_hex_color(c):
+    return isinstance(c, str) and bool(HEX_COLOR_RE.match(c))
+
 def get_rank(username):
     if not username:
         return None
@@ -152,13 +156,17 @@ def get_rank(username):
         return {"label": "CREATOR", "color": "rainbow"}
     if is_moderator(username):
         return {"label": "MOD", "color": "mod"}
-    return ranks.get(username.lower())
+    rk = ranks.get(username.lower())
+    if rk and not is_hex_color(rk.get("color")):
+        rk = dict(rk, color="#daa520")
+    return rk
 
 def get_auth_user(request):
     return sessions.get(request.headers.get("Authorization", ""))
 
 def get_client_ip(request):
-    return request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote or "unknown"
+    xff = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",") if p.strip()]
+    return (xff[-1] if xff else "") or request.remote or "unknown"
 
 def lobby_info(lobby, include_code=False):
     info = {
@@ -189,10 +197,25 @@ def get_leaderboard_top10(lobby):
         "original_owner": lobby.get("original_owner"),
     }
 
+PBKDF2_ITERATIONS = 200_000
+MAX_PASSWORD_LEN = 128
+
 def hash_password(password, salt=None):
     if salt is None:
         salt = secrets.token_hex(16)
-    return hashlib.sha256((salt + password).encode()).hexdigest(), salt
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS).hex(), salt
+
+def verify_password(acc, password):
+    """Returns (ok, needs_rehash). Legacy accounts use unsalted-iteration sha256."""
+    if not acc or not isinstance(password, str) or len(password) > MAX_PASSWORD_LEN:
+        return False, False
+    salt = str(acc.get("salt") or "")
+    stored = str(acc.get("password_hash") or "")
+    if acc.get("algo") == "pbkdf2":
+        h, _ = hash_password(password, salt)
+        return secrets.compare_digest(h, stored), False
+    legacy = hashlib.sha256((salt + password).encode()).hexdigest()
+    return secrets.compare_digest(legacy, stored), True
 
 def clean_captchas():
     now = time.time()
@@ -252,7 +275,9 @@ def get_clan_tag(username):
         return None
     ulow = username.lower()
     override = (clan.get("member_ranks") or {}).get(ulow) or {}
-    return {"label": clan.get("name") or "", "color": override.get("color") or clan.get("color") or "#7c5cfc"}
+    color = override.get("color") or clan.get("color") or "#7c5cfc"
+    if not is_hex_color(color): color = "#7c5cfc"
+    return {"label": clan.get("name") or "", "color": color}
 
 async def apply_clan_rank(username, clan):
 
@@ -291,7 +316,9 @@ def get_brush_perm(username):
 async def save_ranks(): await db_save("store", "ranks", ranks)
 
 async def save_name_colors(): await db_save("store", "name_colors", name_colors)
-def get_name_color(username): return name_colors.get((username or "").lower())
+def get_name_color(username):
+    c = name_colors.get((username or "").lower())
+    return c if is_hex_color(c) else None
 async def save_last_online(): await db_save("store", "last_online", last_online)
 async def save_reports(): await db_save("store", "reports", reports[-REPORTS_MAX:])
 async def save_profile_pictures(): await db_save("store", "profile_pictures", profile_pictures)
@@ -908,6 +935,8 @@ async def load_all_data():
     global economy_history
     economy_history = await db_load("store", "economy_history") or []
     user_ips = await db_load("store", "user_ips") or {}
+    global fishing
+    fishing = await db_load("store", "fishing") or {}
     global gd_levels, _gd_levels_max_seen
     gd_levels = await db_load("store", "gd_levels") or {}
     # If primary is empty, try the backup - this catches the case where a bad save
@@ -1055,7 +1084,7 @@ async def register_handler(request):
     data = await request.json()
     if not check_rate_limit(get_client_ip(request), "register", 5, 600):
         return web.json_response({"error": "Too many registration attempts - try again later."}, status=429)
-    uname, pwd = data.get("username", "").strip(), data.get("password", "")
+    uname, pwd = str(data.get("username") or "").strip(), data.get("password", "")
     not_robot = bool(data.get("not_robot"))
     try: time_on_page = int(data.get("time_on_page", 0))
     except: time_on_page = 0
@@ -1065,6 +1094,8 @@ async def register_handler(request):
         return web.json_response({"error": "Username must be 3-20 alphanumeric characters"}, status=400)
     if len(pwd) < 4:
         return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
+    if len(pwd) > MAX_PASSWORD_LEN:
+        return web.json_response({"error": f"Password must be at most {MAX_PASSWORD_LEN} characters"}, status=400)
     if is_banned(uname) or is_ip_banned(request):
         return web.json_response({"error": "This account is banned"}, status=403)
     if not not_robot:
@@ -1074,7 +1105,7 @@ async def register_handler(request):
     if uname.lower() in {u.lower() for u in accounts}:
         return web.json_response({"error": "Username already taken"}, status=400)
     pw_hash, salt = hash_password(pwd)
-    accounts[uname] = {"password_hash": pw_hash, "salt": salt, "created": time.time()}
+    accounts[uname] = {"password_hash": pw_hash, "salt": salt, "algo": "pbkdf2", "created": time.time()}
     await save_accounts()
     token = secrets.token_hex(16)
     sessions[token] = uname
@@ -1091,18 +1122,24 @@ async def login_handler(request):
     data = await request.json()
     if not check_rate_limit(get_client_ip(request), "login", 10, 60):
         return web.json_response({"error": "Too many login attempts - try again in a minute."}, status=429)
-    uname, pwd = data.get("username", "").strip(), data.get("password", "")
-    if not uname or not pwd:
+    uname, pwd = str(data.get("username") or "").strip(), data.get("password", "")
+    if not uname or not pwd or not isinstance(pwd, str):
         return web.json_response({"error": "Username and password required"}, status=400)
+    if not check_rate_limit(uname.lower(), "login_user", 15, 300):
+        return web.json_response({"error": "Too many login attempts for this account - try again in a few minutes."}, status=429)
     if is_banned(uname) or is_ip_banned(request):
         return web.json_response({"error": "This account is banned"}, status=403)
     found = next((u for u in accounts if u.lower() == uname.lower()), None)
     if not found:
         return web.json_response({"error": "Invalid username or password"}, status=400)
     acc = accounts[found]
-    h, _ = hash_password(pwd, acc["salt"])
-    if h != acc["password_hash"]:
+    ok, rehash = verify_password(acc, pwd)
+    if not ok:
         return web.json_response({"error": "Invalid username or password"}, status=400)
+    if rehash:
+        pw_hash, salt = hash_password(pwd)
+        acc["password_hash"] = pw_hash; acc["salt"] = salt; acc["algo"] = "pbkdf2"
+        await save_accounts()
     token = secrets.token_hex(16)
     sessions[token] = found
     await track_ip(found, request)
@@ -1126,6 +1163,8 @@ async def lobby_preview_handler(request):
     gzipped raw grid bytes (one palette index per pixel) for one of the public
     lobbies. Browser decompresses via Content-Encoding header. Headers carry
     the width/height. No auth required - public info already exposed via join."""
+    if not check_rate_limit(get_client_ip(request), "lobby_preview", 30, 60):
+        return web.Response(status=429, text="Slow down")
     lid = request.query.get("id", "public_2")
     lobby = lobbies.get(lid)
     if not lobby:
@@ -1144,6 +1183,8 @@ async def lobby_preview_handler(request):
 async def lobby_timelapse_handler(request):
     """Return the raw event log for a lobby (for the last 24h). The client reconstructs the
     start state by reverse-applying events from the current grid, then plays them forward."""
+    if not check_rate_limit(rate_limit_identity(request), "lobby_timelapse", 10, 60):
+        return web.json_response({"error": "Slow down"}, status=429)
     lid = request.query.get("id", "")
     lobby = lobbies.get(lid)
     if not lobby:
@@ -1184,7 +1225,7 @@ async def create_lobby_handler(request):
         return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "lobby_create", 3, 60):
         return web.json_response({"error": "Slow down - max 3 lobby creates per minute."}, status=429)
-    name = data.get("name", "").strip()[:30]
+    name = str(data.get("name") or "").strip()[:30]
     is_public = data.get("public", False)
     wl = data.get("whitelist_enabled", False)
     try: cooldown = max(0, min(MAX_COOLDOWN, float(data.get("cooldown", DEFAULT_COOLDOWN))))
@@ -1254,7 +1295,7 @@ async def update_lobby_handler(request):
                                                             
     if lid.startswith("public_"):
         if "lobby_unban" in data:
-            n = data["lobby_unban"].strip()
+            n = str(data.get("lobby_unban") or "").strip()[:20]
             if n:
                 lb = lobby.get("lobby_bans", [])
                 lobby["lobby_bans"] = [b for b in lb if b.lower() != n.lower()]
@@ -1272,17 +1313,17 @@ async def update_lobby_handler(request):
         lobby["whitelist_enabled"] = bool(data["whitelist_enabled"])
         if lobby["whitelist_enabled"] and user not in lobby["whitelist"]: lobby["whitelist"].append(user)
     if "add_whitelist" in data and lobby["whitelist_enabled"]:
-        n = data["add_whitelist"].strip()
-        if n and n not in lobby["whitelist"]: lobby["whitelist"].append(n)
+        n = str(data.get("add_whitelist") or "").strip()[:20]
+        if n and n not in lobby["whitelist"] and len(lobby["whitelist"]) < 200: lobby["whitelist"].append(n)
     if "remove_whitelist" in data and lobby["whitelist_enabled"]:
-        n = data["remove_whitelist"].strip()
+        n = str(data.get("remove_whitelist") or "").strip()[:20]
         if n in lobby["whitelist"] and n.lower() != user.lower(): lobby["whitelist"].remove(n)
     if "lobby_unban" in data:
-        n = data["lobby_unban"].strip()
+        n = str(data.get("lobby_unban") or "").strip()[:20]
         if n:
             lb = lobby.get("lobby_bans", [])
             lobby["lobby_bans"] = [b for b in lb if b.lower() != n.lower()]
-    if "name" in data: lobby["name"] = data["name"].strip()[:30] or lobby["name"]
+    if "name" in data: lobby["name"] = str(data.get("name") or "").strip()[:30] or lobby["name"]
     await save_lobby(lid)
     info = lobby_info(lobby, True)
     info["lobby_bans"] = lobby.get("lobby_bans", [])
@@ -1293,7 +1334,7 @@ async def join_lobby_by_code_handler(request):
     user = get_auth_user(request)
     if not user:
         return web.json_response({"error": "Not authenticated"}, status=401)
-    code = data.get("code", "").strip().upper()
+    code = str(data.get("code") or "").strip().upper()
     for lobby in lobbies.values():
         if lobby.get("code") and lobby["code"] == code:
             if lobby["whitelist_enabled"] and user not in lobby["whitelist"]:
@@ -1360,7 +1401,7 @@ async def friend_add_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "friend_add", 10, 60):
         return web.json_response({"error": "Too many friend requests - try again in a minute."}, status=429)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return web.json_response({"error": "User not found"}, status=404)
@@ -1384,7 +1425,7 @@ async def friend_accept_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     fd = get_friend_data(user)
     if target not in fd["incoming"]: return web.json_response({"error": "No request"}, status=400)
     td = get_friend_data(target)
@@ -1399,7 +1440,7 @@ async def friend_decline_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     fd, td = get_friend_data(user), get_friend_data(target)
     if target in fd["incoming"]: fd["incoming"].remove(target)
     if user in td["outgoing"]: td["outgoing"].remove(user)
@@ -1414,7 +1455,7 @@ async def friend_remove_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     fd, td = get_friend_data(user), get_friend_data(target)
     if target in fd["friends"]: fd["friends"].remove(target)
     if user in td["friends"]: td["friends"].remove(user)
@@ -1493,8 +1534,8 @@ async def dm_send_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    target = data.get("to", "").strip()
-    text = data.get("text", "").strip()[:200]
+    target = str(data.get("to") or "").strip()
+    text = str(data.get("text") or "").strip()[:200]
     image_url = (data.get("image_url") or "").strip()[:500]
     if image_url and not is_safe_image_url(image_url): image_url = ""
     if not target or (not text and not image_url): return web.json_response({"error": "Missing fields"}, status=400)
@@ -1558,7 +1599,7 @@ async def admin_vips_handler(request):
 async def admin_ban_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     if is_admin(target): return web.json_response({"error": "Cannot ban admin"}, status=400)
     if not is_banned(target):
@@ -1579,7 +1620,7 @@ async def admin_ban_handler(request):
 async def admin_unban_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     bans[:] = [b for b in bans if b.lower() != target.lower()]
     await save_bans()
     return web.json_response({"ok": True, "message": f"Unbanned {target}"})
@@ -1805,7 +1846,7 @@ async def admin_device_bans_handler(request):
 async def admin_ipban_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     ip = user_ips.get(target)
     if not ip: return web.json_response({"error": f"No IP found for {target}"}, status=404)
@@ -1829,7 +1870,7 @@ async def admin_ipban_handler(request):
 async def admin_ip_unban_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    ip = data.get("ip", "").strip()
+    ip = str(data.get("ip") or "").strip()
     if not ip: return web.json_response({"error": "IP required"}, status=400)
     ip_bans[:] = [b for b in ip_bans if b != ip]
     await save_ip_bans()
@@ -1838,7 +1879,7 @@ async def admin_ip_unban_handler(request):
 async def admin_session_for_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return web.json_response({"error": "Account not found"}, status=404)
@@ -1849,7 +1890,7 @@ async def admin_session_for_handler(request):
 async def admin_kick_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     kicked = False
     for ws, info in list(clients.items()):
         if info and info.get("username", "").lower() == target.lower():
@@ -1861,8 +1902,8 @@ async def admin_kick_handler(request):
 async def admin_alert_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
-    text = data.get("text", "").strip()[:500]
+    target = str(data.get("username") or "").strip()
+    text = str(data.get("text") or "").strip()[:500]
     if not target or not text:
         return web.json_response({"error": "Username and message required"}, status=400)
     delivered = 0
@@ -1974,8 +2015,8 @@ async def admin_pb_grant_handler(request):
 async def admin_relay_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
-    text = data.get("text", "").strip()[:200]
+    target = str(data.get("username") or "").strip()
+    text = str(data.get("text") or "").strip()[:200]
     if not target or not text:
         return web.json_response({"error": "Username and text required"}, status=400)
     tlow = target.lower()
@@ -1994,8 +2035,8 @@ async def admin_relay_handler(request):
 async def admin_redirect_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
-    url = data.get("url", "").strip()[:500]
+    target = str(data.get("username") or "").strip()
+    url = str(data.get("url") or "").strip()[:500]
     if not target or not url:
         return web.json_response({"error": "Username and url required"}, status=400)
                                                                                                                        
@@ -2023,9 +2064,10 @@ async def admin_reset_password_handler(request):
     if len(new_pw) < 4: return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return web.json_response({"error": f"Account {target} not found"}, status=404)
-    pw_hash, salt = hash_password(new_pw)
+    pw_hash, salt = hash_password(str(new_pw)[:MAX_PASSWORD_LEN])
     accounts[found]["password_hash"] = pw_hash
     accounts[found]["salt"] = salt
+    accounts[found]["algo"] = "pbkdf2"
     await save_accounts()
     tlow = found.lower()
     revoked = 0
@@ -2053,14 +2095,17 @@ async def change_password_handler(request):
         return web.json_response({"error": "Old and new password required"}, status=400)
     if len(new_pw) < 4:
         return web.json_response({"error": "New password must be at least 4 characters"}, status=400)
+    if not isinstance(new_pw, str) or len(new_pw) > MAX_PASSWORD_LEN:
+        return web.json_response({"error": f"New password must be at most {MAX_PASSWORD_LEN} characters"}, status=400)
     acc = accounts.get(user)
     if not acc: return web.json_response({"error": "Account not found"}, status=404)
-    h, _ = hash_password(old_pw, acc["salt"])
-    if h != acc["password_hash"]:
+    ok, _ = verify_password(acc, old_pw)
+    if not ok:
         return web.json_response({"error": "Current password is incorrect"}, status=400)
     pw_hash, salt = hash_password(new_pw)
     accounts[user]["password_hash"] = pw_hash
     accounts[user]["salt"] = salt
+    accounts[user]["algo"] = "pbkdf2"
     await save_accounts()
     auth_hdr = request.headers.get("Authorization", "")
     keep_tok = auth_hdr if auth_hdr in sessions else None
@@ -2073,7 +2118,7 @@ async def change_password_handler(request):
 async def admin_delete_account_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     if is_admin(target): return web.json_response({"error": "Cannot delete admin"}, status=400)
     tlow = target.lower()
@@ -2167,7 +2212,7 @@ async def admin_delete_account_handler(request):
 async def admin_vip_add_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip().lower()
+    target = str(data.get("username") or "").strip().lower()
     if target and target not in vips:
         vips.append(target)
         await save_vips()
@@ -2176,7 +2221,7 @@ async def admin_vip_add_handler(request):
 async def admin_vip_remove_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip().lower()
+    target = str(data.get("username") or "").strip().lower()
     if target in vips:
         vips.remove(target)
         await save_vips()
@@ -2185,9 +2230,11 @@ async def admin_vip_remove_handler(request):
 async def admin_rank_set_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
-    label = data.get("label", "").strip()[:16]
-    color = data.get("color", "").strip()[:32] or "#daa520"
+    target = str(data.get("username") or "").strip()
+    label = str(data.get("label") or "").strip()[:16]
+    color = str(data.get("color") or "").strip()[:32] or "#daa520"
+    if not is_hex_color(color):
+        return web.json_response({"error": "Color must be a hex code like #daa520"}, status=400)
     if not target or not label:
         return web.json_response({"error": "Username and label required"}, status=400)
     if is_admin(target):
@@ -2203,7 +2250,7 @@ async def admin_rank_set_handler(request):
 async def admin_rank_remove_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip().lower()
+    target = str(data.get("username") or "").strip().lower()
     changed = False
     if target in ranks:
         del ranks[target]
@@ -2257,11 +2304,11 @@ async def clan_create_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "clan_create", 3, 600):
         return web.json_response({"error": "Slow down - too many clan create attempts."}, status=429)
-    name = data.get("name", "").strip()[:30]
-    color = data.get("color", "").strip()[:32]
+    name = str(data.get("name") or "").strip()[:30]
+    color = str(data.get("color") or "").strip()[:32]
     if not name or not color:
         return web.json_response({"error": "Name and color required"}, status=400)
-    if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+    if not is_hex_color(color):
         return web.json_response({"error": "Color must be a hex code"}, status=400)
     ulow = user.lower()
     for clan in clans.values():
@@ -2314,7 +2361,7 @@ async def clan_handle_request_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     cid = data.get("clan_id", "")
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     approve = bool(data.get("approve", False))
     clan = clans.get(cid)
     if not clan: return web.json_response({"error": "Clan not found"}, status=404)
@@ -2361,7 +2408,7 @@ async def clan_set_member_rank_handler(request):
     else:
         if not color:
             return web.json_response({"error": "Provide a color, or reset"}, status=400)
-        if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+        if not is_hex_color(color):
             return web.json_response({"error": "Color must be a hex code"}, status=400)
         member_ranks[tlow] = {"color": color}
     await save_clans()
@@ -2380,7 +2427,7 @@ async def clan_update_color_handler(request):
         return web.json_response({"error": "Too many color changes - slow down."}, status=429)
     cid = data.get("clan_id", "")
     color = (data.get("color") or "").strip()[:32]
-    if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+    if not is_hex_color(color):
         return web.json_response({"error": "Color must be a hex code"}, status=400)
     clan = clans.get(cid)
     if not clan: return web.json_response({"error": "Clan not found"}, status=404)
@@ -2496,7 +2543,7 @@ async def group_create_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "group_create", 5, 300):
         return web.json_response({"error": "Too many groups created - try again later."}, status=429)
-    name = data.get("name", "").strip()[:30]
+    name = str(data.get("name") or "").strip()[:30]
     invitees = data.get("members", [])
     if not name: return web.json_response({"error": "Group name required"}, status=400)
     if not isinstance(invitees, list): invitees = []
@@ -2555,7 +2602,7 @@ async def group_add_member_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     gid = data.get("group_id", "")
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     g = groups.get(gid)
     if not g: return web.json_response({"error": "Group not found"}, status=404)
     if g["owner"].lower() != user.lower(): return web.json_response({"error": "Only the owner can add"}, status=403)
@@ -2607,7 +2654,7 @@ async def shop_buy_handler(request):
             return web.json_response({"error": "Rank label required"}, status=400)
         if label.upper() in ("CREATOR", "ADMIN", "MODERATOR", "MOD") and not is_admin(user):
             return web.json_response({"error": "That label is reserved"}, status=400)
-        if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+        if not is_hex_color(color):
             return web.json_response({"error": "Color must be a hex code"}, status=400)
         first_time = not has_purchase(user, "custom_rank")
         if first_time:
@@ -2623,7 +2670,7 @@ async def shop_buy_handler(request):
         return web.json_response({"ok": True, "balance": get_pb(user), "purchases": purchases.get(user.lower()) or {}})
     if item == "name_color":
         color = (data.get("color") or "").strip()[:32]
-        if not (color.startswith("#") and (len(color) == 7 or len(color) == 4)):
+        if not is_hex_color(color):
             return web.json_response({"error": "Color must be a hex code"}, status=400)
         first_time = not has_purchase(user, "name_color")
         if first_time:
@@ -2974,12 +3021,14 @@ ACHIEVEMENTS = {
     "casino_first": {"name": "High Roller", "desc": "Play a casino game", "reward": 25, "icon": "🎰", "category": "games"},
     "casino_bj_win": {"name": "Blackjack Winner", "desc": "Win a hand of blackjack", "reward": 25, "icon": "🃏", "category": "games"},
     "casino_mines_win": {"name": "Cashed Out", "desc": "Cash out at mines", "reward": 25, "icon": "💣", "category": "games"},
-    "casino_rps_win": {"name": "Rock Star", "desc": "Win at Rock Paper Scissors", "reward": 25, "icon": "✂️", "category": "games"},
     "gd_clear": {"name": "GeoDash Champion", "desc": "Clear a GeoDash level", "reward": 100, "icon": "🚀", "category": "games"},
     "gd_level_maker": {"name": "Level Designer", "desc": "Create a custom GeoDash level", "reward": 100, "icon": "🛠️", "category": "games"},
     "streak_7": {"name": "Weekly Regular", "desc": "Reach a 7-day streak", "reward": 100, "icon": "🔥", "category": "special"},
     "streak_30": {"name": "Monthly Regular", "desc": "Reach a 30-day streak", "reward": 500, "icon": "🌋", "category": "special"},
     "avatar_set": {"name": "Show Your Face", "desc": "Upload a profile picture", "reward": 25, "icon": "🖼️", "category": "social"},
+    "fish_first": {"name": "Gone Fishing", "desc": "Reel in your first catch", "reward": 0, "icon": "🎣", "category": "games"},
+    "fish_legendary": {"name": "Big Catch", "desc": "Catch a legendary or mythic item", "reward": 0, "icon": "🐋", "category": "games"},
+    "fish_collector": {"name": "Collector", "desc": "Discover 40 different fishing items", "reward": 0, "icon": "📦", "category": "games"},
 }
 
 user_achievements = {}   # {user_lower: {ach_id: unlock_ts}}
@@ -3494,232 +3543,6 @@ async def casino_blackjack_handler(request):
         outcome, winnings, psc, dsc = await _bj_resolve(user, game)
         return web.json_response({"ok": True, "phase": "done", "player": _bj_view(game["player"]), "dealer": _bj_view(game["dealer"]), "player_score": psc, "dealer_score": dsc, "outcome": outcome, "winnings": winnings, "bet": game["bet"], "balance": get_pb(user)})
     return web.json_response({"error": "Unknown action"}, status=400)
-
-rps_queue = []                                                                             
-rps_games = {}                                                                                        
-RPS_GAME_TIMEOUT = 10
-
-
-def _rps_beats(a, b):
-    return (a == "rock" and b == "scissors") or (a == "paper" and b == "rock") or (a == "scissors" and b == "paper")
-
-async def casino_rps_solo_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    try: amount = int(data.get("amount", 0))
-    except: return web.json_response({"error": "Invalid bet"}, status=400)
-    if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
-    if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
-    choice = (data.get("choice") or "").strip().lower()
-    if choice not in ("rock", "paper", "scissors"):
-        return web.json_response({"error": "Pick rock, paper, or scissors"}, status=400)
-    if not spend_pb(user, amount):
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
-    ai = secrets.choice(["rock", "paper", "scissors"])
-    if choice == ai:
-        outcome = "tie"; winnings = amount        
-    elif _rps_beats(choice, ai):
-        outcome = "win"; winnings = int(amount * 1.95)
-    else:
-        outcome = "lose"; winnings = 0
-    if winnings > 0: credit_pb(user, winnings)
-    await save_place_bucks(); await push_pb_update(user)
-    await broadcast_casino_result(user, "RPS vs AI", amount, winnings, f"{choice} vs {ai}")
-    return web.json_response({"ok": True, "you": choice, "opponent": ai, "outcome": outcome, "winnings": winnings, "bet": amount, "balance": get_pb(user)})
-
-async def casino_rps_join_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    try: amount = int(data.get("amount", 0))
-    except: return web.json_response({"error": "Invalid bet"}, status=400)
-    if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
-    if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
-    ulow = user.lower()
-                                  
-    for q in rps_queue:
-        if q["user"].lower() == ulow:
-            return web.json_response({"error": "Already in queue"}, status=400)
-    for gid, g in rps_games.items():
-        if ulow in g["choices"]:
-            return web.json_response({"ok": True, "matched": True, "game_id": gid, "opponent": g["p2"] if g["p1"].lower() == ulow else g["p1"], "bet": g["bet"]})
-    if not spend_pb(user, amount):
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
-                                             
-    opp_idx = next((i for i, q in enumerate(rps_queue) if q["bet"] == amount and q["user"].lower() != ulow), None)
-    if opp_idx is not None:
-        opp = rps_queue.pop(opp_idx)
-        gid = secrets.token_hex(6)
-        rps_games[gid] = {"p1": opp["user"], "p2": user, "bet": amount, "choices": {opp["user"].lower(): None, ulow: None}, "started_at": time.time()}
-        await save_place_bucks(); await push_pb_update(user)
-        await notify_social(opp["user"], {"type": "rps_matched", "game_id": gid, "opponent": user, "bet": amount})
-        return web.json_response({"ok": True, "matched": True, "game_id": gid, "opponent": opp["user"], "bet": amount, "balance": get_pb(user)})
-    rps_queue.append({"user": user, "bet": amount, "joined_at": time.time()})
-    await save_place_bucks(); await push_pb_update(user)
-    return web.json_response({"ok": True, "matched": False, "waiting": True, "bet": amount, "balance": get_pb(user)})
-
-rps_challenges = {}                                                                   
-RPS_CHALLENGE_TTL = 60           
-
-async def casino_rps_challenge_handler(request):
-    """Challenge a specific player to RPS. Bets are NOT escrowed until the
-    opponent accepts; the challenge expires after RPS_CHALLENGE_TTL seconds."""
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    if not check_rate_limit(user, "rps_challenge", 10, 60):
-        return web.json_response({"error": "Too many RPS challenges (10/min)"}, status=429)
-    target = (data.get("opponent") or "").strip()
-    try: amount = int(data.get("amount", 0))
-    except: return web.json_response({"error": "Invalid bet"}, status=400)
-    if amount < 1: return web.json_response({"error": "Bet must be at least 1 $"}, status=400)
-    if amount > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
-    if not target: return web.json_response({"error": "Pick an opponent"}, status=400)
-    if target.lower() == user.lower(): return web.json_response({"error": "you can't challenge yourself, you're not a bank"}, status=400)
-    found = next((u for u in accounts if u.lower() == target.lower()), None)
-    if not found: return web.json_response({"error": "User not found"}, status=404)
-    if get_pb(user) < amount and not is_admin(user):
-        return web.json_response({"error": f"Not enough PlaceBucks (need {amount})"}, status=400)
-    # Bound in-flight challenges per user to prevent memory growth from spam.
-    outbound = sum(1 for c in rps_challenges.values() if c.get("challenger", "").lower() == user.lower())
-    if outbound >= 20:
-        return web.json_response({"error": "Too many open challenges - wait for them to expire"}, status=429)
-    cid = secrets.token_hex(6)
-    rps_challenges[cid] = {"challenger": user, "opponent": found, "bet": amount, "created_at": time.time()}
-    await notify_social(found, {"type": "rps_challenge", "from": user, "bet": amount, "challenge_id": cid})
-    return web.json_response({"ok": True, "challenge_id": cid, "expires_in": RPS_CHALLENGE_TTL})
-
-async def casino_rps_respond_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    cid = data.get("challenge_id", "")
-    accept = bool(data.get("accept", False))
-    ch = rps_challenges.get(cid)
-    if not ch: return web.json_response({"error": "Challenge not found or expired"}, status=404)
-    if ch["opponent"].lower() != user.lower():
-        return web.json_response({"error": "Not your challenge"}, status=403)
-    if time.time() - ch["created_at"] > RPS_CHALLENGE_TTL:
-        rps_challenges.pop(cid, None)
-        return web.json_response({"error": "Challenge expired"}, status=400)
-    if not accept:
-        rps_challenges.pop(cid, None)
-        await notify_social(ch["challenger"], {"type": "rps_challenge_declined", "by": user})
-        return web.json_response({"ok": True, "declined": True})
-                                               
-    if not spend_pb(ch["challenger"], ch["bet"]):
-        rps_challenges.pop(cid, None)
-        await notify_social(ch["challenger"], {"type": "rps_challenge_declined", "by": user, "reason": "challenger broke"})
-        return web.json_response({"error": "Challenger no longer has enough PlaceBucks"}, status=400)
-    if not spend_pb(user, ch["bet"]):
-        credit_pb(ch["challenger"], ch["bet"])
-        await save_place_bucks(); await push_pb_update(ch["challenger"])
-        rps_challenges.pop(cid, None)
-        return web.json_response({"error": "Not enough PlaceBucks"}, status=400)
-    gid = secrets.token_hex(6)
-    rps_games[gid] = {"p1": ch["challenger"], "p2": user, "bet": ch["bet"], "choices": {ch["challenger"].lower(): None, user.lower(): None}, "started_at": time.time()}
-    rps_challenges.pop(cid, None)
-    await save_place_bucks()
-    await push_pb_update(ch["challenger"]); await push_pb_update(user)
-    await notify_social(ch["challenger"], {"type": "rps_matched", "game_id": gid, "opponent": user, "bet": ch["bet"]})
-    return web.json_response({"ok": True, "game_id": gid, "opponent": ch["challenger"], "bet": ch["bet"], "balance": get_pb(user)})
-
-async def casino_rps_cancel_handler(request):
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    ulow = user.lower()
-    for i, q in enumerate(rps_queue):
-        if q["user"].lower() == ulow:
-            refund = q["bet"]
-            rps_queue.pop(i)
-            credit_pb(user, refund)
-            await save_place_bucks(); await push_pb_update(user)
-            return web.json_response({"ok": True, "refunded": refund, "balance": get_pb(user)})
-    return web.json_response({"error": "Not in queue"}, status=404)
-
-async def _rps_finish(gid, requesting_user):
-    # Atomic pop BEFORE any await so parallel callers can't double-credit.
-    # Any second caller sees rps_games[gid] gone and returns None.
-    g = rps_games.pop(gid, None)
-    if not g: return None
-    p1, p2, bet = g["p1"], g["p2"], g["bet"]
-    p1l, p2l = p1.lower(), p2.lower()
-    c1, c2 = g["choices"][p1l], g["choices"][p2l]
-    timeout = False
-    if c1 is None or c2 is None:
-        timeout = True
-        credit_pb(p1, bet); credit_pb(p2, bet); winner = None
-        outcome_for = lambda u: "tie"
-    else:
-        if c1 == c2:
-            credit_pb(p1, bet); credit_pb(p2, bet); winner = None
-        else:
-            winner = p1 if _rps_beats(c1, c2) else p2
-            credit_pb(winner, bet * 2)
-        outcome_for = lambda u: "tie" if winner is None else ("win" if u.lower() == winner.lower() else "lose")
-    await save_place_bucks()
-    await push_pb_update(p1); await push_pb_update(p2)
-
-    for u in (p1, p2):
-        my_out = outcome_for(u)
-        opp = p2 if u.lower() == p1l else p1
-        if my_out == "tie":
-            await broadcast_casino_result(u, "RPS", bet, bet, f"tie vs {opp}")
-        elif my_out == "win":
-            await broadcast_casino_result(u, "RPS", bet, bet * 2, ("forfeit by " + opp) if timeout else f"beat {opp}")
-        else:
-            await broadcast_casino_result(u, "RPS", bet, 0, ("forfeited to " + opp) if timeout else f"lost to {opp}")
-        try:
-            await unlock_achievement(u, "casino_first")
-            if my_out == "win": await unlock_achievement(u, "casino_rps_win")
-        except Exception: pass
-    is_p1 = requesting_user.lower() == p1l
-    my_choice = c1 if is_p1 else c2
-    opp_choice = c2 if is_p1 else c1
-    opp_name = p2 if is_p1 else p1
-    my_out = outcome_for(requesting_user)
-    winnings = bet * 2 if my_out == "win" else (bet if my_out == "tie" else 0)
-    return {"ok": True, "phase": "done", "you": my_choice, "opponent": opp_choice, "opponent_name": opp_name, "outcome": my_out, "winnings": winnings, "bet": bet, "timeout": timeout, "balance": get_pb(requesting_user)}
-
-async def casino_rps_play_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    gid = data.get("game_id", "")
-    choice = (data.get("choice") or "").strip().lower()
-    if choice not in ("rock", "paper", "scissors"):
-        return web.json_response({"error": "Pick rock, paper, or scissors"}, status=400)
-    g = rps_games.get(gid)
-    if not g: return web.json_response({"error": "Game not found"}, status=404)
-    ulow = user.lower()
-    if ulow not in g["choices"]:
-        return web.json_response({"error": "Not your game"}, status=403)
-    if g["choices"][ulow] is not None:
-        return web.json_response({"error": "You already played"}, status=400)
-    g["choices"][ulow] = choice
-    if all(v is not None for v in g["choices"].values()):
-        result = await _rps_finish(gid, user)
-        if result is None: return web.json_response({"phase": "gone"})
-        return web.json_response(result)
-    return web.json_response({"ok": True, "phase": "waiting"})
-
-async def casino_rps_status_handler(request):
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    gid = request.query.get("game_id", "")
-    g = rps_games.get(gid)
-    if not g: return web.json_response({"phase": "gone"})
-    ulow = user.lower()
-    if ulow not in g["choices"]:
-        return web.json_response({"error": "Not your game"}, status=403)
-    elapsed = time.time() - g["started_at"]
-    other = next(k for k in g["choices"] if k != ulow)
-    if elapsed > RPS_GAME_TIMEOUT and not all(v is not None for v in g["choices"].values()):
-        result = await _rps_finish(gid, user)
-        if result is None: return web.json_response({"phase": "gone"})
-        return web.json_response(result)
-    return web.json_response({"ok": True, "phase": "playing", "you_played": g["choices"][ulow] is not None, "opponent_played": g["choices"][other] is not None, "elapsed": int(elapsed), "timeout": RPS_GAME_TIMEOUT})
 
 uno_rooms = {}
 UNO_FORFEIT_SECONDS = 12
@@ -5781,8 +5604,9 @@ async def flappy_pass_handler(request):
     capped at 6/sec which is faster than any real flappy run can produce."""
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    if not check_rate_limit(user, "flappy_pass", 6, 1):
-                                                                           
+    if not check_rate_limit(user, "flappy_pass", 50, 60):
+        return web.json_response({"ok": True, "balance": get_pb(user), "skipped": True})
+    if not check_rate_limit(user, "flappy_pass_day", 600, 86400):
         return web.json_response({"ok": True, "balance": get_pb(user), "skipped": True})
     credit_pb(user, 1)
     await save_place_bucks()
@@ -5849,7 +5673,7 @@ async def online_summary_handler(request):
 async def admin_brush_perm_set_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     size = int(data.get("size", 1))
     drag = bool(data.get("drag", False))
@@ -5872,7 +5696,7 @@ async def admin_brush_perm_set_handler(request):
 async def admin_brush_perm_remove_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip().lower()
+    target = str(data.get("username") or "").strip().lower()
     brush_perms.pop(target, None)
     await save_brush_perms()
     for cws, cinfo in list(clients.items()):
@@ -5884,7 +5708,7 @@ async def admin_brush_perm_remove_handler(request):
 async def admin_fake_admin_add_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip()
+    target = str(data.get("username") or "").strip()
     if not target: return web.json_response({"error": "Username required"}, status=400)
     if target.lower() not in [f.lower() for f in fake_admins]:
         fake_admins.append(target.lower())
@@ -5894,7 +5718,7 @@ async def admin_fake_admin_add_handler(request):
 async def admin_fake_admin_remove_handler(request):
     data = await request.json()
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    target = data.get("username", "").strip().lower()
+    target = str(data.get("username") or "").strip().lower()
     fake_admins[:] = [f for f in fake_admins if f.lower() != target]
     await save_fake_admins()
     return web.json_response({"ok": True, "message": f"Revoked fake admin from {target}"})
@@ -5939,137 +5763,146 @@ async def social_ws_handler(request):
     try:
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
-                data = json.loads(msg.data)
-                if data.get("type") == "auth":
-                    token = data.get("token", "")
-                    device_id = str(data.get("device_id", ""))[:64] or None
-                    if token in sessions:
-                        username = sessions[token]
-                        if is_banned(username):
-                            try: await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"})
+                try:
+                    data = json.loads(msg.data)
+                except Exception:
+                    continue
+                if not isinstance(data, dict) or not isinstance(data.get("type"), str):
+                    continue
+                try:
+                    if data.get("type") == "auth":
+                        token = data.get("token", "")
+                        device_id = str(data.get("device_id", ""))[:64] or None
+                        if token in sessions:
+                            username = sessions[token]
+                            if is_banned(username):
+                                try: await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"})
+                                except: pass
+                                await ws.close(); break
+                            if is_ip_banned(request): await ws.close(); break
+                            if is_device_banned(device_id): await ws.close(); break
+                            social_clients[ws] = username
+                            if device_id:
+                                track_user_device(username, device_id)
+                                await save_user_devices()
+                            await track_ip(username, request)
+                            await ws.send_json({"type": "social_ready"})
+                            unread = get_unread_dm_summary(username)
+                            if unread:
+                                await ws.send_json({"type": "unread_dms", "senders": unread})
+                            unread_grp = get_unread_groups_summary(username)
+                            if unread_grp:
+                                await ws.send_json({"type": "unread_groups", "groups": unread_grp})
+                            try:
+                                fd = friends_data.get(username) or {}
+                                pending = list(fd.get("incoming") or [])
+                                if pending:
+                                    await ws.send_json({"type": "pending_friend_requests", "from": pending})
                             except: pass
-                            await ws.close(); break
-                        if is_ip_banned(request): await ws.close(); break
-                        if is_device_banned(device_id): await ws.close(); break
-                        social_clients[ws] = username
-                        if device_id:
-                            track_user_device(username, device_id)
-                            await save_user_devices()
-                        await track_ip(username, request)
-                        await ws.send_json({"type": "social_ready"})
-                        unread = get_unread_dm_summary(username)
-                        if unread:
-                            await ws.send_json({"type": "unread_dms", "senders": unread})
-                        unread_grp = get_unread_groups_summary(username)
-                        if unread_grp:
-                            await ws.send_json({"type": "unread_groups", "groups": unread_grp})
-                        try:
-                            fd = friends_data.get(username) or {}
-                            pending = list(fd.get("incoming") or [])
-                            if pending:
-                                await ws.send_json({"type": "pending_friend_requests", "from": pending})
-                        except: pass
-                        await broadcast_online_all_lobbies()
-                        try: await push_friend_presence(username)
-                        except: pass
-                    else:
-                        await ws.close()
-                elif data.get("type") == "presence" and username:
-                    afk = bool(data.get("afk"))
-                    ulow = username.lower()
-                    prev = presence.get(ulow) or {}
-                    if prev.get("afk") != afk:
-                        presence[ulow] = {"afk": afk, "since": time.time()}
-                        print(f"[presence] {username} -> {'AFK' if afk else 'active'}", flush=True)
-                        try: await push_friend_presence(username)
-                        except Exception as e: print(f"[presence] push failed for {username}: {e}", flush=True)
-                elif data.get("type") == "group_seen" and username:
-                    gid = (data.get("group_id") or "").strip()
-                    if gid and gid in groups:
-                        mark_group_seen(username, gid)
-                        await save_group_last_seen()
-                elif data.get("type") == "dm_seen" and username:
-                    peer = data.get("peer", "").strip()
-                    if peer:
-                        mark_dm_seen(username, peer)
-                        await save_dm_last_seen()
+                            await broadcast_online_all_lobbies()
+                            try: await push_friend_presence(username)
+                            except: pass
+                        else:
+                            await ws.close()
+                    elif data.get("type") == "presence" and username:
+                        afk = bool(data.get("afk"))
+                        ulow = username.lower()
+                        prev = presence.get(ulow) or {}
+                        if prev.get("afk") != afk:
+                            presence[ulow] = {"afk": afk, "since": time.time()}
+                            print(f"[presence] {username} -> {'AFK' if afk else 'active'}", flush=True)
+                            try: await push_friend_presence(username)
+                            except Exception as e: print(f"[presence] push failed for {username}: {e}", flush=True)
+                    elif data.get("type") == "group_seen" and username:
+                        gid = (data.get("group_id") or "").strip()
+                        if gid and gid in groups:
+                            mark_group_seen(username, gid)
+                            await save_group_last_seen()
+                    elif data.get("type") == "dm_seen" and username:
+                        peer = str(data.get("peer") or "").strip()[:20]
+                        if peer and peer in get_friend_data(username)["friends"]:
+                            mark_dm_seen(username, peer)
+                            await save_dm_last_seen()
 
-                        await notify_social(peer, {"type": "dm_seen_by", "peer": username})
-                elif data.get("type") == "dm_typing" and username:
-                    peer = data.get("to", "").strip()
-                    if peer:
-                        fd = get_friend_data(username)
-                        if peer in fd["friends"]:
-                            await notify_social(peer, {"type": "dm_typing", "from": username, "typing": bool(data.get("typing"))})
-                elif data.get("type") == "dm" and username:
-                    target = data.get("to", "").strip()
-                    text = data.get("text", "").strip()[:200]
-                    image_url = (data.get("image_url") or "").strip()[:500]
-                    if image_url and not is_safe_image_url(image_url): image_url = ""
-                    if not check_rate_limit(username, "dm", 5, 5):
-                        try: await ws.send_json({"type": "system", "text": "Slow down - max 5 DMs per 5 seconds."})
-                        except: pass
-                        continue
-                    if image_url and not check_rate_limit(username, "dm_image", 5, 60):
-                        try: await ws.send_json({"type": "system", "text": "Image rate limit - max 5 images per minute."})
-                        except: pass
-                        continue
-                    rt = data.get("reply_to")
-                    reply_obj = None
-                    if isinstance(rt, dict):
-                        rfrom = str(rt.get("from", ""))[:30]
-                        rtext = str(rt.get("text", ""))[:120]
-                        if rfrom and rtext:
-                            reply_obj = {"from": rfrom, "text": rtext}
-                    if target and (text or image_url):
-                        fd = get_friend_data(username)
-                        if target in fd["friends"]:
-                            key = dm_key(username, target)
-                            m = {"from": username, "time": time.time()}
-                            if text: m["text"] = text
-                            if image_url: m["image_url"] = image_url
-                            if reply_obj: m["reply_to"] = reply_obj
-                            dms.setdefault(key, []).append(m)
-                            if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
-                            await save_dm(key)
-                            payload = {"type": "dm", "from": username, "time": m["time"]}
-                            if text: payload["text"] = text
-                            if image_url: payload["image_url"] = image_url
-                            if reply_obj: payload["reply_to"] = reply_obj
-                            try: print(f"[dm {username}->{target}] {text}{' [img]' if image_url else ''}", flush=True)
+                            await notify_social(peer, {"type": "dm_seen_by", "peer": username})
+                    elif data.get("type") == "dm_typing" and username:
+                        peer = str(data.get("to") or "").strip()
+                        if peer:
+                            fd = get_friend_data(username)
+                            if peer in fd["friends"]:
+                                await notify_social(peer, {"type": "dm_typing", "from": username, "typing": bool(data.get("typing"))})
+                    elif data.get("type") == "dm" and username:
+                        target = str(data.get("to") or "").strip()
+                        text = str(data.get("text") or "").strip()[:200]
+                        image_url = (data.get("image_url") or "").strip()[:500]
+                        if image_url and not is_safe_image_url(image_url): image_url = ""
+                        if not check_rate_limit(username, "dm", 5, 5):
+                            try: await ws.send_json({"type": "system", "text": "Slow down - max 5 DMs per 5 seconds."})
                             except: pass
-                            await notify_social(target, payload)
-                elif data.get("type") == "group_msg" and username:
-                    gid = data.get("group_id", "")
-                    text = data.get("text", "").strip()[:200]
-                    image_url = (data.get("image_url") or "").strip()[:500]
-                    if image_url and not is_safe_image_url(image_url): image_url = ""
-                    g = groups.get(gid)
-                    if not g: continue
-                    if username.lower() not in [m.lower() for m in g.get("members", [])]: continue
-                    if not (text or image_url): continue
-                    if not check_rate_limit(username, "group_msg", 5, 5):
-                        try: await ws.send_json({"type": "system", "text": "Slow down - max 5 group messages per 5 seconds."})
+                            continue
+                        if image_url and not check_rate_limit(username, "dm_image", 5, 60):
+                            try: await ws.send_json({"type": "system", "text": "Image rate limit - max 5 images per minute."})
+                            except: pass
+                            continue
+                        rt = data.get("reply_to")
+                        reply_obj = None
+                        if isinstance(rt, dict):
+                            rfrom = str(rt.get("from", ""))[:30]
+                            rtext = str(rt.get("text", ""))[:120]
+                            if rfrom and rtext:
+                                reply_obj = {"from": rfrom, "text": rtext}
+                        if target and (text or image_url):
+                            fd = get_friend_data(username)
+                            if target in fd["friends"]:
+                                key = dm_key(username, target)
+                                m = {"from": username, "time": time.time()}
+                                if text: m["text"] = text
+                                if image_url: m["image_url"] = image_url
+                                if reply_obj: m["reply_to"] = reply_obj
+                                dms.setdefault(key, []).append(m)
+                                if len(dms[key]) > MAX_DM_HISTORY: dms[key] = dms[key][-MAX_DM_HISTORY:]
+                                await save_dm(key)
+                                payload = {"type": "dm", "from": username, "time": m["time"]}
+                                if text: payload["text"] = text
+                                if image_url: payload["image_url"] = image_url
+                                if reply_obj: payload["reply_to"] = reply_obj
+                                try: print(f"[dm {username}->{target}] {text}{' [img]' if image_url else ''}", flush=True)
+                                except: pass
+                                await notify_social(target, payload)
+                    elif data.get("type") == "group_msg" and username:
+                        gid = data.get("group_id", "")
+                        text = str(data.get("text") or "").strip()[:200]
+                        image_url = (data.get("image_url") or "").strip()[:500]
+                        if image_url and not is_safe_image_url(image_url): image_url = ""
+                        g = groups.get(gid)
+                        if not g: continue
+                        if username.lower() not in [m.lower() for m in g.get("members", [])]: continue
+                        if not (text or image_url): continue
+                        if not check_rate_limit(username, "group_msg", 5, 5):
+                            try: await ws.send_json({"type": "system", "text": "Slow down - max 5 group messages per 5 seconds."})
+                            except: pass
+                            continue
+                        if image_url and not check_rate_limit(username, "group_image", 5, 60):
+                            try: await ws.send_json({"type": "system", "text": "Image rate limit - max 5 images per minute."})
+                            except: pass
+                            continue
+                        msg_obj = {"from": username, "time": time.time()}
+                        if text: msg_obj["text"] = text
+                        if image_url: msg_obj["image_url"] = image_url
+                        group_messages.setdefault(gid, []).append(msg_obj)
+                        if len(group_messages[gid]) > MAX_DM_HISTORY: group_messages[gid] = group_messages[gid][-MAX_DM_HISTORY:]
+                        await save_group_messages(gid)
+                        fanout = {"type": "group_msg", "group_id": gid, "group_name": g.get("name", ""), "from": username, "time": msg_obj["time"]}
+                        if text: fanout["text"] = text
+                        if image_url: fanout["image_url"] = image_url
+                        try: print(f"[group {gid} ({g.get('name','')}) {username}] {text}{' [img]' if image_url else ''}", flush=True)
                         except: pass
-                        continue
-                    if image_url and not check_rate_limit(username, "group_image", 5, 60):
-                        try: await ws.send_json({"type": "system", "text": "Image rate limit - max 5 images per minute."})
-                        except: pass
-                        continue
-                    msg_obj = {"from": username, "time": time.time()}
-                    if text: msg_obj["text"] = text
-                    if image_url: msg_obj["image_url"] = image_url
-                    group_messages.setdefault(gid, []).append(msg_obj)
-                    if len(group_messages[gid]) > MAX_DM_HISTORY: group_messages[gid] = group_messages[gid][-MAX_DM_HISTORY:]
-                    await save_group_messages(gid)
-                    fanout = {"type": "group_msg", "group_id": gid, "group_name": g.get("name", ""), "from": username, "time": msg_obj["time"]}
-                    if text: fanout["text"] = text
-                    if image_url: fanout["image_url"] = image_url
-                    try: print(f"[group {gid} ({g.get('name','')}) {username}] {text}{' [img]' if image_url else ''}", flush=True)
-                    except: pass
-                    for member in g.get("members", []):
-                        if member.lower() != username.lower():
-                            await notify_social(member, fanout)
+                        for member in g.get("members", []):
+                            if member.lower() != username.lower():
+                                await notify_social(member, fanout)
+                except Exception as _e:
+                    print(f"[ws] bad message from {username}: {type(_e).__name__}: {_e}", flush=True)
+                    continue
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
@@ -6125,370 +5958,382 @@ async def websocket_handler(request):
     try:
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
-                data = json.loads(msg.data)
+                try:
+                    data = json.loads(msg.data)
+                except Exception:
+                    continue
+                if not isinstance(data, dict) or not isinstance(data.get("type"), str):
+                    continue
+                try:
+                    if data["type"] == "auth":
+                        token = data.get("token", "")
+                        lid = data.get("lobby_id", "")
+                        device_id = str(data.get("device_id", ""))[:64] or None
+                        if token not in sessions:
+                            await ws.send_json({"type": "error", "text": "Invalid session"}); await ws.close(); break
+                        username = sessions[token]
+                        if is_banned(username):
+                            await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"}); await ws.close(); break
+                        if is_ip_banned(request):
+                            await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
+                        if is_device_banned(device_id):
+                            await ws.send_json({"type": "error", "text": "This device is banned"}); await ws.close(); break
+                        if device_id:
+                            track_user_device(username, device_id)
+                            await save_user_devices()
+                        lobby = lobbies.get(lid)
+                        if not lobby:
+                            await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
+                        if lobby["whitelist_enabled"] and username not in lobby["whitelist"] and not lobby["public"]:
+                            await ws.send_json({"type": "error", "text": "Not whitelisted"}); await ws.close(); break
+                        if username.lower() in [b.lower() for b in lobby.get("lobby_bans", [])]:
+                            await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
+                        can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
+                        lobby_id = lid
+                        clients[ws] = {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate"))}
+                        await track_ip(username, request)
+                        grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
+                        if is_fake_admin(username): grid_msg["fake_admin"] = True
+                        await send_grid_to_ws(ws, grid_msg, lobby["grid"])
+                        await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
+                        await broadcast_online_lobby(lobby_id)
 
-                if data["type"] == "auth":
-                    token = data.get("token", "")
-                    lid = data.get("lobby_id", "")
-                    device_id = str(data.get("device_id", ""))[:64] or None
-                    if token not in sessions:
-                        await ws.send_json({"type": "error", "text": "Invalid session"}); await ws.close(); break
-                    username = sessions[token]
-                    if is_banned(username):
-                        await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"}); await ws.close(); break
-                    if is_ip_banned(request):
-                        await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
-                    if is_device_banned(device_id):
-                        await ws.send_json({"type": "error", "text": "This device is banned"}); await ws.close(); break
-                    if device_id:
-                        track_user_device(username, device_id)
-                        await save_user_devices()
-                    lobby = lobbies.get(lid)
-                    if not lobby:
-                        await ws.send_json({"type": "error", "text": "Lobby not found"}); await ws.close(); break
-                    if lobby["whitelist_enabled"] and username not in lobby["whitelist"] and not lobby["public"]:
-                        await ws.send_json({"type": "error", "text": "Not whitelisted"}); await ws.close(); break
-                    if username.lower() in [b.lower() for b in lobby.get("lobby_bans", [])]:
-                        await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
-                    can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
-                    lobby_id = lid
-                    clients[ws] = {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate"))}
-                    await track_ip(username, request)
-                    grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
-                    if is_fake_admin(username): grid_msg["fake_admin"] = True
-                    await send_grid_to_ws(ws, grid_msg, lobby["grid"])
-                    await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
-                    await broadcast_online_lobby(lobby_id)
-
-                elif data["type"] == "pixel" and username and lobby_id:
-                    if not clients.get(ws, {}).get("can_place", True):
-                        continue
-                    x, y, color = data["x"], data["y"], data["color"]
-                    lobby = lobbies.get(lobby_id)
-                    now = time.time()
-                    cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
-                    if now - last_pixel < cd:
-                        continue
+                    elif data["type"] == "pixel" and username and lobby_id:
+                        if not clients.get(ws, {}).get("can_place", True):
+                            continue
+                        x, y, color = data.get("x"), data.get("y"), data.get("color")
+                        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y, color)): continue
+                        lobby = lobbies.get(lobby_id)
+                        now = time.time()
+                        cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
+                        if now - last_pixel < cd:
+                            continue
 
                                                                                                    
                                                                            
-                    if not check_rate_limit(username, "pixel", 60, 2):
-                        if lobby:
-                            lw0 = lobby.get("width", 256)
-                            try:
-                                await ws.send_json({"type": "pixel", "x": x, "y": y, "color": lobby["grid"][y * lw0 + x]})
-                            except: pass
-                        if now - last_rate_warn > 2:
-                            last_rate_warn = now
-                            try: await ws.send_json({"type": "rate_warn", "text": "You're placing too fast - some pixels were dropped. Slow down."})
-                            except: pass
-                        continue
-                    last_pixel = now
-                    lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
-                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
-                        old_color = lobby["grid"][y * lw + x]
-                        lobby["grid"][y * lw + x] = color
-                        lobby["last_activity"] = now
-                        if color != old_color:
-                            pc = lobby.setdefault("pixel_counts", {})
-                            pc[username] = pc.get(username, 0) + 1
-                            append_event(lobby, x, y, color, old_color)
-                            set_pixel_author(lobby, x, y, username)
-                            mark_lobby_dirty(lobby_id)
-                            await award_pixel_placement(username, 1)
-                        await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                        if not check_rate_limit(username, "pixel", 60, 2):
+                            if lobby:
+                                lw0 = lobby.get("width", 256)
+                                try:
+                                    await ws.send_json({"type": "pixel", "x": x, "y": y, "color": lobby["grid"][y * lw0 + x]})
+                                except: pass
+                            if now - last_rate_warn > 2:
+                                last_rate_warn = now
+                                try: await ws.send_json({"type": "rate_warn", "text": "You're placing too fast - some pixels were dropped. Slow down."})
+                                except: pass
+                            continue
+                        last_pixel = now
+                        lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
+                        if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
+                            old_color = lobby["grid"][y * lw + x]
+                            lobby["grid"][y * lw + x] = color
+                            lobby["last_activity"] = now
+                            if color != old_color:
+                                pc = lobby.setdefault("pixel_counts", {})
+                                pc[username] = pc.get(username, 0) + 1
+                                append_event(lobby, x, y, color, old_color)
+                                set_pixel_author(lobby, x, y, username)
+                                mark_lobby_dirty(lobby_id)
+                                await award_pixel_placement(username, 1)
+                            await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
-                elif data["type"] == "pixel_undo" and username and lobby_id:
+                    elif data["type"] == "pixel_undo" and username and lobby_id:
 
                                                                                               
-                    if not clients.get(ws, {}).get("can_place", True):
-                        continue
-                    x, y, color = data["x"], data["y"], data["color"]
-                    from_color = data.get("from_color")
-                    lobby = lobbies.get(lobby_id)
-                    now = time.time()
-                    cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
-                    if now - last_pixel < cd: continue
-                    if not check_rate_limit(username, "pixel", 60, 2):
-                        continue
-                    last_pixel = now
-                    lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
-                    if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
-                        # Only the current author of a pixel may undo it (admins bypass).
-                        author = (lobby.get("pixel_authors") or {}).get(y * lw + x)
-                        if not is_admin(username) and author and author.lower() != username.lower():
+                        if not clients.get(ws, {}).get("can_place", True):
                             continue
-                        old_color = lobby["grid"][y * lw + x]
-                        if isinstance(from_color, int) and old_color != from_color:
-                            continue
-                        lobby["grid"][y * lw + x] = color
-                        lobby["last_activity"] = now
-                        if color != old_color:
-                            pc = lobby.setdefault("pixel_counts", {})
-                            new_count = pc.get(username, 0) - 1
-                            if new_count <= 0: pc.pop(username, None)
-                            else: pc[username] = new_count
-                            append_event(lobby, x, y, color, old_color)
-                            set_pixel_author(lobby, x, y, username)
-                            mark_lobby_dirty(lobby_id)
-                        await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
-
-                elif data["type"] == "brush_undo" and username and lobby_id:
-                    if not clients.get(ws, {}).get("can_place", True):
-                        continue
-                    perm = get_brush_perm(username)
-                    if perm["size"] <= 1: continue
-
-                    lobby = lobbies.get(lobby_id)
-                    now = time.time()
-                    cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
-                    if not is_admin(username) and now - last_pixel < cd: continue
-                                                                      
-                    if not check_rate_limit(username, "brush_stroke", 8, 2): continue
-                    if lobby:
-                        coords = data.get("pixels", [])
-                        color = data.get("color", 0)
+                        x, y, color = data.get("x"), data.get("y"), data.get("color")
+                        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y, color)): continue
                         from_color = data.get("from_color")
-                        lw = lobby.get("width", 256)
-                        lh = lobby.get("height", 256)
-                        max_stamps = perm["size"] * perm["size"]
-                        if isinstance(coords, list) and 0 <= color < PALETTE_SIZE:
-                            placed = 0
-                            for c in coords[:max_stamps]:
-                                if not isinstance(c, list) or len(c) != 2: continue
-                                x, y = c[0], c[1]
-                                if not (isinstance(x, int) and isinstance(y, int)): continue
-                                if not (0 <= x < lw and 0 <= y < lh): continue
-
-                                if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 2): break
-                                old_color = lobby["grid"][y * lw + x]
-                                                                                                            
-                                if isinstance(from_color, int) and old_color != from_color:
-                                    continue
-                                lobby["grid"][y * lw + x] = color
-                                if color != old_color:
-                                    pc = lobby.setdefault("pixel_counts", {})
-                                    new_count = pc.get(username, 0) - 1
-                                    if new_count <= 0: pc.pop(username, None)
-                                    else: pc[username] = new_count
-                                    append_event(lobby, x, y, color, old_color)
-                                    set_pixel_author(lobby, x, y, username)
-                                placed += 1
-                                await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
-                            if placed:
-                                lobby["last_activity"] = time.time()
-                                last_pixel = lobby["last_activity"]
-                                mark_lobby_dirty(lobby_id)
-
-                elif data["type"] == "chat" and username and lobby_id:
-                    text = data.get("text", "").strip()[:200]
-                    if text:
-                        mark_active(username)
-                        now2 = time.time()
-                        # Per-user cap (survives multi-socket spam) plus per-socket window.
-                        if not check_rate_limit(username, "chat", 8, 5):
-                            await ws.send_json({"type": "system", "text": "Slow down! Max 8 messages per 5 seconds."})
-                            continue
-                        chat_times = [t for t in chat_times if now2 - t < 5]
-                        if len(chat_times) >= 5:
-                            await ws.send_json({"type": "system", "text": "Slow down! Max 5 messages per 5 seconds."})
-                            continue
-                        if text == last_chat_text and len(chat_times) >= 2:
-                            await ws.send_json({"type": "system", "text": "Stop repeating the same message."})
-                            continue
-                        chat_times.append(now2)
-                        last_chat_text = text
                         lobby = lobbies.get(lobby_id)
-                        if lobby: lobby["last_activity"] = now2
-                        is_owner = lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
-                        chat_payload = {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_vip": is_vip(username), "rank": get_rank(username), "clan": get_clan_tag(username), "name_color": get_name_color(username)}
-                        rt = data.get("reply_to")
-                        if isinstance(rt, dict):
-                            rfrom = str(rt.get("from", ""))[:30]
-                            rtext = str(rt.get("text", ""))[:120]
-                            if rfrom and rtext:
-                                chat_payload["reply_to"] = {"from": rfrom, "text": rtext}
-                        try:
-                            _lname = lobby.get("name", "") if lobby else ""
-                            _pub = "public" if (lobby and lobby.get("public")) else "private"
-                            print(f"[chat {_pub} {lobby_id} ({_lname})] {username}: {text}", flush=True)
-                        except: pass
-                        await broadcast_to_lobby(lobby_id, chat_payload)
-
-                elif data["type"] == "lobby_kick" and username and lobby_id:
-                    lobby = lobbies.get(lobby_id)
-                    if lobby and (lobby["owner"].lower() == username.lower() or is_admin(username)):
-                        target = data.get("target", "").strip()
-                        if is_admin(target):
-                            await ws.send_json({"type": "system", "text": "Cannot kick this user"})
+                        now = time.time()
+                        cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
+                        if now - last_pixel < cd: continue
+                        if not check_rate_limit(username, "pixel", 60, 2):
                             continue
-                        for cws, cinfo in list(clients.items()):
-                            if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower() and cws != ws:
-                                try: await cws.send_json({"type": "kicked", "text": f"Kicked from lobby by {username}"}); await cws.close()
-                                except: pass
-                        await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was kicked by the lobby owner"})
+                        last_pixel = now
+                        lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
+                        if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
+                            # Only the current author of a pixel may undo it (admins bypass).
+                            author = (lobby.get("pixel_authors") or {}).get(y * lw + x)
+                            if not is_admin(username) and author and author.lower() != username.lower():
+                                continue
+                            old_color = lobby["grid"][y * lw + x]
+                            if isinstance(from_color, int) and old_color != from_color:
+                                continue
+                            lobby["grid"][y * lw + x] = color
+                            lobby["last_activity"] = now
+                            if color != old_color:
+                                pc = lobby.setdefault("pixel_counts", {})
+                                new_count = pc.get(username, 0) - 1
+                                if new_count <= 0: pc.pop(username, None)
+                                else: pc[username] = new_count
+                                append_event(lobby, x, y, color, old_color)
+                                set_pixel_author(lobby, x, y, username)
+                                mark_lobby_dirty(lobby_id)
+                            await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
 
-                elif data["type"] == "lobby_ban" and username and lobby_id:
-                    lobby = lobbies.get(lobby_id)
-                    if lobby and (lobby["owner"].lower() == username.lower() or is_admin(username)):
-                        target = data.get("target", "").strip()
-                        if is_admin(target):
-                            await ws.send_json({"type": "system", "text": "Cannot ban this user"})
+                    elif data["type"] == "brush_undo" and username and lobby_id:
+                        if not clients.get(ws, {}).get("can_place", True):
                             continue
-                        if target.lower() != username.lower():
-                            lb = lobby.setdefault("lobby_bans", [])
-                            if target.lower() not in [b.lower() for b in lb]:
-                                lb.append(target)
-                                await save_lobby(lobby_id)
+                        perm = get_brush_perm(username)
+                        if perm["size"] <= 1: continue
+
+                        lobby = lobbies.get(lobby_id)
+                        now = time.time()
+                        cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
+                        if not is_admin(username) and now - last_pixel < cd: continue
+                                                                      
+                        if not check_rate_limit(username, "brush_stroke", 8, 2): continue
+                        if lobby:
+                            coords = data.get("pixels", [])
+                            color = data.get("color", 0)
+                            if not isinstance(color, int) or isinstance(color, bool): continue
+                            from_color = data.get("from_color")
+                            lw = lobby.get("width", 256)
+                            lh = lobby.get("height", 256)
+                            max_stamps = perm["size"] * perm["size"]
+                            if isinstance(coords, list) and 0 <= color < PALETTE_SIZE:
+                                placed = 0
+                                for c in coords[:max_stamps]:
+                                    if not isinstance(c, list) or len(c) != 2: continue
+                                    x, y = c[0], c[1]
+                                    if not (isinstance(x, int) and isinstance(y, int)): continue
+                                    if not (0 <= x < lw and 0 <= y < lh): continue
+
+                                    if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 2): break
+                                    old_color = lobby["grid"][y * lw + x]
+                                                                                                            
+                                    if isinstance(from_color, int) and old_color != from_color:
+                                        continue
+                                    lobby["grid"][y * lw + x] = color
+                                    if color != old_color:
+                                        pc = lobby.setdefault("pixel_counts", {})
+                                        new_count = pc.get(username, 0) - 1
+                                        if new_count <= 0: pc.pop(username, None)
+                                        else: pc[username] = new_count
+                                        append_event(lobby, x, y, color, old_color)
+                                        set_pixel_author(lobby, x, y, username)
+                                    placed += 1
+                                    await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                                if placed:
+                                    lobby["last_activity"] = time.time()
+                                    last_pixel = lobby["last_activity"]
+                                    mark_lobby_dirty(lobby_id)
+
+                    elif data["type"] == "chat" and username and lobby_id:
+                        text = str(data.get("text") or "").strip()[:200]
+                        if text:
+                            mark_active(username)
+                            now2 = time.time()
+                            # Per-user cap (survives multi-socket spam) plus per-socket window.
+                            if not check_rate_limit(username, "chat", 8, 5):
+                                await ws.send_json({"type": "system", "text": "Slow down! Max 8 messages per 5 seconds."})
+                                continue
+                            chat_times = [t for t in chat_times if now2 - t < 5]
+                            if len(chat_times) >= 5:
+                                await ws.send_json({"type": "system", "text": "Slow down! Max 5 messages per 5 seconds."})
+                                continue
+                            if text == last_chat_text and len(chat_times) >= 2:
+                                await ws.send_json({"type": "system", "text": "Stop repeating the same message."})
+                                continue
+                            chat_times.append(now2)
+                            last_chat_text = text
+                            lobby = lobbies.get(lobby_id)
+                            if lobby: lobby["last_activity"] = now2
+                            is_owner = lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
+                            chat_payload = {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_vip": is_vip(username), "rank": get_rank(username), "clan": get_clan_tag(username), "name_color": get_name_color(username)}
+                            rt = data.get("reply_to")
+                            if isinstance(rt, dict):
+                                rfrom = str(rt.get("from", ""))[:30]
+                                rtext = str(rt.get("text", ""))[:120]
+                                if rfrom and rtext:
+                                    chat_payload["reply_to"] = {"from": rfrom, "text": rtext}
+                            try:
+                                _lname = lobby.get("name", "") if lobby else ""
+                                _pub = "public" if (lobby and lobby.get("public")) else "private"
+                                print(f"[chat {_pub} {lobby_id} ({_lname})] {username}: {text}", flush=True)
+                            except: pass
+                            await broadcast_to_lobby(lobby_id, chat_payload)
+
+                    elif data["type"] == "lobby_kick" and username and lobby_id:
+                        lobby = lobbies.get(lobby_id)
+                        if lobby and (lobby["owner"].lower() == username.lower() or is_admin(username)):
+                            target = str(data.get("target") or "").strip()[:20]
+                            if is_admin(target):
+                                await ws.send_json({"type": "system", "text": "Cannot kick this user"})
+                                continue
                             for cws, cinfo in list(clients.items()):
                                 if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower() and cws != ws:
-                                    try: await cws.send_json({"type": "kicked", "text": f"Banned from lobby by {username}"}); await cws.close()
+                                    try: await cws.send_json({"type": "kicked", "text": f"Kicked from lobby by {username}"}); await cws.close()
                                     except: pass
-                            await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was banned from this lobby"})
+                            await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was kicked by the lobby owner"})
 
-                elif data["type"] == "lobby_unban" and username and lobby_id:
-                    lobby = lobbies.get(lobby_id)
-                    if lobby and lobby["owner"].lower() == username.lower():
-                        target = data.get("target", "").strip()
-                        lb = lobby.get("lobby_bans", [])
-                        lobby["lobby_bans"] = [b for b in lb if b.lower() != target.lower()]
-                        await save_lobby(lobby_id)
-                        await ws.send_json({"type": "system", "text": f"Unbanned {target} from this lobby"})
+                    elif data["type"] == "lobby_ban" and username and lobby_id:
+                        lobby = lobbies.get(lobby_id)
+                        if lobby and (lobby["owner"].lower() == username.lower() or is_admin(username)):
+                            target = str(data.get("target") or "").strip()[:20]
+                            if is_admin(target):
+                                await ws.send_json({"type": "system", "text": "Cannot ban this user"})
+                                continue
+                            if target.lower() != username.lower():
+                                lb = lobby.setdefault("lobby_bans", [])
+                                if target.lower() not in [b.lower() for b in lb]:
+                                    lb.append(target)
+                                    await save_lobby(lobby_id)
+                                for cws, cinfo in list(clients.items()):
+                                    if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower() and cws != ws:
+                                        try: await cws.send_json({"type": "kicked", "text": f"Banned from lobby by {username}"}); await cws.close()
+                                        except: pass
+                                await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was banned from this lobby"})
 
-                elif data["type"] == "admin_brush" and username and lobby_id:
-                    if not clients.get(ws, {}).get("can_place", True):
-                        continue
-                    perm = get_brush_perm(username)
-                    if perm["size"] <= 1:
-                        continue
-
-                    lobby = lobbies.get(lobby_id)
-                    now = time.time()
-                    cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
-                    if not is_admin(username) and now - last_pixel < cd:
-                        continue
-                                                                      
-                    if not check_rate_limit(username, "brush_stroke", 8, 2):
-                        continue
-                    if lobby:
-                        coords = data.get("pixels", [])
-                        color = data.get("color", 0)
-                        lw = lobby.get("width", 256)
-                        lh = lobby.get("height", 256)
-                                                                                                               
-                        max_stamps = perm["size"] * perm["size"]
-                        if isinstance(coords, list) and 0 <= color < PALETTE_SIZE:
-                            placed = 0
-                            changed_count = 0
-                            for c in coords[:max_stamps]:
-                                if not isinstance(c, list) or len(c) != 2: continue
-                                x, y = c[0], c[1]
-                                if not (isinstance(x, int) and isinstance(y, int)): continue
-                                if not (0 <= x < lw and 0 <= y < lh): continue
-                                if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 2): break
-                                old_color = lobby["grid"][y * lw + x]
-                                lobby["grid"][y * lw + x] = color
-                                if color != old_color:
-                                    pc = lobby.setdefault("pixel_counts", {})
-                                    pc[username] = pc.get(username, 0) + 1
-                                    append_event(lobby, x, y, color, old_color)
-                                    set_pixel_author(lobby, x, y, username)
-                                    changed_count += 1
-                                placed += 1
-                                await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
-                            if placed:
-                                lobby["last_activity"] = time.time()
-                                last_pixel = lobby["last_activity"]
-                                mark_lobby_dirty(lobby_id)
-                                if changed_count: await award_pixel_placement(username, changed_count)
-
-                elif data["type"] == "import_grid" and username and lobby_id:
-                    lobby = lobbies.get(lobby_id)
-                    if lobby and lobby["owner"].lower() == username.lower():
-                        new_grid = data.get("grid", [])
-                        lw = lobby.get("width", 256)
-                        lh = lobby.get("height", 256)
-                        expected = lw * lh
-                        if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < PALETTE_SIZE for c in new_grid):
-                            lobby["grid"] = bytearray(new_grid)
-                            lobby["last_activity"] = time.time()
-                            imported_counts = data.get("pixel_counts")
-                            if isinstance(imported_counts, dict):
-                                clean = {str(k)[:20]: min(int(v), expected) for k, v in imported_counts.items() if isinstance(v, (int, float)) and v >= 0}
-                                total_claimed = sum(clean.values())
-                                if total_claimed > expected:
-                                    scale = expected / total_claimed
-                                    clean = {k: int(v * scale) for k, v in clean.items()}
-                                lobby["pixel_counts"] = clean
-                            imported_owner = data.get("original_owner")
-                            if isinstance(imported_owner, str) and imported_owner.strip():
-                                lobby["original_owner"] = imported_owner.strip()[:20]
+                    elif data["type"] == "lobby_unban" and username and lobby_id:
+                        lobby = lobbies.get(lobby_id)
+                        if lobby and lobby["owner"].lower() == username.lower():
+                            target = str(data.get("target") or "").strip()[:20]
+                            lb = lobby.get("lobby_bans", [])
+                            lobby["lobby_bans"] = [b for b in lb if b.lower() != target.lower()]
                             await save_lobby(lobby_id)
-                            await broadcast_grid_to_lobby(lobby_id, {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lw, "height": lh}, lobby["grid"])
-                            await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
-                            await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"Grid imported by {username}"})
-                        else:
-                            await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
+                            await ws.send_json({"type": "system", "text": f"Unbanned {target} from this lobby"})
 
-                elif data["type"] in ("rtc_join", "rtc_leave", "rtc_offer", "rtc_answer", "rtc_ice") and username and lobby_id:
+                    elif data["type"] == "admin_brush" and username and lobby_id:
+                        if not clients.get(ws, {}).get("can_place", True):
+                            continue
+                        perm = get_brush_perm(username)
+                        if perm["size"] <= 1:
+                            continue
+
+                        lobby = lobbies.get(lobby_id)
+                        now = time.time()
+                        cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
+                        if not is_admin(username) and now - last_pixel < cd:
+                            continue
+                                                                      
+                        if not check_rate_limit(username, "brush_stroke", 8, 2):
+                            continue
+                        if lobby:
+                            coords = data.get("pixels", [])
+                            color = data.get("color", 0)
+                            if not isinstance(color, int) or isinstance(color, bool): continue
+                            lw = lobby.get("width", 256)
+                            lh = lobby.get("height", 256)
+                                                                                                               
+                            max_stamps = perm["size"] * perm["size"]
+                            if isinstance(coords, list) and 0 <= color < PALETTE_SIZE:
+                                placed = 0
+                                changed_count = 0
+                                for c in coords[:max_stamps]:
+                                    if not isinstance(c, list) or len(c) != 2: continue
+                                    x, y = c[0], c[1]
+                                    if not (isinstance(x, int) and isinstance(y, int)): continue
+                                    if not (0 <= x < lw and 0 <= y < lh): continue
+                                    if not check_rate_limit(username, "brush_pixel", max_stamps * 4, 2): break
+                                    old_color = lobby["grid"][y * lw + x]
+                                    lobby["grid"][y * lw + x] = color
+                                    if color != old_color:
+                                        pc = lobby.setdefault("pixel_counts", {})
+                                        pc[username] = pc.get(username, 0) + 1
+                                        append_event(lobby, x, y, color, old_color)
+                                        set_pixel_author(lobby, x, y, username)
+                                        changed_count += 1
+                                    placed += 1
+                                    await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                                if placed:
+                                    lobby["last_activity"] = time.time()
+                                    last_pixel = lobby["last_activity"]
+                                    mark_lobby_dirty(lobby_id)
+                                    if changed_count: await award_pixel_placement(username, changed_count)
+
+                    elif data["type"] == "import_grid" and username and lobby_id:
+                        lobby = lobbies.get(lobby_id)
+                        if lobby and lobby["owner"].lower() == username.lower():
+                            new_grid = data.get("grid", [])
+                            lw = lobby.get("width", 256)
+                            lh = lobby.get("height", 256)
+                            expected = lw * lh
+                            if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < PALETTE_SIZE for c in new_grid):
+                                lobby["grid"] = bytearray(new_grid)
+                                lobby["last_activity"] = time.time()
+                                imported_counts = data.get("pixel_counts")
+                                if isinstance(imported_counts, dict):
+                                    clean = {str(k)[:20]: min(int(v), expected) for k, v in imported_counts.items() if isinstance(v, (int, float)) and v >= 0}
+                                    total_claimed = sum(clean.values())
+                                    if total_claimed > expected:
+                                        scale = expected / total_claimed
+                                        clean = {k: int(v * scale) for k, v in clean.items()}
+                                    lobby["pixel_counts"] = clean
+                                imported_owner = data.get("original_owner")
+                                if isinstance(imported_owner, str) and imported_owner.strip():
+                                    lobby["original_owner"] = imported_owner.strip()[:20]
+                                await save_lobby(lobby_id)
+                                await broadcast_grid_to_lobby(lobby_id, {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lw, "height": lh}, lobby["grid"])
+                                await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
+                                await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"Grid imported by {username}"})
+                            else:
+                                await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
+
+                    elif data["type"] in ("rtc_join", "rtc_leave", "rtc_offer", "rtc_answer", "rtc_ice") and username and lobby_id:
                                                                                                                     
-                    msg_type = data["type"]
-                    if msg_type in ("rtc_join", "rtc_leave"):
-                        await broadcast_to_lobby(lobby_id, {"type": msg_type, "username": username, "video": bool(data.get("video"))}, exclude=ws)
-                    else:
-                        target = data.get("target", "").strip()
-                        if not target: continue
-                        payload = {"type": msg_type, "username": username, "sdp": data.get("sdp"), "candidate": data.get("candidate")}
-                        for cws, cinfo in list(clients.items()):
-                            if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower():
-                                try: await cws.send_json(payload)
-                                except: pass
+                        msg_type = data["type"]
+                        if msg_type in ("rtc_join", "rtc_leave"):
+                            await broadcast_to_lobby(lobby_id, {"type": msg_type, "username": username, "video": bool(data.get("video"))}, exclude=ws)
+                        else:
+                            target = str(data.get("target") or "").strip()[:20]
+                            if not target: continue
+                            payload = {"type": msg_type, "username": username, "sdp": data.get("sdp"), "candidate": data.get("candidate")}
+                            for cws, cinfo in list(clients.items()):
+                                if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower():
+                                    try: await cws.send_json(payload)
+                                    except: pass
 
-                elif data["type"] == "typing" and username and lobby_id:
-                    state = bool(data.get("typing"))
-                    await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": state}, exclude=ws)
+                    elif data["type"] == "typing" and username and lobby_id:
+                        state = bool(data.get("typing"))
+                        await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": state}, exclude=ws)
                                                                                               
-                    if not is_admin(username):
-                        draft = str(data.get("draft", ""))[:200]
-                        for cws, cinfo in list(clients.items()):
-                            if cinfo and cinfo.get("lobby_id") == lobby_id and is_admin(cinfo.get("username", "")):
-                                try: await cws.send_json({"type": "typing_spy", "username": username, "draft": draft})
-                                except: pass
+                        if not is_admin(username):
+                            draft = str(data.get("draft", ""))[:200]
+                            for cws, cinfo in list(clients.items()):
+                                if cinfo and cinfo.get("lobby_id") == lobby_id and is_admin(cinfo.get("username", "")):
+                                    try: await cws.send_json({"type": "typing_spy", "username": username, "draft": draft})
+                                    except: pass
 
-                elif data["type"] == "cursor" and username and lobby_id:
-                    now_c = time.time()
-                    if now_c - last_cursor < 0.05:
-                        continue
-                    last_cursor = now_c
-                    lobby = lobbies.get(lobby_id)
-                    if not lobby:
-                        continue
-                    lw = lobby.get("width", 256)
-                    lh = lobby.get("height", 256)
-                    x = data.get("x")
-                    y = data.get("y")
-                    if x is None or y is None:
-                        await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username}, exclude=ws)
-                    elif isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
-                        await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y}, exclude=ws)
+                    elif data["type"] == "cursor" and username and lobby_id:
+                        now_c = time.time()
+                        if now_c - last_cursor < 0.05:
+                            continue
+                        last_cursor = now_c
+                        lobby = lobbies.get(lobby_id)
+                        if not lobby:
+                            continue
+                        lw = lobby.get("width", 256)
+                        lh = lobby.get("height", 256)
+                        x = data.get("x")
+                        y = data.get("y")
+                        if x is None or y is None:
+                            await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username}, exclude=ws)
+                        elif isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
+                            await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y}, exclude=ws)
 
-                elif data["type"] == "pixel_owner" and username and lobby_id and (is_admin(username) or is_moderator(username)):
+                    elif data["type"] == "pixel_owner" and username and lobby_id and (is_admin(username) or is_moderator(username)):
                                                                                   
-                    lobby = lobbies.get(lobby_id)
-                    if not lobby:
-                        continue
-                    lw = lobby.get("width", 256)
-                    lh = lobby.get("height", 256)
-                    x = data.get("x")
-                    y = data.get("y")
-                    owner = None
-                    if isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
-                        owner = (lobby.get("pixel_authors") or {}).get(y * lw + x)
-                    await ws.send_json({"type": "pixel_owner_result", "x": x, "y": y, "owner": owner})
+                        lobby = lobbies.get(lobby_id)
+                        if not lobby:
+                            continue
+                        lw = lobby.get("width", 256)
+                        lh = lobby.get("height", 256)
+                        x = data.get("x")
+                        y = data.get("y")
+                        owner = None
+                        if isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
+                            owner = (lobby.get("pixel_authors") or {}).get(y * lw + x)
+                        await ws.send_json({"type": "pixel_owner_result", "x": x, "y": y, "owner": owner})
 
-                elif data["type"] == "ping":
-                    await ws.send_json({"type": "pong", "time": data.get("time", 0)})
+                    elif data["type"] == "ping":
+                        await ws.send_json({"type": "pong", "time": data.get("time", 0)})
 
+                except Exception as _e:
+                    print(f"[ws] bad message from {username}: {type(_e).__name__}: {_e}", flush=True)
+                    continue
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
@@ -7053,9 +6898,147 @@ async def avatar_handler(request):
         return web.Response(status=304, headers={"ETag": etag, "Cache-Control": "no-cache, must-revalidate"})
     return web.Response(body=img_bytes, headers={
         "Content-Type": content_type,
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": "inline",
         "Cache-Control": "no-cache, must-revalidate",
         "ETag": etag,
     })
+
+
+FISH_CAST_COOLDOWN = 20
+FISH_CAST_COST = 2
+FISH_DAILY_CAP = 150
+FISH_RARITY_WEIGHTS = [("common", 600), ("uncommon", 250), ("rare", 100), ("epic", 38), ("legendary", 10), ("mythic", 2)]
+FISH_ITEMS = [
+    ("minnow", "Minnow", "common", 1), ("sardine", "Sardine", "common", 1), ("anchovy", "Anchovy", "common", 1),
+    ("bluegill", "Bluegill", "common", 2), ("perch", "Perch", "common", 2), ("carp", "Carp", "common", 2),
+    ("goldfish", "Goldfish", "common", 2), ("catfish", "Catfish", "common", 2), ("sunfish", "Sunfish", "common", 1),
+    ("tadpole", "Tadpole", "common", 1), ("old_boot", "Old Boot", "common", 1), ("tin_can", "Tin Can", "common", 1),
+    ("seaweed", "Seaweed", "common", 1), ("driftwood", "Driftwood", "common", 1), ("plastic_bottle", "Plastic Bottle", "common", 1),
+    ("rusty_hook", "Rusty Hook", "common", 1), ("crab", "Crab", "common", 2), ("shrimp", "Shrimp", "common", 2),
+    ("clam", "Clam", "common", 2), ("snail", "Sea Snail", "common", 1), ("mackerel", "Mackerel", "common", 2),
+    ("herring", "Herring", "common", 2), ("smelt", "Smelt", "common", 1), ("guppy", "Guppy", "common", 1),
+    ("bass", "Bass", "uncommon", 4), ("trout", "Rainbow Trout", "uncommon", 4), ("pike", "Pike", "uncommon", 5),
+    ("salmon", "Salmon", "uncommon", 5), ("eel", "Eel", "uncommon", 4), ("squid", "Squid", "uncommon", 5),
+    ("lobster", "Lobster", "uncommon", 6), ("starfish", "Starfish", "uncommon", 4), ("sea_urchin", "Sea Urchin", "uncommon", 4),
+    ("jellyfish", "Jellyfish", "uncommon", 4), ("flounder", "Flounder", "uncommon", 4), ("cod", "Cod", "uncommon", 4),
+    ("tuna", "Tuna", "uncommon", 6), ("pufferfish", "Pufferfish", "uncommon", 5), ("seahorse", "Seahorse", "uncommon", 6),
+    ("message_bottle", "Message in a Bottle", "uncommon", 5), ("sunken_coin", "Sunken Coin", "uncommon", 6), ("pearl_clam", "Pearl Clam", "uncommon", 6),
+    ("swordfish", "Swordfish", "rare", 15), ("marlin", "Marlin", "rare", 18), ("barracuda", "Barracuda", "rare", 14),
+    ("octopus", "Octopus", "rare", 16), ("manta_ray", "Manta Ray", "rare", 20), ("stingray", "Stingray", "rare", 14),
+    ("angelfish", "Angelfish", "rare", 12), ("lionfish", "Lionfish", "rare", 15), ("moray_eel", "Moray Eel", "rare", 14),
+    ("piranha", "Piranha", "rare", 12), ("koi", "Koi", "rare", 20), ("ancient_pottery", "Ancient Pottery", "rare", 18),
+    ("silver_ring", "Silver Ring", "rare", 22), ("treasure_map", "Treasure Map", "rare", 25),
+    ("great_white", "Great White Shark", "epic", 60), ("hammerhead", "Hammerhead Shark", "epic", 55), ("giant_squid", "Giant Squid", "epic", 70),
+    ("anglerfish", "Anglerfish", "epic", 50), ("electric_eel", "Electric Eel", "epic", 45), ("golden_koi", "Golden Koi", "epic", 80),
+    ("pirate_cutlass", "Pirate Cutlass", "epic", 65), ("gold_bar", "Gold Bar", "epic", 90), ("emerald", "Emerald", "epic", 75),
+    ("blue_whale", "Blue Whale", "legendary", 200), ("coelacanth", "Coelacanth", "legendary", 250), ("sunken_crown", "Sunken Crown", "legendary", 300),
+    ("diamond", "Diamond", "legendary", 350), ("mermaid_comb", "Mermaid's Comb", "legendary", 400),
+    ("kraken", "Kraken", "mythic", 1200), ("leviathan", "Leviathan", "mythic", 1800), ("poseidon_trident", "Poseidon's Trident", "mythic", 2500),
+]
+FISH_CATALOG = [{"id": i, "name": n, "rarity": ra, "value": v} for (i, n, ra, v) in FISH_ITEMS]
+FISH_BY_ID = {it["id"]: it for it in FISH_CATALOG}
+FISH_BY_RARITY = {}
+for _it in FISH_CATALOG: FISH_BY_RARITY.setdefault(_it["rarity"], []).append(_it)
+fishing = {}
+async def save_fishing(): await db_save("store", "fishing", fishing)
+
+def _fish_slot(user):
+    return fishing.setdefault(user.lower(), {"inv": {}, "seen": {}, "casts": 0, "last_cast": 0})
+
+def _fish_roll():
+    rng = secrets.SystemRandom()
+    total = sum(w for _, w in FISH_RARITY_WEIGHTS)
+    pick = rng.randrange(total)
+    rarity = FISH_RARITY_WEIGHTS[-1][0]
+    for name, w in FISH_RARITY_WEIGHTS:
+        if pick < w: rarity = name; break
+        pick -= w
+    return rng.choice(FISH_BY_RARITY[rarity])
+
+def _fish_state(user, now=None):
+    now = now or time.time()
+    st = _fish_slot(user)
+    inv = {k: int(v) for k, v in st.get("inv", {}).items() if k in FISH_BY_ID and int(v) > 0}
+    seen = {k: int(v) for k, v in st.get("seen", {}).items() if k in FISH_BY_ID}
+    cooldown = 0 if is_admin(user) else max(0.0, float(st.get("last_cast", 0)) + FISH_CAST_COOLDOWN - now)
+    day_key = (user.lower(), "fish_cast_day")
+    used_today = len([t for t in _rate_limits.get(day_key, []) if t > now - 86400])
+    return {"catalog": FISH_CATALOG, "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
+            "cooldown": round(cooldown, 2), "cast_cooldown": FISH_CAST_COOLDOWN, "cast_cost": FISH_CAST_COST,
+            "daily_cap": FISH_DAILY_CAP, "casts_left_today": max(0, FISH_DAILY_CAP - used_today), "balance": get_pb(user)}
+
+async def _fish_announce(text):
+    for lid in {info.get("lobby_id") for info in clients.values() if info and info.get("lobby_id")}:
+        try: await broadcast_to_lobby(lid, {"type": "system", "text": text})
+        except Exception: pass
+
+async def fishing_state_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    return web.json_response({"ok": True, "state": _fish_state(user)})
+
+async def fishing_cast_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    st = _fish_slot(user)
+    now = time.time()
+    wait = float(st.get("last_cast", 0)) + FISH_CAST_COOLDOWN - now
+    if wait > 0 and not is_admin(user):
+        return web.json_response({"error": f"Your line is still out - wait {int(wait) + 1}s", "state": _fish_state(user, now)}, status=429)
+    if not check_rate_limit(user, "fish_cast_day", FISH_DAILY_CAP, 86400):
+        return web.json_response({"error": f"Daily cast limit reached ({FISH_DAILY_CAP} per day)", "state": _fish_state(user, now)}, status=429)
+    if FISH_CAST_COST and not spend_pb(user, FISH_CAST_COST):
+        return web.json_response({"error": f"Casting costs {FISH_CAST_COST} PlaceBucks", "state": _fish_state(user, now)}, status=400)
+    item = _fish_roll()
+    inv = st.setdefault("inv", {}); seen = st.setdefault("seen", {})
+    inv[item["id"]] = int(inv.get(item["id"], 0)) + 1
+    first_time = item["id"] not in seen
+    seen[item["id"]] = int(seen.get(item["id"], 0)) + 1
+    st["casts"] = int(st.get("casts", 0)) + 1
+    st["last_cast"] = now
+    await save_fishing()
+    if FISH_CAST_COST:
+        await save_place_bucks()
+        await push_pb_update(user)
+    try:
+        await unlock_achievement(user, "fish_first")
+        if item["rarity"] in ("legendary", "mythic"): await unlock_achievement(user, "fish_legendary")
+        if len(seen) >= 40: await unlock_achievement(user, "fish_collector")
+    except Exception: pass
+    if item["rarity"] in ("epic", "legendary", "mythic"):
+        await _fish_announce(f"{user} reeled in a {item['rarity']} {item['name']} while fishing!")
+    return web.json_response({"ok": True, "item": item, "new": first_time, "state": _fish_state(user, now)})
+
+async def fishing_sell_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "fish_sell", 30, 60):
+        return web.json_response({"error": "Slow down"}, status=429)
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
+    if not isinstance(data, dict): return web.json_response({"error": "Bad payload"}, status=400)
+    item_id = str(data.get("item_id") or "").strip()
+    item = FISH_BY_ID.get(item_id)
+    if not item: return web.json_response({"error": "Unknown item"}, status=400)
+    st = _fish_slot(user)
+    inv = st.setdefault("inv", {})
+    have = int(inv.get(item_id, 0))
+    if have <= 0: return web.json_response({"error": "You don't have that item"}, status=400)
+    qty_raw = data.get("qty", 1)
+    if qty_raw == "all": qty = have
+    else:
+        try: qty = int(qty_raw)
+        except Exception: return web.json_response({"error": "Bad quantity"}, status=400)
+    if qty < 1 or qty > have: return web.json_response({"error": "Bad quantity"}, status=400)
+    inv[item_id] = have - qty
+    if inv[item_id] <= 0: inv.pop(item_id, None)
+    earned = item["value"] * qty
+    credit_pb(user, earned)
+    await save_fishing()
+    await save_place_bucks()
+    await push_pb_update(user)
+    return web.json_response({"ok": True, "sold": qty, "earned": earned, "state": _fish_state(user)})
 
 app = web.Application(middlewares=[cors_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
@@ -7078,8 +7061,7 @@ for _path, _h in (
     ("/api/admin/ipbans", _admin_json_view("ip_bans", lambda: ip_bans)),
     ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler),
     ("/api/me", me_handler), ("/api/streak/progress", streak_progress_handler),
-    ("/api/casino/amongus/list", amongus_list_handler), ("/api/casino/amongus/state", amongus_state_handler),
-    ("/api/casino/rps/status", casino_rps_status_handler), ("/api/uno/list", uno_list_handler),
+    ("/api/casino/amongus/list", amongus_list_handler), ("/api/casino/amongus/state", amongus_state_handler), ("/api/uno/list", uno_list_handler),
     ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
     ("/api/battle/list", battle_list_handler), ("/api/battle/state", battle_state_handler),
     ("/api/sketch/list", sketch_list_handler), ("/api/sketch/state", sketch_state_handler),
@@ -7095,7 +7077,7 @@ for _path, _h in (
     ("/api/casino/gd/levels", gd_list_levels_handler),
     ("/api/achievements", achievements_list_handler),
     ("/api/notifications", notifications_list_handler),
-    ("/api/profile", profile_handler),
+    ("/api/profile", profile_handler), ("/api/fishing/state", fishing_state_handler),
     ("/ws", websocket_handler), ("/ws/social", social_ws_handler), ("/", index_handler),
 ): _g(_path, _h)
 for _path, _h in (
@@ -7132,10 +7114,6 @@ for _path, _h in (
     ("/api/casino/amongus/start", amongus_start_handler), ("/api/casino/amongus/say", amongus_say_handler),
     ("/api/casino/amongus/kill", amongus_kill_handler), ("/api/casino/amongus/vote", amongus_vote_handler),
     ("/api/casino/amongus/leave", amongus_leave_handler), ("/api/casino/blackjack", casino_blackjack_handler),
-    ("/api/casino/rps/solo", casino_rps_solo_handler), ("/api/casino/rps/join", casino_rps_join_handler),
-    ("/api/casino/rps/cancel", casino_rps_cancel_handler),
-    ("/api/casino/rps/challenge", casino_rps_challenge_handler),
-    ("/api/casino/rps/respond", casino_rps_respond_handler), ("/api/casino/rps/play", casino_rps_play_handler),
     ("/api/flappy/pass", flappy_pass_handler), ("/api/uno/create", uno_create_handler),
     ("/api/uno/join", uno_join_handler), ("/api/uno/start", uno_start_handler),
     ("/api/uno/play", uno_play_handler), ("/api/uno/jump-in", uno_jump_in_handler),
@@ -7170,6 +7148,7 @@ for _path, _h in (
     ("/api/report", report_submit_handler),
     ("/api/mod/report-resolve", report_resolve_handler),
     ("/api/account/set-avatar", set_avatar_handler),
+    ("/api/fishing/cast", fishing_cast_handler), ("/api/fishing/sell", fishing_sell_handler),
     ("/api/account/clear-avatar", clear_avatar_handler),
 ): _p(_path, _h)
 

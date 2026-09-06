@@ -175,6 +175,23 @@
   body.eink-mode .menu-btn, body.eink-mode .menu-tab, body.eink-mode .menu-icon-btn, body.eink-mode .lobby-card { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; }
   body.eink-mode .menu-tab.active { background: #000 !important; color: #fff !important; }
   body.eink-mode #menu-title, body.eink-mode .menu-btn .mi { color: #000 !important; }
+  #fish-water { position: relative; min-height: 92px; border-radius: 14px; background: linear-gradient(180deg, rgba(45,212,191,0.10), rgba(36,80,164,0.28)); border: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px 14px; overflow: hidden; }
+  #fish-catch { font-size: 12px; color: var(--text-secondary); }
+  #fish-catch b { display: block; color: var(--rc, var(--text-primary)); font-size: 17px; font-weight: 700; margin-bottom: 3px; }
+  #fish-catch .fish-rarity { color: var(--rc, var(--text-secondary)); font-weight: 600; text-transform: capitalize; }
+  #fish-catch.pop { animation: fishPop 0.35s ease; }
+  @keyframes fishPop { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  #fish-stats { font-size: 11px; color: var(--text-muted); text-align: center; }
+  #btn-fish-cast:disabled { opacity: 0.5; cursor: default; }
+  .fish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  .fish-item { position: relative; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-left: 3px solid var(--rc, var(--border)); border-radius: 10px; padding: 9px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .fish-item.undiscovered { opacity: 0.4; }
+  .fish-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fish-meta { font-size: 10px; color: var(--text-muted); }
+  .fish-meta .fish-rarity { color: var(--rc); font-weight: 600; text-transform: capitalize; }
+  .fish-actions { display: flex; gap: 4px; margin-top: 2px; }
+  .fish-actions button { flex: 1; font-size: 10px; padding: 3px 0; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: var(--text-secondary); cursor: pointer; font-family: inherit; }
+  .fish-actions button:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
   #manage-modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 50; align-items: center; justify-content: center; }
   #manage-modal.show { display: flex; }
   #manage-box { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0; width: 360px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
@@ -1108,9 +1125,10 @@
             <button class="menu-btn" id="btn-menu-leaderboard"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg><span class="menu-label">Leaderboard</span></button>
             <button class="menu-btn" id="btn-menu-economy"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg><span class="menu-label">Economy</span></button>
             <button class="menu-btn" id="btn-achievements"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg><span class="menu-label">Achievements</span></button>
+            <button class="menu-btn" id="btn-menu-clans"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="menu-label">Clans</span></button>
+            <button class="menu-btn" id="btn-menu-fishing"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg><span class="menu-label">Fishing</span></button>
           </div>
         </div>
-    <div id="clan-invite-banner" style="display:none;width:100%;max-width:480px;margin:8px 0 0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(238,90,82,0.4);"></div>
       </div>
 
       <div class="menu-view" id="menu-view-auth">
@@ -1279,28 +1297,6 @@
               <button class="win-btn roulette-go" data-choice="green" style="background:#16a34a;color:#fff;flex:1;">Green</button>
             </div>
             <div id="roulette-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
-          </div>
-        </details>
-
-        <details class="game-acc"><summary>Rock Paper Scissors <span class="game-hint">vs AI, or invite a player (10s to lock in)</span></summary>
-          <div class="game-body">
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-              <input id="rps-bet" type="number" min="1" value="5" class="win-input" style="width:80px;font-size:12px;padding:4px 6px;">
-              <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="ai" checked> AI</label>
-              <label style="font-size:11px;display:flex;align-items:center;gap:3px;"><input type="radio" name="rps-mode" value="player"> vs Player</label>
-            </div>
-            <div id="rps-challenge-row" style="display:none;gap:6px;align-items:center;">
-              <input id="rps-challenge-user" class="win-input" type="text" maxlength="20" placeholder="Opponent username" style="flex:1;font-size:12px;padding:4px 6px;">
-              <button id="btn-rps-challenge" class="win-btn" style="background:var(--accent);color:#fff;">Invite</button>
-            </div>
-            <div id="rps-result" style="font-family:'JetBrains Mono','Fira Code',monospace;font-size:14px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border);min-height:24px;text-align:center;">Pick a hand to start</div>
-            <div id="rps-countdown" style="display:none;text-align:center;font-weight:700;color:var(--accent);font-size:13px;">Reveal in <span id="rps-clock">10</span>s</div>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <button class="win-btn rps-go" data-choice="rock" style="background:var(--accent);color:#fff;flex:1;">Rock</button>
-              <button class="win-btn rps-go" data-choice="paper" style="background:var(--accent);color:#fff;flex:1;">Paper</button>
-              <button class="win-btn rps-go" data-choice="scissors" style="background:var(--accent);color:#fff;flex:1;">Scissors</button>
-            </div>
-            <div id="rps-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
         </details>
 
@@ -1492,11 +1488,6 @@
       <div class="menu-view" id="menu-view-leaderboard">
         <div class="menu-section">Top Placers (All Lobbies)</div>
         <div id="global-lb" class="lobby-list" style="font-size:12px;"></div>
-        <div class="menu-section" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>Clans</span>
-          <button id="btn-create-clan" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--accent);color:#fff;font-weight:700;">+ Create Clan</button>
-        </div>
-        <div class="lobby-list" id="clans-list"></div>
       </div>
 
       <div class="menu-view" id="menu-view-economy">
@@ -1518,6 +1509,28 @@
         <span id="economy-graph-caption" style="font-size:10px;color:var(--text-muted);">hover for values</span>
       </div>
     </div>
+      </div>
+
+      <div class="menu-view" id="menu-view-clans">
+    <div id="clan-invite-banner" style="display:none;width:100%;max-width:480px;margin:8px 0 0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(238,90,82,0.4);"></div>
+        <div class="menu-section" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Clans</span>
+          <button id="btn-create-clan" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--accent);color:#fff;font-weight:700;">+ Create Clan</button>
+        </div>
+        <div class="lobby-list" id="clans-list"></div>
+      </div>
+
+      <div class="menu-view" id="menu-view-fishing">
+        <div id="fish-water"><div id="fish-catch">Cast a line to see what you reel in.</div></div>
+        <button class="menu-btn primary wide" id="btn-fish-cast">Cast line</button>
+        <div id="fish-stats"></div>
+        <div id="fish-status" class="lobby-empty" style="padding:0;min-height:14px;"></div>
+        <div class="menu-tabs">
+          <button class="menu-tab active" data-ftab="inventory">Bucket</button>
+          <button class="menu-tab" data-ftab="collection">Collection</button>
+        </div>
+        <div id="fish-inventory" class="fish-grid"></div>
+        <div id="fish-collection" class="fish-grid" style="display:none"></div>
       </div>
 
       <div class="menu-view" id="menu-view-achievements">
@@ -1641,7 +1654,7 @@ let cooldownTimer = null;
 let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
-const MENU_TITLES = { auth: '', lobbies: 'Lobbies', friends: 'Friends & Chats', shop: 'Shop', notifications: 'Notifications', settings: 'Settings', leaderboard: 'Leaderboard', economy: 'Economy', achievements: 'Achievements' };
+const MENU_TITLES = { auth: '', lobbies: 'Lobbies', friends: 'Friends & Chats', shop: 'Shop', notifications: 'Notifications', settings: 'Settings', leaderboard: 'Leaderboard', economy: 'Economy', achievements: 'Achievements', clans: 'Clans', fishing: 'Fishing' };
 const menuViewHooks = {};
 let menuView = 'home';
 function menuIsOpen() { return document.body.classList.contains('menu-open'); }
@@ -1709,7 +1722,114 @@ menuViewHooks.friends = { enter: () => {
   const fb = document.getElementById('friend-notif'); if (fb) { fb.style.display = 'none'; fb.textContent = ''; }
   const dn = document.getElementById('dm-notif'); if (dn) { dn.style.display = 'none'; dn.textContent = ''; }
 } };
-menuViewHooks.leaderboard = { enter: () => { loadGlobalLeaderboard(); loadClans(); } };
+menuViewHooks.leaderboard = { enter: () => { loadGlobalLeaderboard(); } };
+menuViewHooks.clans = { enter: () => { loadClans(); } };
+document.getElementById('btn-menu-clans').onclick = () => openMenuView('clans');
+document.getElementById('btn-menu-fishing').onclick = () => requireAuthView('fishing');
+
+const FISH_RARITY_COLORS = { common: '#9aa0a6', uncommon: '#5ec27a', rare: '#3b82f6', epic: '#a855f7', legendary: '#e6b04d', mythic: '#ee5a52' };
+const FISH_RARITY_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
+let fishState = null, fishTick = null, fishTab = 'inventory', fishBusy = false, fishReadyAt = 0;
+function fishSetStatus(text, color) {
+  const el = document.getElementById('fish-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = color || 'var(--text-muted)';
+}
+function fishApplyState(st) {
+  if (!st) return;
+  fishState = st;
+  fishReadyAt = Date.now() + Math.max(0, Number(st.cooldown) || 0) * 1000;
+  if (typeof st.balance === 'number') { myBalance = st.balance; applyPbState(); }
+  fishRender();
+  fishUpdateCooldown();
+}
+async function fishLoad() {
+  if (!authToken) return;
+  fishSetStatus('Loading...');
+  try {
+    const r = await fetch(BACKEND + '/api/fishing/state', { headers: { Authorization: authToken } });
+    const d = await r.json();
+    if (d.error) { fishSetStatus(d.error, 'var(--red)'); return; }
+    fishSetStatus('');
+    fishApplyState(d.state);
+  } catch { fishSetStatus('Server offline', 'var(--red)'); }
+}
+function fishTile(it, opts) {
+  const color = FISH_RARITY_COLORS[it.rarity] || 'var(--text-muted)';
+  const known = !opts.hidden;
+  const name = known ? esc(it.name) : 'Undiscovered';
+  const meta = known ? `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ${it.value} PB${opts.qty ? ' &middot; x' + opts.qty : ''}${opts.caught ? ' &middot; caught ' + opts.caught : ''}` : `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ? PB`;
+  const actions = opts.sell ? `<div class="fish-actions"><button data-sell="${esc(it.id)}" data-qty="1">Sell 1</button><button data-sell="${esc(it.id)}" data-qty="all">Sell all</button></div>` : '';
+  return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
+}
+function fishRender() {
+  if (!fishState) return;
+  const cat = fishState.catalog || [], inv = fishState.inv || {}, seen = fishState.seen || {};
+  const rank = it => FISH_RARITY_ORDER.indexOf(it.rarity);
+  const discovered = cat.filter(it => seen[it.id]).length;
+  const stats = document.getElementById('fish-stats');
+  const bucketValue = cat.reduce((s, it) => s + (inv[it.id] || 0) * it.value, 0);
+  stats.textContent = `${discovered} / ${cat.length} discovered \u00b7 ${fishState.casts || 0} casts \u00b7 bucket worth ${bucketValue} PB \u00b7 ${fishState.casts_left_today} casts left today`;
+  const invEl = document.getElementById('fish-inventory');
+  const owned = cat.filter(it => inv[it.id] > 0).sort((a, b) => b.value - a.value || rank(b) - rank(a));
+  invEl.innerHTML = owned.length ? owned.map(it => fishTile(it, { qty: inv[it.id], sell: true })).join('') : '<div class="lobby-empty" style="grid-column:1/-1;">Your bucket is empty. Cast a line!</div>';
+  invEl.querySelectorAll('button[data-sell]').forEach(b => { b.onclick = () => fishSell(b.dataset.sell, b.dataset.qty); });
+  const colEl = document.getElementById('fish-collection');
+  const all = cat.slice().sort((a, b) => rank(a) - rank(b) || a.value - b.value);
+  colEl.innerHTML = all.map(it => fishTile(it, seen[it.id] ? { caught: seen[it.id] } : { hidden: true })).join('');
+  invEl.style.display = fishTab === 'inventory' ? '' : 'none';
+  colEl.style.display = fishTab === 'collection' ? '' : 'none';
+}
+function fishUpdateCooldown() {
+  const btn = document.getElementById('btn-fish-cast');
+  if (!btn || !fishState) return;
+  const left = Math.ceil((fishReadyAt - Date.now()) / 1000);
+  if (fishBusy) { btn.disabled = true; btn.textContent = 'Casting...'; return; }
+  if (left > 0) { btn.disabled = true; btn.textContent = `Line is out \u00b7 ${left}s`; return; }
+  if (fishState.casts_left_today <= 0) { btn.disabled = true; btn.textContent = 'No casts left today'; return; }
+  btn.disabled = false;
+  btn.textContent = fishState.cast_cost ? `Cast line (${fishState.cast_cost} PB)` : 'Cast line';
+}
+async function fishCast() {
+  if (fishBusy || !authToken) return;
+  fishBusy = true; fishUpdateCooldown(); fishSetStatus('');
+  const catchEl = document.getElementById('fish-catch');
+  catchEl.classList.remove('pop'); catchEl.style.removeProperty('--rc');
+  catchEl.textContent = 'Waiting for a bite...';
+  try {
+    const r = await fetch(BACKEND + '/api/fishing/cast', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: '{}' });
+    const d = await r.json();
+    if (d.state) fishApplyState(d.state);
+    if (d.error) { fishSetStatus(d.error, 'var(--red)'); catchEl.textContent = 'Nothing this time.'; }
+    else if (d.item) {
+      const it = d.item;
+      catchEl.style.setProperty('--rc', FISH_RARITY_COLORS[it.rarity] || 'var(--text-primary)');
+      catchEl.innerHTML = `<b>${esc(it.name)}</b><span class="fish-rarity">${esc(it.rarity)}</span> \u00b7 worth ${it.value} PB${d.new ? ' \u00b7 new discovery' : ''}`;
+      void catchEl.offsetWidth; catchEl.classList.add('pop');
+    }
+  } catch { fishSetStatus('Server offline', 'var(--red)'); catchEl.textContent = 'The line snapped.'; }
+  fishBusy = false; fishUpdateCooldown();
+}
+async function fishSell(itemId, qty) {
+  if (!authToken) return;
+  try {
+    const r = await fetch(BACKEND + '/api/fishing/sell', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ item_id: itemId, qty: qty === 'all' ? 'all' : 1 }) });
+    const d = await r.json();
+    if (d.state) fishApplyState(d.state);
+    if (d.error) fishSetStatus(d.error, 'var(--red)');
+    else fishSetStatus(`Sold ${d.sold} for ${d.earned} PB`, 'var(--green)');
+  } catch { fishSetStatus('Server offline', 'var(--red)'); }
+}
+document.getElementById('btn-fish-cast').onclick = fishCast;
+document.querySelectorAll('.menu-tab[data-ftab]').forEach(t => {
+  t.onclick = () => {
+    fishTab = t.dataset.ftab;
+    document.querySelectorAll('.menu-tab[data-ftab]').forEach(x => x.classList.toggle('active', x === t));
+    fishRender();
+  };
+});
+menuViewHooks.fishing = { enter: () => { fishLoad(); if (!fishTick) fishTick = setInterval(fishUpdateCooldown, 500); }, leave: () => { if (fishTick) { clearInterval(fishTick); fishTick = null; } } };
 function updateSidebarTabs() {
   const authed = !!authToken;
   const inLobby = !!currentLobbyId;
@@ -3148,6 +3268,7 @@ function addMsg(name, text, isOwner, isMsgVip, rank, clan, replyTo, nameColor) {
   messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
+function safeColor(c, fallback) { return (typeof c === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c)) ? c : (fallback || 'var(--accent)'); }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 const DEFAULT_AVATAR = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="%23a5a5a5"/><circle cx="32" cy="26" r="12" fill="%23f0f0f0"/><ellipse cx="32" cy="56" rx="18" ry="12" fill="%23f0f0f0"/></svg>'.replace(/%23/g, '#'));
 let _avatarBust = Date.now();
@@ -3623,7 +3744,7 @@ function renderAchievementsPanel() {
   if (!list) return;
   list.innerHTML = '';
   const defs = achievementDefs || [];
-  const unlocked = Object.keys(achievementUnlocked).length;
+  const unlocked = defs.filter(a => achievementUnlocked[a.id]).length;
   count.textContent = `(${unlocked} / ${defs.length})`;
   defs.forEach(a => {
     const isUnlocked = !!achievementUnlocked[a.id];
@@ -3677,7 +3798,6 @@ function notifRow(n) {
   else if (n.type === 'friend_request') { icon = '👋'; title = 'Friend request'; body = n.text || (n.username + ' sent you a friend request'); }
   else if (n.type === 'friend_accepted') { icon = '🤝'; title = 'Friend accepted'; body = n.text || ''; }
   else if (n.type === 'dm') { icon = '💬'; title = 'DM from ' + (n.from || ''); body = n.text || ''; }
-  else if (n.type === 'rps_challenge') { icon = '✂️'; title = 'RPS challenge'; body = (n.from || '') + ' challenged you for ' + (n.bet || 0) + ' $'; }
   else { icon = '🔔'; title = n.type || 'Notification'; body = n.text || ''; }
   const ago = n.ts ? fmtRelTime(n.ts) : '';
   div.innerHTML = `<div style="font-size:12px;font-weight:700;">${icon} ${esc(title)}</div><div style="font-size:11px;color:var(--text-muted);">${esc(body)}</div><div style="font-size:9px;color:var(--text-muted);">${esc(ago)}</div>`;
@@ -5142,144 +5262,6 @@ document.getElementById('btn-sketch-guess').onclick = async () => {
   try { await fetch(BACKEND + '/api/sketch/guess', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ room_id: sketchRoomId, round_num, guess: g }) }); } catch {}
 };
 document.getElementById('sketch-guess-input').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-sketch-guess').click(); });
-
-let rpsGameId = null;
-let rpsPollTimer = null;
-function rpsMode() { const r = document.querySelector('input[name="rps-mode"]:checked'); return r ? r.value : 'ai'; }
-function rpsBet() { return parseInt(document.getElementById('rps-bet').value) || 0; }
-function rpsSetMsg(t, color) { const m = document.getElementById('rps-msg'); m.textContent = t; m.style.color = color || 'var(--text-muted)'; }
-function rpsSetResult(t) { document.getElementById('rps-result').textContent = t; }
-function rpsApplyBalance(d) { if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); document.getElementById('shop-balance').textContent = myUnlimited ? '∞' : myBalance; } }
-function rpsButtonsEnabled(on) { document.querySelectorAll('.rps-go').forEach(b => b.disabled = !on); }
-function rpsCancelBtn(show) { const b = document.getElementById('btn-rps-cancel'); if (b) b.style.display = show ? '' : 'none'; }
-function rpsStopPolling() { if (rpsPollTimer) { clearInterval(rpsPollTimer); rpsPollTimer = null; } }
-function rpsRenderDone(d) {
-  rpsStopPolling(); rpsStopCountdown(); rpsGameId = null; rpsButtonsEnabled(true); rpsCancelBtn(false);
-  const labels = { win: 'You win!', lose: 'You lose', tie: 'Tie (push)' };
-  rpsSetResult((d.you || '?') + ' vs ' + (d.opponent || '?') + (d.opponent_name ? ' (' + d.opponent_name + ')' : ''));
-  if (d.outcome === 'win') rpsSetMsg(labels.win + ' +' + d.winnings + ' $' + (d.timeout ? ' (opponent forfeited)' : ''), '#22c55e');
-  else if (d.outcome === 'tie') rpsSetMsg(labels.tie, 'var(--text-muted)');
-  else rpsSetMsg(labels.lose + ' −' + d.bet + ' $' + (d.timeout ? ' (you forfeited)' : ''), 'var(--red)');
-  rpsApplyBalance(d);
-}
-async function rpsSolo(choice) {
-  const amount = rpsBet();
-  if (amount < 1) { rpsSetMsg('Pick a bet ≥ 1.', 'var(--red)'); return; }
-  rpsButtonsEnabled(false); rpsSetMsg('Playing...', 'var(--text-muted)');
-  try {
-    const r = await fetch(BACKEND + '/api/casino/rps/solo', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ amount, choice }) });
-    const d = await r.json();
-    if (d.error) { rpsSetMsg(d.error, 'var(--red)'); rpsButtonsEnabled(true); return; }
-    d.opponent_name = 'AI';
-    rpsRenderDone(d);
-  } catch { rpsSetMsg('Server offline.', 'var(--red)'); rpsButtonsEnabled(true); }
-}
-async function rpsQueueOrPlay(choice) {
-  if (rpsGameId) {
-    rpsButtonsEnabled(false); rpsSetMsg('Locking in ' + choice + '...', 'var(--text-muted)');
-    try {
-      const r = await fetch(BACKEND + '/api/casino/rps/play', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ game_id: rpsGameId, choice }) });
-      const d = await r.json();
-      if (d.error) { rpsSetMsg(d.error, 'var(--red)'); rpsButtonsEnabled(true); return; }
-      if (d.phase === 'done') rpsRenderDone(d);
-      else { rpsSetMsg('Waiting for opponent...', 'var(--text-muted)'); rpsButtonsEnabled(false); }
-    } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
-    return;
-  }
-  const amount = rpsBet();
-  if (amount < 1) { rpsSetMsg('Pick a bet ≥ 1.', 'var(--red)'); return; }
-  rpsButtonsEnabled(false); rpsSetMsg('Joining queue for ' + amount + ' $...', 'var(--text-muted)');
-  try {
-    const r = await fetch(BACKEND + '/api/casino/rps/join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ amount }) });
-    const d = await r.json();
-    if (d.error) { rpsSetMsg(d.error, 'var(--red)'); rpsButtonsEnabled(true); return; }
-    rpsApplyBalance(d);
-    if (d.matched) {
-      rpsGameId = d.game_id;
-      rpsSetResult('Matched with ' + d.opponent + '! Pick your hand to play.');
-      rpsSetMsg('Bet ' + d.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
-      rpsButtonsEnabled(true); rpsCancelBtn(false);
-      rpsStartCountdown(10);
-      rpsStartPolling();
-    } else {
-      rpsSetResult('Waiting for an opponent at ' + amount + ' $...');
-      rpsSetMsg('Bet held in escrow. Cancel to refund.', 'var(--text-muted)');
-      rpsCancelBtn(true);
-    }
-  } catch { rpsSetMsg('Server offline.', 'var(--red)'); rpsButtonsEnabled(true); }
-}
-function rpsStartPolling() {
-  rpsStopPolling();
-  rpsPollTimer = setInterval(async () => {
-    if (!rpsGameId) { rpsStopPolling(); return; }
-    try {
-      const r = await fetch(BACKEND + '/api/casino/rps/status?game_id=' + encodeURIComponent(rpsGameId), { headers: { Authorization: authToken } });
-      const d = await r.json();
-      if (d.phase === 'done') rpsRenderDone(d);
-      else if (d.phase === 'gone') { rpsStopPolling(); rpsGameId = null; }
-    } catch {}
-  }, 2500);
-}
-document.querySelectorAll('input[name="rps-mode"]').forEach(r => r.addEventListener('change', () => {
-  document.getElementById('rps-challenge-row').style.display = (rpsMode() === 'player') ? 'flex' : 'none';
-}));
-document.querySelectorAll('.rps-go').forEach(b => {
-  b.onclick = () => {
-    const mode = rpsMode();
-    if (mode === 'ai') rpsSolo(b.dataset.choice);
-    else if (rpsGameId) rpsQueueOrPlay(b.dataset.choice);
-    else rpsSetMsg('Invite a player first.', 'var(--text-muted)');
-  };
-});
-
-let rpsCountdownTimer = null;
-function rpsStartCountdown(seconds) {
-  const cd = document.getElementById('rps-countdown');
-  const clock = document.getElementById('rps-clock');
-  cd.style.display = '';
-  let s = seconds;
-  clock.textContent = s;
-  if (rpsCountdownTimer) clearInterval(rpsCountdownTimer);
-  rpsCountdownTimer = setInterval(() => {
-    s -= 1;
-    if (s <= 0) {
-      clearInterval(rpsCountdownTimer); rpsCountdownTimer = null;
-      cd.style.display = 'none';
-    } else clock.textContent = s;
-  }, 1000);
-}
-function rpsStopCountdown() {
-  if (rpsCountdownTimer) { clearInterval(rpsCountdownTimer); rpsCountdownTimer = null; }
-  document.getElementById('rps-countdown').style.display = 'none';
-}
-document.getElementById('btn-rps-challenge').onclick = async () => {
-  const amount = rpsBet();
-  const opponent = document.getElementById('rps-challenge-user').value.trim();
-  if (amount < 1) { rpsSetMsg('Pick a bet at least 1.', 'var(--red)'); return; }
-  if (!opponent) { rpsSetMsg('Enter a username to challenge.', 'var(--red)'); return; }
-  rpsSetMsg('Sending challenge to ' + opponent + '...', 'var(--text-muted)');
-  try {
-    const r = await fetch(BACKEND + '/api/casino/rps/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ amount, opponent }) });
-    const d = await r.json();
-    if (d.error) { rpsSetMsg(d.error, 'var(--red)'); return; }
-    rpsSetMsg('Challenge sent. Waiting up to ' + d.expires_in + 's for response.', 'var(--text-muted)');
-  } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
-};
-(function bindRpsCancel() {
-  const b = document.getElementById('btn-rps-cancel');
-  if (!b) return;
-  b.onclick = async () => {
-    try {
-      const r = await fetch(BACKEND + '/api/casino/rps/cancel', { method: 'POST', headers: { Authorization: authToken } });
-      const d = await r.json();
-      if (d.error) { rpsSetMsg(d.error, 'var(--red)'); return; }
-      rpsApplyBalance(d);
-      rpsSetResult('Pick a hand to start');
-      rpsSetMsg('Queue cancelled, refunded ' + d.refunded + ' $.', '#22c55e');
-      rpsCancelBtn(false); rpsButtonsEnabled(true);
-    } catch { rpsSetMsg('Server offline.', 'var(--red)'); }
-  };
-})();
 
 async function bjCall(action, body) {
   const msg = document.getElementById('bj-msg');
@@ -7057,7 +7039,7 @@ async function loadClans() {
     }
     if (myClanInfo && myClanInfo.pending_owned) {
       const card = document.createElement('div'); card.className = 'lobby-card';
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title" style="color:${myClanInfo.pending_owned.color};">${esc(myClanInfo.pending_owned.name)}</div><div class="lobby-meta">Your clan request - waiting for admin approval</div></div>`;
+      card.innerHTML = `<div class="lobby-info"><div class="lobby-title" style="color:${safeColor(myClanInfo.pending_owned.color)};">${esc(myClanInfo.pending_owned.name)}</div><div class="lobby-meta">Your clan request - waiting for admin approval</div></div>`;
       list.appendChild(card);
     }
     data.clans.forEach(c => {
@@ -7071,7 +7053,7 @@ async function loadClans() {
       else if (isMember) actions = `<button class="win-btn leave-clan" style="font-size:10px;background:var(--red);color:#fff;">Leave</button>`;
       else if (requested) actions = '<span style="font-size:11px;color:var(--text-muted);">requested</span>';
       else actions = `<button class="win-btn join-clan" data-id="${c.id}" style="font-size:10px;background:var(--accent);color:#fff;">Request Join</button>`;
-      card.innerHTML = `<div class="lobby-info" style="cursor:pointer;"><div class="lobby-title" style="color:${c.color};">${esc(c.name)}</div><div class="lobby-meta">Owner: ${esc(c.owner)} | ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div></div><div class="lobby-actions">${actions}</div>`;
+      card.innerHTML = `<div class="lobby-info" style="cursor:pointer;"><div class="lobby-title" style="color:${safeColor(c.color)};">${esc(c.name)}</div><div class="lobby-meta">Owner: ${esc(c.owner)} | ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div></div><div class="lobby-actions">${actions}</div>`;
       card.querySelector('.lobby-info').onclick = () => openClanView(c.id);
       const join = card.querySelector('.join-clan');
       if (join) join.onclick = async (ev) => { ev.stopPropagation(); await fetch(BACKEND + '/api/clans/request-join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); loadClans(); };
@@ -7172,7 +7154,7 @@ function renderClanView(clan, isOwner, myClanFull) {
     const editBtn = isOwner ? `<button class="win-btn edit-rank-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;">Edit Rank</button>` : '';
     const xferBtn = (isOwner && !isOwnerOfClan) ? `<button class="win-btn xfer-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;background:var(--bg-elevated);">Make Owner</button>` : '';
     const kickBtn = (isOwner && !isOwnerOfClan) ? `<button class="win-btn kick-btn" data-name="${esc(name)}" style="font-size:10px;padding:3px 8px;background:var(--red);color:#fff;">Kick</button>` : '';
-    row.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;">${esc(name)}</span><span style="color:${r.color};font-size:10px;font-weight:700;">[${esc(r.label)}]</span>${overriddenDot}${ownerTag}</div><div style="display:flex;gap:4px;flex-wrap:wrap;">${editBtn}${xferBtn}${kickBtn}</div>`;
+    row.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;">${esc(name)}</span><span style="color:${safeColor(r.color)};font-size:10px;font-weight:700;">[${esc(r.label)}]</span>${overriddenDot}${ownerTag}</div><div style="display:flex;gap:4px;flex-wrap:wrap;">${editBtn}${xferBtn}${kickBtn}</div>`;
     if (isOwner) {
       row.querySelector('.edit-rank-btn').onclick = () => openMemberRankEditor(row, name, r);
       const xb = row.querySelector('.xfer-btn');
@@ -7975,33 +7957,6 @@ function connectSocial() {
         unoRoomId = msg.state.room_id;
         unoRender(msg.state);
       }
-    }
-    if (msg.type === 'rps_challenge') {
-      const accept = confirm(msg.from + ' challenges you to Rock Paper Scissors for ' + msg.bet + ' $. Accept?');
-      try {
-        const r = await fetch(BACKEND + '/api/casino/rps/respond', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ challenge_id: msg.challenge_id, accept }) });
-        const d = await r.json();
-        if (d.error) { showDmToast('RPS', d.error, () => {}); return; }
-        if (d.declined) return;
-        rpsGameId = d.game_id;
-        if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); }
-        rpsSetResult('Matched with ' + d.opponent + '! Pick your hand to play.');
-        rpsSetMsg('Bet ' + d.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
-        rpsButtonsEnabled(true); rpsCancelBtn(false);
-        rpsStartPolling();
-        openMenuView('shop');
-      } catch {}
-    }
-    if (msg.type === 'rps_challenge_declined') {
-      showDmToast('RPS', (msg.by || 'They') + ' declined your challenge.', () => {});
-    }
-    if (msg.type === 'rps_matched') {
-      rpsGameId = msg.game_id;
-      rpsSetResult('Matched with ' + msg.opponent + '! Pick your hand to play.');
-      rpsSetMsg('Bet ' + msg.bet + ' $ each. Winner takes both.', 'var(--text-muted)');
-      rpsButtonsEnabled(true); rpsCancelBtn(false);
-      rpsStartCountdown(10);
-      rpsStartPolling();
     }
     if (msg.type === 'clan_removed') {
       addSystemMsg(`You were removed from clan "${msg.clan_name}" by ${msg.by}.`);
@@ -9005,7 +8960,7 @@ async function refreshAdminClans() {
       let actions = '';
       if (isPending) actions = `<button class="win-btn ac-approve" data-id="${c.id}" style="font-size:10px;background:var(--green);color:#fff;">Approve</button> <button class="win-btn ac-reject" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Reject</button>`;
       else actions = `<button class="win-btn ac-disband" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Disband</button>`;
-      row.innerHTML = `<div><b>${esc(c.name)}</b> <span style="color:${c.color};">[${esc(c.rank_label)}]</span> - ${c.status} - owner: ${esc(c.owner)}, ${(c.members || []).length} members</div><div style="margin-top:4px;">${actions}</div>`;
+      row.innerHTML = `<div><b>${esc(c.name)}</b> <span style="color:${safeColor(c.color)};">[${esc(c.rank_label)}]</span> - ${esc(String(c.status))} - owner: ${esc(c.owner)}, ${(c.members || []).length} members</div><div style="margin-top:4px;">${actions}</div>`;
       const a = row.querySelector('.ac-approve'); if (a) a.onclick = async () => { await fetch(BACKEND + '/api/admin/clan-approve', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
       const r = row.querySelector('.ac-reject'); if (r) r.onclick = async () => { await fetch(BACKEND + '/api/admin/clan-reject', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
       const d = row.querySelector('.ac-disband'); if (d) d.onclick = async () => { if (!confirm('Disband this clan? Members lose their rank.')) return; await fetch(BACKEND + '/api/admin/clan-disband', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
