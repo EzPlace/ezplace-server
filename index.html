@@ -454,6 +454,50 @@
     .menu-btn.wide { grid-column: auto; }
   }
 
+  #header { background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.06); padding: 8px 14px; }
+  #header h1 { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; }
+  #header-right { gap: 8px; }
+  #header-right .win-btn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary); font-weight: 500; font-size: 12px; padding: 6px 12px; border-radius: 8px; box-shadow: none; }
+  #header-right .win-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); transform: none; box-shadow: none; }
+  #btn-leave-lobby, #btn-leave-lobby:hover { color: var(--red); border-color: rgba(240,100,100,0.35); background: rgba(240,100,100,0.06); font-weight: 600; font-size: 12px; padding: 6px 12px; box-shadow: none; transform: none; }
+  #btn-leave-lobby:hover { background: rgba(240,100,100,0.14); border-color: var(--red); }
+  #lobby-name-display { color: var(--text-muted); font-size: 12px; }
+  #lobby-name-display b { color: var(--text-primary); font-weight: 600; }
+  #online { color: var(--text-muted); }
+  #online span { color: var(--text-secondary); }
+  #ping-display { color: var(--text-muted) !important; }
+  #info-row { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  #cooldown-warn { background: transparent; }
+  #cooldown-bar { background: rgba(255,255,255,0.06); }
+  #sidebar { background: rgba(255,255,255,0.015); border-left: 1px solid rgba(255,255,255,0.06); }
+  #user-bar { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 10px 12px; }
+  #user-bar .user-name { color: var(--text-primary); }
+  #level-pill { color: var(--text-secondary) !important; background: rgba(255,255,255,0.04) !important; border: 1px solid rgba(255,255,255,0.1) !important; }
+  #level-bar { background: var(--teal) !important; }
+  #pb-balance { color: var(--gold) !important; background: rgba(255,255,255,0.04) !important; border: 1px solid rgba(255,255,255,0.1) !important; }
+  #user-bar-row2 { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  #btn-report { background: transparent !important; color: var(--text-secondary) !important; border: 1px solid rgba(255,255,255,0.12) !important; font-weight: 500 !important; }
+  #btn-report:hover { color: var(--red) !important; border-color: rgba(240,100,100,0.4) !important; box-shadow: none; transform: none; }
+  #sidebar-tabs { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 4px 8px 0; gap: 4px; }
+  .sidebar-tab { color: var(--text-muted); font-weight: 500; border-bottom: 2px solid transparent; }
+  .sidebar-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+  #call-bar { background: transparent !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; }
+  #call-bar .win-btn { background: rgba(255,255,255,0.04) !important; border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary) !important; font-weight: 500; box-shadow: none; }
+  #call-bar .win-btn:hover { border-color: rgba(255,255,255,0.2); transform: none; }
+  #chat-filter-bar { color: var(--text-muted); }
+  #messages { background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; margin: 6px; }
+  #chat-bar { border-top: 1px solid rgba(255,255,255,0.06); }
+  #chat-bar input, #chat-btn { border-radius: 10px; }
+  #chat-btn { font-weight: 600; }
+  #lb-panel { background: transparent !important; border: none !important; }
+  #bottom-bar { background: rgba(255,255,255,0.015); border-top: 1px solid rgba(255,255,255,0.06); }
+  #btn-undo, #btn-save-png, #mobile-pan-toggle { background: rgba(255,255,255,0.04) !important; border: 1px solid rgba(255,255,255,0.1) !important; color: var(--text-primary) !important; font-weight: 500 !important; box-shadow: none !important; }
+  #btn-undo:hover, #btn-save-png:hover, #mobile-pan-toggle:hover { border-color: rgba(255,255,255,0.22) !important; transform: none !important; }
+  #mobile-pan-toggle.pan { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+  #zoom-buttons button { background: rgba(30,28,25,0.85); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); border-radius: 10px; }
+  #zoom-buttons button:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.25); color: var(--text-primary); }
+  #tip-banner { background: rgba(20,19,17,0.88) !important; border-top: 1px solid rgba(255,255,255,0.06) !important; color: var(--text-secondary) !important; }
+  #typing-indicator { background: rgba(255,255,255,0.04) !important; border-left-color: rgba(255,255,255,0.2) !important; color: var(--text-secondary) !important; }
 </style>
 </head>
 <body>
@@ -797,7 +841,7 @@
 <div id="clan-create-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;padding:18px;display:flex;flex-direction:column;gap:10px;">
     <div style="font-weight:700;font-size:15px;">Create Clan</div>
-    <div style="font-size:11px;color:var(--text-muted);">Once submitted, the site admin reviews your clan. Once approved you become the clan owner; other players can request to join and you approve them.</div>
+    <div style="font-size:11px;color:var(--text-muted);">You become the owner right away and other players can request to join. Clans are deleted after 7 days with no member online, or after 3 weeks if they still have fewer than 3 people.</div>
     <input id="clan-create-name" class="win-input" type="text" placeholder="Clan name (max 30 chars) - this is also your chat rank tag" maxlength="30">
     <div style="display:flex;align-items:center;gap:8px;">
       <label style="font-size:12px;">Color:</label>
@@ -807,7 +851,7 @@
     <div id="clan-create-error" style="color:var(--red);font-size:11px;min-height:14px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button id="btn-clan-create-cancel" class="win-btn" style="background:var(--bg-elevated);">Cancel</button>
-      <button id="btn-clan-create-submit" class="win-btn" style="background:var(--accent);color:#fff;">Submit</button>
+      <button id="btn-clan-create-submit" class="win-btn" style="background:var(--accent);color:#fff;">Create</button>
     </div>
   </div>
 </div>
@@ -1545,6 +1589,7 @@
           <span>Clans</span>
           <button id="btn-create-clan" class="win-btn" style="font-size:11px;padding:4px 10px;background:var(--accent);color:#fff;font-weight:700;">+ Create Clan</button>
         </div>
+        <div id="clan-rules" class="lobby-empty" style="padding:2px 0 4px;">Clans are deleted after 7 days with no member online, or after 3 weeks with fewer than 3 people.</div>
         <div class="lobby-list" id="clans-list"></div>
       </div>
 
@@ -3873,6 +3918,8 @@ function notifRow(n) {
   else if (n.type === 'friend_request') { icon = '👋'; title = 'Friend request'; body = n.text || (n.username + ' sent you a friend request'); }
   else if (n.type === 'friend_accepted') { icon = '🤝'; title = 'Friend accepted'; body = n.text || ''; }
   else if (n.type === 'dm') { icon = '💬'; title = 'Chat from ' + (n.from || ''); body = n.text || ''; }
+  else if (n.type === 'lobby_deleted') { icon = ''; title = 'Lobby deleted' + (n.lobby_name ? ': ' + n.lobby_name : ''); body = n.text || ''; }
+  else if (n.type === 'clan_deleted') { icon = ''; title = 'Clan deleted' + (n.clan_name ? ': ' + n.clan_name : ''); body = n.text || ''; }
   else { icon = '🔔'; title = n.type || 'Notification'; body = n.text || ''; }
   const ago = n.ts ? fmtRelTime(n.ts) : '';
   div.innerHTML = `<div style="font-size:12px;font-weight:700;">${icon} ${esc(title)}</div><div style="font-size:11px;color:var(--text-muted);">${esc(body)}</div><div style="font-size:9px;color:var(--text-muted);">${esc(ago)}</div>`;
@@ -7110,13 +7157,10 @@ async function loadClans() {
         banner.style.display = 'none';
       }
     }
-    if (!data.clans.length && !(myClanInfo && myClanInfo.pending_owned)) {
-      list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:6px;">No clans yet. Be the first to create one!</div>';
-    }
-    if (myClanInfo && myClanInfo.pending_owned) {
-      const card = document.createElement('div'); card.className = 'lobby-card';
-      card.innerHTML = `<div class="lobby-info"><div class="lobby-title" style="color:${safeColor(myClanInfo.pending_owned.color)};">${esc(myClanInfo.pending_owned.name)}</div><div class="lobby-meta">Your clan request - waiting for admin approval</div></div>`;
-      list.appendChild(card);
+    const rulesEl = document.getElementById('clan-rules');
+    if (rulesEl && data.rules) rulesEl.textContent = data.rules;
+    if (!data.clans.length) {
+      list.innerHTML = '<div class="lobby-empty">No clans yet. Be the first to create one!</div>';
     }
     data.clans.forEach(c => {
       const card = document.createElement('div'); card.className = 'lobby-card';
@@ -7129,7 +7173,7 @@ async function loadClans() {
       else if (isMember) actions = `<button class="win-btn leave-clan" style="font-size:10px;background:var(--red);color:#fff;">Leave</button>`;
       else if (requested) actions = '<span style="font-size:11px;color:var(--text-muted);">requested</span>';
       else actions = `<button class="win-btn join-clan" data-id="${c.id}" style="font-size:10px;background:var(--accent);color:#fff;">Request Join</button>`;
-      card.innerHTML = `<div class="lobby-info" style="cursor:pointer;"><div class="lobby-title" style="color:${safeColor(c.color)};">${esc(c.name)}</div><div class="lobby-meta">Owner: ${esc(c.owner)} | ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div></div><div class="lobby-actions">${actions}</div>`;
+      card.innerHTML = `<div class="lobby-info" style="cursor:pointer;"><div class="lobby-title" style="color:${safeColor(c.color)};">${esc(c.name)}</div><div class="lobby-meta">Owner: ${esc(c.owner)} &middot; ${c.member_count} member${c.member_count === 1 ? '' : 's'}</div>${clanStatusLine(c)}</div><div class="lobby-actions">${actions}</div>`;
       card.querySelector('.lobby-info').onclick = () => openClanView(c.id);
       const join = card.querySelector('.join-clan');
       if (join) join.onclick = async (ev) => { ev.stopPropagation(); await fetch(BACKEND + '/api/clans/request-join', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); loadClans(); };
@@ -7142,6 +7186,12 @@ async function loadClans() {
   } catch {}
 }
 
+function clanStatusLine(c) {
+  const parts = [];
+  if (c.needs_members > 0 && typeof c.member_deadline_in === 'number') parts.push(`needs ${c.needs_members} more member${c.needs_members === 1 ? '' : 's'} within ${fmtAgo(Math.max(0, Math.floor(c.member_deadline_in)))} or it is deleted`);
+  if (typeof c.inactive_for === 'number' && c.inactive_for > 86400) parts.push(`no one online for ${fmtAgo(Math.floor(c.inactive_for))} &middot; deleted in ${fmtAgo(Math.max(0, Math.floor(c.inactive_delete_in)))}`);
+  return parts.length ? `<div class="lobby-expiry">${parts.join(' &middot; ')}</div>` : '';
+}
 let currentManagingClan = null;
 let currentManagingIsOwner = false;
 async function openClanView(cid) {
@@ -7352,7 +7402,7 @@ document.getElementById('btn-clan-create-submit').onclick = async () => {
     const data = await res.json();
     if (data.error) { err.textContent = data.error; return; }
     document.getElementById('clan-create-modal').style.display = 'none';
-    addSystemMsg('Clan request submitted. The site admin will review it.');
+    addSystemMsg('Clan created. Players can now request to join.');
     loadClans();
   } catch { err.textContent = 'Server offline.'; }
 };
@@ -8038,6 +8088,12 @@ function connectSocial() {
         unoRoomId = msg.state.room_id;
         unoRender(msg.state);
       }
+    }
+    if (msg.type === 'clan_deleted' || msg.type === 'lobby_deleted') {
+      pushLiveNotification(msg);
+      showDmToast(msg.type === 'clan_deleted' ? 'Clan deleted' : 'Lobby deleted', msg.text || '', () => openMenuView('notifications'));
+      if (msg.type === 'clan_deleted' && menuView === 'clans') loadClans();
+      if (msg.type === 'lobby_deleted' && menuView === 'lobbies') loadLobbies();
     }
     if (msg.type === 'clan_removed') {
       addSystemMsg(`You were removed from clan "${msg.clan_name}" by ${msg.by}.`);
@@ -9052,14 +9108,9 @@ async function refreshAdminClans() {
     data.clans.forEach(c => {
       const row = document.createElement('div');
       row.style.cssText = 'padding:6px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-elevated);';
-      const isPending = c.status === 'pending';
-      let actions = '';
-      if (isPending) actions = `<button class="win-btn ac-approve" data-id="${c.id}" style="font-size:10px;background:var(--green);color:#fff;">Approve</button> <button class="win-btn ac-reject" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Reject</button>`;
-      else actions = `<button class="win-btn ac-disband" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Disband</button>`;
-      row.innerHTML = `<div><b>${esc(c.name)}</b> <span style="color:${safeColor(c.color)};">[${esc(c.rank_label)}]</span> - ${esc(String(c.status))} - owner: ${esc(c.owner)}, ${(c.members || []).length} members</div><div style="margin-top:4px;">${actions}</div>`;
-      const a = row.querySelector('.ac-approve'); if (a) a.onclick = async () => { await fetch(BACKEND + '/api/admin/clan-approve', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
-      const r = row.querySelector('.ac-reject'); if (r) r.onclick = async () => { await fetch(BACKEND + '/api/admin/clan-reject', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
-      const d = row.querySelector('.ac-disband'); if (d) d.onclick = async () => { if (!confirm('Disband this clan? Members lose their rank.')) return; await fetch(BACKEND + '/api/admin/clan-disband', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
+      const actions = `<button class="win-btn ac-disband" data-id="${c.id}" style="font-size:10px;background:var(--red);color:#fff;">Delete</button>`;
+      row.innerHTML = `<div><b>${esc(c.name)}</b> <span style="color:${safeColor(c.color)};">[${esc(c.rank_label)}]</span> - owner: ${esc(c.owner)}, ${(c.members || []).length} members</div><div style="margin-top:4px;">${actions}</div>`;
+      const d = row.querySelector('.ac-disband'); if (d) d.onclick = async () => { if (!confirm('Delete this clan? Members lose their rank and get notified.')) return; await fetch(BACKEND + '/api/admin/clan-disband', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ clan_id: c.id }) }); refreshAdminClans(); };
       list.appendChild(row);
     });
   } catch {}
