@@ -111,65 +111,70 @@
   #menu { position: fixed; inset: 0; z-index: 45; display: none; align-items: center; justify-content: center; padding: 16px; background: var(--bg-primary); }
   body.menu-open #menu { display: flex; }
   body.menu-open #sidebar, body.menu-open #mobile-sidebar-toggle, body.menu-open #mobile-pan-toggle { display: none !important; }
-  #menu-bubble { position: relative; z-index: 2; width: 100%; min-width: 0; max-width: 560px; max-height: calc(100vh - 32px); max-height: calc(100svh - 32px); background: rgba(40, 37, 33, 0.94); border: 1px solid var(--border-light); border-radius: 28px; box-shadow: 0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); display: flex; flex-direction: column; overflow: hidden; animation: fadeIn 0.25s ease; }
-  #menu-head { position: relative; display: flex; align-items: center; justify-content: center; padding: 22px 56px 14px; flex-shrink: 0; }
-  #menu-brand { display: flex; align-items: center; gap: 12px; }
-  #menu-title { font-size: 32px; font-weight: 800; letter-spacing: -1px; color: var(--accent); line-height: 1; }
-  #menu-logo { width: 48px; height: auto; display: block; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.5)); }
-  #menu-subtitle { text-align: center; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; padding-bottom: 10px; flex-shrink: 0; }
-  .menu-icon-btn { position: absolute; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: inherit; transition: all 0.15s ease; }
-  .menu-icon-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #menu-bubble { position: relative; z-index: 2; width: 100%; min-width: 0; max-width: 500px; max-height: calc(100vh - 32px); max-height: calc(100svh - 32px); background: rgba(33, 31, 28, 0.96); border: 1px solid rgba(255,255,255,0.07); border-radius: 22px; box-shadow: 0 24px 64px rgba(0,0,0,0.55); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); display: flex; flex-direction: column; overflow: hidden; animation: fadeIn 0.2s ease; }
+  #menu-head { position: relative; display: flex; align-items: center; justify-content: center; padding: 22px 52px 12px; flex-shrink: 0; }
+  #menu-brand { display: flex; align-items: center; gap: 10px; }
+  #menu-title { font-size: 24px; font-weight: 700; letter-spacing: -0.6px; color: var(--text-primary); line-height: 1; }
+  #menu-logo { width: 34px; height: auto; display: block; }
+  #menu-subtitle { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.2px; padding-bottom: 14px; flex-shrink: 0; }
+  .menu-icon-btn { position: absolute; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: inherit; transition: background 0.15s ease, color 0.15s ease; }
+  .menu-icon-btn:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
+  .menu-icon-btn .mi { width: 18px; height: 18px; }
   #menu-back { left: 14px; }
   #menu-close { right: 14px; }
-  #menu-body { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 20px 22px; border-top: 1px solid var(--border); }
-  .menu-view { display: none; flex-direction: column; gap: 12px; padding-top: 14px; }
+  #menu-body { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 18px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .menu-view { display: none; flex-direction: column; gap: 10px; padding-top: 14px; }
   .menu-view.active { display: flex; }
   #menu-view-friends.active { height: 62vh; min-height: 320px; overflow: hidden; }
-  #menu-view-friends #msg-list-view, #menu-view-friends #msg-view { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
-  .menu-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-  .menu-btn { position: relative; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px 12px; font-size: 14px; font-weight: 600; border-radius: 16px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); cursor: pointer; font-family: inherit; transition: all 0.15s ease; }
-  .menu-btn:hover { background: var(--bg-hover); border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.35); }
-  .menu-btn:active { transform: translateY(0); box-shadow: none; }
-  .menu-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .menu-btn.primary:hover { background: var(--accent-hover); }
-  .menu-btn.wide { grid-column: 1 / -1; }
-  .menu-btn.danger { padding: 8px 14px; font-size: 12px; border-radius: 10px; color: var(--red); flex-shrink: 0; }
-  .menu-btn.danger:hover { background: var(--red); border-color: var(--red); color: #fff; }
-  .menu-btn .menu-ico { font-size: 18px; line-height: 1; }
-  .menu-btn .notif-badge { position: absolute; top: 8px; right: 10px; margin: 0; }
-  #menu-user-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 14px; }
-  #menu-user-info { font-size: 12px; color: var(--text-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #menu-user-info b { color: var(--accent); }
-  #menu-pb { margin-left: 8px; color: var(--gold); font-weight: 700; }
-  .menu-tabs { display: flex; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 4px; gap: 4px; }
-  .menu-tab { flex: 1; padding: 9px 0; font-size: 12px; font-weight: 600; border: none; border-radius: 9px; background: transparent; color: var(--text-muted); cursor: pointer; font-family: inherit; transition: all 0.15s ease; }
+  #menu-view-friends #msg-list-view, #menu-view-friends #msg-view { background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden; }
+  .menu-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .menu-btn { position: relative; min-width: 0; display: flex; align-items: center; gap: 12px; height: 50px; padding: 0 16px; font-size: 13px; font-weight: 500; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); color: var(--text-primary); cursor: pointer; font-family: inherit; text-align: left; transition: background 0.15s ease, border-color 0.15s ease; }
+  .menu-btn:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
+  .menu-btn .mi { width: 18px; height: 18px; color: var(--text-muted); flex-shrink: 0; transition: color 0.15s ease; }
+  .menu-btn:hover .mi { color: var(--accent); }
+  .menu-btn .menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; justify-content: center; }
+  .menu-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .menu-btn.wide { grid-column: 1 / -1; justify-content: center; }
+  .menu-btn.danger { height: 32px; padding: 0 12px; gap: 8px; font-size: 12px; border-radius: 8px; background: transparent; color: var(--text-secondary); flex-shrink: 0; }
+  .menu-btn.danger .mi { width: 15px; height: 15px; }
+  .menu-btn.danger:hover { color: var(--red); background: rgba(240,100,100,0.08); border-color: rgba(240,100,100,0.35); }
+  .menu-btn.danger:hover .mi { color: var(--red); }
+  .menu-btn .notif-badge { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); margin: 0; }
+  #menu-user-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px 9px 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
+  #menu-user-info { font-size: 12px; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #menu-user-info b { color: var(--text-primary); font-weight: 600; }
+  #menu-pb { margin-left: 10px; color: var(--gold); font-weight: 600; }
+  .menu-tabs { display: flex; background: rgba(0,0,0,0.25); border-radius: 10px; padding: 3px; gap: 3px; }
+  .menu-tab { flex: 1; padding: 8px 0; font-size: 12px; font-weight: 500; border: none; border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; font-family: inherit; transition: background 0.15s ease, color 0.15s ease; }
   .menu-tab:hover { color: var(--text-primary); }
-  .menu-tab.active { background: var(--bg-elevated); color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-  .ltab-panel { display: flex; flex-direction: column; gap: 10px; }
-  .menu-section { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 4px; border-bottom: 1px solid var(--border); margin-top: 4px; }
-  .menu-balance { font-size: 13px; font-weight: 700; text-align: center; padding: 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; }
+  .menu-tab.active { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+  .ltab-panel { display: flex; flex-direction: column; gap: 8px; }
+  .menu-section { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; padding: 8px 0 2px; }
+  .menu-balance { font-size: 12px; color: var(--text-secondary); text-align: center; padding: 9px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; }
+  .menu-balance span { color: var(--gold); font-weight: 600; }
   #auth-panel { display: flex; flex-direction: column; }
   #auth-panel input { width: 100%; margin-bottom: 6px; }
-  .lobby-list { width: 100%; display: flex; flex-direction: column; gap: 8px; }
-  .lobby-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
-  .lobby-card:hover { background: var(--bg-hover); border-color: var(--accent); box-shadow: 0 4px 16px rgba(0,0,0,0.35), 0 0 0 1px var(--accent-dim); transform: translateY(-1px); }
-  .lobby-card:hover .lobby-meta { color: var(--text-secondary); }
+  .lobby-list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+  .lobby-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+  .lobby-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
   .lobby-card .lobby-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-  .lobby-card .lobby-title { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lobby-card .lobby-meta { font-size: 10px; color: var(--text-muted); line-height: 1.3; }
-  .lobby-card .lobby-bottom { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-  .lobby-card .lobby-online { color: var(--green); font-size: 11px; font-weight: 700; background: rgba(94,194,122,0.12); border: 1px solid rgba(94,194,122,0.4); padding: 3px 8px; border-radius: 10px; white-space: nowrap; }
+  .lobby-card .lobby-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lobby-card .lobby-meta { font-size: 11px; color: var(--text-muted); line-height: 1.3; }
+  .lobby-card .lobby-bottom { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .lobby-card .lobby-online { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .lobby-card .lobby-online::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(94,194,122,0.6); }
+  .lobby-card .lobby-online.empty { color: var(--text-muted); }
+  .lobby-card .lobby-online.empty::before { background: var(--text-muted); box-shadow: none; }
   .lobby-card .lobby-actions { display: flex; gap: 4px; }
-  .lobby-card .lobby-actions button { font-size: 10px; padding: 3px 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; font-family: inherit; }
-  .lobby-card .lobby-actions button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .lobby-card .lobby-actions button.del { color: var(--red); }
-  .lobby-card .lobby-actions button.del:hover { background: var(--red); color: #fff; border-color: var(--red); }
+  .lobby-card .lobby-actions button { font-size: 11px; padding: 4px 9px; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; color: var(--text-secondary); cursor: pointer; font-family: inherit; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
+  .lobby-card .lobby-actions button:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); border-color: rgba(255,255,255,0.2); }
+  .lobby-card .lobby-actions button.del:hover { color: var(--red); border-color: rgba(240,100,100,0.4); background: rgba(240,100,100,0.08); }
   .lobby-empty { color: var(--text-muted); font-size: 12px; text-align: center; padding: 10px; }
   body.eink-mode #menu-bubble { background: #fff !important; border: 2px solid #000 !important; }
-  body.eink-mode .menu-btn, body.eink-mode .menu-tab, body.eink-mode .menu-icon-btn { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; }
+  body.eink-mode .menu-btn, body.eink-mode .menu-tab, body.eink-mode .menu-icon-btn, body.eink-mode .lobby-card { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; }
   body.eink-mode .menu-tab.active { background: #000 !important; color: #fff !important; }
-  body.eink-mode #menu-title { color: #000 !important; }
-
+  body.eink-mode #menu-title, body.eink-mode .menu-btn .mi { color: #000 !important; }
   #manage-modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 50; align-items: center; justify-content: center; }
   #manage-modal.show { display: flex; }
   #manage-box { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0; width: 360px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
@@ -403,12 +408,12 @@
     .color-btn { width: 36px; height: 36px; min-width: 36px; flex-shrink: 0; touch-action: manipulation; }
     .sidebar-tab { font-size: 11px; padding: 10px 4px; }
     #menu { padding: 8px; }
-    #menu-bubble { border-radius: 20px; max-height: calc(100svh - 16px); }
-    #menu-head { padding: 16px 52px 12px; }
-    #menu-title { font-size: 24px; }
-    #menu-logo { width: 38px; }
-    #menu-body { padding: 6px 12px 16px; }
-    .menu-btn { padding: 14px 8px; font-size: 13px; }
+    #menu-bubble { border-radius: 18px; max-height: calc(100svh - 16px); }
+    #menu-head { padding: 16px 48px 10px; }
+    #menu-title { font-size: 21px; }
+    #menu-logo { width: 30px; }
+    #menu-body { padding: 4px 12px 16px; }
+    .menu-btn { padding: 0 12px; gap: 10px; }
     #menu-user-row { flex-wrap: wrap; }
     .lobby-card { padding: 10px; }
     .lobby-card .lobby-title { font-size: 13px; }
@@ -1078,31 +1083,31 @@
   <div id="lobby-bg-overlay"></div>
   <div id="menu-bubble">
     <div id="menu-head">
-      <button id="menu-back" class="menu-icon-btn" title="Back" style="display:none">&#x2190;</button>
+      <button id="menu-back" class="menu-icon-btn" title="Back" style="display:none"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
       <div id="menu-brand"><div id="menu-title">EzPlace</div><img id="menu-logo" src="data:image/png;base64,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" alt=""></div>
-      <button id="menu-close" class="menu-icon-btn" title="Back to lobby" style="display:none">&#x2715;</button>
+      <button id="menu-close" class="menu-icon-btn" title="Back to lobby" style="display:none"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div id="menu-subtitle" style="display:none"></div>
     <div id="menu-body">
       <div class="menu-view active" id="menu-view-home">
         <div id="menu-home-auth" class="menu-grid">
-          <button class="menu-btn primary wide" id="btn-menu-register"><span class="menu-ico">&#x2728;</span>Create Account</button>
-          <button class="menu-btn wide" id="btn-menu-login"><span class="menu-ico">&#x1F511;</span>I already have an account</button>
+          <button class="menu-btn primary wide" id="btn-menu-register">Create Account</button>
+          <button class="menu-btn wide" id="btn-menu-login">I already have an account</button>
         </div>
         <div id="menu-home-user" style="display:none;flex-direction:column;gap:12px;">
           <div id="menu-user-row">
             <div id="menu-user-info">Logged in as <b id="menu-user-name"></b><span id="menu-pb"></span></div>
-            <button class="menu-btn danger" id="btn-logout"><span class="menu-ico">&#x23FB;</span>Logout</button>
+            <button class="menu-btn danger" id="btn-logout"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Logout</button>
           </div>
           <div class="menu-grid">
-            <button class="menu-btn" id="btn-menu-friends"><span class="menu-ico">&#x1F4AC;</span>Friends &amp; Chats<span id="friend-notif" class="notif-badge" style="display:none"></span><span id="dm-notif" class="notif-badge" style="display:none"></span></button>
-            <button class="menu-btn" id="btn-menu-lobbies"><span class="menu-ico">&#x1F3A8;</span>Lobbies</button>
-            <button class="menu-btn" id="btn-shop"><span class="menu-ico">&#x1F6D2;</span>Shop</button>
-            <button class="menu-btn" id="btn-notifications"><span class="menu-ico">&#x1F514;</span>Notifications<span id="notif-badge" class="notif-badge" style="display:none"></span></button>
-            <button class="menu-btn" id="btn-account-settings"><span class="menu-ico">&#x2699;&#xFE0F;</span>Settings</button>
-            <button class="menu-btn" id="btn-menu-leaderboard"><span class="menu-ico">&#x1F3C5;</span>Leaderboard</button>
-            <button class="menu-btn" id="btn-menu-economy"><span class="menu-ico">&#x1F4C8;</span>Economy</button>
-            <button class="menu-btn" id="btn-achievements"><span class="menu-ico">&#x1F3C6;</span>Achievements</button>
+            <button class="menu-btn" id="btn-menu-friends"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="menu-label">Friends &amp; Chats</span><span id="friend-notif" class="notif-badge" style="display:none"></span><span id="dm-notif" class="notif-badge" style="display:none"></span></button>
+            <button class="menu-btn" id="btn-menu-lobbies"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="menu-label">Lobbies</span></button>
+            <button class="menu-btn" id="btn-shop"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg><span class="menu-label">Shop</span></button>
+            <button class="menu-btn" id="btn-notifications"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="menu-label">Notifications</span><span id="notif-badge" class="notif-badge" style="display:none"></span></button>
+            <button class="menu-btn" id="btn-account-settings"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg><span class="menu-label">Settings</span></button>
+            <button class="menu-btn" id="btn-menu-leaderboard"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg><span class="menu-label">Leaderboard</span></button>
+            <button class="menu-btn" id="btn-menu-economy"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg><span class="menu-label">Economy</span></button>
+            <button class="menu-btn" id="btn-achievements"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg><span class="menu-label">Achievements</span></button>
           </div>
         </div>
     <div id="clan-invite-banner" style="display:none;width:100%;max-width:480px;margin:8px 0 0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(238,90,82,0.4);"></div>
@@ -1205,7 +1210,7 @@
       </div>
 
       <div class="menu-view" id="menu-view-shop">
-        <div class="menu-balance">$ PlaceBucks Shop &middot; you have <span id="shop-balance" style="color:var(--gold);">0</span></div>
+        <div class="menu-balance">Balance <span id="shop-balance">0</span></div>
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
       <button class="shop-tab active" data-tab="buy" style="flex:1;padding:9px 0;font-size:12px;font-weight:700;background:transparent;border:none;border-bottom:2px solid var(--accent);color:var(--accent);cursor:pointer;">Buy Stuff</button>
       <button class="shop-tab" data-tab="casino" style="flex:1;padding:9px 0;font-size:12px;font-weight:700;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;">Casino</button>
@@ -3545,7 +3550,7 @@ function applyPbState() {
     el.title = tip;
   }
   const mp = document.getElementById('menu-pb');
-  if (mp) mp.textContent = el ? el.textContent : '';
+  if (mp) mp.textContent = (myUnlimited ? '∞' : (myBalance >= 100000 ? fmtCompact(myBalance) : String(myBalance))) + ' PB' + (myStreak > 0 ? ' · ' + myStreak + ' day streak' : '');
   const sb = document.getElementById('shop-balance');
   if (sb) sb.textContent = (myUnlimited ? '∞' : myBalance) + (myStreak > 0 ? '  🔥 ' + myStreak : '');
   const wg = document.getElementById('wheel-group');
@@ -7298,7 +7303,7 @@ function lobbyCard(l, opts) {
   const card = document.createElement('div'); card.className = 'lobby-card';
   const expiryLine = l.expires_in !== null && l.expires_in !== undefined ? `<div class="lobby-expiry">expires in ${formatExpires(l.expires_in)}</div>` : '';
   const online = typeof l.online === 'number' ? l.online : 0;
-  card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${opts.meta} &middot; ${l.width}x${l.height} &middot; ${l.cooldown}s cd</div>${expiryLine}</div><div class="lobby-bottom"><span class="lobby-online" title="People in this lobby right now">&#x1F465; ${online}</span>${opts.actions || ''}</div>`;
+  card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${opts.meta} &middot; ${l.width}x${l.height} &middot; ${l.cooldown}s cd</div>${expiryLine}</div><div class="lobby-bottom"><span class="lobby-online${online ? '' : ' empty'}" title="People in this lobby right now">${online} online</span>${opts.actions || ''}</div>`;
   card.onclick = e => { if (!e.target.closest('.lobby-actions')) joinLobby(l.id, l.name); };
   return card;
 }
