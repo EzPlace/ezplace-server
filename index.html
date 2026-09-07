@@ -110,6 +110,13 @@
   #menu-guest-note .menu-btn { height: 40px; padding: 0 22px; }
   body.guest-mode #sidebar, body.guest-mode #bottom-bar, body.guest-mode #info-row, body.guest-mode #cooldown-warn, body.guest-mode #cooldown-bar, body.guest-mode #mobile-sidebar-toggle, body.guest-mode #mobile-pan-toggle, body.guest-mode #tip-banner, body.guest-mode #mobile-chat-overlay, body.guest-mode #rtc-tiles { display: none !important; }
   body.guest-mode #header-right > :not(#btn-leave-lobby) { display: none !important; }
+  #menu-home-links { margin-top: 2px; }
+  #menu-home-links .menu-btn { text-decoration: none; }
+  #btn-menu-earn .menu-label { white-space: normal; line-height: 1.2; }
+  #btn-menu-discord:hover .mi { color: #5865f2; }
+  .earn-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 3px; }
+  .earn-title { font-size: 13px; font-weight: 600; }
+  .earn-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
   #tab-warning { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-primary); z-index: 100; align-items: center; justify-content: center; font-size: 18px; color: var(--text-primary); }
   #tab-warning.show { display: flex; }
 
@@ -1189,6 +1196,10 @@
             <button class="menu-btn primary" id="btn-guest-register">Create Account</button>
           </div>
         </div>
+        <div class="menu-grid" id="menu-home-links">
+          <a class="menu-btn" id="btn-menu-discord" href="https://discord.gg/ynMtYnuAbB" target="_blank" rel="noopener noreferrer"><svg class="mi" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.6 5.6A16.3 16.3 0 0 0 15.5 4.3l-.2.4a15 15 0 0 1 3.7 1.9 13.4 13.4 0 0 0-14 0 15 15 0 0 1 3.7-1.9l-.2-.4a16.3 16.3 0 0 0-4.1 1.3C2 9.5 1.3 13.3 1.6 17a16.5 16.5 0 0 0 5 2.5l1-1.7a10.6 10.6 0 0 1-1.7-.8l.4-.3a11.7 11.7 0 0 0 11.4 0l.4.3a10.6 10.6 0 0 1-1.7.8l1 1.7a16.5 16.5 0 0 0 5-2.5c.4-4.3-.7-8-2.8-11.4ZM8.7 14.7c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6.6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg><span class="menu-label">Join the Discord</span></a>
+          <button class="menu-btn" id="btn-menu-earn"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M14.5 9.5a2.5 2.5 0 0 0-2.5-1.5c-1.4 0-2.5.8-2.5 1.8 0 2.4 5 1.2 5 3.6 0 1-1.1 1.8-2.5 1.8a2.5 2.5 0 0 1-2.5-1.5"/><path d="M12 6.5v1.5"/><path d="M12 16v1.5"/></svg><span class="menu-label">How to earn PlaceBux &amp; levels</span></button>
+        </div>
       </div>
 
       <div class="menu-view" id="menu-view-auth">
@@ -1310,7 +1321,7 @@
     <div style="padding:14px 16px;overflow-y:auto;">
 
       <div class="shop-panel" data-panel="buy" style="display:flex;flex-direction:column;gap:10px;">
-        <div style="font-size:11px;color:var(--text-muted);">You earn 1 $ per 100 pixels placed, 1 $ per 15 min online, and 1 $ per Flappy pipe.</div>
+        <div style="font-size:11px;color:var(--text-muted);">You earn 1 PlaceBux per 100 pixels placed, a daily streak bonus for 15 active minutes, 1 per Flappy pipe, and by selling fishing catches.</div>
         <div id="shop-item-vip" style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);"><div><div style="font-weight:700;">VIP Rank</div><div style="font-size:11px;color:var(--text-muted);">Adds a [VIP] gold tag to your name in chat.</div></div><button class="win-btn shop-buy" data-item="vip" style="background:var(--accent);color:#fff;flex-shrink:0;margin-left:10px;">45 $</button></div>
         <div id="shop-item-custom-rank" style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-secondary);border-radius:var(--radius-sm);">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
@@ -1606,6 +1617,21 @@
         <div id="fish-collection" class="fish-grid" style="display:none"></div>
       </div>
 
+      <div class="menu-view" id="menu-view-earn">
+        <div class="menu-section">Levels</div>
+        <div class="earn-card"><div class="earn-title">1 level per 1,000 pixels</div><div class="earn-desc">Every pixel you place in any lobby counts toward your lifetime total. Your level and the progress bar to the next one show in the lobby sidebar and on your profile.</div></div>
+        <div class="menu-section">Earning PlaceBux</div>
+        <div class="earn-card"><div class="earn-title">Place pixels</div><div class="earn-desc">1 PlaceBux for every 100 pixels you place.</div></div>
+        <div class="earn-card"><div class="earn-title">Daily streak</div><div class="earn-desc">Spend 15 active minutes on the site each day to claim your daily bonus: 2 PlaceBux times your streak length, up to 50 a day. Miss a day and the streak resets. The shop sells a 48-hour window and Streak Passes that protect it.</div></div>
+        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Casting costs 2 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
+        <div class="earn-card"><div class="earn-title">Flappy Bird</div><div class="earn-desc">1 PlaceBux per pipe you clear, no bet needed. Capped at 600 a day.</div></div>
+        <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Battle Mode, and Among Us in the Shop. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
+        <div class="earn-card"><div class="earn-title">Night Event</div><div class="earn-desc">Watch the Lobbies screen for the Night Event banner. Sign up when it opens; the winner takes 10,000 PlaceBux.</div></div>
+        <div class="earn-card"><div class="earn-title">Gifts from friends</div><div class="earn-desc">Anyone can send you PlaceBux from the Transfer tab in the Shop.</div></div>
+        <div class="menu-section">Spending</div>
+        <div class="earn-card"><div class="earn-desc">PlaceBux buy private lobbies, a VIP tag, a custom rank, a username color, and streak protection in the Shop. Achievements are for bragging rights only.</div></div>
+      </div>
+
       <div class="menu-view" id="menu-view-achievements">
         <div class="menu-section">Unlocked <span id="ach-count" style="text-transform:none;letter-spacing:0;">(0 / 0)</span></div>
         <div id="ach-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;padding:2px;"></div>
@@ -1727,11 +1753,11 @@ let cooldownTimer = null;
 let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
-const MENU_TITLES = { auth: '', lobbies: 'Lobbies', friends: 'Friends & Chats', shop: 'Shop', notifications: 'Notifications', settings: 'Settings', leaderboard: 'Leaderboard', economy: 'Economy', achievements: 'Achievements', clans: 'Clans', fishing: 'Fishing' };
+const MENU_TITLES = { auth: '', lobbies: 'Lobbies', friends: 'Friends & Chats', shop: 'Shop', notifications: 'Notifications', settings: 'Settings', leaderboard: 'Leaderboard', economy: 'Economy', achievements: 'Achievements', clans: 'Clans', fishing: 'Fishing', earn: 'PlaceBux & Levels' };
 const menuViewHooks = {};
 let menuView = 'home';
 let isGuest = false;
-const GUEST_VIEWS = new Set(['home', 'auth', 'lobbies', 'leaderboard', 'economy']);
+const GUEST_VIEWS = new Set(['home', 'auth', 'lobbies', 'leaderboard', 'economy', 'earn']);
 const GUEST_BUTTONS = new Set(['btn-menu-lobbies', 'btn-menu-leaderboard', 'btn-menu-economy']);
 function menuIsOpen() { return document.body.classList.contains('menu-open'); }
 function friendsViewOpen() { return menuIsOpen() && menuView === 'friends'; }
@@ -1833,6 +1859,7 @@ menuViewHooks.friends = { enter: () => {
 menuViewHooks.leaderboard = { enter: () => { loadGlobalLeaderboard(); } };
 menuViewHooks.clans = { enter: () => { loadClans(); } };
 document.getElementById('btn-menu-clans').onclick = () => openMenuView('clans');
+document.getElementById('btn-menu-earn').onclick = () => openMenuView('earn');
 document.getElementById('btn-menu-fishing').onclick = () => requireAuthView('fishing');
 
 const FISH_RARITY_COLORS = { common: '#9aa0a6', uncommon: '#5ec27a', rare: '#3b82f6', epic: '#a855f7', legendary: '#e6b04d', mythic: '#ee5a52' };
