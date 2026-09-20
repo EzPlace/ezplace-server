@@ -96,11 +96,8 @@
   #wheel-light-col { display: flex; align-items: center; justify-content: center; height: 128px; width: 26px; }
   #color-lightness { writing-mode: vertical-lr; direction: rtl; -webkit-appearance: slider-vertical; appearance: slider-vertical; width: 22px; height: 120px; accent-color: var(--accent); margin: 0; }
   #wheel-side { display: flex; flex-direction: column; gap: 6px; min-width: 100px; }
-  #wheel-swatches { display: flex; gap: 6px; }
-  #color-preview-pick, #color-preview-snap { width: 46px; height: 28px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #f00; }
-  #color-preview-snap { box-shadow: 0 0 0 2px var(--accent); }
+  #color-preview-snap { width: 98px; height: 30px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #f00; }
   #color-hex { width: 98px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; padding: 4px 6px; text-transform: uppercase; }
-  #color-snap-label { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
   #color-recent { display: flex; gap: 4px; flex-wrap: wrap; max-width: 120px; min-height: 16px; }
   #color-recent div { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.18); cursor: pointer; }
   #color-recent div:hover { transform: scale(1.15); border-color: #fff; }
@@ -505,6 +502,21 @@
   #zoom-buttons button:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.25); color: var(--text-primary); }
   #tip-banner { background: rgba(20,19,17,0.88) !important; border-top: 1px solid rgba(255,255,255,0.06) !important; color: var(--text-secondary) !important; }
   #typing-indicator { background: rgba(255,255,255,0.04) !important; border-left-color: rgba(255,255,255,0.2) !important; color: var(--text-secondary) !important; }
+  #more-wrap { position: relative; }
+  #more-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 70; min-width: 190px; background: rgba(33,31,28,0.98); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 6px; box-shadow: 0 16px 40px rgba(0,0,0,0.55); display: flex; flex-direction: column; gap: 2px; }
+  .more-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 8px 10px; font-size: 12px; font-weight: 500; color: var(--text-primary); background: transparent; border: none; border-radius: 8px; cursor: pointer; font-family: inherit; }
+  .more-item:hover { background: rgba(255,255,255,0.07); }
+  #more-panel .more-item, #more-panel .more-item:hover { background: transparent !important; border: none !important; box-shadow: none !important; transform: none !important; font-weight: 500 !important; }
+  #more-panel .more-item:hover { background: rgba(255,255,255,0.07) !important; }
+  #more-panel #btn-report { color: var(--red) !important; }
+  #more-panel #btn-report:hover { background: rgba(240,100,100,0.1) !important; }
+  .more-ping { padding: 6px 10px 2px; font-size: 10px; color: var(--text-muted); border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px; }
+  #user-bar { padding: 8px 12px; }
+  #call-bar:not(:has(#btn-mute:not([style*="none"]))) { display: none !important; }
+  #messages { margin: 8px; }
+  #wheel-group { gap: 12px; }
+  #wheel-side { gap: 8px; }
+  #btn-undo { margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -525,15 +537,26 @@
     <h1><img src="data:image/png;base64,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" alt="" style="width:1em;height:1em;vertical-align:-0.15em;margin-right:0.15em;image-rendering:pixelated;">EzPlace</h1>
     <div id="header-right">
       <div id="lobby-name-display"></div>
-      <button id="btn-manage-current" class="win-btn" style="display:none">Manage</button>
-      <button id="btn-export-grid" class="win-btn" style="display:none">Export</button>
-      <button id="btn-import-grid" class="win-btn" style="display:none">Import</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
+      <div id="more-wrap">
+        <button id="btn-more" class="win-btn" title="More">More</button>
+        <div id="more-panel" style="display:none">
+          <button id="btn-voice" class="more-item" style="display:none">Voice</button>
+          <button id="btn-video" class="more-item" style="display:none">Video</button>
+          <button id="btn-timelapse" class="more-item" style="display:none">Flashback</button>
+          <button id="btn-export-grid" class="more-item" style="display:none">Export</button>
+          <button id="btn-import-grid" class="more-item" style="display:none">Import</button>
+          <button id="btn-manage-current" class="more-item" style="display:none">Manage</button>
+          <button id="btn-save-png" title="Save this lobby as a PNG" class="more-item">Save as PNG</button>
+          <button id="btn-report" class="more-item" title="Report inappropriate drawings">Report drawing</button>
+          <label class="more-item"><input type="checkbox" id="chat-filter-toggle" checked> Chat filter</label>
+          <div class="more-ping">Ping: <span id="ping-ms">--</span>ms</div>
+        </div>
+      </div>
       <button id="btn-menu" class="win-btn">Menu</button>
       <button id="btn-leave-lobby" class="win-btn" style="display:none">Leave Lobby</button>
-      <div id="online" title="Click to see who is online" style="cursor:pointer;">Lobby: <span id="online-count">0</span> | All: <span id="total-online">0</span></div>
+      <div id="online" title="Click to see who is online" style="cursor:pointer;"><span id="online-count">0</span> here &middot; <span id="total-online">0</span> online</div>
       <div id="online-panel" style="display:none;position:fixed;top:52px;right:14px;z-index:70;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.6);padding:10px 12px;min-width:220px;max-width:280px;max-height:420px;overflow-y:auto;font-size:12px;"></div>
-      <div id="ping-display" style="font-size:10px;color:#ccc;">Ping: <span id="ping-ms">--</span>ms</div>
     </div>
   </div>
   <div id="info-row">
@@ -558,14 +581,12 @@
         <canvas id="color-wheel" width="280" height="280"></canvas>
         <div id="wheel-light-col" title="Lightness"><input id="color-lightness" type="range" min="0" max="100" value="50" orient="vertical"></div>
         <div id="wheel-side">
-          <div id="wheel-swatches"><div id="color-preview-pick" title="Picked color"></div><div id="color-preview-snap" title="Nearest palette color (what gets placed)"></div></div>
+          <div id="color-preview-snap" title="Your color"></div>
           <input id="color-hex" class="win-input" type="text" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#hex">
-          <div id="color-snap-label"></div>
           <div id="color-recent" title="Recent colors"></div>
         </div>
       </div>
       <button id="btn-undo" title="Undo last placement (Ctrl+Z)" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">&#x21B6; Undo</button>
-      <button id="btn-save-png" title="Save this lobby as a PNG" class="win-btn" style="font-size:11px;font-weight:700;padding:6px 10px;align-self:center;background:var(--bg-elevated);color:var(--text-primary);">💾 PNG</button>
       <button id="mobile-pan-toggle" class="win-btn" title="Toggle pan / draw mode">Draw</button>
       <select id="brush-size-select" class="win-input" style="display:none;font-size:11px;padding:2px 4px;align-self:center;">
         <option value="1">1x1</option>
@@ -926,9 +947,6 @@
       <span id="pb-balance" title="PlaceBux - earn 1 per 100 pixels placed" style="font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,178,50,0.12);border:1px solid var(--gold);padding:2px 6px;border-radius:10px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;">PlaceBux: 0</span>
     </span>
   </div>
-  <div id="user-bar-row2" style="display:none;padding:4px 12px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-    <button id="btn-report" class="win-btn" title="Report inappropriate drawings" style="font-size:11px;padding:4px 10px;background:#d32f2f;color:#fff;font-weight:700;flex-shrink:0;white-space:nowrap;">⚠ Report</button>
-  </div>
   <div id="sidebar-tabs">
     <div class="sidebar-tab active" data-tab="chat-tab">Chat</div>
     <div class="sidebar-tab" data-tab="lb-tab">Leaderboard</div>
@@ -938,14 +956,8 @@
 
   <div id="chat-tab" class="tab-panel active">
     <div id="call-bar" style="padding:6px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);display:none;gap:4px;align-items:center;flex-wrap:wrap;">
-      <button id="btn-voice" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;">Voice</button>
-      <button id="btn-video" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;">Video</button>
       <button id="btn-mute" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--bg-elevated)">Mute</button>
       <button id="btn-leave-call" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--red);color:#fff">End Call</button>
-      <button id="btn-timelapse" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--accent);color:#fff">Flashback</button>
-    </div>
-    <div id="chat-filter-bar">
-      <label><input type="checkbox" id="chat-filter-toggle" checked> Chat filter</label>
     </div>
     <div id="messages"></div>
     <div id="typing-indicator" style="display:none;font-size:12px;color:var(--accent);font-weight:600;padding:6px 12px;background:var(--accent-dim);border-left:3px solid var(--accent);margin:4px 6px 0;border-radius:var(--radius-sm);"><span id="typing-text"></span><span id="typing-dots" style="display:inline-block;margin-left:2px;letter-spacing:1px;"></span></div>
@@ -1823,6 +1835,9 @@ function requireAuthView(name) {
 document.getElementById('menu-back').onclick = menuBack;
 document.getElementById('menu-close').onclick = hideMenu;
 document.getElementById('btn-menu').onclick = () => showMenu('home');
+document.getElementById('btn-more').onclick = (e) => { e.stopPropagation(); const p = document.getElementById('more-panel'); p.style.display = p.style.display === 'none' ? '' : 'none'; };
+document.addEventListener('click', (e) => { const p = document.getElementById('more-panel'); if (p && p.style.display !== 'none' && !e.target.closest('#more-wrap')) p.style.display = 'none'; });
+document.getElementById('more-panel').addEventListener('click', (e) => { if (e.target.closest('button')) document.getElementById('more-panel').style.display = 'none'; });
 document.getElementById('btn-menu-register').onclick = () => { openMenuView('auth'); setAuthMode(true); };
 document.getElementById('btn-menu-login').onclick = () => { openMenuView('auth'); setAuthMode(false); };
 document.getElementById('btn-menu-guest').onclick = startGuest;
@@ -3198,13 +3213,9 @@ function applyPick() {
   const [cr, cg, cb] = hslToRgb(pickHue, pickSat, pickLight);
   const pickedHex = rgbToHex(cr, cg, cb);
   selectedColor = nearestPaletteIndex(cr, cg, cb);
-  const pickEl = document.getElementById('color-preview-pick');
-  if (pickEl) pickEl.style.background = pickedHex;
   document.getElementById('color-preview-snap').style.background = COLORS[selectedColor];
   const hexEl = document.getElementById('color-hex');
-  if (hexEl && document.activeElement !== hexEl) hexEl.value = pickedHex.toUpperCase();
-  const lbl = document.getElementById('color-snap-label');
-  if (lbl) lbl.textContent = 'places ' + COLORS[selectedColor].toUpperCase();
+  if (hexEl && document.activeElement !== hexEl) hexEl.value = COLORS[selectedColor].toUpperCase();
   drawColorWheel(pickLight);
 }
 function setPickFromHex(hex) {
