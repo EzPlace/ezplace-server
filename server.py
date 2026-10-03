@@ -6214,6 +6214,7 @@ async def websocket_handler(request):
                                 print(f"[chat {_pub} {lobby_id} ({_logsafe(_lname, 40)})] {username}: {_logsafe(text)}", flush=True)
                             except: pass
                             await broadcast_to_lobby(lobby_id, chat_payload)
+                            discord_forward(lobby_id, username, text)
 
                     elif data["type"] == "lobby_kick" and username and lobby_id:
                         lobby = lobbies.get(lobby_id)
@@ -6428,6 +6429,103 @@ async def enforce_lobby_access(lid, lobby):
             info["can_place"] = new_can
             try: await w.send_json({"type": "perm", "can_place": new_can})
             except Exception: pass
+
+# ---------------------------------------------------------------------------
+# Discord bridge: official lobby chats <-> Discord channels (off unless configured)
+#   DISCORD_BOT_TOKEN   bot token from discord.com/developers (needs the Message Content intent)
+#   DISCORD_CHANNELS    "channel_id:size,..."  e.g. 111:256,222:512,333:1024,444:2048
+#   DISCORD_IGNORE_IDS  optional comma list of Discord user ids whose messages are never relayed
+# ---------------------------------------------------------------------------
+DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_IGNORE_IDS = {x.strip() for x in os.environ.get("DISCORD_IGNORE_IDS", "").split(",") if x.strip()}
+
+def _parse_discord_channels():
+    out = {}
+    for part in os.environ.get("DISCORD_CHANNELS", "").split(","):
+        if ":" not in part: continue
+        cid, size = part.strip().split(":", 1)
+        try: cid = int(cid); size = int(size)
+        except ValueError: continue
+        for i, pl in enumerate(PUBLIC_LOBBIES):
+            if pl["width"] == size:
+                out[cid] = f"public_{i}"; break
+    return out
+
+DISCORD_CHANNEL_TO_LOBBY = _parse_discord_channels()
+DISCORD_LOBBY_TO_CHANNEL = {lid: cid for cid, lid in DISCORD_CHANNEL_TO_LOBBY.items()}
+discord_client = None
+discord_task = None
+_discord_mod = None
+_discord_pending = 0
+
+async def _discord_incoming(message):
+    lobby_id = DISCORD_CHANNEL_TO_LOBBY.get(message.channel.id)
+    if not lobby_id or message.author.bot or str(message.author.id) in DISCORD_IGNORE_IDS: return
+    if message.type not in (_discord_mod.MessageType.default, _discord_mod.MessageType.reply): return
+    if lobby_id not in lobbies: return
+    if not check_rate_limit("discord:" + str(message.author.id), "discord_chat", 5, 10): return
+    text = " ".join((message.clean_content or "").split())
+    if message.attachments: text = (text + " [attachment]").strip()
+    text = "".join(ch for ch in text if ch.isprintable())[:200]
+    if not text: return
+    name = clean_label(getattr(message.author, "display_name", "") or message.author.name)[:20] or "Discord user"
+    payload = {"type": "chat", "username": name, "text": text, "is_owner": False, "is_vip": False,
+               "rank": {"label": "DISCORD", "color": "#5865f2"}, "clan": None, "name_color": None}
+    _chat_remember(lobby_id, name, text)
+    await broadcast_to_lobby(lobby_id, payload)
+
+async def discord_start(app):
+    global discord_client, discord_task, _discord_mod
+    if not DISCORD_TOKEN or not DISCORD_CHANNEL_TO_LOBBY:
+        print("[discord] bridge off (set DISCORD_BOT_TOKEN and DISCORD_CHANNELS to turn it on)", flush=True); return
+    try:
+        import discord
+    except Exception as e:
+        print(f"[discord] discord.py is not installed, bridge off: {e}", flush=True); return
+    _discord_mod = discord
+    intents = discord.Intents.default(); intents.message_content = True
+    client = discord.Client(intents=intents, allowed_mentions=discord.AllowedMentions.none())
+
+    @client.event
+    async def on_ready():
+        print(f"[discord] bridge connected as {client.user}; channels -> lobbies: {DISCORD_CHANNEL_TO_LOBBY}", flush=True)
+
+    @client.event
+    async def on_message(message):
+        try: await _discord_incoming(message)
+        except Exception as e: print(f"[discord] incoming error: {type(e).__name__}: {e}", flush=True)
+
+    discord_client = client
+    async def runner():
+        try: await client.start(DISCORD_TOKEN)
+        except Exception as e: print(f"[discord] bot stopped: {type(e).__name__}: {e}", flush=True)
+    discord_task = asyncio.ensure_future(runner())
+
+async def discord_stop(app):
+    if discord_client is not None:
+        try: await discord_client.close()
+        except Exception: pass
+    if discord_task is not None: discord_task.cancel()
+
+async def _discord_send(cid, username, text):
+    global _discord_pending
+    try:
+        ch = discord_client.get_channel(cid) if discord_client is not None else None
+        if ch is None: return
+        esc_md = _discord_mod.utils.escape_markdown if _discord_mod else (lambda t: t)
+        await ch.send(f"**{esc_md(username)}:** {esc_md(text)}")
+    except Exception as e:
+        print(f"[discord] send failed: {type(e).__name__}: {e}", flush=True)
+    finally:
+        _discord_pending -= 1
+
+def discord_forward(lobby_id, username, text):
+    """Queue a lobby chat line for the matching Discord channel. No-op when the bridge is off."""
+    global _discord_pending
+    cid = DISCORD_LOBBY_TO_CHANNEL.get(lobby_id)
+    if not cid or discord_client is None or _discord_pending >= 100: return
+    _discord_pending += 1
+    asyncio.ensure_future(_discord_send(cid, username, text))
 
 async def broadcast_to_lobby(lobby_id, data, exclude=None):
     msg = json.dumps(data)
@@ -7153,6 +7251,8 @@ async def fishing_sell_handler(request):
 app = web.Application(middlewares=[cors_middleware, json_guard_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
+app.on_startup.append(discord_start)
+app.on_cleanup.append(discord_stop)
 _g, _p = app.router.add_get, app.router.add_post
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
