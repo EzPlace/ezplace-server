@@ -7377,8 +7377,22 @@ FISH_ITEMS = [
     ("blue_whale", "Blue Whale", "legendary", 200), ("coelacanth", "Coelacanth", "legendary", 250), ("sunken_crown", "Sunken Crown", "legendary", 300),
     ("diamond", "Diamond", "legendary", 350), ("mermaid_comb", "Mermaid's Comb", "legendary", 400),
     ("kraken", "Kraken", "mythic", 1200), ("leviathan", "Leviathan", "mythic", 1800), ("poseidon_trident", "Poseidon's Trident", "mythic", 2500),
+    # ---- Coral Reef exclusives (only caught on that map) ----
+    ("clownfish", "Clownfish", "common", 3), ("blue_tang", "Blue Tang", "common", 3),
+    ("parrotfish", "Parrotfish", "uncommon", 7), ("butterflyfish", "Butterflyfish", "uncommon", 6),
+    ("sea_turtle", "Sea Turtle", "rare", 24), ("mandarin_dragonet", "Mandarin Dragonet", "rare", 20),
+    ("whale_shark", "Whale Shark", "epic", 85), ("giant_pearl", "Giant Pearl", "legendary", 380),
+    ("rainbow_serpent", "Rainbow Sea Serpent", "mythic", 1500),
+    # ---- Midnight Abyss exclusives ----
+    ("lanternfish", "Lanternfish", "common", 2), ("ghost_shrimp", "Ghost Shrimp", "common", 2),
+    ("viperfish", "Viperfish", "uncommon", 7), ("dumbo_octopus", "Dumbo Octopus", "uncommon", 8),
+    ("vampire_squid", "Vampire Squid", "rare", 26), ("gulper_eel", "Gulper Eel", "rare", 22),
+    ("goblin_shark", "Goblin Shark", "epic", 90), ("colossal_squid", "Colossal Squid", "legendary", 400),
+    ("megalodon", "Megalodon", "mythic", 2200),
 ]
-FISH_CATALOG = [{"id": i, "name": n, "rarity": ra, "value": v} for (i, n, ra, v) in FISH_ITEMS]
+FISH_EXCLUSIVE = {i: "reef" for i in "clownfish blue_tang parrotfish butterflyfish sea_turtle mandarin_dragonet whale_shark giant_pearl rainbow_serpent".split()}
+FISH_EXCLUSIVE.update({i: "abyss" for i in "lanternfish ghost_shrimp viperfish dumbo_octopus vampire_squid gulper_eel goblin_shark colossal_squid megalodon".split()})
+FISH_CATALOG = [{"id": i, "name": n, "rarity": ra, "value": v, "map": FISH_EXCLUSIVE.get(i)} for (i, n, ra, v) in FISH_ITEMS]
 FISH_BY_ID = {it["id"]: it for it in FISH_CATALOG}
 FISH_BY_RARITY = {}
 for _it in FISH_CATALOG: FISH_BY_RARITY.setdefault(_it["rarity"], []).append(_it)
@@ -7434,26 +7448,27 @@ def _map_pool(d):
 
 FISH_MAPS = [
     {"id": "pier", "name": "Sunny Pier", "blurb": "Where everyone starts: freshwater and shallow-sea catches.",
-     "cast_cost": FISH_CAST_COST, "weights": FISH_RARITY_WEIGHTS, "pool": None, "unlock": {}},
+     "cast_cost": FISH_CAST_COST, "weights": FISH_RARITY_WEIGHTS,
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if not i.get("map")] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")}, "unlock": {}},
     {"id": "reef", "name": "Coral Reef", "blurb": "Warm tropical shallows full of colourful reef fish.",
      "cast_cost": 8, "weights": [("common", 470), ("uncommon", 300), ("rare", 150), ("epic", 60), ("legendary", 17), ("mythic", 3)],
      "pool": _map_pool({
-         "common": "crab shrimp clam snail sardine anchovy mackerel guppy seaweed",
-         "uncommon": "starfish sea_urchin jellyfish pufferfish seahorse lobster squid pearl_clam tuna sunken_coin",
-         "rare": "angelfish lionfish moray_eel manta_ray stingray octopus barracuda ancient_pottery",
-         "epic": "hammerhead emerald pirate_cutlass gold_bar great_white",
-         "legendary": "mermaid_comb sunken_crown diamond",
-         "mythic": "poseidon_trident"}),
+         "common": "crab shrimp clam snail sardine anchovy mackerel guppy seaweed clownfish blue_tang",
+         "uncommon": "starfish sea_urchin jellyfish pufferfish seahorse lobster squid pearl_clam tuna sunken_coin parrotfish butterflyfish",
+         "rare": "angelfish lionfish moray_eel manta_ray stingray octopus barracuda ancient_pottery sea_turtle mandarin_dragonet",
+         "epic": "hammerhead emerald pirate_cutlass gold_bar great_white whale_shark",
+         "legendary": "mermaid_comb sunken_crown diamond giant_pearl",
+         "mythic": "poseidon_trident rainbow_serpent"}),
      "unlock": {"common": 12, "uncommon": 6}},
     {"id": "abyss", "name": "Midnight Abyss", "blurb": "A dark deep-sea trench: giants and sunken treasure.",
      "cast_cost": 15, "weights": [("common", 345), ("uncommon", 300), ("rare", 200), ("epic", 100), ("legendary", 47), ("mythic", 8)],
      "pool": _map_pool({
-         "common": "sardine anchovy mackerel herring seaweed driftwood tin_can rusty_hook old_boot",
-         "uncommon": "squid eel cod tuna message_bottle sunken_coin jellyfish",
-         "rare": "swordfish marlin octopus barracuda stingray manta_ray treasure_map silver_ring moray_eel",
-         "epic": "great_white hammerhead giant_squid anglerfish electric_eel pirate_cutlass gold_bar emerald",
-         "legendary": "blue_whale coelacanth sunken_crown diamond mermaid_comb",
-         "mythic": "kraken leviathan poseidon_trident"}),
+         "common": "sardine anchovy mackerel herring seaweed driftwood tin_can rusty_hook old_boot lanternfish ghost_shrimp",
+         "uncommon": "squid eel cod tuna message_bottle sunken_coin jellyfish viperfish dumbo_octopus",
+         "rare": "swordfish marlin octopus barracuda stingray manta_ray treasure_map silver_ring moray_eel vampire_squid gulper_eel",
+         "epic": "great_white hammerhead giant_squid anglerfish electric_eel pirate_cutlass gold_bar emerald goblin_shark",
+         "legendary": "blue_whale coelacanth sunken_crown diamond mermaid_comb colossal_squid",
+         "mythic": "kraken leviathan poseidon_trident megalodon"}),
      "unlock": {"uncommon": 5, "rare": 4, "epic": 1}},
 ]
 FISH_MAP_BY_ID = {m["id"]: m for m in FISH_MAPS}
@@ -7470,7 +7485,7 @@ def _fish_map(st):
 def _fish_map_catalog(st):
     _fish_map(st)
     return [{"id": m["id"], "name": m["name"], "blurb": m["blurb"], "cast_cost": m["cast_cost"], "unlock": m["unlock"],
-             "unlocked": m["id"] in st["maps_unlocked"]} for m in FISH_MAPS]
+             "exclusive": sum(1 for v in FISH_EXCLUSIVE.values() if v == m["id"]), "unlocked": m["id"] in st["maps_unlocked"]} for m in FISH_MAPS]
 
 def _fish_pick(map_id, rarity):
     """A random fish of this rarity from the map's own catch table."""
@@ -7508,7 +7523,10 @@ def _fish_state(user, now=None):
     now = now or time.time()
     st = _fish_slot(user)
     inv = {k: int(v) for k, v in st.get("inv", {}).items() if k in FISH_BY_ID and int(v) > 0}
-    seen = {k: int(v) for k, v in st.get("seen", {}).items() if k in FISH_BY_ID}
+    caught = {k: int(v) for k, v in st.get("seen", {}).items() if k in FISH_BY_ID}
+    seen = dict(caught)       # what the collection shows: catches plus fish received in trades
+    for k, n in (st.get("got") or {}).items():
+        if k in FISH_BY_ID: seen[k] = seen.get(k, 0) + int(n)
     cooldown = 0 if is_admin(user) else max(0.0, float(st.get("last_cast", 0)) + FISH_CAST_COOLDOWN - now)
     day_key = (user.lower(), "fish_cast_day")
     used_today = len([t for t in _rate_limits.get(day_key, []) if t > now - 86400])
@@ -7517,7 +7535,7 @@ def _fish_state(user, now=None):
     return {"catalog": FISH_CATALOG, "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
             "rod": _fish_rod_info(st), "rods": FISH_ROD_CATALOG,
             "spent": int(st["spent"]), "earned": int(st["earned"]), "bucket_cost": int(round(bucket_cost)),
-            "total_worth": sum(n * FISH_BY_ID[k]["value"] for k, n in seen.items()),
+            "total_worth": sum(n * FISH_BY_ID[k]["value"] for k, n in caught.items()), "trade_net": int(st.get("trade_net", 0)),
             "cooldown": round(cooldown, 2), "cast_cooldown": FISH_CAST_COOLDOWN, "cast_cost": _fish_map(st)["cast_cost"], "map": st["map"], "maps": _fish_map_catalog(st),
             "daily_cap": FISH_DAILY_CAP, "casts_left_today": max(0, FISH_DAILY_CAP - used_today), "balance": get_pb(user)}
 
@@ -7608,6 +7626,202 @@ async def fishing_map_travel_handler(request):
     st["map"] = mid
     await save_fishing()
     return web.json_response({"ok": True, "state": _fish_state(user)})
+
+# ---- Player-to-player trading: several fish plus PlaceBux on top, both sides confirm ----
+# A trade is invite -> accept -> both sides edit their own offer -> both confirm -> one atomic swap. Any change to either offer
+# clears both confirmations, so nobody can swap the goods after the other player has agreed. The swap re-checks everything
+# (fish owned, PlaceBux held) and happens with no await in between, so it either fully happens or does not happen at all.
+TRADE_MAX_PB = 100000
+TRADE_MAX_FISH_KINDS = 60
+TRADE_TTL = 15 * 60
+trades = {}        # trade id -> trade
+user_trade = {}    # lowercase account name -> trade id (a player can be in one trade at a time)
+
+def _trade_drop(tr):
+    trades.pop(tr["id"], None)
+    for n in (tr["a"], tr["b"]):
+        if user_trade.get(n.lower()) == tr["id"]: user_trade.pop(n.lower(), None)
+
+def _trade_gc():
+    now = time.time()
+    for tr in [t for t in trades.values() if now - t["updated"] > TRADE_TTL]: _trade_drop(tr)
+
+def _trade_mine(user):
+    _trade_gc()
+    tid = user_trade.get(user.lower())
+    return trades.get(tid) if tid else None
+
+def _trade_name(tr, user):
+    return tr["a"] if tr["a"].lower() == user.lower() else (tr["b"] if tr["b"].lower() == user.lower() else None)
+
+def _trade_view(tr, me):
+    me = _trade_name(tr, me); other = tr["b"] if me == tr["a"] else tr["a"]
+    return {"id": tr["id"], "status": tr["status"], "you": me, "partner": other, "initiator": tr["a"],
+            "your_offer": {"fish": dict(tr["offers"][me]["fish"]), "pb": tr["offers"][me]["pb"]},
+            "their_offer": {"fish": dict(tr["offers"][other]["fish"]), "pb": tr["offers"][other]["pb"]},
+            "you_confirmed": bool(tr["confirmed"][me]), "they_confirmed": bool(tr["confirmed"][other]),
+            "note": tr.get("note", ""), "expires_in": max(0, int(TRADE_TTL - (time.time() - tr["updated"])))}
+
+async def _trade_notify(tr, kind="trade_update", extra=None):
+    for n in (tr["a"], tr["b"]):
+        payload = {"type": kind, "trade": _trade_view(tr, n)}
+        if extra: payload.update(extra.get(n, {}))
+        try: await notify_social(n, payload)
+        except Exception: pass
+
+def _trade_value(off):
+    return sum(FISH_BY_ID[k]["value"] * q for k, q in off["fish"].items())
+
+def _trade_execute(tr):
+    """Swap both offers. Returns (True, summary) or (False, reason). No awaits in here on purpose."""
+    a, b = tr["a"], tr["b"]
+    sa, sb = _fish_slot(a), _fish_slot(b)
+    _fish_ledger(sa); _fish_ledger(sb)
+    oa, ob = tr["offers"][a], tr["offers"][b]
+    if not oa["fish"] and not ob["fish"] and not oa["pb"] and not ob["pb"]:
+        return False, "Nobody has offered anything yet"
+    for who, st, off in ((a, sa, oa), (b, sb, ob)):
+        inv = st.setdefault("inv", {})
+        for k, q in off["fish"].items():
+            if int(inv.get(k, 0)) < q: return False, f"{who} no longer has {q}x {FISH_BY_ID[k]['name']}"
+        if off["pb"] > 0 and not is_admin(who) and get_pb(who) < off["pb"]: return False, f"{who} does not have enough PlaceBux"
+    for who, off in ((a, oa), (b, ob)):
+        if off["pb"] > 0 and not spend_pb(who, off["pb"]): return False, f"{who} does not have enough PlaceBux"
+    def give(src, dst, off):
+        for k, q in off["fish"].items():
+            have = int(src["inv"][k]); basis = float(src["basis"].get(k, 0))
+            src["basis"][k] = basis - basis * q / have
+            src["inv"][k] = have - q
+            if src["inv"][k] <= 0: src["inv"].pop(k, None); src["basis"].pop(k, None)
+            dst.setdefault("inv", {}); dst["inv"][k] = int(dst["inv"].get(k, 0)) + q
+            dst["basis"][k] = float(dst["basis"].get(k, 0)) + FISH_BY_ID[k]["value"] * q   # booked at its value: neutral for bucket profit
+            dst.setdefault("got", {}); dst["got"][k] = int(dst["got"].get(k, 0)) + q       # counts towards the collection
+    give(sa, sb, oa); give(sb, sa, ob)
+    if oa["pb"]: credit_pb(b, oa["pb"])
+    if ob["pb"]: credit_pb(a, ob["pb"])
+    va, vb = _trade_value(oa), _trade_value(ob)
+    sa["trade_net"] = int(sa.get("trade_net", 0)) + ob["pb"] + vb - oa["pb"] - va    # keeps "total profit" honest
+    sb["trade_net"] = int(sb.get("trade_net", 0)) + oa["pb"] + va - ob["pb"] - vb
+    return True, {"a": a, "b": b}
+
+def _trade_parse_offer(user, data):
+    """Validate an offer against what the player actually owns right now."""
+    fish_in = data.get("fish") if isinstance(data, dict) else None
+    if fish_in is None: fish_in = {}
+    if not isinstance(fish_in, dict) or len(fish_in) > TRADE_MAX_FISH_KINDS: raise ValueError("Bad fish list")
+    st = _fish_slot(user); inv = st.get("inv", {}); fish = {}
+    for k, q in fish_in.items():
+        if k not in FISH_BY_ID or isinstance(q, bool) or not isinstance(q, int) or q < 0: raise ValueError("Bad fish list")
+        if q == 0: continue
+        if q > int(inv.get(k, 0)): raise ValueError(f"You only have {int(inv.get(k, 0))}x {FISH_BY_ID[k]['name']}")
+        fish[k] = q
+    pb = data.get("pb", 0) if isinstance(data, dict) else 0
+    if isinstance(pb, bool) or not isinstance(pb, int) or pb < 0 or pb > TRADE_MAX_PB: raise ValueError(f"PlaceBux must be a whole number from 0 to {TRADE_MAX_PB}")
+    if pb > 0 and not is_admin(user) and pb > get_pb(user): raise ValueError("You do not have that much PlaceBux")
+    return fish, pb
+
+async def _trade_json_body(request):
+    try: data = await request.json()
+    except Exception: return None
+    return data if isinstance(data, dict) else None
+
+async def trade_state_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    tr = _trade_mine(user)
+    return web.json_response({"ok": True, "trade": _trade_view(tr, user) if tr else None})
+
+async def trade_invite_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "trade_invite", 10, 60): return web.json_response({"error": "Slow down"}, status=429)
+    data = await _trade_json_body(request)
+    if data is None: return web.json_response({"error": "Bad JSON"}, status=400)
+    name = str(data.get("to") or "").strip()[:32]
+    target = next((u for u in accounts if u.lower() == name.lower()), None)
+    if not target: return web.json_response({"error": "No player with that name"}, status=404)
+    if target.lower() == user.lower(): return web.json_response({"error": "You cannot trade with yourself"}, status=400)
+    if is_banned(target): return web.json_response({"error": "That player cannot trade right now"}, status=400)
+    if _trade_mine(user): return web.json_response({"error": "Finish or cancel your current trade first"}, status=400)
+    if _trade_mine(target): return web.json_response({"error": f"{target} is already in a trade"}, status=400)
+    me = next((u for u in accounts if u.lower() == user.lower()), user)
+    tid = secrets.token_hex(6)
+    tr = {"id": tid, "a": me, "b": target, "status": "pending", "created": time.time(), "updated": time.time(), "note": "",
+          "offers": {me: {"fish": {}, "pb": 0}, target: {"fish": {}, "pb": 0}}, "confirmed": {me: False, target: False}}
+    trades[tid] = tr; user_trade[me.lower()] = tid; user_trade[target.lower()] = tid
+    await _trade_notify(tr, "trade_invite")
+    return web.json_response({"ok": True, "trade": _trade_view(tr, me)})
+
+async def trade_respond_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    data = await _trade_json_body(request)
+    if data is None: return web.json_response({"error": "Bad JSON"}, status=400)
+    tr = _trade_mine(user)
+    if not tr or tr["status"] != "pending" or tr["b"].lower() != user.lower():
+        return web.json_response({"error": "No trade request to answer"}, status=400)
+    if data.get("accept"):
+        tr["status"] = "open"; tr["updated"] = time.time()
+        await _trade_notify(tr)
+        return web.json_response({"ok": True, "trade": _trade_view(tr, user)})
+    _trade_drop(tr)
+    try: await notify_social(tr["a"], {"type": "trade_closed", "reason": f"{tr['b']} declined your trade request"})
+    except Exception: pass
+    return web.json_response({"ok": True, "trade": None})
+
+async def trade_offer_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "trade_edit", 120, 60): return web.json_response({"error": "Slow down"}, status=429)
+    data = await _trade_json_body(request)
+    if data is None: return web.json_response({"error": "Bad JSON"}, status=400)
+    tr = _trade_mine(user)
+    if not tr or tr["status"] != "open": return web.json_response({"error": "No open trade"}, status=400)
+    me = _trade_name(tr, user)
+    try: fish, pb = _trade_parse_offer(user, data)
+    except ValueError as e: return web.json_response({"error": str(e), "trade": _trade_view(tr, user)}, status=400)
+    tr["offers"][me] = {"fish": fish, "pb": pb}
+    tr["confirmed"] = {tr["a"]: False, tr["b"]: False}     # any change cancels both confirmations
+    tr["note"] = ""; tr["updated"] = time.time()
+    await _trade_notify(tr)
+    return web.json_response({"ok": True, "trade": _trade_view(tr, user)})
+
+async def trade_confirm_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "trade_edit", 120, 60): return web.json_response({"error": "Slow down"}, status=429)
+    data = await _trade_json_body(request)
+    if data is None: return web.json_response({"error": "Bad JSON"}, status=400)
+    tr = _trade_mine(user)
+    if not tr or tr["status"] != "open": return web.json_response({"error": "No open trade"}, status=400)
+    me = _trade_name(tr, user)
+    tr["confirmed"][me] = bool(data.get("confirm", True)); tr["updated"] = time.time(); tr["note"] = ""
+    if all(tr["confirmed"].values()):
+        if not check_rate_limit(tr["a"], "trade_done", 30, 3600) or not check_rate_limit(tr["b"], "trade_done", 30, 3600):
+            tr["confirmed"] = {tr["a"]: False, tr["b"]: False}; tr["note"] = "Too many trades this hour - wait a bit"
+        else:
+            ok, res = _trade_execute(tr)           # everything inside happens with no await
+            if ok:
+                _trade_drop(tr)
+                await save_fishing(); await save_place_bucks()
+                await push_pb_update(tr["a"]); await push_pb_update(tr["b"])
+                done = {n: {"done": True} for n in (tr["a"], tr["b"])}
+                await _trade_notify(tr, "trade_done", done)
+                return web.json_response({"ok": True, "done": True, "trade": _trade_view(tr, user)})
+            tr["confirmed"] = {tr["a"]: False, tr["b"]: False}; tr["note"] = str(res)
+    await _trade_notify(tr)
+    return web.json_response({"ok": True, "trade": _trade_view(tr, user)})
+
+async def trade_cancel_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    tr = _trade_mine(user)
+    if not tr: return web.json_response({"ok": True, "trade": None})
+    other = tr["b"] if tr["a"].lower() == user.lower() else tr["a"]
+    _trade_drop(tr)
+    try: await notify_social(other, {"type": "trade_closed", "reason": f"{_trade_name(tr, user)} cancelled the trade"})
+    except Exception: pass
+    return web.json_response({"ok": True, "trade": None})
 
 async def fishing_rod_buy_handler(request):
     user = get_auth_user(request)
@@ -7784,7 +7998,7 @@ for _path, _h in (
     ("/api/admin/richest", admin_richest_handler), ("/api/admin/device-bans", admin_device_bans_handler),
     ("/api/admin/mod-list", admin_mod_list_handler), ("/api/admin/mod-ban-log", admin_mod_ban_log_handler),
     ("/api/admin/ipbans", _admin_json_view("ip_bans", lambda: ip_bans)),
-    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler),
+    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler), ("/api/trade/state", trade_state_handler),
     ("/api/me", me_handler), ("/api/streak/progress", streak_progress_handler),
     ("/api/uno/list", uno_list_handler),
     ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
@@ -7869,7 +8083,7 @@ for _path, _h in (
     ("/api/mod/report-resolve", report_resolve_handler),
     ("/api/account/set-avatar", set_avatar_handler),
     ("/api/fishing/cast", fishing_cast_handler), ("/api/fishing/sell", fishing_sell_handler),
-    ("/api/fishing/rod/buy", fishing_rod_buy_handler), ("/api/fishing/map/unlock", fishing_map_unlock_handler), ("/api/fishing/map/travel", fishing_map_travel_handler), ("/api/minigame/fish/start", mg_fish_start_handler), ("/api/minigame/fish/stop", mg_fish_stop_handler),
+    ("/api/fishing/rod/buy", fishing_rod_buy_handler), ("/api/trade/invite", trade_invite_handler), ("/api/trade/respond", trade_respond_handler), ("/api/trade/offer", trade_offer_handler), ("/api/trade/confirm", trade_confirm_handler), ("/api/trade/cancel", trade_cancel_handler), ("/api/fishing/map/unlock", fishing_map_unlock_handler), ("/api/fishing/map/travel", fishing_map_travel_handler), ("/api/minigame/fish/start", mg_fish_start_handler), ("/api/minigame/fish/stop", mg_fish_stop_handler),
     ("/api/account/clear-avatar", clear_avatar_handler),
 ): _p(_path, _h)
 
