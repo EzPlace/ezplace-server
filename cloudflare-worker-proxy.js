@@ -32,7 +32,7 @@
 const TARGET_HOST = 'ezplace-server.onrender.com';
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     url.protocol = 'https:';
     url.hostname = TARGET_HOST;
@@ -43,6 +43,15 @@ export default {
     // `Upgrade: websocket` header, so WebSocket connections tunnel through.
     const proxied = new Request(url.toString(), request);
     proxied.headers.set('Host', TARGET_HOST);
+
+    // Tell the backend the real visitor IP. The backend only believes these two headers when the secret matches
+    // its PROXY_SHARED_SECRET env var. Always drop any copies the visitor sent themselves.
+    proxied.headers.delete('X-Client-IP');
+    proxied.headers.delete('X-Proxy-Secret');
+    if (env && env.PROXY_SECRET) {
+      proxied.headers.set('X-Proxy-Secret', env.PROXY_SECRET);
+      proxied.headers.set('X-Client-IP', request.headers.get('CF-Connecting-IP') || '');
+    }
 
     const resp = await fetch(proxied);
 

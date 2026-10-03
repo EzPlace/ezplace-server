@@ -34,6 +34,8 @@ DEFAULT_COOLDOWN = 0.5
 MAX_COOLDOWN = 60
 ADMIN_USER = "toothpaste"
 ADMIN_USERS = {"toothpaste", "juicebox"}
+# Names that grant powers by name alone; nobody may register them (the existing accounts keep working).
+RESERVED_USERNAMES = {u.lower() for u in ADMIN_USERS} | {"cleanup"}
 LOBBY_TIMEOUT_PUBLIC = 48 * 60 * 60                                        
 LOBBY_TIMEOUT_PRIVATE = 168 * 60 * 60                                    
                                                                                
@@ -161,10 +163,43 @@ def get_rank(username):
         rk = dict(rk, color="#daa520")
     return rk
 
+SESSION_TTL = 30 * 24 * 3600
+MAX_SESSIONS_PER_USER = 10
+session_born = {}
+last_pixel_by_user = {}
+
+def new_session(user):
+    now = time.time()
+    for t in [t for t, b in session_born.items() if now - b > SESSION_TTL]:
+        sessions.pop(t, None); session_born.pop(t, None)
+    mine = [t for t, u in sessions.items() if u == user]
+    if len(mine) >= MAX_SESSIONS_PER_USER:
+        mine.sort(key=lambda t: session_born.get(t, 0))
+        for t in mine[:len(mine) - MAX_SESSIONS_PER_USER + 1]:
+            sessions.pop(t, None); session_born.pop(t, None)
+    token = secrets.token_hex(16)
+    sessions[token] = user
+    session_born[token] = now
+    return token
+
 def get_auth_user(request):
-    return sessions.get(request.headers.get("Authorization", ""))
+    tok = request.headers.get("Authorization", "")
+    u = sessions.get(tok)
+    if u and time.time() - session_born.get(tok, time.time()) > SESSION_TTL:
+        sessions.pop(tok, None); session_born.pop(tok, None)
+        return None
+    return u
+
+PROXY_SHARED_SECRET = os.environ.get("PROXY_SHARED_SECRET", "")
 
 def get_client_ip(request):
+    # Requests relayed by our own Cloudflare/Deno proxies carry the real visitor IP in X-Client-IP, which is only
+    # trusted when the proxy also presents the shared secret. Without it, a forged header is ignored.
+    if PROXY_SHARED_SECRET:
+        sec = request.headers.get("X-Proxy-Secret", "")
+        if sec and secrets.compare_digest(sec.encode(), PROXY_SHARED_SECRET.encode()):
+            cip = request.headers.get("X-Client-IP", "").strip()
+            if cip and len(cip) <= 64: return cip
     xff = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",") if p.strip()]
     return (xff[-1] if xff else "") or request.remote or "unknown"
 
@@ -172,7 +207,7 @@ def lobby_info(lobby, include_code=False):
     info = {
         "id": lobby["id"], "name": lobby["name"], "owner": lobby["owner"],
         "public": lobby["public"], "whitelist_enabled": lobby["whitelist_enabled"],
-        "online": sum(1 for c in clients.values() if c and c.get("username") and c.get("lobby_id") == lobby["id"]),
+        "online": sum(1 for w, c in clients.items() if not w.closed and c and c.get("username") and c.get("lobby_id") == lobby["id"]),
         "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN),
         "width": lobby.get("width", 256), "height": lobby.get("height", 256),
         "last_activity": lobby.get("last_activity", time.time()),
@@ -577,6 +612,9 @@ async def push_pb_update(username):
             try: await ws.send_json(payload)
             except: pass
 
+pixel_pb_day = {}
+PIXEL_PB_DAILY_CAP = 500
+
 async def award_pixel_placement(username, count=1):
     """Increment lifetime pixel count and credit PlaceBux for each new 100-mark crossed."""
     if not username or count <= 0: return
@@ -586,6 +624,12 @@ async def award_pixel_placement(username, count=1):
     new = old + count
     lifetime_pixels[ulow] = new
     delta = (new // PB_PIXELS_PER_BUCK) - (old // PB_PIXELS_PER_BUCK)
+    if delta > 0:
+        day = int(time.time() // 86400)
+        rec = pixel_pb_day.get(ulow)
+        if not rec or rec[0] != day: rec = [day, 0]
+        delta = max(0, min(delta, PIXEL_PB_DAILY_CAP - rec[1]))
+        rec[1] += delta; pixel_pb_day[ulow] = rec
     if delta > 0:
         place_bucks[ulow] = int(place_bucks.get(ulow, 0)) + delta
         await save_place_bucks()
@@ -1072,7 +1116,11 @@ async def health_handler(request):
     return web.json_response({"ok": True})
 
 async def captcha_handler(request):
+    if not check_rate_limit(get_client_ip(request), "captcha", 20, 60):
+        return web.json_response({"error": "Too many captcha requests - slow down."}, status=429)
     clean_captchas()
+    if len(captchas) > 5000:
+        return web.json_response({"error": "Busy - try again shortly."}, status=503)
     chars = string.ascii_uppercase.replace('O', '').replace('I', '').replace('L', '')
     text = ''.join(random.choices(chars, k=5))
     cid = secrets.token_hex(8)
@@ -1090,10 +1138,12 @@ async def register_handler(request):
     except: time_on_page = 0
     if not uname or not pwd:
         return web.json_response({"error": "Username and password required"}, status=400)
-    if len(uname) < 3 or len(uname) > 20 or not uname.isalnum():
-        return web.json_response({"error": "Username must be 3-20 alphanumeric characters"}, status=400)
-    if len(pwd) < 4:
-        return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
+    if len(uname) < 3 or len(uname) > 20 or not uname.isalnum() or not uname.isascii():
+        return web.json_response({"error": "Username must be 3-20 letters/numbers (A-Z, 0-9)"}, status=400)
+    if uname.lower() in RESERVED_USERNAMES:
+        return web.json_response({"error": "That username is reserved"}, status=400)
+    if len(pwd) < 6:
+        return web.json_response({"error": "Password must be at least 6 characters"}, status=400)
     if len(pwd) > MAX_PASSWORD_LEN:
         return web.json_response({"error": f"Password must be at most {MAX_PASSWORD_LEN} characters"}, status=400)
     if is_banned(uname) or is_ip_banned(request):
@@ -1102,13 +1152,16 @@ async def register_handler(request):
         return web.json_response({"error": "Please check the 'I'm not a robot' box"}, status=400)
     if time_on_page < 1500:
         return web.json_response({"error": "Please wait a moment before submitting"}, status=400)
+    clean_captchas()
+    cap = captchas.pop(str(data.get("captcha_id") or ""), None)
+    if not cap or str(data.get("captcha_answer") or "").strip().upper() != cap["answer"]:
+        return web.json_response({"error": "Wrong captcha - try the new one"}, status=400)
     if uname.lower() in {u.lower() for u in accounts}:
         return web.json_response({"error": "Username already taken"}, status=400)
     pw_hash, salt = hash_password(pwd)
     accounts[uname] = {"password_hash": pw_hash, "salt": salt, "algo": "pbkdf2", "created": time.time()}
     await save_accounts()
-    token = secrets.token_hex(16)
-    sessions[token] = uname
+    token = new_session(uname)
     await track_ip(uname, request)
     return web.json_response({"ok": True, "token": token, "username": uname})
 
@@ -1125,7 +1178,7 @@ async def login_handler(request):
     uname, pwd = str(data.get("username") or "").strip(), data.get("password", "")
     if not uname or not pwd or not isinstance(pwd, str):
         return web.json_response({"error": "Username and password required"}, status=400)
-    if not check_rate_limit(uname.lower(), "login_user", 15, 300):
+    if not check_rate_limit(uname.lower() + "|" + get_client_ip(request), "login_user", 15, 300):
         return web.json_response({"error": "Too many login attempts for this account - try again in a few minutes."}, status=429)
     if is_banned(uname) or is_ip_banned(request):
         return web.json_response({"error": "This account is banned"}, status=403)
@@ -1140,10 +1193,14 @@ async def login_handler(request):
         pw_hash, salt = hash_password(pwd)
         acc["password_hash"] = pw_hash; acc["salt"] = salt; acc["algo"] = "pbkdf2"
         await save_accounts()
-    token = secrets.token_hex(16)
-    sessions[token] = found
+    token = new_session(found)
     await track_ip(found, request)
     return web.json_response({"ok": True, "token": token, "username": found})
+
+async def logout_handler(request):
+    tok = request.headers.get("Authorization", "")
+    sessions.pop(tok, None); session_born.pop(tok, None)
+    return web.json_response({"ok": True})
 
 async def lobbies_handler(request):
     return web.json_response({"lobbies": [lobby_info(l) for l in lobbies.values() if l["public"]]})
@@ -1158,6 +1215,14 @@ async def my_lobbies_handler(request):
                    and user in l.get("whitelist", []) and (not l["owner"] or l["owner"].lower() != user.lower())]
     return web.json_response({"lobbies": mine, "whitelisted": whitelisted})
 
+def _lobby_readable(request, lobby):
+    """Public lobbies are readable by anyone; private ones need a logged-in owner/admin/whitelisted user."""
+    if lobby.get("public"): return True
+    u = get_auth_user(request)
+    if not u: return False
+    if is_admin(u) or lobby["owner"].lower() == u.lower(): return True
+    return (not lobby.get("whitelist_enabled")) or u in lobby.get("whitelist", [])
+
 async def lobby_preview_handler(request):
     """Lightweight grid snapshot for the homepage's background canvas. Returns
     gzipped raw grid bytes (one palette index per pixel) for one of the public
@@ -1167,7 +1232,7 @@ async def lobby_preview_handler(request):
         return web.Response(status=429, text="Slow down")
     lid = request.query.get("id", "public_2")
     lobby = lobbies.get(lid)
-    if not lobby:
+    if not lobby or not _lobby_readable(request, lobby):
         return web.Response(status=404, text="Lobby not found")
     grid_bytes = bytes(lobby["grid"])
     return web.Response(
@@ -1187,7 +1252,7 @@ async def lobby_timelapse_handler(request):
         return web.json_response({"error": "Slow down"}, status=429)
     lid = request.query.get("id", "")
     lobby = lobbies.get(lid)
-    if not lobby:
+    if not lobby or not _lobby_readable(request, lobby):
         return web.json_response({"error": "Not found"}, status=404)
     log = lobby.get("events", b"") or b""
     oldest = get_oldest_event_time(lobby)
@@ -1325,6 +1390,7 @@ async def update_lobby_handler(request):
             lobby["lobby_bans"] = [b for b in lb if b.lower() != n.lower()]
     if "name" in data: lobby["name"] = str(data.get("name") or "").strip()[:30] or lobby["name"]
     await save_lobby(lid)
+    await enforce_lobby_access(lid, lobby)
     info = lobby_info(lobby, True)
     info["lobby_bans"] = lobby.get("lobby_bans", [])
     return web.json_response({"ok": True, "lobby": info})
@@ -1334,6 +1400,8 @@ async def join_lobby_by_code_handler(request):
     user = get_auth_user(request)
     if not user:
         return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "join_code", 10, 60) or not check_rate_limit(get_client_ip(request), "join_code_ip", 30, 60):
+        return web.json_response({"error": "Too many attempts - wait a minute."}, status=429)
     code = str(data.get("code") or "").strip().upper()
     for lobby in lobbies.values():
         if lobby.get("code") and lobby["code"] == code:
@@ -1512,7 +1580,14 @@ async def upload_image_handler(request):
     data = b"".join(chunks)
     if not data:
         return web.json_response({"error": "Empty file"}, status=400)
-    filename = field.filename or "upload.jpg"
+    ext = None
+    if data[:8] == b"\x89PNG\r\n\x1a\n": ext = "png"
+    elif data[:3] == b"\xff\xd8\xff": ext = "jpg"
+    elif data[:6] in (b"GIF87a", b"GIF89a"): ext = "gif"
+    elif data[:4] == b"RIFF" and data[8:12] == b"WEBP": ext = "webp"
+    if not ext:
+        return web.json_response({"error": "Only PNG, JPEG, GIF or WebP images are allowed"}, status=400)
+    filename = "upload." + ext
                                                                                  
     try:
         timeout = aiohttp.ClientTimeout(total=30)
@@ -1528,7 +1603,7 @@ async def upload_image_handler(request):
                     return web.json_response({"error": "unexpected upload response: " + url[:100]}, status=502)
                 return web.json_response({"url": url})
     except Exception as e:
-        return web.json_response({"error": "upload failed: " + str(e)[:200]}, status=502)
+        return web.json_response({"error": "upload failed"}, status=502)
 
 async def dm_send_handler(request):
     data = await request.json()
@@ -1566,7 +1641,8 @@ async def dm_send_handler(request):
 
 async def admin_accounts_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    return web.json_response({"accounts": accounts})
+    safe = {k: {kk: vv for kk, vv in (v or {}).items() if kk not in ("password_hash", "salt")} for k, v in accounts.items()}
+    return web.json_response({"accounts": safe})
 
 async def admin_friends_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
@@ -1883,8 +1959,7 @@ async def admin_session_for_handler(request):
     if not target: return web.json_response({"error": "Username required"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return web.json_response({"error": "Account not found"}, status=404)
-    token = secrets.token_hex(16)
-    sessions[token] = found
+    token = new_session(found)
     return web.json_response({"ok": True, "token": token, "username": found})
 
 async def admin_kick_handler(request):
@@ -2093,8 +2168,8 @@ async def change_password_handler(request):
     new_pw = data.get("new_password") or ""
     if not old_pw or not new_pw:
         return web.json_response({"error": "Old and new password required"}, status=400)
-    if len(new_pw) < 4:
-        return web.json_response({"error": "New password must be at least 4 characters"}, status=400)
+    if len(new_pw) < 6:
+        return web.json_response({"error": "New password must be at least 6 characters"}, status=400)
     if not isinstance(new_pw, str) or len(new_pw) > MAX_PASSWORD_LEN:
         return web.json_response({"error": f"New password must be at most {MAX_PASSWORD_LEN} characters"}, status=400)
     acc = accounts.get(user)
@@ -2998,6 +3073,8 @@ GD_LEVEL_MAX_OBSTACLES = 240
 GD_LEVEL_NAME_MAX = 40
 GD_LEVELS_PER_USER = 20
 gd_attempts = {}
+gd_daily_profit = {}
+GD_DAILY_PROFIT_CAP = 20000  # the run is not verified server-side, so cap how much profit one account can pull per day
 gd_levels = {}
 
 _gd_levels_max_seen = 0  # highest in-memory count ever seen, protects against accidental wipe
@@ -3370,10 +3447,20 @@ async def casino_gd_result_handler(request):
         else:
             multiplier = round(1 + (GD_MAX_MULT - 1) * 2 * (progress - 0.5), 3)
         winnings = int(g["bet"] * multiplier)
+        net = winnings - g["bet"]
+        if net > 0:
+            day = int(time.time() // 86400)
+            rec = gd_daily_profit.get(ulow)
+            if not rec or rec[0] != day: rec = [day, 0]
+            left = max(0, GD_DAILY_PROFIT_CAP - rec[1])
+            if net > left:
+                winnings = g["bet"] + left; net = left
+            rec[1] += net; gd_daily_profit[ulow] = rec
+        g["done"] = True
+        gd_attempts.pop(ulow, None)
         credit_pb(user, winnings)
         await save_place_bucks()
         await push_pb_update(user)
-        g["done"] = True
         detail = f"reached {pct:.0f}% (x{multiplier}) seed {g['seed']}"
         await broadcast_casino_result(user, "GeoDash", g["bet"], winnings, detail)
         try:
@@ -3846,17 +3933,24 @@ async def uno_forfeit(user):
         if idx is None: continue
         if room["phase"] == "lobby":
             removed = room["players"].pop(idx)
+            bet = room["bet_per_human"]
+            if bet > 0:
+                # Refund the leaver AND take their stake back out of the pot, otherwise join/leave inflates it.
+                credit_pb(user, bet)
+                room["pool"] = max(0, room.get("pool", 0) - bet)
             if room["players"]:
                 if room["creator"].lower() == ulow:
                     nh = next((p for p in room["players"] if not p["is_ai"]), None)
                     if nh: room["creator"] = nh["name"]
                     else:
-                        uno_rooms.pop(rid, None); continue
-                credit_pb(user, room["bet_per_human"])
-                await save_place_bucks(); await push_pb_update(user)
+                        uno_rooms.pop(rid, None)
+                        if bet > 0: await save_place_bucks(); await push_pb_update(user)
+                        continue
+                if bet > 0: await save_place_bucks(); await push_pb_update(user)
                 await _uno_push_state(room)
             else:
                 uno_rooms.pop(rid, None)
+                if bet > 0: await save_place_bucks(); await push_pb_update(user)
         else:
             room["players"][idx]["connected"] = False
             room["players"][idx]["forfeited"] = True
@@ -4006,9 +4100,6 @@ async def uno_start_handler(request):
     if room["phase"] != "lobby": return web.json_response({"error": "Already started"}, status=400)
     if len(room["players"]) < 2: return web.json_response({"error": "Need at least 2 players"}, status=400)
     bet = room["settings"].get("bet", 0)
-    if bet > 0:
-        ai_count = sum(1 for p in room["players"] if p["is_ai"])
-        room["pool"] = room.get("pool", 0) + bet * ai_count
     room["deck"] = _uno_new_deck()
     for p in room["players"]: p["hand"] = []
     for _ in range(7):
@@ -4362,6 +4453,8 @@ def _battle_public_state(room, for_user):
         "draw_seconds": room["draw_seconds"], "grid": BATTLE_GRID,
         "done_flags": list(room["done_flags"]),
         "grids": grids, "you_are": role,
+        "invited": ulow in room.get("invites", {}),
+        "pending_invites": list(room.get("invites", {}).values()),
     }
 
 def _battle_participants(room):
@@ -4417,7 +4510,7 @@ async def battle_create_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     try:
-        bet = max(0, int(data.get("bet", 0)))
+        bet = max(0, min(MAX_CASINO_BET, int(data.get("bet", 0))))
         draw_seconds = max(BATTLE_DRAW_SECONDS_MIN, min(BATTLE_DRAW_SECONDS_MAX, int(data.get("draw_seconds", BATTLE_DRAW_SECONDS_DEFAULT))))
     except: return web.json_response({"error": "Invalid settings"}, status=400)
     theme = str(data.get("theme") or "").strip()[:60] or None
@@ -4426,7 +4519,7 @@ async def battle_create_handler(request):
         "id": rid, "creator": user, "bet": bet, "pool": 0, "theme": theme,
         "phase": "lobby", "drawers": [], "judge": None, "spectators": [user],
         "grids": {}, "winner": None, "end_at": 0, "draw_seconds": draw_seconds,
-        "done_flags": set(), "last_action_at": time.time(),
+        "done_flags": set(), "last_action_at": time.time(), "invites": {},
     }
     await _battle_push_state(battle_rooms[rid])
     return web.json_response({"ok": True, "room_id": rid, "state": _battle_public_state(battle_rooms[rid], user)})
@@ -4478,15 +4571,33 @@ async def battle_assign_handler(request):
         or (room["judge"] if room["judge"] and room["judge"].lower() == tlow else None) \
         or next((s for s in room["spectators"] if s.lower() == tlow), target)
     was_drawer = any(d.lower() == tlow for d in room["drawers"])
-    if was_drawer and room["bet"] > 0:
-        credit_pb(real, room["bet"])
-        room["pool"] = max(0, room["pool"] - room["bet"])
-        await save_place_bucks(); await push_pb_update(real)
+    if role == "drawer" and room["bet"] > 0 and tlow != user.lower() and not was_drawer:
+        # Seating someone costs them the bet, so they have to accept first (see battle_accept_handler).
+        if len(room["drawers"]) >= 2: return web.json_response({"error": "Both drawer slots are full"}, status=400)
+        room.setdefault("invites", {})[tlow] = real
+        await _battle_push_state(room)
+        return web.json_response({"ok": True, "invited": True, "state": _battle_public_state(room, user)})
+    room.get("invites", {}).pop(tlow, None)
+    # Remove the target from the room and refund in the same synchronous step (before any await),
+    # otherwise a concurrent /leave from the target sees them still seated and refunds a second time.
     room["drawers"] = [d for d in room["drawers"] if d.lower() != tlow]
     if room["judge"] and room["judge"].lower() == tlow: room["judge"] = None
     room["spectators"] = [s for s in room["spectators"] if s.lower() != tlow]
+    refunded = False
+    if was_drawer and room["bet"] > 0:
+        credit_pb(real, room["bet"])
+        room["pool"] = max(0, room["pool"] - room["bet"])
+        refunded = True
+    if refunded:
+        await save_place_bucks(); await push_pb_update(real)
+    if room["phase"] != "lobby":
+        room["spectators"].append(real)
+        return web.json_response({"error": "Game already started"}, status=400)
     if role == "drawer":
-        if len(room["drawers"]) >= 2: return web.json_response({"error": "Both drawer slots are full"}, status=400)
+        if len(room["drawers"]) >= 2:
+            room["spectators"].append(real)
+            await _battle_push_state(room)
+            return web.json_response({"error": "Both drawer slots are full"}, status=400)
         if room["bet"] > 0 and not spend_pb(real, room["bet"]):
             room["spectators"].append(real)
             await _battle_push_state(room)
@@ -4496,10 +4607,37 @@ async def battle_assign_handler(request):
             room["pool"] += room["bet"]
             await save_place_bucks(); await push_pb_update(real)
     elif role == "judge":
-        if room["judge"]: return web.json_response({"error": "Judge slot taken"}, status=400)
+        if room["judge"]:
+            room["spectators"].append(real)
+            return web.json_response({"error": "Judge slot taken"}, status=400)
         room["judge"] = real
     else:
         room["spectators"].append(real)
+    await _battle_push_state(room)
+    return web.json_response({"ok": True, "state": _battle_public_state(room, user)})
+
+async def battle_accept_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    room = battle_rooms.get(data.get("room_id", ""))
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    ulow = user.lower()
+    real = room.get("invites", {}).get(ulow)
+    if not real: return web.json_response({"error": "You have no pending invite"}, status=400)
+    if not any(n.lower() == ulow for n in _battle_participants(room)):
+        room["invites"].pop(ulow, None)
+        return web.json_response({"error": "You are not in this room"}, status=400)
+    if room["phase"] != "lobby": return web.json_response({"error": "Game already started"}, status=400)
+    if len(room["drawers"]) >= 2: return web.json_response({"error": "Both drawer slots are full"}, status=400)
+    if room["bet"] > 0 and not spend_pb(real, room["bet"]):
+        return web.json_response({"error": f"You need {room['bet']} $ to join"}, status=400)
+    room["invites"].pop(ulow, None)
+    room["spectators"] = [s for s in room["spectators"] if s.lower() != ulow]
+    if room["judge"] and room["judge"].lower() == ulow: room["judge"] = None
+    room["drawers"].append(real)
+    room["pool"] += room["bet"]
+    await save_place_bucks(); await push_pb_update(real)
     await _battle_push_state(room)
     return web.json_response({"ok": True, "state": _battle_public_state(room, user)})
 
@@ -4605,11 +4743,13 @@ async def battle_leave_handler(request):
         if room["judge"] and room["judge"].lower() == ulow: room["judge"] = None
         room["spectators"] = [s for s in room["spectators"] if s.lower() != ulow]
         if room["creator"].lower() == ulow:
-            for d in list(room["drawers"]):
-                if room["bet"] > 0:
-                    credit_pb(d, room["bet"]); await push_pb_update(d)
-            if room["bet"] > 0: await save_place_bucks()
+            # Detach the room and its drawers first so concurrent requests can't refund them again.
+            refund_to = list(room["drawers"]); room["drawers"] = []
             battle_rooms.pop(rid, None)
+            if room["bet"] > 0:
+                for d in refund_to: credit_pb(d, room["bet"])
+                await save_place_bucks()
+                for d in refund_to: await push_pb_update(d)
         else:
             await _battle_push_state(room)
     elif room["phase"] == "drawing":
@@ -5005,356 +5145,6 @@ async def sketch_leave_handler(request):
     room["last_action"] = time.time()
     return web.json_response({"ok": True})
 
-AMONGUS_MIN = 4
-AMONGUS_MAX = 20
-AMONGUS_DISCUSSION_SECONDS = 75
-AMONGUS_VOTE_SECONDS = 30
-AMONGUS_MAX_ROUNDS = 4
-amongus_rooms = {}
-
-def _amongus_participants(room):
-    seen = set()
-    for p in room["players"]:
-        if p["name"].lower() not in seen:
-            seen.add(p["name"].lower()); yield p["name"]
-    for s in room.get("spectators", []):
-        if s.lower() not in seen:
-            seen.add(s.lower()); yield s
-
-def _amongus_public_state(room, for_user):
-    ulow = (for_user or "").lower()
-    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
-    my_role = me["role"] if me else None
-    is_imposter = bool(me and me.get("role") == "imposter")
-    reveal_roles = room["phase"] == "ended"
-    players_out = []
-    for p in room["players"]:
-        show_role = None
-        if reveal_roles:
-            show_role = p.get("role")
-        elif not p.get("alive") and p.get("revealed_role"):
-            show_role = p["role"]
-        elif p["name"].lower() == ulow:
-            show_role = p["role"]
-        players_out.append({
-            "name": p["name"], "alive": bool(p.get("alive")),
-            "role": show_role,
-        })
-    return {
-        "room_id": room["id"], "phase": room["phase"], "round": room["round"],
-        "creator": room["creator"], "bet": room["bet"], "pool": room["pool"],
-        "players": players_out, "you_are": ("crew" if me and me["role"] == "crew" else ("imposter" if is_imposter else "spectator")),
-        "my_role": my_role, "alive": bool(me and me.get("alive")),
-        "imposter_can_kill": is_imposter and room["phase"] == "discussion" and not room.get("kill_used_this_round") and me.get("alive"),
-        "can_vote": bool(me and me.get("alive") and room["phase"] == "voting" and ulow not in {v.lower() for v in room.get("votes", {})}),
-        "time_left": max(0, int(room["phase_end"] - time.time())) if room.get("phase_end") else 0,
-        "winner": room.get("winner"),
-        "winnings": room.get("payouts", {}).get(ulow, 0) if reveal_roles else 0,
-        "spectators": room.get("spectators", []),
-    }
-
-async def _amongus_push_state(room):
-    for n in _amongus_participants(room):
-        try: await notify_social(n, {"type": "amongus_state", "state": _amongus_public_state(room, n)})
-        except: pass
-
-async def _amongus_finish(room, winner_side):
-    if room["phase"] == "ended": return
-    room["phase"] = "ended"
-    room["winner"] = winner_side
-    payouts = {}
-    pool = room["pool"]
-    if winner_side == "imposter":
-        imp = next((p for p in room["players"] if p["role"] == "imposter"), None)
-        if imp:
-            credit_pb(imp["name"], pool)
-            payouts[imp["name"].lower()] = pool
-    elif winner_side == "crew":
-        alive_crew = [p for p in room["players"] if p["role"] == "crew" and p.get("alive")]
-        if alive_crew and pool > 0:
-            share = pool // len(alive_crew)
-            for p in alive_crew:
-                credit_pb(p["name"], share)
-                payouts[p["name"].lower()] = share
-    room["payouts"] = payouts
-    await save_place_bucks()
-    for ulow_key, amt in payouts.items():
-        real_name = next((p["name"] for p in room["players"] if p["name"].lower() == ulow_key), None)
-        if real_name:
-            await push_pb_update(real_name)
-            await broadcast_casino_result(real_name, "AmongUs", room["bet"], amt, f"{winner_side} won (round {room['round']})")
-    await _amongus_push_state(room)
-    asyncio.get_event_loop().call_later(180, lambda: amongus_rooms.pop(room["id"], None))
-
-def _amongus_check_end(room):
-    alive_imp = [p for p in room["players"] if p["role"] == "imposter" and p.get("alive")]
-    alive_crew = [p for p in room["players"] if p["role"] == "crew" and p.get("alive")]
-    if not alive_imp:
-        return "crew"
-    if len(alive_crew) <= len(alive_imp):
-        return "imposter"
-    if room["round"] > AMONGUS_MAX_ROUNDS:
-        return "imposter"
-    return None
-
-async def _amongus_enter_voting(room):
-    if room["phase"] != "discussion": return
-    room["phase"] = "voting"
-    room["votes"] = {}
-    room["phase_end"] = time.time() + AMONGUS_VOTE_SECONDS
-    asyncio.create_task(_amongus_vote_timer(room["id"], AMONGUS_VOTE_SECONDS))
-    await _amongus_push_state(room)
-
-async def _amongus_resolve_vote(room):
-    if room["phase"] != "voting": return
-    counts = {}
-    for voter, target in room["votes"].items():
-        if target and target != "skip":
-            counts[target] = counts.get(target, 0) + 1
-    ejected_name = None
-    if counts:
-        max_votes = max(counts.values())
-        top = [n for n, c in counts.items() if c == max_votes]
-        if len(top) == 1:
-            ejected_name = top[0]
-    if ejected_name:
-        p = next((p for p in room["players"] if p["name"].lower() == ejected_name.lower()), None)
-        if p:
-            p["alive"] = False
-            p["revealed_role"] = True
-    room["round"] += 1
-    end_side = _amongus_check_end(room)
-    if end_side:
-        await _amongus_finish(room, end_side)
-        return
-    room["phase"] = "discussion"
-    room["votes"] = {}
-    room["kill_used_this_round"] = False
-    room["phase_end"] = time.time() + AMONGUS_DISCUSSION_SECONDS
-    asyncio.create_task(_amongus_discussion_timer(room["id"], AMONGUS_DISCUSSION_SECONDS))
-    await _amongus_push_state(room)
-
-async def _amongus_discussion_timer(rid, secs):
-    try: await asyncio.sleep(secs)
-    except asyncio.CancelledError: return
-    room = amongus_rooms.get(rid)
-    if not room or room["phase"] != "discussion": return
-    await _amongus_enter_voting(room)
-
-async def _amongus_vote_timer(rid, secs):
-    try: await asyncio.sleep(secs)
-    except asyncio.CancelledError: return
-    room = amongus_rooms.get(rid)
-    if not room or room["phase"] != "voting": return
-    await _amongus_resolve_vote(room)
-
-async def amongus_create_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    try: bet = max(0, int(data.get("bet", 10)))
-    except: return web.json_response({"error": "Invalid bet"}, status=400)
-    if bet > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
-    if bet > 0 and not spend_pb(user, bet):
-        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
-    rid = secrets.token_hex(5)
-    amongus_rooms[rid] = {
-        "id": rid, "creator": user, "bet": bet, "pool": bet,
-        "phase": "lobby", "round": 0,
-        "players": [{"name": user, "alive": True, "role": None, "revealed_role": False}],
-        "spectators": [], "votes": {}, "phase_end": 0,
-        "kill_used_this_round": False, "winner": None, "payouts": {},
-    }
-    await save_place_bucks(); await push_pb_update(user)
-    await _amongus_push_state(amongus_rooms[rid])
-    return web.json_response({"ok": True, "room_id": rid, "state": _amongus_public_state(amongus_rooms[rid], user)})
-
-async def amongus_list_handler(request):
-    out = []
-    for r in amongus_rooms.values():
-        if r["phase"] != "lobby": continue
-        out.append({"room_id": r["id"], "creator": r["creator"], "bet": r["bet"], "players": len(r["players"])})
-    return web.json_response({"ok": True, "rooms": out})
-
-async def amongus_join_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    rid = data.get("room_id", "")
-    room = amongus_rooms.get(rid)
-    if not room: return web.json_response({"error": "Room not found"}, status=404)
-    if any(p["name"].lower() == user.lower() for p in room["players"]):
-        return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
-    if room["phase"] != "lobby":
-        if user not in room["spectators"]: room["spectators"].append(user)
-        await _amongus_push_state(room)
-        return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
-    if len(room["players"]) >= AMONGUS_MAX:
-        return web.json_response({"error": f"Room is full ({AMONGUS_MAX} players)"}, status=400)
-    if room["bet"] > 0 and not spend_pb(user, room["bet"]):
-        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
-    room["players"].append({"name": user, "alive": True, "role": None, "revealed_role": False})
-    room["pool"] += room["bet"]
-    await save_place_bucks(); await push_pb_update(user)
-    await _amongus_push_state(room)
-    return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
-
-async def amongus_start_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    rid = data.get("room_id", "")
-    room = amongus_rooms.get(rid)
-    if not room: return web.json_response({"error": "Room not found"}, status=404)
-    if room["creator"].lower() != user.lower():
-        return web.json_response({"error": "Only the host can start"}, status=403)
-    if room["phase"] != "lobby": return web.json_response({"error": "Already started"}, status=400)
-    n = len(room["players"])
-    if n < AMONGUS_MIN: return web.json_response({"error": f"Need at least {AMONGUS_MIN} players"}, status=400)
-    indices = list(range(n))
-    secrets.SystemRandom().shuffle(indices)
-    imp_idx = indices[0]
-    for i, p in enumerate(room["players"]):
-        p["role"] = "imposter" if i == imp_idx else "crew"
-        p["alive"] = True
-        p["revealed_role"] = False
-    room["phase"] = "discussion"
-    room["round"] = 1
-    room["kill_used_this_round"] = False
-    room["votes"] = {}
-    room["phase_end"] = time.time() + AMONGUS_DISCUSSION_SECONDS
-    asyncio.create_task(_amongus_discussion_timer(rid, AMONGUS_DISCUSSION_SECONDS))
-    await _amongus_push_state(room)
-    return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
-
-async def amongus_say_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    rid = data.get("room_id", "")
-    text = (data.get("text") or "").strip()[:200]
-    if not text: return web.json_response({"error": "Empty"}, status=400)
-    room = amongus_rooms.get(rid)
-    if not room: return web.json_response({"error": "Room not found"}, status=404)
-    ulow = user.lower()
-    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
-    if not me and ulow not in (s.lower() for s in room.get("spectators", [])):
-        return web.json_response({"error": "Not in this room"}, status=403)
-    if not check_rate_limit(user, "amongus_say", 8, 5):
-        return web.json_response({"error": "Slow down."}, status=429)
-    payload = {"type": "amongus_chat", "room_id": rid, "msg": {"from": user, "text": text, "time": int(time.time()), "dead": bool(me and not me.get("alive"))}}
-    for n in _amongus_participants(room):
-        try: await notify_social(n, payload)
-        except: pass
-    return web.json_response({"ok": True})
-
-async def amongus_kill_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    rid = data.get("room_id", "")
-    target = (data.get("target") or "").strip()
-    room = amongus_rooms.get(rid)
-    if not room: return web.json_response({"error": "Room not found"}, status=404)
-    ulow = user.lower()
-    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
-    if not me or me["role"] != "imposter" or not me.get("alive"):
-        return web.json_response({"error": "Only the alive imposter can kill"}, status=403)
-    if room["phase"] != "discussion":
-        return web.json_response({"error": "Can only kill during discussion"}, status=400)
-    if room.get("kill_used_this_round"):
-        return web.json_response({"error": "You already killed this round"}, status=400)
-    victim = next((p for p in room["players"] if p["name"].lower() == target.lower()), None)
-    if not victim: return web.json_response({"error": "Target not found"}, status=404)
-    if victim["role"] != "crew" or not victim.get("alive"):
-        return web.json_response({"error": "Target must be an alive crewmate"}, status=400)
-    victim["alive"] = False
-    room["kill_used_this_round"] = True
-    end_side = _amongus_check_end(room)
-    if end_side:
-        await _amongus_finish(room, end_side)
-        return web.json_response({"ok": True})
-    payload = {"type": "amongus_chat", "room_id": rid, "msg": {"from": "system", "text": f"💀 {victim['name']} was killed!", "time": int(time.time()), "system": True}}
-    for n in _amongus_participants(room):
-        try: await notify_social(n, payload)
-        except: pass
-    await _amongus_push_state(room)
-    return web.json_response({"ok": True})
-
-async def amongus_vote_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    rid = data.get("room_id", "")
-    target = (data.get("target") or "skip").strip()
-    room = amongus_rooms.get(rid)
-    if not room: return web.json_response({"error": "Room not found"}, status=404)
-    if room["phase"] != "voting":
-        return web.json_response({"error": "Not in voting phase"}, status=400)
-    ulow = user.lower()
-    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
-    if not me or not me.get("alive"):
-        return web.json_response({"error": "Only alive players can vote"}, status=403)
-    if ulow in {v.lower() for v in room.get("votes", {})}:
-        return web.json_response({"error": "Already voted"}, status=400)
-    if target != "skip":
-        t = next((p for p in room["players"] if p["name"].lower() == target.lower() and p.get("alive")), None)
-        if not t: return web.json_response({"error": "Target must be an alive player"}, status=400)
-        target = t["name"]
-    room["votes"][user] = target
-    alive_count = sum(1 for p in room["players"] if p.get("alive"))
-    if len(room["votes"]) >= alive_count:
-        await _amongus_resolve_vote(room)
-    else:
-        await _amongus_push_state(room)
-    return web.json_response({"ok": True})
-
-async def amongus_leave_handler(request):
-    data = await request.json()
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    rid = data.get("room_id", "")
-    room = amongus_rooms.get(rid)
-    if not room: return web.json_response({"ok": True})
-    ulow = user.lower()
-    me = next((p for p in room["players"] if p["name"].lower() == ulow), None)
-    if me:
-        if room["phase"] == "lobby":
-            room["players"] = [p for p in room["players"] if p["name"].lower() != ulow]
-            if room["bet"] > 0:
-                credit_pb(user, room["bet"])
-                room["pool"] = max(0, room["pool"] - room["bet"])
-                await save_place_bucks(); await push_pb_update(user)
-            if room["creator"].lower() == ulow:
-                for p in list(room["players"]):
-                    if room["bet"] > 0:
-                        credit_pb(p["name"], room["bet"])
-                        await push_pb_update(p["name"])
-                if room["bet"] > 0: await save_place_bucks()
-                amongus_rooms.pop(rid, None)
-                return web.json_response({"ok": True})
-            await _amongus_push_state(room)
-        else:
-            me["alive"] = False
-            me["revealed_role"] = True
-            end_side = _amongus_check_end(room)
-            if end_side:
-                await _amongus_finish(room, end_side)
-            else:
-                await _amongus_push_state(room)
-    else:
-        room["spectators"] = [s for s in room.get("spectators", []) if s.lower() != ulow]
-        await _amongus_push_state(room)
-    return web.json_response({"ok": True})
-
-async def amongus_state_handler(request):
-    user = get_auth_user(request)
-    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    rid = request.query.get("room_id", "")
-    room = amongus_rooms.get(rid)
-    if not room: return web.json_response({"error": "Room not found"}, status=404)
-    return web.json_response({"ok": True, "state": _amongus_public_state(room, user)})
-
 NIGHT_EVENT_PRIZE = 10000
 NIGHT_EVENT_SIGNUP_SECONDS = 300
 NIGHT_EVENT_HOUR_ET = 23
@@ -5575,6 +5365,7 @@ async def _night_start_event():
     night_event["type"] = secrets.choice(NIGHT_EVENT_TYPES)
     night_event["phase"] = "signup"
     night_event["signups"] = []
+    night_event["signup_ips"] = {}
     night_event["signup_end_ts"] = time.time() + NIGHT_EVENT_SIGNUP_SECONDS
     night_event["winner"] = None
     night_event["running_state"] = None
@@ -5657,6 +5448,14 @@ async def night_event_join_handler(request):
         return web.json_response({"ok": True, "state": _night_public_state()})
     if time.time() > night_event["signup_end_ts"]:
         return web.json_response({"error": "Signups closed"}, status=400)
+    created = (accounts.get(user) or {}).get("created")
+    if created and time.time() - created < 24 * 3600:
+        return web.json_response({"error": "Accounts must be at least 24 hours old to enter the night event"}, status=400)
+    ip = get_client_ip(request)
+    sig_ips = night_event.setdefault("signup_ips", {})
+    if ip in sig_ips and sig_ips[ip].lower() != user.lower():
+        return web.json_response({"error": "Only one entry per network"}, status=400)
+    sig_ips[ip] = user
     night_event["signups"].append(user)
     await _night_broadcast_state()
     return web.json_response({"ok": True, "state": _night_public_state()})
@@ -5825,11 +5624,21 @@ async def admin_view_fake_log_handler(request):
     return web.json_response({"log": entries})
 
 async def social_ws_handler(request):
+    _ws_ip = get_client_ip(request)
+    if not _ws_acquire(_ws_ip):
+        return web.Response(status=429, text="Too many connections")
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     username = None
     social_clients[ws] = None
-    social_ips[ws] = get_client_ip(request)
+    social_ips[ws] = _ws_ip
+
+    async def _auth_deadline():
+        await asyncio.sleep(30)
+        if not ws.closed and not social_clients.get(ws):
+            try: await ws.close()
+            except Exception: pass
+    asyncio.ensure_future(_auth_deadline())
     try:
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
@@ -5925,6 +5734,8 @@ async def social_ws_handler(request):
                             fd = get_friend_data(username)
                             if target in fd["friends"]:
                                 key = dm_key(username, target)
+                                if reply_obj and not any(str(x.get("from", "")).lower() == reply_obj["from"].lower() and (x.get("text") or "")[:120] == reply_obj["text"] for x in dms.get(key, [])):
+                                    reply_obj = None
                                 m = {"from": username, "time": time.time()}
                                 if text: m["text"] = text
                                 if image_url: m["image_url"] = image_url
@@ -5976,6 +5787,7 @@ async def social_ws_handler(request):
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
+        _ws_release(_ws_ip)
         was_authed = bool(social_clients.get(ws))
         disconnected_user = social_clients.get(ws)
         del social_clients[ws]
@@ -6013,7 +5825,31 @@ async def notify_social(target_username, data):
             try: await ws.send_str(msg)
             except: pass
 
+ws_open_by_ip = {}
+WS_MAX_PER_IP = 60
+
+def _ws_acquire(ip):
+    if ws_open_by_ip.get(ip, 0) >= WS_MAX_PER_IP: return False
+    ws_open_by_ip[ip] = ws_open_by_ip.get(ip, 0) + 1
+    return True
+
+def _ws_release(ip):
+    n = ws_open_by_ip.get(ip, 0) - 1
+    if n <= 0: ws_open_by_ip.pop(ip, None)
+    else: ws_open_by_ip[ip] = n
+
+recent_chat = {}
+def _chat_remember(lobby_id, user, text):
+    rc = recent_chat.setdefault(lobby_id, [])
+    rc.append((user.lower(), text)); del rc[:-100]
+def _chat_reply_ok(lobby_id, rfrom, rtext):
+    f = rfrom.lower()
+    return any(u == f and t[:120] == rtext for u, t in recent_chat.get(lobby_id, []))
+
 async def websocket_handler(request):
+    _ws_ip = get_client_ip(request)
+    if not _ws_acquire(_ws_ip):
+        return web.Response(status=429, text="Too many connections")
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     username = None
@@ -6025,6 +5861,13 @@ async def websocket_handler(request):
     last_chat_text = ""
     clients[ws] = None
 
+    async def _auth_deadline():
+        await asyncio.sleep(30)
+        if not ws.closed and not clients.get(ws):
+            try: await ws.close()
+            except Exception: pass
+    asyncio.ensure_future(_auth_deadline())
+
     try:
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
@@ -6035,7 +5878,7 @@ async def websocket_handler(request):
                 if not isinstance(data, dict) or not isinstance(data.get("type"), str):
                     continue
                 try:
-                    if data["type"] == "auth":
+                    if data["type"] == "auth" and not lobby_id:
                         token = data.get("token", "")
                         lid = data.get("lobby_id", "")
                         device_id = str(data.get("device_id", ""))[:64] or None
@@ -6089,7 +5932,7 @@ async def websocket_handler(request):
                         lobby = lobbies.get(lobby_id)
                         now = time.time()
                         cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
-                        if now - last_pixel < cd:
+                        if now - max(last_pixel, last_pixel_by_user.get(username.lower(), 0)) < cd:
                             continue
 
                                                                                                    
@@ -6106,6 +5949,7 @@ async def websocket_handler(request):
                                 except: pass
                             continue
                         last_pixel = now
+                        last_pixel_by_user[username.lower()] = now
                         lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
                         if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
                             old_color = lobby["grid"][y * lw + x]
@@ -6131,10 +5975,11 @@ async def websocket_handler(request):
                         lobby = lobbies.get(lobby_id)
                         now = time.time()
                         cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
-                        if now - last_pixel < cd: continue
+                        if now - max(last_pixel, last_pixel_by_user.get(username.lower(), 0)) < cd: continue
                         if not check_rate_limit(username, "pixel", 60, 2):
                             continue
                         last_pixel = now
+                        last_pixel_by_user[username.lower()] = now
                         lw, lh = lobby.get("width", 256), lobby.get("height", 256) if lobby else (256, 256)
                         if lobby and 0 <= x < lw and 0 <= y < lh and 0 <= color < PALETTE_SIZE:
                             # Only the current author of a pixel may undo it (admins bypass).
@@ -6230,8 +6075,9 @@ async def websocket_handler(request):
                             if isinstance(rt, dict):
                                 rfrom = str(rt.get("from", ""))[:30]
                                 rtext = str(rt.get("text", ""))[:120]
-                                if rfrom and rtext:
+                                if rfrom and rtext and _chat_reply_ok(lobby_id, rfrom, rtext):
                                     chat_payload["reply_to"] = {"from": rfrom, "text": rtext}
+                            _chat_remember(lobby_id, username, text)
                             try:
                                 _lname = lobby.get("name", "") if lobby else ""
                                 _pub = "public" if (lobby and lobby.get("public")) else "private"
@@ -6420,6 +6266,7 @@ async def websocket_handler(request):
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
                 break
     finally:
+        _ws_release(_ws_ip)
         del clients[ws]
         if username and lobby_id:
             await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username})
@@ -6427,6 +6274,28 @@ async def websocket_handler(request):
             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} left"})
             await broadcast_online_lobby(lobby_id)
     return ws
+
+async def enforce_lobby_access(lid, lobby):
+    """Re-apply whitelist/public rules to sockets that are already connected."""
+    for w, info in list(clients.items()):
+        if not info or info.get("lobby_id") != lid: continue
+        u = info.get("username") or ""
+        if info.get("guest") or not u:
+            if not lobby.get("public"):
+                try: await w.send_json({"type": "error", "text": "This lobby is no longer public"}); await w.close()
+                except Exception: pass
+            continue
+        if is_admin(u) or lobby["owner"].lower() == u.lower():
+            info["can_place"] = True; continue
+        if lobby["whitelist_enabled"] and u not in lobby["whitelist"] and not lobby["public"]:
+            try: await w.send_json({"type": "error", "text": "You were removed from this lobby"}); await w.close()
+            except Exception: pass
+            continue
+        new_can = (not lobby["whitelist_enabled"]) or u in lobby["whitelist"]
+        if info.get("can_place") != new_can:
+            info["can_place"] = new_can
+            try: await w.send_json({"type": "perm", "can_place": new_can})
+            except Exception: pass
 
 async def broadcast_to_lobby(lobby_id, data, exclude=None):
     msg = json.dumps(data)
@@ -6864,6 +6733,8 @@ async def cors_middleware(request, handler):
     else:
         resp = await handler(request)
     resp.headers['Access-Control-Allow-Origin'] = '*'
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('Referrer-Policy', 'no-referrer')
     resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return resp
@@ -6997,9 +6868,9 @@ async def avatar_handler(request):
     })
 
 
-FISH_CAST_COOLDOWN = 20
-FISH_CAST_COST = 2
-FISH_DAILY_CAP = 150
+FISH_CAST_COOLDOWN = 0
+FISH_CAST_COST = 14
+FISH_DAILY_CAP = 500
 FISH_RARITY_WEIGHTS = [("common", 600), ("uncommon", 250), ("rare", 100), ("epic", 38), ("legendary", 10), ("mythic", 2)]
 FISH_ITEMS = [
     ("minnow", "Minnow", "common", 1), ("sardine", "Sardine", "common", 1), ("anchovy", "Anchovy", "common", 1),
@@ -7098,8 +6969,6 @@ async def fishing_cast_handler(request):
         if item["rarity"] in ("legendary", "mythic"): await unlock_achievement(user, "fish_legendary")
         if len(seen) >= 40: await unlock_achievement(user, "fish_collector")
     except Exception: pass
-    if item["rarity"] in ("epic", "legendary", "mythic"):
-        await _fish_announce(f"{user} reeled in a {item['rarity']} {item['name']} while fishing!")
     return web.json_response({"ok": True, "item": item, "new": first_time, "state": _fish_state(user, now)})
 
 async def fishing_sell_handler(request):
@@ -7138,7 +7007,7 @@ app.on_cleanup.append(on_cleanup)
 _g, _p = app.router.add_get, app.router.add_post
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
-    ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/version", version_handler),
+    ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/logout", logout_handler), ("/api/version", version_handler),
     ("/api/avatar", avatar_handler),
     ("/api/auth/suggest-mode", auth_suggest_mode_handler), ("/api/lobbies", lobbies_handler),
     ("/api/my-lobbies", my_lobbies_handler), ("/api/lobbies/info", lobby_detail_handler),
@@ -7153,7 +7022,7 @@ for _path, _h in (
     ("/api/admin/ipbans", _admin_json_view("ip_bans", lambda: ip_bans)),
     ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler),
     ("/api/me", me_handler), ("/api/streak/progress", streak_progress_handler),
-    ("/api/casino/amongus/list", amongus_list_handler), ("/api/casino/amongus/state", amongus_state_handler), ("/api/uno/list", uno_list_handler),
+    ("/api/uno/list", uno_list_handler),
     ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
     ("/api/battle/list", battle_list_handler), ("/api/battle/state", battle_state_handler),
     ("/api/sketch/list", sketch_list_handler), ("/api/sketch/state", sketch_state_handler),
@@ -7202,10 +7071,7 @@ for _path, _h in (
     ("/api/casino/gd/start", casino_gd_start_handler), ("/api/casino/gd/result", casino_gd_result_handler),
     ("/api/casino/gd/save-level", gd_save_level_handler), ("/api/casino/gd/delete-level", gd_delete_level_handler),
     ("/api/notifications/seen", notifications_seen_handler),
-    ("/api/casino/amongus/create", amongus_create_handler), ("/api/casino/amongus/join", amongus_join_handler),
-    ("/api/casino/amongus/start", amongus_start_handler), ("/api/casino/amongus/say", amongus_say_handler),
-    ("/api/casino/amongus/kill", amongus_kill_handler), ("/api/casino/amongus/vote", amongus_vote_handler),
-    ("/api/casino/amongus/leave", amongus_leave_handler), ("/api/casino/blackjack", casino_blackjack_handler),
+    ("/api/casino/blackjack", casino_blackjack_handler),
     ("/api/flappy/pass", flappy_pass_handler), ("/api/uno/create", uno_create_handler),
     ("/api/uno/join", uno_join_handler), ("/api/uno/start", uno_start_handler),
     ("/api/uno/play", uno_play_handler), ("/api/uno/jump-in", uno_jump_in_handler),
@@ -7213,7 +7079,7 @@ for _path, _h in (
     ("/api/uno/leave", uno_leave_handler), ("/api/uno/spectate", uno_spectate_handler),
     ("/api/uno/unspectate", uno_unspectate_handler), ("/api/uno/say", uno_say_handler),
     ("/api/battle/create", battle_create_handler), ("/api/battle/join", battle_join_handler),
-    ("/api/battle/assign", battle_assign_handler), ("/api/battle/start", battle_start_handler),
+    ("/api/battle/assign", battle_assign_handler), ("/api/battle/accept", battle_accept_handler), ("/api/battle/start", battle_start_handler),
     ("/api/battle/paint", battle_paint_handler), ("/api/battle/done", battle_done_handler),
     ("/api/battle/judge", battle_judge_handler), ("/api/battle/leave", battle_leave_handler),
     ("/api/battle/say", battle_say_handler),

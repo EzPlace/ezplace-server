@@ -4,3 +4,11 @@ ezplace-backup-*.json
 __pycache__/
 migrate_to_mongo.py
 .claude/
+
+# data files with password hashes, IPs and bans
+accounts.json
+bans.json
+friends.json
+grids.json
+lobbies.json
+user_ips.json
