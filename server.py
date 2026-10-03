@@ -3147,6 +3147,166 @@ GD_LEVEL_LENGTH = 5400
 GD_MIN_PLAY_MS_PER_PCT = 400
 GD_DAILY_PLAY_CAP = 30
 GD_MAX_MULT = 1.75
+
+# ---- Server-side replay of a GeoDash run -------------------------------------------------
+# The page records the player's key presses against a fixed 120 Hz simulation step; the server rebuilds the level
+# from the seed and replays those inputs with the same physics, so the payout no longer depends on a number the
+# browser claims. (Keep this in lock-step with gdStepState/gdMakeLevel in index.html.)
+GD_DT = 1.0 / 120.0
+GD_W, GD_H = 800, 360
+GD_GROUND_Y = 304
+GD_PLAYER_X = 120
+GD_PLAYER_SZ = 24
+GD_SPEED = 260
+GD_MAX_STEPS = 120 * 45
+GD_MAX_INPUTS = 6000
+
+def _gd_imul(a, b):
+    return ((a & 0xFFFFFFFF) * (b & 0xFFFFFFFF)) & 0xFFFFFFFF
+
+def _gd_mulberry32(seed):
+    a = [(int(seed) & 0xFFFFFFFF) or 1]
+    def rnd():
+        a[0] = (a[0] + 0x6D2B79F5) & 0xFFFFFFFF
+        t = a[0]
+        t = _gd_imul(t ^ (t >> 15), t | 1)
+        t = (t ^ ((t + _gd_imul(t ^ (t >> 7), t | 61)) & 0xFFFFFFFF)) & 0xFFFFFFFF
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296.0
+    return rnd
+
+def gd_make_level(seed):
+    r = _gd_mulberry32(seed)
+    obstacles = []
+    x = 320
+    mode = "cube"
+    gy = GD_GROUND_Y
+    while x < GD_LEVEL_LENGTH - 240:
+        roll = r()
+        if mode == "cube":
+            if roll < 0.45:
+                spikes = 1 + int(r() * 2)
+                for i in range(spikes):
+                    obstacles.append({"kind": "spike", "x": x + i * 42, "y": gy - 24, "w": 24, "h": 24})
+                x += spikes * 42 + 100
+            elif roll < 0.75:
+                h = 40 + int(r() * 60)
+                obstacles.append({"kind": "block", "x": x, "y": gy - h, "w": 60 + int(r() * 40), "h": h})
+                if r() < 0.5:
+                    obstacles.append({"kind": "spike", "x": x + 80 + int(r() * 40), "y": gy - 24, "w": 24, "h": 24})
+                x += 180
+            else:
+                obstacles.append({"kind": "spike", "x": x, "y": gy - 24, "w": 24, "h": 24})
+                obstacles.append({"kind": "block", "x": x + 60, "y": gy - 50, "w": 50, "h": 50})
+                obstacles.append({"kind": "spike", "x": x + 140, "y": gy - 24, "w": 24, "h": 24})
+                x += 220
+        elif mode == "ufo":
+            gap = 80 + int(r() * 50)
+            top_h = 20 + int(r() * (gy - gap - 40))
+            obstacles.append({"kind": "spike", "x": x, "y": 0, "w": 24, "h": top_h})
+            obstacles.append({"kind": "spike", "x": x, "y": top_h + gap, "w": 24, "h": gy - top_h - gap})
+            if r() < 0.4:
+                obstacles.append({"kind": "spike", "x": x + 50, "y": gy - 24, "w": 24, "h": 24})
+            x += 110
+        else:
+            gap = 90 + int(r() * 50)
+            top_h = 40 + int(r() * (gy - gap - 80))
+            obstacles.append({"kind": "spike", "x": x, "y": 0, "w": 24, "h": top_h})
+            obstacles.append({"kind": "spike", "x": x, "y": top_h + gap, "w": 24, "h": gy - top_h - gap})
+            if r() < 0.35:
+                obstacles.append({"kind": "spike", "x": x + 60, "y": gy - 24, "w": 24, "h": 24})
+            x += 130
+        if r() < 0.22 and x < GD_LEVEL_LENGTH - 400:
+            modes = [m for m in ("cube", "ufo", "plane") if m != mode]
+            new_mode = modes[int(r() * len(modes))]
+            obstacles.append({"kind": "portal", "x": x, "y": gy - 80, "w": 32, "h": 64, "mode": new_mode})
+            mode = new_mode
+            x += 80
+    return obstacles
+
+def _gd_overlap(ax, ay, aw, ah, bx, by, bw, bh):
+    return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+
+def gd_simulate(seed, inputs, steps):
+    """Replay a run. inputs = sorted [[step, 0|1], ...] (1 = pressed, 0 = released). Returns (progress, dead, won, steps_run)."""
+    obstacles = gd_make_level(seed)
+    used = [False] * len(obstacles)
+    scroll = 0.0; y = float(GD_GROUND_Y - GD_PLAYER_SZ); vy = 0.0
+    mode = "cube"; on_ground = True; pressing = False
+    dt = GD_DT; idx = 0; n_in = len(inputs)
+    dead = won = False; step = 0
+    while step < steps:
+        while idx < n_in and inputs[idx][0] <= step:
+            if inputs[idx][1]:
+                pressing = True
+                if mode == "cube" and on_ground: vy = -560.0
+                elif mode == "ufo": vy = -340.0
+            else:
+                pressing = False
+            idx += 1
+        scroll += GD_SPEED * dt
+        if mode == "cube":
+            vy += 2400 * dt
+            y += vy * dt
+            if y >= GD_GROUND_Y - GD_PLAYER_SZ:
+                y = float(GD_GROUND_Y - GD_PLAYER_SZ); vy = 0.0; on_ground = True
+            else:
+                on_ground = False
+        elif mode == "ufo":
+            vy += 1400 * dt
+            y += vy * dt
+            if y >= GD_GROUND_Y - GD_PLAYER_SZ:
+                y = float(GD_GROUND_Y - GD_PLAYER_SZ); vy = 0.0; on_ground = True
+            else:
+                on_ground = False
+            if y < 0: y = 0.0; vy = 0.0
+        else:  # plane
+            target = -260.0 if pressing else 260.0
+            vy += (target - vy) * min(1.0, dt * 6)
+            y += vy * dt
+            if y >= GD_GROUND_Y - GD_PLAYER_SZ: y = float(GD_GROUND_Y - GD_PLAYER_SZ); vy = 0.0
+            if y < 0: y = 0.0; vy = 0.0
+        px = scroll + GD_PLAYER_X
+        py = y
+        killed = False
+        for i, ob in enumerate(obstacles):
+            if ob["x"] + ob["w"] < px - 50 or ob["x"] > px + GD_PLAYER_SZ + 50: continue
+            kind = ob["kind"]
+            if kind == "block":
+                if _gd_overlap(px, py, GD_PLAYER_SZ, GD_PLAYER_SZ, ob["x"], ob["y"], ob["w"], ob["h"]):
+                    prev_py = py - vy * dt
+                    if mode == "cube" and prev_py + GD_PLAYER_SZ <= ob["y"] + 2 and vy >= 0:
+                        y = float(ob["y"] - GD_PLAYER_SZ); vy = 0.0; on_ground = True
+                    elif mode == "ufo" and prev_py + GD_PLAYER_SZ <= ob["y"] + 2 and vy >= 0:
+                        y = float(ob["y"] - GD_PLAYER_SZ); vy = 0.0; on_ground = True
+                    else:
+                        killed = True; break
+            elif kind == "spike":
+                inset = 4
+                if _gd_overlap(px + inset, py + inset, GD_PLAYER_SZ - inset * 2, GD_PLAYER_SZ - inset * 2, ob["x"] + 4, ob["y"] + 4, ob["w"] - 8, ob["h"] - 8):
+                    killed = True; break
+            elif kind == "portal":
+                if not used[i] and px + GD_PLAYER_SZ >= ob["x"] and px <= ob["x"] + ob["w"]:
+                    used[i] = True
+                    mode = ob["mode"]; vy = 0.0
+        step += 1
+        if killed:
+            dead = True; break
+        if scroll >= GD_LEVEL_LENGTH:
+            won = True; break
+    progress = 1.0 if won else max(0.0, min(1.0, scroll / GD_LEVEL_LENGTH))
+    return progress, dead, won, step
+
+def _gd_clean_inputs(raw):
+    """Validate the recorded key events: [[step, 0|1], ...] in non-decreasing step order."""
+    if not isinstance(raw, list) or len(raw) > GD_MAX_INPUTS: raise ValueError("bad inputs")
+    out = []; last = 0
+    for ev in raw:
+        if not isinstance(ev, (list, tuple)) or len(ev) != 2: raise ValueError("bad input event")
+        st, d = ev
+        if isinstance(st, bool) or isinstance(d, bool) or not isinstance(st, int) or not isinstance(d, int): raise ValueError("bad input event")
+        if st < last or st > GD_MAX_STEPS or d not in (0, 1): raise ValueError("bad input event")
+        out.append([st, d]); last = st
+    return out
 GD_LEVEL_MAX_OBSTACLES = 240
 GD_LEVEL_NAME_MAX = 40
 GD_LEVELS_PER_USER = 20
@@ -3515,13 +3675,28 @@ async def casino_gd_result_handler(request):
             return web.json_response({"ok": True, "progress": progress, "multiplier": 0, "winnings": 0, "bet": 0, "balance": get_pb(user), "custom": True})
         if seed != g["seed"]:
             return web.json_response({"error": "Seed mismatch"}, status=400)
-        pct = progress * 100
+        # The browser's own "progress" is ignored: the run is replayed here from the recorded key presses.
+        if "inputs" not in data:
+            g["done"] = True
+            gd_attempts.pop(ulow, None)
+            credit_pb(user, g["bet"])
+            await save_place_bucks(); await push_pb_update(user)
+            return web.json_response({"error": "Your page is out of date - refresh it to play GeoDash (your bet was refunded)."}, status=400)
+        try:
+            inputs = _gd_clean_inputs(data.get("inputs"))
+            steps = int(data.get("steps", 0))
+            if steps < 0 or steps > GD_MAX_STEPS: raise ValueError("bad steps")
+        except Exception:
+            g["done"] = True
+            gd_attempts.pop(ulow, None)
+            return web.json_response({"error": "Bad run data - the attempt was cancelled"}, status=400)
         server_elapsed_ms = int((time.time() - g["start_ts"]) * 1000)
-        min_required_ms = int(pct * GD_MIN_PLAY_MS_PER_PCT)
-        if time_ms < min_required_ms or server_elapsed_ms < min_required_ms:
+        if steps * 1000.0 / 120.0 > server_elapsed_ms + 2500:
             g["done"] = True
             gd_attempts.pop(ulow, None)
             return web.json_response({"error": "Run too fast to be real (anti-cheat)"}, status=400)
+        progress, _dead, _won, _ran = gd_simulate(g["seed"], inputs, steps)
+        pct = progress * 100
         if progress < 0.5:
             multiplier = round(2 * progress, 3)
         else:
@@ -7023,7 +7198,7 @@ async def cors_middleware(request, handler):
     resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
     resp.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
     resp.headers.setdefault('Referrer-Policy', 'no-referrer')
-    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cache-Control, Pragma'
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return resp
 
@@ -7275,6 +7450,99 @@ async def fishing_cast_handler(request):
     except Exception: pass
     return web.json_response({"ok": True, "item": item, "new": first_time, "state": _fish_state(user, now)})
 
+# ---- Casino fishing minigame: stop the moving marker on a rarity zone ------------------------------------
+# The marker sweeps a bar whose zones (Common ... Mythic) are sized by rarity; the player stops it and gets a random fish
+# of the zone it landed on. The marker position is a pure function of elapsed time (mg_position), which the page mirrors,
+# so the server can work out the zone itself from the reported time instead of trusting a claimed result.
+MG_COST = 30
+MG_DAILY_PLAYS = 100
+MG_PREMIUM_DAILY = 3            # legendary/mythic results per player per day; extra ones come out as epic
+MG_SEG_MS = 1100                # the marker alternates "speedy" / "very speedy" every segment
+MG_SPEEDS = (1.4, 2.8)          # bar lengths per second
+MG_ZONES = [("common", 0.54), ("uncommon", 0.25), ("rare", 0.12), ("epic", 0.06), ("legendary", 0.025), ("mythic", 0.005)]
+mg_attempts = {}
+mg_premium_day = {}
+
+def mg_position(t_ms, first):
+    seg = MG_SEG_MS / 1000.0
+    k = int(t_ms // MG_SEG_MS)
+    rem = (t_ms - k * MG_SEG_MS) / 1000.0
+    dist = (k // 2) * seg * (MG_SPEEDS[0] + MG_SPEEDS[1])
+    if k % 2 == 1: dist += seg * MG_SPEEDS[first % 2]
+    dist += rem * MG_SPEEDS[(first + k) % 2]
+    u = dist % 2.0
+    return u if u <= 1.0 else 2.0 - u
+
+def mg_zone(pos):
+    acc = 0.0
+    for name, w in MG_ZONES:
+        acc += w
+        if pos < acc: return name
+    return MG_ZONES[-1][0]
+
+async def mg_fish_start_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    ulow = user.lower()
+    if not check_rate_limit(user, "mg_fish_start", 12, 60):
+        return web.json_response({"error": "Slow down"}, status=429)
+    cur = mg_attempts.get(ulow)
+    if cur and not cur["done"] and time.time() - cur["start_ts"] < 60:
+        return web.json_response({"error": "Finish your current cast first"}, status=400)
+    if not spend_pb(user, MG_COST):
+        return web.json_response({"error": f"Casting costs {MG_COST} PlaceBux"}, status=400)
+    if not check_rate_limit(user, "mg_fish_day", MG_DAILY_PLAYS, 86400):
+        credit_pb(user, MG_COST)
+        return web.json_response({"error": f"Daily limit reached ({MG_DAILY_PLAYS} casts per day)"}, status=429)
+    first = secrets.randbelow(2)
+    mg_attempts[ulow] = {"start_ts": time.time(), "first": first, "done": False}
+    await save_place_bucks(); await push_pb_update(user)
+    return web.json_response({"ok": True, "first": first, "seg_ms": MG_SEG_MS, "speeds": list(MG_SPEEDS),
+                              "zones": [[n, w] for n, w in MG_ZONES], "cost": MG_COST, "balance": get_pb(user)})
+
+async def mg_fish_stop_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    ulow = user.lower()
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Body must be JSON"}, status=400)
+    a = mg_attempts.get(ulow)
+    if not a or a["done"]:
+        return web.json_response({"error": "No cast in progress"}, status=400)
+    a["done"] = True            # before any await, so repeated stop requests cannot be paid twice
+    mg_attempts.pop(ulow, None)
+    try: elapsed = int(data.get("elapsed_ms")) if isinstance(data, dict) else -1
+    except Exception: elapsed = -1
+    srv_ms = (time.time() - a["start_ts"]) * 1000.0
+    if elapsed < 0 or elapsed > srv_ms + 100 or elapsed < srv_ms - 4000 or srv_ms > 90000:
+        credit_pb(user, MG_COST)
+        await save_place_bucks(); await push_pb_update(user)
+        return web.json_response({"error": "Timing check failed - your cast was refunded"}, status=400)
+    pos = mg_position(elapsed, a["first"])
+    zone = mg_zone(pos); rarity = zone; downgraded = False
+    if rarity in ("legendary", "mythic"):
+        day = int(time.time() // 86400)
+        rec = mg_premium_day.get(ulow)
+        if not rec or rec[0] != day: rec = [day, 0]
+        if rec[1] >= MG_PREMIUM_DAILY: rarity = "epic"; downgraded = True
+        else: rec[1] += 1
+        mg_premium_day[ulow] = rec
+    item = secrets.SystemRandom().choice(FISH_BY_RARITY[rarity])
+    st = _fish_slot(user)
+    inv = st.setdefault("inv", {}); seen = st.setdefault("seen", {})
+    inv[item["id"]] = int(inv.get(item["id"], 0)) + 1
+    first_time = item["id"] not in seen
+    seen[item["id"]] = int(seen.get(item["id"], 0)) + 1
+    await save_fishing()
+    try:
+        await unlock_achievement(user, "fish_first")
+        await unlock_achievement(user, "casino_first")
+        if item["rarity"] in ("legendary", "mythic"): await unlock_achievement(user, "fish_legendary")
+        if len(seen) >= 40: await unlock_achievement(user, "fish_collector")
+    except Exception: pass
+    return web.json_response({"ok": True, "item": item, "new": first_time, "zone": zone, "rarity": rarity, "downgraded": downgraded,
+                              "position": round(pos, 4), "balance": get_pb(user), "state": _fish_state(user)})
+
 async def fishing_sell_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
@@ -7411,6 +7679,7 @@ for _path, _h in (
     ("/api/mod/report-resolve", report_resolve_handler),
     ("/api/account/set-avatar", set_avatar_handler),
     ("/api/fishing/cast", fishing_cast_handler), ("/api/fishing/sell", fishing_sell_handler),
+    ("/api/minigame/fish/start", mg_fish_start_handler), ("/api/minigame/fish/stop", mg_fish_stop_handler),
     ("/api/account/clear-avatar", clear_avatar_handler),
 ): _p(_path, _h)
 

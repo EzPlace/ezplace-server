@@ -127,7 +127,13 @@
   #request-float:hover { background: #ffd93d; transform: translateY(-1px); }
   #request-float .mi { width: 18px; height: 18px; }
   body.menu-open:not(.in-lobby) #request-float { display: flex; }
-  @media (max-width: 640px) { #request-float span, #discord-float span { display: none; } #request-float, #discord-float { padding: 0 10px; } }
+  @media (max-width: 640px) {
+    #request-float span, #discord-float span { display: none; }
+    #request-float, #discord-float { padding: 0 10px; }
+    /* leave a strip above the menu card for the two corner buttons so they never cover its Back arrow */
+    body.menu-open:not(.in-lobby) #menu { padding-top: 58px; }
+    body.menu-open:not(.in-lobby) #menu-bubble { max-height: calc(100vh - 74px); max-height: calc(100svh - 74px); }
+  }
   #discord-float:hover { background: #4752c4; transform: translateY(-1px); }
   #discord-float .mi { width: 18px; height: 18px; }
   body.menu-open:not(.in-lobby) #discord-float { display: flex; }
@@ -217,11 +223,24 @@
   body.eink-mode .menu-tab.active { background: #000 !important; color: #fff !important; }
   body.eink-mode #menu-title, body.eink-mode .menu-btn .mi { color: #000 !important; }
   #fish-water { position: relative; min-height: 92px; border-radius: 14px; background: linear-gradient(180deg, rgba(45,212,191,0.10), rgba(36,80,164,0.28)); border: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px 14px; overflow: hidden; }
-  #fish-scene { position: relative; width: 320px; max-width: 100%; height: 160px; margin: 0 auto; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }
-  #fish-scene .fs-layer { position: absolute; left: 0; top: 0; width: 320px; height: 160px; pointer-events: none; }
-  #fs-avatar { position: absolute; left: 38px; top: 42px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; object-fit: cover; background: #222; }
-  #fs-item { position: absolute; left: 0; top: 0; width: 56px; height: 34px; display: none; pointer-events: none; }
-  #fs-item svg { width: 100%; height: 100%; overflow: visible; }
+  .fish-scene { position: relative; width: 320px; max-width: 100%; height: 160px; margin: 0 auto; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }
+  .fish-scene .fs-layer { position: absolute; left: 0; top: 0; width: 320px; height: 160px; pointer-events: none; }
+  .fs-avatar { position: absolute; left: 38px; top: 42px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; object-fit: cover; background: #222; }
+  .fs-item { position: absolute; left: 0; top: 0; width: 56px; height: 34px; display: none; pointer-events: none; }
+  .fs-item svg { width: 100%; height: 100%; overflow: visible; }
+  .mg-wrap { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .mg-live { font-size: 24px; font-weight: 800; letter-spacing: 2px; min-height: 30px; text-transform: uppercase; text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+  .mg-speed { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: var(--text-muted); min-height: 14px; }
+  .mg-speed.fast { color: #ff5a5a; }
+  .mg-bar { position: relative; display: flex; width: 320px; max-width: 100%; height: 46px; border-radius: 10px; overflow: hidden; border: 2px solid rgba(255,255,255,0.25); cursor: pointer; touch-action: manipulation; user-select: none; }
+  .mg-bar.fast { box-shadow: 0 0 14px rgba(255,90,90,0.55); }
+  .mg-seg { height: 100%; flex: 0 0 auto; }
+  .mg-seg.hit { outline: 3px solid #fff; outline-offset: -3px; position: relative; z-index: 1; }
+  .mg-ind { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: #fff; box-shadow: 0 0 8px #fff, 0 0 2px #000; border-radius: 2px; pointer-events: none; }
+  .mg-legend { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; font-size: 10px; max-width: 340px; }
+  .mg-legend span { padding: 2px 6px; border-radius: 6px; font-weight: 700; color: #111; }
+  .mg-row { display: flex; gap: 8px; width: 100%; max-width: 320px; }
+  .mg-row .win-btn { flex: 1; padding: 10px 0; font-size: 14px; font-weight: 800; }
   .fs-wave { animation: fsWave 2.4s linear infinite; }
   @keyframes fsWave { from { transform: translateX(0); } to { transform: translateX(-40px); } }
   #fish-catch { text-align: center; min-height: 44px; }
@@ -581,7 +600,6 @@
           <div class="more-ping">Ping: <span id="ping-ms">--</span>ms</div>
         </div>
       </div>
-      <button id="btn-menu" class="win-btn">Menu</button>
       <button id="btn-leave-lobby" class="win-btn" style="display:none">Leave Lobby</button>
       <div id="online" title="Click to see who is online" style="cursor:pointer;"><span id="online-count">0</span> here &middot; <span id="total-online">0</span> online</div>
       <div id="online-panel" style="display:none;position:fixed;top:52px;right:14px;z-index:70;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.6);padding:10px 12px;min-width:220px;max-width:280px;max-height:420px;overflow-y:auto;font-size:12px;"></div>
@@ -1457,6 +1475,22 @@
             <div id="gd-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);">Die at 0% lose bet · die at 50% break even · clear 100% = 3x. Multiplier scales linearly with progress.</div>
           </div>
         </details>
+        <details class="game-acc" id="mg-acc"><summary>Fishing Timing 🎣 <span class="game-hint">Stop the marker on a rarity - you get a random fish of that kind. 30 $ per cast</span></summary>
+          <div class="game-body">
+            <div class="mg-wrap">
+              <div id="mg-scene" class="fish-scene" data-pfx="mg-"></div>
+              <div id="mg-live" class="mg-live">&nbsp;</div>
+              <div id="mg-speed" class="mg-speed">&nbsp;</div>
+              <div id="mg-bar" class="mg-bar" style="display:none"><div id="mg-ind" class="mg-ind"></div></div>
+              <div id="mg-legend" class="mg-legend"></div>
+              <div class="mg-row">
+                <button id="btn-mg-cast" class="win-btn" style="background:var(--accent);color:#fff;">Cast line (30 $)</button>
+                <button id="btn-mg-stop" class="win-btn" style="display:none;background:var(--red);color:#fff;">STOP!</button>
+              </div>
+              <div id="mg-msg" style="font-size:12px;min-height:16px;color:var(--text-muted);text-align:center;"></div>
+            </div>
+          </div>
+        </details>
         <details class="game-acc"><summary>Mines 💣 <span class="game-hint">Reveal gems to grow your multiplier - cash out before a bomb</span></summary>
           <div class="game-body">
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
@@ -1615,31 +1649,7 @@
       </div>
 
       <div class="menu-view" id="menu-view-fishing">
-        <div id="fish-scene">
-          <svg class="fs-layer" viewBox="0 0 320 160" aria-hidden="true">
-            <defs>
-              <linearGradient id="fs-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5aa9e6"/><stop offset="1" stop-color="#bfe6ff"/></linearGradient>
-              <linearGradient id="fs-sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f8fc4"/><stop offset="1" stop-color="#14456f"/></linearGradient>
-            </defs>
-            <rect width="320" height="110" fill="url(#fs-sky)"/>
-            <circle cx="276" cy="28" r="14" fill="#ffe79a"/>
-            <ellipse cx="210" cy="26" rx="22" ry="7" fill="#fff" opacity=".8"/><ellipse cx="226" cy="22" rx="14" ry="6" fill="#fff" opacity=".8"/>
-            <rect x="26" y="106" width="8" height="54" fill="#5a3a1a"/><rect x="104" y="106" width="8" height="54" fill="#5a3a1a"/>
-            <rect y="104" width="320" height="56" fill="url(#fs-sea)" opacity=".92"/>
-            <g class="fs-wave"><path id="fs-wave-path" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/></g>
-            <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
-            <rect x="0" y="100" width="130" height="8" fill="#8b5a2b"/><rect x="0" y="107" width="130" height="3" fill="#5a3a1a"/>
-          </svg>
-          <img id="fs-avatar" alt="">
-          <svg class="fs-layer" viewBox="0 0 320 160" aria-hidden="true">
-            <ellipse id="fs-rip" cx="232" cy="108" rx="0" ry="0" fill="none" stroke="#fff" stroke-width="2" opacity="0"/>
-            <line x1="66" y1="90" x2="72" y2="86" stroke="#e9b98a" stroke-width="5" stroke-linecap="round"/>
-            <line id="fs-rod" x1="72" y1="86" x2="158" y2="36" stroke="#6b4423" stroke-width="3" stroke-linecap="round"/>
-            <path id="fs-line" d="" fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="1"/>
-            <g id="fs-bob" style="display:none"><circle r="5" fill="#fff"/><path d="M-5 0A5 5 0 0 1 5 0Z" fill="#e53935"/></g>
-          </svg>
-          <div id="fs-item"></div>
-        </div>
+        <div id="fish-scene" class="fish-scene" data-pfx="fs-"></div>
         <div id="fish-catch">Cast a line to see what you reel in.</div>
         <button class="menu-btn primary wide" id="btn-fish-cast">Cast line</button>
         <div id="fish-stats"></div>
@@ -1660,7 +1670,7 @@
         <div class="earn-card"><div class="earn-title">Daily streak</div><div class="earn-desc">Spend 15 active minutes on the site each day to claim your daily bonus: 2 PlaceBux times your streak length, up to 50 a day. Miss a day and the streak resets. The shop sells a 48-hour window and Streak Passes that protect it.</div></div>
         <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
         <div class="earn-card"><div class="earn-title">Flappy Bird</div><div class="earn-desc">1 PlaceBux per pipe you clear, no bet needed. Capped at 600 a day.</div></div>
-        <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, and Battle Mode in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
+        <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Battle Mode and Fishing Timing in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
         <div class="earn-card"><div class="earn-title">Night Event</div><div class="earn-desc">Watch the Lobbies screen for the Night Event banner. Sign up when it opens; the winner takes 10,000 PlaceBux.</div></div>
         <div class="earn-card"><div class="earn-title">Gifts from friends</div><div class="earn-desc">Anyone can send you PlaceBux from the Transfer tab in the Shop.</div></div>
         <div class="menu-section">Spending</div>
@@ -1883,7 +1893,6 @@ function requireAuthView(name) {
 }
 document.getElementById('menu-back').onclick = menuBack;
 document.getElementById('menu-close').onclick = hideMenu;
-document.getElementById('btn-menu').onclick = () => showMenu('home');
 document.getElementById('btn-more').onclick = (e) => { e.stopPropagation(); const p = document.getElementById('more-panel'); p.style.display = p.style.display === 'none' ? '' : 'none'; };
 document.addEventListener('click', (e) => { const p = document.getElementById('more-panel'); if (p && p.style.display !== 'none' && !e.target.closest('#more-wrap')) p.style.display = 'none'; });
 document.getElementById('more-panel').addEventListener('click', (e) => { if (e.target.closest('button')) document.getElementById('more-panel').style.display = 'none'; });
@@ -2066,29 +2075,60 @@ const _fsEase = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 const _fsLerp = (a, b, t) => a + (b - a) * t;
 const _fsAnim = (ms, fn) => new Promise(res => { const t0 = performance.now(); (function f(n) { const t = Math.min(1, (n - t0) / ms); fn(t); if (t < 1) requestAnimationFrame(f); else res(); })(t0); });
 function _fsTip(phi) { const r = phi * Math.PI / 180; return [FS.bx + FS.len * Math.cos(r), FS.by - FS.len * Math.sin(r)]; }
+// Two copies of the fishing scene exist (Fishing screen: prefix "fs-", casino minigame: prefix "mg-"). FSP picks the active one.
+let FSP = 'fs-';
+const fsEl = (n) => document.getElementById(FSP + n);
+function buildFishScene(el, p) {
+  el.innerHTML = `
+    <svg class="fs-layer" viewBox="0 0 320 160" aria-hidden="true">
+      <defs>
+        <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5aa9e6"/><stop offset="1" stop-color="#bfe6ff"/></linearGradient>
+        <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f8fc4"/><stop offset="1" stop-color="#14456f"/></linearGradient>
+      </defs>
+      <rect width="320" height="110" fill="url(#${p}sky)"/>
+      <circle cx="276" cy="28" r="14" fill="#ffe79a"/>
+      <ellipse cx="210" cy="26" rx="22" ry="7" fill="#fff" opacity=".8"/><ellipse cx="226" cy="22" rx="14" ry="6" fill="#fff" opacity=".8"/>
+      <rect x="26" y="106" width="8" height="54" fill="#5a3a1a"/><rect x="104" y="106" width="8" height="54" fill="#5a3a1a"/>
+      <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".92"/>
+      <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/></g>
+      <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
+      <rect x="0" y="100" width="130" height="8" fill="#8b5a2b"/><rect x="0" y="107" width="130" height="3" fill="#5a3a1a"/>
+    </svg>
+    <img id="${p}avatar" class="fs-avatar" alt="">
+    <svg class="fs-layer" viewBox="0 0 320 160" aria-hidden="true">
+      <ellipse id="${p}rip" cx="232" cy="108" rx="0" ry="0" fill="none" stroke="#fff" stroke-width="2" opacity="0"/>
+      <line x1="66" y1="90" x2="72" y2="86" stroke="#e9b98a" stroke-width="5" stroke-linecap="round"/>
+      <line id="${p}rod" x1="72" y1="86" x2="158" y2="36" stroke="#6b4423" stroke-width="3" stroke-linecap="round"/>
+      <path id="${p}line" d="" fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="1"/>
+      <g id="${p}bob" style="display:none"><circle r="5" fill="#fff"/><path d="M-5 0A5 5 0 0 1 5 0Z" fill="#e53935"/></g>
+    </svg>
+    <div id="${p}item" class="fs-item"></div>`;
+}
+document.querySelectorAll('.fish-scene[data-pfx]').forEach(el => buildFishScene(el, el.dataset.pfx));
+function withScene(p, fn) { const old = FSP; FSP = p; try { return fn(); } finally { FSP = old; } }
 function fsDraw(phi, bx, by, sag, showBob, showLine) {
   const [tx, ty] = _fsTip(phi);
-  const rod = document.getElementById('fs-rod'); if (!rod) return;
+  const rod = fsEl('rod'); if (!rod) return;
   rod.setAttribute('x2', tx.toFixed(1)); rod.setAttribute('y2', ty.toFixed(1));
-  const line = document.getElementById('fs-line');
+  const line = fsEl('line');
   if (showLine === undefined ? showBob : showLine) line.setAttribute('d', `M${tx.toFixed(1)} ${ty.toFixed(1)}Q${((tx + bx) / 2).toFixed(1)} ${((ty + by) / 2 + sag).toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`);
   else line.setAttribute('d', '');
-  const bob = document.getElementById('fs-bob');
+  const bob = fsEl('bob');
   bob.style.display = showBob ? '' : 'none';
   bob.setAttribute('transform', `translate(${bx.toFixed(1)} ${by.toFixed(1)})`);
 }
 function fsIdle() {
   fsDraw(FS.rest, FS.tx, FS.ty, 0, false);
-  const it = document.getElementById('fs-item'); if (it) it.style.display = 'none';
+  const it = fsEl('item'); if (it) it.style.display = 'none';
 }
 function fsRipple(t) {
-  const r = document.getElementById('fs-rip'); if (!r) return;
+  const r = fsEl('rip'); if (!r) return;
   r.setAttribute('rx', (4 + 24 * t).toFixed(1)); r.setAttribute('ry', (1 + 6 * t).toFixed(1)); r.setAttribute('opacity', (1 - t).toFixed(2));
 }
 function fsSetup() {
-  const wp = document.getElementById('fs-wave-path');
+  const wp = fsEl('wave-path');
   if (wp && !wp.getAttribute('d')) { let d = 'M0 110'; for (let i = 0; i < 12; i++) d += 'q10 -6 20 0t20 0'; wp.setAttribute('d', d); }
-  const av = document.getElementById('fs-avatar');
+  const av = fsEl('avatar');
   if (av) { av.onerror = () => { av.onerror = null; av.src = DEFAULT_AVATAR; }; av.src = avatarUrl(username); }
   fsIdle();
 }
@@ -2111,14 +2151,14 @@ async function fsRetract() {
   await _fsAnim(450, t => { const [tx, ty] = _fsTip(22); fsDraw(22, _fsLerp(FS.tx, tx, _fsEase(t)), _fsLerp(FS.ty, ty + 6, _fsEase(t)) - 14 * Math.sin(Math.PI * t), 10, true); });
 }
 async function fsReel(item) {
-  const el = document.getElementById('fs-item'); el.innerHTML = fishArt(item); el.style.display = 'block';
+  const el = fsEl('item'); el.innerHTML = fishArt(item); el.style.display = 'block';
   await _fsAnim(1000, t => {
     const p = _fsEase(t);
     const phi = 22 + 42 * Math.sin(Math.PI * Math.min(1, t * 1.15));
     const [tx, ty] = _fsTip(phi);
     const x = _fsLerp(FS.tx, tx, p), y = _fsLerp(FS.ty, ty + 4, p) - 38 * Math.sin(Math.PI * p);
     fsDraw(phi, x, y, 0, false, true);
-    const l = document.getElementById('fs-line'); l.setAttribute('d', `M${tx.toFixed(1)} ${ty.toFixed(1)}L${x.toFixed(1)} ${(y - 4).toFixed(1)}`);
+    const l = fsEl('line'); l.setAttribute('d', `M${tx.toFixed(1)} ${ty.toFixed(1)}L${x.toFixed(1)} ${(y - 4).toFixed(1)}`);
     const s = 0.5 + 0.5 * p;
     el.style.transform = `translate(${(x - 28).toFixed(1)}px, ${(y - 10).toFixed(1)}px) scale(${s.toFixed(2)})`;
     if (t < .3) fsRipple(t / .3);
@@ -2166,6 +2206,120 @@ async function fishCast() {
   fsIdle();
   fishBusy = false; fishUpdateCooldown();
 }
+// ---- Casino: Fishing Timing minigame ----
+let mgState = null;
+function mgPosition(tMs, first, segMs, speeds) {
+  const seg = segMs / 1000;
+  const k = Math.floor(tMs / segMs);
+  const rem = (tMs - k * segMs) / 1000;
+  let dist = Math.floor(k / 2) * seg * (speeds[0] + speeds[1]);
+  if (k % 2 === 1) dist += seg * speeds[first % 2];
+  dist += rem * speeds[(first + k) % 2];
+  const u = dist % 2;
+  return u <= 1 ? u : 2 - u;
+}
+function mgZone(pos, zones) {
+  let acc = 0;
+  for (const [name, w] of zones) { acc += w; if (pos < acc) return name; }
+  return zones[zones.length - 1][0];
+}
+function mgSetMsg(t, color) { const el = document.getElementById('mg-msg'); el.textContent = t || ''; el.style.color = color || 'var(--text-muted)'; }
+function mgBuildBar(zones) {
+  const bar = document.getElementById('mg-bar');
+  bar.querySelectorAll('.mg-seg').forEach(n => n.remove());
+  const ind = document.getElementById('mg-ind');
+  zones.forEach(([name, w]) => {
+    const seg = document.createElement('div'); seg.className = 'mg-seg'; seg.dataset.zone = name;
+    seg.style.flex = '0 0 ' + (w * 100) + '%'; seg.style.background = FISH_RARITY_COLORS[name] || '#888';
+    bar.insertBefore(seg, ind);
+  });
+  document.getElementById('mg-legend').innerHTML = zones.map(([name, w]) => '<span style="background:' + (FISH_RARITY_COLORS[name] || '#888') + '">' + esc(name.toUpperCase()) + ' ' + (Math.round(w * 1000) / 10) + '%</span>').join('');
+}
+async function mgPlay() {
+  if (fishBusy || !authToken) return;
+  fishBusy = true;
+  const castBtn = document.getElementById('btn-mg-cast'), stopBtn = document.getElementById('btn-mg-stop');
+  castBtn.disabled = true; castBtn.textContent = 'Casting...';
+  const bar = document.getElementById('mg-bar'), live = document.getElementById('mg-live'), speedEl = document.getElementById('mg-speed');
+  bar.style.display = 'none'; live.innerHTML = '&nbsp;'; live.style.color = ''; speedEl.innerHTML = '&nbsp;'; speedEl.classList.remove('fast');
+  mgSetMsg('');
+  FSP = 'mg-';
+  let rafId = 0, onKey = null;
+  try {
+    fsSetup();
+    let d;
+    try {
+      const r = await fetch(BACKEND + '/api/minigame/fish/start', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: '{}' });
+      d = await r.json();
+    } catch { mgSetMsg('Server offline', 'var(--red)'); return; }
+    if (d.error) { mgSetMsg(d.error, 'var(--red)'); return; }
+    if (typeof d.balance === 'number') { myBalance = d.balance; applyPbState(); const sb = document.getElementById('shop-balance'); if (sb) sb.textContent = myUnlimited ? '∞' : myBalance; }
+    mgBuildBar(d.zones);
+    const t0 = performance.now();
+    await fsCastAnim();
+    await fsWait(() => true, 450);
+    await fsBite();
+    // marker phase: the bar appears and the player stops it
+    bar.style.display = 'flex';
+    mgSetMsg('Stop the marker! (click the bar, press STOP or Space)');
+    const ind = document.getElementById('mg-ind');
+    let stopped = false, resolveStop;
+    const stopPromise = new Promise(res => { resolveStop = res; });
+    const frame = () => {
+      if (stopped) return;
+      const el = Math.floor(performance.now() - t0);
+      const pos = mgPosition(el, d.first, d.seg_ms, d.speeds);
+      ind.style.left = (pos * 100) + '%';
+      const zone = mgZone(pos, d.zones);
+      live.textContent = zone; live.style.color = FISH_RARITY_COLORS[zone] || '#fff';
+      const fast = d.speeds[(d.first + Math.floor(el / d.seg_ms)) % 2] === Math.max(d.speeds[0], d.speeds[1]);
+      speedEl.textContent = fast ? 'VERY SPEEDY' : 'SPEEDY'; speedEl.classList.toggle('fast', fast); bar.classList.toggle('fast', fast);
+      if (el > 13000) { resolveStop('auto'); return; }
+      rafId = requestAnimationFrame(frame);
+    };
+    rafId = requestAnimationFrame(frame);
+    stopBtn.style.display = ''; castBtn.style.display = 'none';
+    const doStop = () => resolveStop('click');
+    stopBtn.onclick = doStop; bar.onclick = doStop;
+    onKey = (e) => { if (e.code === 'Space') { e.preventDefault(); doStop(); } };
+    window.addEventListener('keydown', onKey);
+    await stopPromise;
+    stopped = true; cancelAnimationFrame(rafId);
+    window.removeEventListener('keydown', onKey); onKey = null;
+    stopBtn.onclick = null; bar.onclick = null; stopBtn.style.display = 'none'; castBtn.style.display = '';
+    const elapsed = Math.floor(performance.now() - t0);
+    const pos = mgPosition(elapsed, d.first, d.seg_ms, d.speeds);
+    ind.style.left = (pos * 100) + '%';
+    const zone = mgZone(pos, d.zones);
+    live.textContent = zone; live.style.color = FISH_RARITY_COLORS[zone] || '#fff';
+    bar.querySelectorAll('.mg-seg').forEach(n => n.classList.toggle('hit', n.dataset.zone === zone));
+    mgSetMsg('Landed on ' + zone.toUpperCase() + '...');
+    let res;
+    try {
+      const r = await fetch(BACKEND + '/api/minigame/fish/stop', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ elapsed_ms: elapsed }) });
+      res = await r.json();
+    } catch { await fsRetract(); mgSetMsg('Server offline - cast lost', 'var(--red)'); return; }
+    if (res.error || !res.item) { await fsRetract(); mgSetMsg(res.error || 'Nothing this time.', 'var(--red)'); if (typeof res.balance === 'number') { myBalance = res.balance; applyPbState(); } return; }
+    await fsReel(res.item);
+    fishShowPopup(res.item, res.new);
+    if (typeof res.balance === 'number') { myBalance = res.balance; applyPbState(); const sb = document.getElementById('shop-balance'); if (sb) sb.textContent = myUnlimited ? '∞' : myBalance; }
+    if (res.state) fishApplyState(res.state);
+    mgSetMsg(res.downgraded
+      ? zone.toUpperCase() + ' hit - daily limit for legendary/mythic reached, so you got an epic: ' + res.item.name
+      : zone.toUpperCase() + ' → ' + res.item.name + (res.new ? ' (new discovery!)' : '') + ' - added to your collection', FISH_RARITY_COLORS[res.rarity] || 'var(--text-primary)');
+    await new Promise(r => setTimeout(r, 1800));
+  } catch (e) {
+    mgSetMsg('Something went wrong', 'var(--red)');
+  } finally {
+    if (rafId) cancelAnimationFrame(rafId);
+    if (onKey) window.removeEventListener('keydown', onKey);
+    try { fsIdle(); } catch {}
+    FSP = 'fs-';
+    castBtn.style.display = ''; stopBtn.style.display = 'none'; castBtn.disabled = false; castBtn.textContent = 'Cast line (30 $)';
+    fishBusy = false; try { fishUpdateCooldown(); } catch {}
+  }
+}
+document.getElementById('btn-mg-cast').onclick = mgPlay;
 async function fishSell(itemId, qty) {
   if (!authToken) return;
   try {
@@ -4228,7 +4382,7 @@ function openShop() {
   }
 }
 menuViewHooks.shop = { enter: openShop };
-menuViewHooks.casino = { enter: () => { const cb = document.getElementById('casino-balance'); if (cb) cb.textContent = myUnlimited ? '∞' : myBalance; } };
+menuViewHooks.casino = { enter: () => { withScene('mg-', fsSetup);  const cb = document.getElementById('casino-balance'); if (cb) cb.textContent = myUnlimited ? '∞' : myBalance; } };
 document.getElementById('btn-shop').onclick = () => { if (!authToken) { alert('Log in to use the shop.'); return; } openMenuView('shop'); };
 
 function showShopTab(name) {
@@ -5699,14 +5853,12 @@ function gdLaunch(seed, bet, customObstacles, customLabel) {
     onGround: true, pressing: false, lastTime: performance.now(),
     startTs: performance.now(), obstacles, rafId: 0, rot: 0,
     isCustom: !!customObstacles, speedMult: 1, waveTrail: [],
+    step: 0, acc: 0, queue: [], inputs: [],
   };
-  const press = () => {
-    if (!gdState || !gdState.alive) return;
-    gdState.pressing = true;
-    if (gdState.mode === 'cube' && gdState.onGround) gdState.vy = -560;
-    else if (gdState.mode === 'ufo') gdState.vy = -340;
-  };
-  const release = () => { if (gdState) gdState.pressing = false; };
+  // Inputs are queued and applied at the start of the next fixed step, and recorded with that step number so the
+  // server can replay the run exactly.
+  const press = () => { if (gdState && gdState.alive) gdState.queue.push(1); };
+  const release = () => { if (gdState && gdState.alive) gdState.queue.push(0); };
   canvas.onmousedown = press; canvas.onmouseup = release; canvas.onmouseleave = release;
   canvas.ontouchstart = (e) => { e.preventDefault(); press(); };
   canvas.ontouchend = (e) => { e.preventDefault(); release(); };
@@ -5717,19 +5869,34 @@ function gdLaunch(seed, bet, customObstacles, customLabel) {
   gdState._keyDown = keyDown; gdState._keyUp = keyUp;
   const loop = (now) => {
     if (!gdState || !gdState.alive) return;
-    const dt = Math.min(0.05, (now - gdState.lastTime) / 1000);
+    gdState.acc += Math.min(0.25, (now - gdState.lastTime) / 1000);
     gdState.lastTime = now;
-    gdTick(dt);
-    gdDraw(ctx);
-    if (gdState.alive) gdState.rafId = requestAnimationFrame(loop);
+    while (gdState && gdState.alive && gdState.acc >= GD_STEP) {
+      gdState.acc -= GD_STEP;
+      while (gdState.queue.length) {
+        const d = gdState.queue.shift();
+        gdApplyInput(gdState, !!d);
+        if (gdState.inputs.length < 6000) gdState.inputs.push([gdState.step, d]);
+      }
+      gdState.step++;
+      gdTick(GD_STEP);
+    }
+    if (gdState) gdDraw(ctx);
+    if (gdState && gdState.alive) gdState.rafId = requestAnimationFrame(loop);
   };
   gdState.rafId = requestAnimationFrame(loop);
 }
-function gdTick(dt) {
-  const s = gdState;
+const GD_STEP = 1 / 120;
+function gdApplyInput(s, down) {
+  if (down) {
+    s.pressing = true;
+    if (s.mode === 'cube' && s.onGround) s.vy = -560;
+    else if (s.mode === 'ufo') s.vy = -340;
+  } else s.pressing = false;
+}
+// One fixed physics step. Returns 'dead' | 'won' | null. Mirrors gd_simulate() in server.py - change both together.
+function gdStepState(s, dt, onMode) {
   s.scroll += GD_SPEED * (s.speedMult || 1) * dt;
-  const progress = Math.min(1, s.scroll / GD_LEN);
-  document.getElementById('gd-progress-tag').textContent = Math.floor(progress * 100) + '%';
   if (s.mode === 'cube') {
     s.vy += 2400 * dt;
     s.y += s.vy * dt;
@@ -5768,12 +5935,12 @@ function gdTick(dt) {
           s.y = ob.y - GD_PLAYER_SZ; s.vy = 0; s.onGround = true;
         } else if (s.mode === 'ufo' && prevPy + GD_PLAYER_SZ <= ob.y + 2 && s.vy >= 0) {
           s.y = ob.y - GD_PLAYER_SZ; s.vy = 0; s.onGround = true;
-        } else { return gdDie(); }
+        } else { return 'dead'; }
       }
     } else if (ob.kind === 'spike') {
       const inset = 4;
       if (gdRectsOverlap(px + inset, py + inset, GD_PLAYER_SZ - inset * 2, GD_PLAYER_SZ - inset * 2, ob.x + 4, ob.y + 4, ob.w - 8, ob.h - 8)) {
-        return gdDie();
+        return 'dead';
       }
     } else if (ob.kind === 'speed') {
       if (!ob.used && px + GD_PLAYER_SZ >= ob.x && px <= ob.x + ob.w) {
@@ -5786,12 +5953,23 @@ function gdTick(dt) {
         s.mode = ob.mode;
         s.vy = 0;
         if (ob.mode === 'wave') s.waveTrail = [];
-        document.getElementById('gd-mode-tag').textContent = ob.mode;
-        document.getElementById('gd-mode-tag').style.color = ob.mode === 'cube' ? '#3a86ff' : (ob.mode === 'ufo' ? '#b14aed' : (ob.mode === 'plane' ? '#ff8c42' : '#22d3ee'));
+        if (onMode) onMode(ob.mode);
       }
     }
   }
-  if (s.scroll >= GD_LEN) { s.won = true; gdFinish(1); }
+  if (s.scroll >= GD_LEN) return 'won';
+  return null;
+}
+function gdTick(dt) {
+  const s = gdState;
+  const result = gdStepState(s, dt, (m) => {
+    document.getElementById('gd-mode-tag').textContent = m;
+    document.getElementById('gd-mode-tag').style.color = m === 'cube' ? '#3a86ff' : (m === 'ufo' ? '#b14aed' : (m === 'plane' ? '#ff8c42' : '#22d3ee'));
+  });
+  const progress = Math.min(1, s.scroll / GD_LEN);
+  document.getElementById('gd-progress-tag').textContent = Math.floor(progress * 100) + '%';
+  if (result === 'dead') return gdDie();
+  if (result === 'won') { s.won = true; gdFinish(1); }
 }
 function gdDie() {
   const s = gdState; if (!s || s.dead) return;
@@ -5811,7 +5989,7 @@ async function gdFinish(progress) {
   }
   resEl.textContent = 'Reporting...';
   try {
-    const r = await fetch(BACKEND + '/api/casino/gd/result', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ seed: s.seed, progress, time_ms }) });
+    const r = await fetch(BACKEND + '/api/casino/gd/result', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ seed: s.seed, progress, time_ms, steps: s.step, inputs: s.inputs }) });
     let d = null;
     try { d = await r.json(); } catch {}
     if (!d) {
