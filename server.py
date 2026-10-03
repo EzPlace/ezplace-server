@@ -245,7 +245,7 @@ MAX_PASSWORD_LEN = 128
 
 import unicodedata
 _STAFF_WORDS = {"ADMIN", "ADMINS", "ADMINISTRATOR", "MOD", "MODS", "MODERATOR", "CREATOR", "OWNER", "STAFF", "DEV", "DEVS", "DEVELOPER",
-                "SYSTEM", "OFFICIAL", "EZPLACE", "HELPER", "GM", "VIP"}
+                "SYSTEM", "OFFICIAL", "EZPLACE", "DISCORD", "HELPER", "GM", "VIP"}
 _CONFUSABLES = str.maketrans({"А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T", "Х": "X", "І": "I", "Ѕ": "S", "Ј": "J",
                               "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "і": "i", "ѕ": "s", "ј": "j", "у": "y",
                               "Α": "A", "Β": "B", "Ε": "E", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X", "Ζ": "Z",
@@ -6470,7 +6470,7 @@ async def _discord_incoming(message):
     if not text: return
     name = clean_label(getattr(message.author, "display_name", "") or message.author.name)[:20] or "Discord user"
     payload = {"type": "chat", "username": name, "text": text, "is_owner": False, "is_vip": False,
-               "rank": {"label": "DISCORD", "color": "#5865f2"}, "clan": None, "name_color": None}
+               "rank": {"label": "DISCORD", "color": "#5865f2"}, "clan": None, "name_color": None, "discord": True}
     _chat_remember(lobby_id, name, text)
     await broadcast_to_lobby(lobby_id, payload)
 
