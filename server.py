@@ -7448,8 +7448,8 @@ def _map_pool(d):
 
 FISH_MAPS = [
     {"id": "pier", "name": "Sunny Pier", "blurb": "Where everyone starts: freshwater and shallow-sea catches.",
-     "cast_cost": FISH_CAST_COST, "weights": FISH_RARITY_WEIGHTS,
-     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if not i.get("map")] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")}, "unlock": {}},
+     "cast_cost": FISH_CAST_COST, "price": 0, "weights": FISH_RARITY_WEIGHTS,
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if not i.get("map")] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")}},
     {"id": "reef", "name": "Coral Reef", "blurb": "Warm tropical shallows full of colourful reef fish.",
      "cast_cost": 8, "weights": [("common", 470), ("uncommon", 300), ("rare", 150), ("epic", 60), ("legendary", 17), ("mythic", 3)],
      "pool": _map_pool({
@@ -7459,7 +7459,7 @@ FISH_MAPS = [
          "epic": "hammerhead emerald pirate_cutlass gold_bar great_white whale_shark",
          "legendary": "mermaid_comb sunken_crown diamond giant_pearl",
          "mythic": "poseidon_trident rainbow_serpent"}),
-     "unlock": {"common": 12, "uncommon": 6}},
+     "price": 150},
     {"id": "abyss", "name": "Midnight Abyss", "blurb": "A dark deep-sea trench: giants and sunken treasure.",
      "cast_cost": 15, "weights": [("common", 345), ("uncommon", 300), ("rare", 200), ("epic", 100), ("legendary", 47), ("mythic", 8)],
      "pool": _map_pool({
@@ -7469,7 +7469,7 @@ FISH_MAPS = [
          "epic": "great_white hammerhead giant_squid anglerfish electric_eel pirate_cutlass gold_bar emerald goblin_shark",
          "legendary": "blue_whale coelacanth sunken_crown diamond mermaid_comb colossal_squid",
          "mythic": "kraken leviathan poseidon_trident megalodon"}),
-     "unlock": {"uncommon": 5, "rare": 4, "epic": 1}},
+     "price": 500},
 ]
 FISH_MAP_BY_ID = {m["id"]: m for m in FISH_MAPS}
 
@@ -7484,7 +7484,7 @@ def _fish_map(st):
 
 def _fish_map_catalog(st):
     _fish_map(st)
-    return [{"id": m["id"], "name": m["name"], "blurb": m["blurb"], "cast_cost": m["cast_cost"], "unlock": m["unlock"],
+    return [{"id": m["id"], "name": m["name"], "blurb": m["blurb"], "cast_cost": m["cast_cost"], "price": m["price"],
              "exclusive": sum(1 for v in FISH_EXCLUSIVE.values() if v == m["id"]), "unlocked": m["id"] in st["maps_unlocked"]} for m in FISH_MAPS]
 
 def _fish_pick(map_id, rarity):
@@ -7504,21 +7504,6 @@ def _fish_roll(map_id="pier"):
         if pick < w: rarity = name; break
         pick -= w
     return _fish_pick(m["id"], rarity)
-
-def _fish_map_payment_plan(st, unlock):
-    """Which fish pay for a map: for every rarity asked for, the cheapest ones in the bucket first."""
-    inv = st.get("inv", {}); plan = []; missing = []
-    for rarity, need in unlock.items():
-        have = sorted((FISH_BY_ID[k]["value"], k, int(n)) for k, n in inv.items() if k in FISH_BY_ID and FISH_BY_ID[k]["rarity"] == rarity and int(n) > 0)
-        total = sum(n for _, _, n in have)
-        if total < need:
-            missing.append(f"{need - total} more {rarity}"); continue
-        left = need
-        for _value, k, n in have:
-            take = min(n, left); plan.append((k, take)); left -= take
-            if left <= 0: break
-    return plan, missing
-
 def _fish_state(user, now=None):
     now = now or time.time()
     st = _fish_slot(user)
@@ -7597,20 +7582,12 @@ async def fishing_map_unlock_handler(request):
     st = _fish_slot(user); _fish_ledger(st); _fish_map(st)
     if m["id"] in st["maps_unlocked"]:
         return web.json_response({"error": "You already unlocked this map", "state": _fish_state(user)}, status=400)
-    plan, missing = _fish_map_payment_plan(st, m["unlock"])
-    if missing:
-        return web.json_response({"error": "Not enough fish - you still need " + ", ".join(missing), "state": _fish_state(user)}, status=400)
-    paid = []; inv = st["inv"]
-    for k, take in plan:   # all changes happen before any await, so a double click cannot pay twice
-        have = int(inv.get(k, 0)); b = float(st["basis"].get(k, 0))
-        st["basis"][k] = b - b * take / have
-        inv[k] = have - take
-        if inv[k] <= 0: inv.pop(k, None); st["basis"].pop(k, None)
-        st["spent"] += FISH_BY_ID[k]["value"] * take      # the fish you hand over count as spent in the profit numbers
-        paid.append({"id": k, "name": FISH_BY_ID[k]["name"], "qty": take})
+    if not spend_pb(user, m["price"]):
+        return web.json_response({"error": f"{m['name']} costs {m['price']} PlaceBux", "state": _fish_state(user)}, status=400)
+    st["spent"] += m["price"]          # map purchases count as fishing costs in the profit numbers
     st["maps_unlocked"].append(m["id"])
-    await save_fishing()
-    return web.json_response({"ok": True, "paid": paid, "state": _fish_state(user)})
+    await save_fishing(); await save_place_bucks(); await push_pb_update(user)
+    return web.json_response({"ok": True, "paid": m["price"], "state": _fish_state(user)})
 
 async def fishing_map_travel_handler(request):
     user = get_auth_user(request)
