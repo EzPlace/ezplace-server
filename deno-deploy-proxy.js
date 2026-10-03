@@ -31,6 +31,8 @@
  */
 
 const TARGET = "ezplace-server.onrender.com";
+// Set PROXY_SECRET as an environment variable in the Deno Deploy project (same value as PROXY_SHARED_SECRET on the backend).
+const PROXY_SECRET = Deno.env.get("PROXY_SECRET") || "";
 
 // WebSocket close codes outside 1000 / 3000-4999 throw if you pass them along.
 function safeClose(sock, code, reason) {
@@ -40,13 +42,18 @@ function safeClose(sock, code, reason) {
   } catch { /* already closing/closed */ }
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req, info) => {
   const url = new URL(req.url);
+  const clientIp = (info && info.remoteAddr && info.remoteAddr.hostname) || "";
+  const relayHeaders = PROXY_SECRET ? { "X-Proxy-Secret": PROXY_SECRET, "X-Client-IP": clientIp } : {};
 
   // ── WebSocket tunnel ───────────────────────────────────────────────────
   if ((req.headers.get("upgrade") || "").toLowerCase() === "websocket") {
     const { socket: client, response } = Deno.upgradeWebSocket(req);
-    const upstream = new WebSocket("wss://" + TARGET + url.pathname + url.search);
+    // Deno lets us attach headers to the outgoing socket so the backend can see the real visitor IP.
+    const upstream = PROXY_SECRET
+      ? new WebSocket("wss://" + TARGET + url.pathname + url.search, { headers: relayHeaders })
+      : new WebSocket("wss://" + TARGET + url.pathname + url.search);
     client.binaryType = "arraybuffer";
     upstream.binaryType = "arraybuffer";
 
@@ -73,6 +80,8 @@ Deno.serve(async (req) => {
 
   const headers = new Headers(req.headers);
   headers.delete("host"); // let fetch derive it from the target URL
+  headers.delete("x-client-ip"); headers.delete("x-proxy-secret");
+  for (const k in relayHeaders) headers.set(k, relayHeaders[k]);
 
   let resp;
   try {
