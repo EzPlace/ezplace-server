@@ -228,6 +228,28 @@
   .fs-avatar { position: absolute; left: 38px; top: 42px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; object-fit: cover; background: #222; }
   .fs-item { position: absolute; left: 0; top: 0; width: 56px; height: 34px; display: none; pointer-events: none; }
   .fs-item svg { width: 100%; height: 100%; overflow: visible; }
+  #btn-fish-trade.alert { border-color: #f0b232; box-shadow: 0 0 0 2px rgba(240,178,50,0.35); }
+  .trade-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
+  .trade-title { font-size: 14px; font-weight: 700; }
+  .trade-sub, .trade-dim { font-size: 11px; color: var(--text-muted); }
+  .trade-note { font-size: 12px; }
+  .trade-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .trade-row .win-input { flex: 1; min-width: 90px; }
+  .trade-grey { background: rgba(255,255,255,0.08) !important; }
+  .trade-cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
+  .trade-col { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .trade-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-secondary); }
+  .trade-picks { display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow-y: auto; padding-right: 2px; }
+  .trade-pick { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 8px; background: rgba(255,255,255,0.03); font-size: 12px; }
+  .trade-pick.on { background: rgba(34,197,94,0.14); }
+  .trade-pname { padding-left: 6px; min-width: 0; line-height: 1.2; }
+  .trade-block { display: block; }
+  .trade-step { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .trade-step button { width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: var(--text-primary); cursor: pointer; font-weight: 800; }
+  .trade-step b { min-width: 16px; text-align: center; }
+  .trade-line { font-size: 12px; }
+  .trade-pb { color: var(--gold); font-weight: 700; }
+  .trade-status { font-size: 12px; }
   .map-list { display: flex; flex-direction: column; gap: 8px; }
   .map-card { display: flex; gap: 10px; padding: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; align-items: stretch; }
   .map-card.here { border-color: #22c55e; }
@@ -236,6 +258,8 @@
   .map-name { font-size: 14px; font-weight: 700; }
   .map-blurb { font-size: 11px; color: var(--text-muted); }
   .map-need { font-size: 11px; }
+  .map-excl { font-size: 11px; font-weight: 700; color: #f0b232; }
+  .fish-mapchip { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 6px; background: rgba(255,255,255,0.1); color: var(--text-secondary); margin-left: 5px; vertical-align: middle; }
   .map-here { font-size: 11px; font-weight: 700; color: #22c55e; }
   .map-btn { align-self: flex-start; padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: var(--accent); color: #fff; cursor: pointer; font-family: inherit; }
   .map-btn:disabled { opacity: 0.4; cursor: default; }
@@ -1682,6 +1706,8 @@
         <div id="fish-scene" class="fish-scene" data-pfx="fs-"></div>
         <div id="fish-catch">Cast a line to see what you reel in.</div>
         <button class="menu-btn primary wide" id="btn-fish-cast">Cast line</button>
+        <button class="menu-btn wide" id="btn-fish-trade">Trade</button>
+        <div id="fish-trade-panel" style="display:none"></div>
         <div id="fish-map-panel"></div>
         <div id="fish-rod-panel"></div>
         <div id="fish-stats"></div>
@@ -1700,7 +1726,7 @@
         <div class="menu-section">Earning PlaceBux</div>
         <div class="earn-card"><div class="earn-title">Place pixels</div><div class="earn-desc">1 PlaceBux for every 100 pixels you place.</div></div>
         <div class="earn-card"><div class="earn-title">Daily streak</div><div class="earn-desc">Spend 15 active minutes on the site each day to claim your daily bonus: 2 PlaceBux times your streak length, up to 50 a day. Miss a day and the streak resets. The shop sells a 48-hour window and Streak Passes that protect it.</div></div>
-        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Maps: Sunny Pier is free; Coral Reef (8 PlaceBux per cast) is unlocked by paying 12 common + 6 uncommon fish, and Midnight Abyss (15 per cast) by paying 5 uncommon + 4 rare + 1 epic fish. Each map has its own scenery and its own catches. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
+        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Trade: swap fish and PlaceBux with another player from the Trade button on the Fishing screen. Maps: Sunny Pier is free; Coral Reef (8 PlaceBux per cast) is unlocked by paying 12 common + 6 uncommon fish, and Midnight Abyss (15 per cast) by paying 5 uncommon + 4 rare + 1 epic fish. Each map has its own scenery and catches, and each of the two new maps has 9 fish you cannot catch anywhere else. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
         <div class="earn-card"><div class="earn-title">Flappy Bird</div><div class="earn-desc">1 PlaceBux per pipe you clear, no bet needed. Capped at 600 a day.</div></div>
         <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Battle Mode and Fishing Timing in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
         <div class="earn-card"><div class="earn-title">Night Event</div><div class="earn-desc">Watch the Lobbies screen for the Night Event banner. Sign up when it opens; the winner takes 10,000 PlaceBux.</div></div>
@@ -2005,9 +2031,11 @@ function fishTile(it, opts) {
   const name = known ? esc(it.name) : 'Undiscovered';
   const meta = known ? `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ${it.value} PlaceBux${opts.qty ? ' &middot; x' + opts.qty : ''}${opts.caught ? ' &middot; caught ' + opts.caught : ''}` : `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ? PlaceBux`;
   const actions = opts.sell ? `<div class="fish-actions"><button data-sell="${esc(it.id)}" data-qty="1">Sell 1</button><button data-sell="${esc(it.id)}" data-qty="all">Sell all</button></div>` : '';
-  return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
+  const chip = it.map ? '<span class="fish-mapchip">' + esc(FISH_MAP_NAMES[it.map] || it.map) + ' only</span>' : '';
+  return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}${chip}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
 }
 // ---- Fishing maps: pick where you fish; unlock new ones by paying with fish ----
+const FISH_MAP_NAMES = { reef: 'Coral Reef', abyss: 'Midnight Abyss' };
 const MAP_SWATCH = {
   pier: 'linear-gradient(#5aa9e6, #bfe6ff 55%, #2f8fc4 56%, #14456f)',
   reef: 'linear-gradient(#5cc8ff, #dff8ff 55%, #35e0c9 56%, #0b6f86)',
@@ -2030,7 +2058,7 @@ function fishRenderMaps() {
       status = '<div class="map-need">Unlock by paying: ' + need + ' fish</div><button class="map-btn" data-unlock="' + esc(m.id) + '"' + (ok ? '' : ' disabled') + '>Unlock</button>';
     }
     return '<div class="map-card' + (here ? ' here' : '') + '"><div class="map-swatch" style="background:' + (MAP_SWATCH[m.id] || '#444') + '"></div><div class="map-info">'
-      + '<div class="map-name">' + esc(m.name) + '</div><div class="map-blurb">' + esc(m.blurb) + ' · ' + m.cast_cost + ' PlaceBux per cast</div>' + status + '</div></div>';
+      + '<div class="map-name">' + esc(m.name) + '</div><div class="map-blurb">' + esc(m.blurb) + ' · ' + m.cast_cost + ' PlaceBux per cast</div>' + (m.exclusive ? '<div class="map-excl">' + m.exclusive + ' species found nowhere else</div>' : '') + status + '</div></div>';
   }).join('') + '</div>';
   panel.querySelectorAll('button[data-travel]').forEach(b => { b.onclick = () => fishTravelMap(b.dataset.travel); });
   panel.querySelectorAll('button[data-unlock]').forEach(b => { b.onclick = () => fishUnlockMap(b.dataset.unlock); });
@@ -2060,6 +2088,125 @@ async function fishUnlockMap(id) {
     else fishSetStatus('Unlocked ' + m.name + '! Paid ' + (d.paid || []).map(x => x.qty + '× ' + x.name).join(', ') + '.', 'var(--green)');
   } catch { fishSetStatus('Server offline', 'var(--red)'); }
 }
+// ---- Trading with another player (fish + PlaceBux on top) ----
+let fishTrade = null, tradeOpen = false, tradeMsg = '', tradeMsgColor = '', tradeDraft = null, tradeTimer = 0;
+function tradeSetMsg(t, c) { tradeMsg = t || ''; tradeMsgColor = c || ''; }
+async function tradeApi(path, body) {
+  try {
+    const r = await fetch(BACKEND + path, { method: path.includes('/state') ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: path.includes('/state') ? undefined : JSON.stringify(body || {}) });
+    return await r.json();
+  } catch { return { error: 'Server offline' }; }
+}
+function showTradeToast(text, onClick) {
+  const container = document.getElementById('dm-toast-container'); if (!container) return;
+  const toast = document.createElement('div'); toast.className = 'dm-toast';
+  toast.innerHTML = '<div class="dm-toast-from">\u{1F91D} Trade</div><div class="dm-toast-text">' + esc(text) + '</div>';
+  toast.onclick = () => { toast.classList.add('closing'); setTimeout(() => toast.remove(), 250); if (onClick) onClick(); };
+  container.appendChild(toast);
+  setTimeout(() => { if (!toast.parentNode) return; toast.classList.add('closing'); setTimeout(() => toast.remove(), 250); }, 8000);
+}
+async function tradeLoad() {
+  if (!authToken) return;
+  const d = await tradeApi('/api/trade/state');
+  if (d && d.ok) { fishTrade = d.trade; tradeDraft = null; }
+  tradeRender();
+}
+function tradeToggle() { tradeOpen = !tradeOpen; tradeRender(); if (tradeOpen) tradeLoad(); }
+function tradeFishName(id) { const it = ((fishState && fishState.catalog) || []).find(x => x.id === id); return it ? it.name : id; }
+function tradeFishValue(id) { const it = ((fishState && fishState.catalog) || []).find(x => x.id === id); return it ? it.value : 0; }
+function tradeOfferHtml(off) {
+  const lines = Object.entries((off && off.fish) || {}).map(([id, q]) => '<div class="trade-line">' + q + '× ' + esc(tradeFishName(id)) + ' <span class="trade-dim">(' + tradeFishValue(id) * q + ')</span></div>').join('');
+  const pb = (off && off.pb) ? '<div class="trade-line trade-pb">+ ' + off.pb + ' PlaceBux</div>' : '';
+  return (lines || pb) ? lines + pb : '<div class="trade-dim">nothing yet</div>';
+}
+function tradeRender() {
+  const panel = document.getElementById('fish-trade-panel'), btn = document.getElementById('btn-fish-trade');
+  const t = fishTrade;
+  const incoming = !!(t && t.status === 'pending' && t.initiator !== t.you);
+  if (btn) {
+    btn.classList.toggle('alert', incoming);
+    btn.textContent = incoming ? 'Trade (request from ' + t.partner + ')' : (t && t.status === 'open' ? 'Trade (with ' + t.partner + ')' : 'Trade');
+  }
+  if (!panel) return;
+  panel.style.display = tradeOpen ? '' : 'none';
+  if (!tradeOpen) return;
+  const msg = tradeMsg ? '<div class="trade-note" style="color:' + (tradeMsgColor || 'var(--text-muted)') + '">' + esc(tradeMsg) + '</div>' : '';
+  let html;
+  if (!t) {
+    html = '<div class="trade-title">Trade with a player</div><div class="trade-sub">Swap fish (as many as you like) and add PlaceBux on top. Both of you must confirm, and changing anything cancels the confirmations.</div>'
+      + '<div class="trade-row"><input id="trade-to" class="win-input" maxlength="20" placeholder="Player name" autocomplete="off"><button class="map-btn" id="trade-send">Send request</button></div>' + msg;
+  } else if (t.status === 'pending') {
+    html = incoming
+      ? '<div class="trade-title">' + esc(t.partner) + ' wants to trade with you</div><div class="trade-row"><button class="map-btn" id="trade-accept">Accept</button><button class="map-btn trade-grey" id="trade-decline">Decline</button></div>' + msg
+      : '<div class="trade-title">Waiting for ' + esc(t.partner) + ' to accept…</div><div class="trade-row"><button class="map-btn trade-grey" id="trade-cancel">Cancel request</button></div>' + msg;
+  } else {
+    const draft = tradeDraft || { fish: Object.assign({}, t.your_offer.fish), pb: t.your_offer.pb };
+    const inv = (fishState && fishState.inv) || {};
+    const owned = ((fishState && fishState.catalog) || []).filter(it => inv[it.id] > 0).sort((a, b) => b.value - a.value);
+    const rows = owned.map(it => {
+      const q = draft.fish[it.id] || 0;
+      return '<div class="trade-pick' + (q ? ' on' : '') + '"><span class="trade-pname" style="border-left:3px solid ' + (FISH_RARITY_COLORS[it.rarity] || '#888') + '">' + esc(it.name) + '<span class="trade-dim trade-block">' + it.value + ' · have ' + inv[it.id] + '</span></span>'
+        + '<span class="trade-step"><button data-tdelta="-1" data-tid="' + esc(it.id) + '">−</button><b>' + q + '</b><button data-tdelta="1" data-tid="' + esc(it.id) + '">+</button></span></div>';
+    }).join('') || '<div class="trade-dim">Your bucket is empty.</div>';
+    const iConf = t.you_confirmed, theyConf = t.they_confirmed;
+    const empty = !Object.keys(draft.fish).length && !draft.pb && !Object.keys(t.their_offer.fish).length && !t.their_offer.pb;
+    html = '<div class="trade-title">Trading with ' + esc(t.partner) + '</div>'
+      + '<div class="trade-cols"><div class="trade-col"><div class="trade-h">You offer</div><div class="trade-picks">' + rows + '</div>'
+      + '<div class="trade-row"><label class="trade-dim">PlaceBux on top</label><input id="trade-pb" class="win-input" type="number" min="0" max="100000" value="' + (draft.pb || 0) + '"></div></div>'
+      + '<div class="trade-col"><div class="trade-h">' + esc(t.partner) + ' offers</div>' + tradeOfferHtml(t.their_offer) + '</div></div>'
+      + '<div class="trade-status">' + (iConf ? '✅ You confirmed' : 'You have not confirmed') + ' · ' + (theyConf ? '✅ ' + esc(t.partner) + ' confirmed' : esc(t.partner) + ' has not confirmed') + '</div>'
+      + (t.note ? '<div class="trade-note" style="color:var(--red)">' + esc(t.note) + '</div>' : '') + msg
+      + '<div class="trade-row"><button class="map-btn" id="trade-confirm"' + (empty ? ' disabled' : '') + '>' + (iConf ? 'Un-confirm' : 'Confirm trade') + '</button><button class="map-btn trade-grey" id="trade-cancel">Cancel trade</button></div>';
+  }
+  panel.innerHTML = '<div class="trade-card">' + html + '</div>';
+  const $ = (id) => panel.querySelector('#' + id);
+  if ($('trade-send')) $('trade-send').onclick = async () => {
+    const to = ($('trade-to').value || '').trim(); if (!to) return;
+    const d = await tradeApi('/api/trade/invite', { to });
+    if (d.error) tradeSetMsg(d.error, 'var(--red)'); else { fishTrade = d.trade; tradeSetMsg('Request sent to ' + d.trade.partner, 'var(--green)'); }
+    tradeRender();
+  };
+  if ($('trade-accept')) $('trade-accept').onclick = async () => { const d = await tradeApi('/api/trade/respond', { accept: true }); if (d.error) tradeSetMsg(d.error, 'var(--red)'); else { fishTrade = d.trade; tradeSetMsg(''); } fishLoad(); tradeRender(); };
+  if ($('trade-decline')) $('trade-decline').onclick = async () => { await tradeApi('/api/trade/respond', { accept: false }); fishTrade = null; tradeSetMsg('Declined'); tradeRender(); };
+  if ($('trade-cancel')) $('trade-cancel').onclick = async () => { await tradeApi('/api/trade/cancel'); fishTrade = null; tradeDraft = null; tradeSetMsg('Trade cancelled'); tradeRender(); };
+  if ($('trade-confirm')) $('trade-confirm').onclick = async () => {
+    const d = await tradeApi('/api/trade/confirm', { confirm: !(fishTrade && fishTrade.you_confirmed) });
+    if (d.error) { tradeSetMsg(d.error, 'var(--red)'); tradeRender(); return; }
+    fishTrade = d.trade;
+    if (d.done) tradeFinished(d.trade); else tradeRender();
+  };
+  panel.querySelectorAll('button[data-tdelta]').forEach(b => { b.onclick = () => tradeStep(b.dataset.tid, parseInt(b.dataset.tdelta)); });
+  if ($('trade-pb')) $('trade-pb').onchange = (e) => {
+    const d = tradeDraftGet(); d.pb = Math.max(0, Math.min(100000, parseInt(e.target.value) || 0)); tradeQueueSend();
+  };
+}
+function tradeDraftGet() { if (!tradeDraft && fishTrade) tradeDraft = { fish: Object.assign({}, fishTrade.your_offer.fish), pb: fishTrade.your_offer.pb }; return tradeDraft; }
+function tradeStep(id, delta) {
+  const d = tradeDraftGet(); if (!d) return;
+  const have = ((fishState && fishState.inv) || {})[id] || 0;
+  const q = Math.max(0, Math.min(have, (d.fish[id] || 0) + delta));
+  if (q) d.fish[id] = q; else delete d.fish[id];
+  tradeRender(); tradeQueueSend();
+}
+function tradeQueueSend() {
+  clearTimeout(tradeTimer);
+  tradeTimer = setTimeout(async () => {
+    const d = tradeDraft; if (!d) return;
+    const res = await tradeApi('/api/trade/offer', { fish: d.fish, pb: d.pb });
+    if (res.trade) fishTrade = res.trade;
+    tradeDraft = null;
+    if (res.error) tradeSetMsg(res.error, 'var(--red)'); else tradeSetMsg('');
+    tradeRender();
+  }, 300);
+}
+function tradeFinished(t) {
+  const got = Object.entries(t.their_offer.fish).map(([id, q]) => q + '× ' + tradeFishName(id)).join(', ');
+  const pb = t.their_offer.pb ? (got ? ' + ' : '') + t.their_offer.pb + ' PlaceBux' : '';
+  tradeSetMsg('Trade complete! You received: ' + ((got + pb) || 'nothing'), 'var(--green)');
+  fishTrade = null; tradeDraft = null;
+  fishLoad(); tradeRender();
+}
+document.getElementById('btn-fish-trade').onclick = tradeToggle;
 function fishRenderRod() {
   const panel = document.getElementById('fish-rod-panel');
   if (!panel || !fishState || !fishState.rod) return;
@@ -2083,7 +2230,6 @@ async function fishBuyRod(id) {
   if (fishBusy || !authToken || !fishState) return;
   const d = (fishState.rods || []).find(x => x.id === id); if (!d) return;
   const r = fishState.rod;
-  if (!r.broken && !confirm('Replace your ' + r.name + ' (' + r.left + ' casts left) with a new ' + d.name + ' for ' + d.price + ' PlaceBux?')) return;
   fishSetStatus('');
   try {
     const res = await fetch(BACKEND + '/api/fishing/rod/buy', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ rod_id: id }) });
@@ -2104,7 +2250,7 @@ function fishRender() {
   //   bucket profit = bucket worth - what those fish cost to catch;  total profit = total worth - everything spent on casts.
   const bucketProfit = bucketValue - (fishState.bucket_cost || 0);
   const totalWorth = fishState.total_worth || 0;
-  const totalProfit = totalWorth - (fishState.spent || 0);
+  const totalProfit = totalWorth - (fishState.spent || 0) + (fishState.trade_net || 0);
   const signed = (n) => '<span style="color:' + (n >= 0 ? '#22c55e' : 'var(--red)') + '">' + (n >= 0 ? '+' : '\u2212') + Math.abs(n) + '</span>';
   stats.innerHTML = discovered + ' / ' + cat.length + ' discovered \u00b7 ' + (fishState.casts || 0) + ' casts \u00b7 ' + fishState.casts_left_today + ' casts left today'
     + '<br>bucket worth ' + bucketValue + ' \u00b7 bucket profit ' + signed(bucketProfit)
@@ -2193,6 +2339,26 @@ const FISH_ART_MAP = {
   blue_whale: ['whale', '#3a6aa8'], coelacanth: ['fish', '#3a5a8a', '#7a9ac8'], sunken_crown: ['crown', '#e6b422'], diamond: ['gem', '#8be8ff'], mermaid_comb: ['comb', '#f4a8d8'],
   kraken: ['octo', '#6a3a8a'], leviathan: ['whale', '#4a1a5a', true], poseidon_trident: ['trident', '#3bd6c6'],
 };
+// ---- Map-exclusive fish (Coral Reef + Midnight Abyss) ----
+Object.assign(FISH_ART, {
+  turtle: (a, b) => `<ellipse cx="34" cy="48" rx="10" ry="4.5" fill="${b}" transform="rotate(25 34 48)"/><ellipse cx="60" cy="48" rx="10" ry="4.5" fill="${b}" transform="rotate(-25 60 48)"/><ellipse cx="32" cy="16" rx="10" ry="4.5" fill="${b}" transform="rotate(-25 32 16)"/><path d="M18 34L6 38L16 28Z" fill="${b}"/><ellipse cx="46" cy="32" rx="27" ry="19" fill="${a}"/><path d="M28 24H64M28 40H64M46 13V51M34 18L30 46M58 18L62 46" stroke="#0005" stroke-width="2" fill="none"/><circle cx="80" cy="30" r="9" fill="${b}"/>${_fe(84, 27, 2.4)}`,
+  serpent: (a) => `<path d="M8 42Q22 8 38 36T70 30T92 16" stroke="#ef4444" stroke-width="10" fill="none" stroke-linecap="round"/><path d="M8 42Q22 8 38 36T70 30T92 16" stroke="#fde047" stroke-width="6.5" fill="none" stroke-linecap="round"/><path d="M8 42Q22 8 38 36T70 30T92 16" stroke="#22d3ee" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="92" cy="16" r="8" fill="${a}"/><path d="M88 9l-3-7 6 4 3-7 3 7 6-3-4 7Z" fill="#a855f7"/>${_fe(94, 14, 2.6)}`,
+  pearl: (a, b) => `<path d="M16 50Q50 68 84 50L72 38H28Z" fill="${b}"/><path d="M28 38Q50 28 72 38" stroke="#0004" stroke-width="2" fill="none"/><circle cx="50" cy="26" r="21" fill="${a}"/><circle cx="50" cy="26" r="21" fill="none" stroke="#cbb8ff" stroke-width="2"/><circle cx="42" cy="18" r="7" fill="#fff" opacity=".85"/><circle cx="58" cy="34" r="3" fill="#fff" opacity=".4"/>`,
+  whaleshark: (a) => FISH_ART.shark(a) + `<g fill="#fff" opacity=".85"><circle cx="34" cy="26" r="1.8"/><circle cx="44" cy="30" r="1.8"/><circle cx="54" cy="24" r="1.8"/><circle cx="62" cy="30" r="1.8"/><circle cx="72" cy="26" r="1.6"/><circle cx="40" cy="36" r="1.6"/><circle cx="52" cy="38" r="1.6"/><circle cx="66" cy="38" r="1.6"/></g>`,
+  megalodon: (a) => FISH_ART.shark(a) + `<path d="M8 34l3 7 3-7 3 7 3-7 3 7 3-7" fill="#fff" stroke="#0004" stroke-width=".8"/><path d="M10 33l3-6 3 6 3-6 3 6" fill="#fff" stroke="#0004" stroke-width=".8"/>`,
+  dumbo: (a) => `<ellipse cx="24" cy="12" rx="9" ry="6" fill="${a}" transform="rotate(-20 24 12)"/><ellipse cx="76" cy="12" rx="9" ry="6" fill="${a}" transform="rotate(20 76 12)"/>` + FISH_ART.octo(a),
+  gulper: (a) => FISH_ART.long(a) + `<path d="M2 28L20 18V42Z" fill="#111827"/><path d="M4 28L18 21V35Z" fill="#7f1d1d"/>`,
+  viperfish: (a, b) => FISH_ART.fish(a, b) + `<path d="M17 31l-4 8M21 33l-3 8M25 35l-2 7" stroke="#fff" stroke-width="2" stroke-linecap="round"/><g fill="#67e8f9"><circle cx="40" cy="42" r="1.5"/><circle cx="50" cy="44" r="1.5"/><circle cx="60" cy="42" r="1.5"/></g>`,
+  lantern: (a, b) => FISH_ART.fish(a, b) + `<g fill="#67e8f9"><circle cx="34" cy="40" r="2"/><circle cx="44" cy="43" r="2"/><circle cx="54" cy="43" r="2"/><circle cx="64" cy="40" r="2"/></g><circle cx="44" cy="43" r="5" fill="#67e8f9" opacity=".25"/>`,
+});
+Object.assign(FISH_ART_MAP, {
+  // Coral Reef
+  clownfish: ['fish', '#ff7a1a', '#ffffff'], blue_tang: ['tall', '#2563eb', '#fde047'], parrotfish: ['fish', '#22c55e', '#f472b6'], butterflyfish: ['tall', '#fde047', '#111827'],
+  sea_turtle: ['turtle', '#3f9d5a', '#7bbf6a'], mandarin_dragonet: ['fish', '#2dd4bf', '#f97316'], whale_shark: ['whaleshark', '#4b6a8a'], giant_pearl: ['pearl', '#f5f0ff', '#e8c1d5'], rainbow_serpent: ['serpent', '#14b8a6'],
+  // Midnight Abyss
+  lanternfish: ['lantern', '#334155', '#1e293b'], ghost_shrimp: ['shrimp', '#cfe1ff'], viperfish: ['viperfish', '#1f2937', '#0f172a'], dumbo_octopus: ['dumbo', '#f0abfc'],
+  vampire_squid: ['squid', '#7a1f2b'], gulper_eel: ['gulper', '#1e293b'], goblin_shark: ['bill', '#d89aa8', '#e8c5cd'], colossal_squid: ['squid', '#a23b6b'], megalodon: ['megalodon', '#475569'],
+});
 function fishArt(it) {
   const m = FISH_ART_MAP[it && it.id];
   const col = FISH_RARITY_COLORS[it && it.rarity] || '#9aa0a6';
@@ -2612,7 +2778,7 @@ document.querySelectorAll('.menu-tab[data-ftab]').forEach(t => {
     fishRender();
   };
 });
-menuViewHooks.fishing = { enter: () => { fsSetup(); fishLoad(); if (!fishTick) fishTick = setInterval(fishUpdateCooldown, 500); }, leave: () => { if (fishTick) { clearInterval(fishTick); fishTick = null; } } };
+menuViewHooks.fishing = { enter: () => { fsSetup(); fishLoad(); tradeLoad(); if (!fishTick) fishTick = setInterval(fishUpdateCooldown, 500); }, leave: () => { if (fishTick) { clearInterval(fishTick); fishTick = null; } } };
 function updateSidebarTabs() {
   const authed = !!authToken;
   const inLobby = !!currentLobbyId;
@@ -8568,6 +8734,13 @@ function connectSocial() {
       }
     }
     if (msg.type === 'friend_accepted') { loadFriendsList(); }
+    if (msg.type === 'trade_invite' || msg.type === 'trade_update') {
+      fishTrade = msg.trade; tradeDraft = null;
+      if (msg.type === 'trade_invite') { tradeSetMsg(''); showTradeToast(msg.trade.partner + ' wants to trade with you - tap to open', () => { openMenuView('fishing'); tradeOpen = true; tradeRender(); }); playNotifSound(); }
+      tradeRender();
+    }
+    if (msg.type === 'trade_done') { tradeFinished(msg.trade); showTradeToast('Trade with ' + msg.trade.partner + ' complete!'); }
+    if (msg.type === 'trade_closed') { fishTrade = null; tradeDraft = null; tradeSetMsg(msg.reason || 'Trade closed', 'var(--red)'); tradeRender(); }
     if (msg.type === 'friend_presence') {
       loadFriendsList();
     }
