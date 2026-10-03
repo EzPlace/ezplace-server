@@ -6039,6 +6039,7 @@ async def websocket_handler(request):
                         if is_fake_admin(username): grid_msg["fake_admin"] = True
                         await send_grid_to_ws(ws, grid_msg, lobby["grid"])
                         await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
+                        discord_forward_event(lobby_id, username, "joined")
                         await broadcast_online_lobby(lobby_id)
 
                     elif data["type"] == "guest_join" and not username and not lobby_id:
@@ -6214,7 +6215,7 @@ async def websocket_handler(request):
                                 print(f"[chat {_pub} {lobby_id} ({_logsafe(_lname, 40)})] {username}: {_logsafe(text)}", flush=True)
                             except: pass
                             await broadcast_to_lobby(lobby_id, chat_payload)
-                            discord_forward(lobby_id, username, text)
+                            discord_forward(lobby_id, username, text, chat_payload.get("reply_to"))
 
                     elif data["type"] == "lobby_kick" and username and lobby_id:
                         lobby = lobbies.get(lobby_id)
@@ -6405,6 +6406,7 @@ async def websocket_handler(request):
             await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username})
             await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": False})
             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} left"})
+            discord_forward_event(lobby_id, username, "left")
             await broadcast_online_lobby(lobby_id)
     return ws
 
@@ -6458,6 +6460,32 @@ discord_task = None
 _discord_mod = None
 _discord_pending = 0
 
+async def _discord_reply_info(message):
+    """If this Discord message is a reply, return {"from", "text"} for the quote shown in the lobby."""
+    try:
+        ref = getattr(message, "reference", None)
+        if ref is None or not getattr(ref, "message_id", None): return None
+        rm = ref.resolved if hasattr(ref.resolved, "clean_content") else None
+        if rm is None:
+            try: rm = await message.channel.fetch_message(ref.message_id)
+            except Exception: return None
+        body = " ".join((rm.clean_content or "").split())
+        me = getattr(getattr(discord_client, "user", None), "id", None)
+        who = None
+        if me is not None and rm.author.id == me:
+            # One of our own relayed lobby lines: "**name:** text"
+            m = re.match(r"^\*\*(.+?):\*\* (.*)$", body)
+            if m:
+                who = re.sub(r"\\(.)", r"\1", m.group(1)); body = re.sub(r"\\(.)", r"\1", m.group(2))
+        if who is None:
+            who = getattr(rm.author, "display_name", "") or rm.author.name
+        who = clean_label(who)[:30]
+        body = "".join(ch for ch in body if ch.isprintable())[:120]
+        if not who or not body: return None
+        return {"from": who, "text": body}
+    except Exception:
+        return None
+
 async def _discord_incoming(message):
     lobby_id = DISCORD_CHANNEL_TO_LOBBY.get(message.channel.id)
     if not lobby_id or message.author.bot or str(message.author.id) in DISCORD_IGNORE_IDS: return
@@ -6471,6 +6499,8 @@ async def _discord_incoming(message):
     name = clean_label(getattr(message.author, "display_name", "") or message.author.name)[:20] or "Discord user"
     payload = {"type": "chat", "username": name, "text": text, "is_owner": False, "is_vip": False,
                "rank": {"label": "DISCORD", "color": "#5865f2"}, "clan": None, "name_color": None, "discord": True}
+    reply = await _discord_reply_info(message)
+    if reply: payload["reply_to"] = reply
     _chat_remember(lobby_id, name, text)
     await broadcast_to_lobby(lobby_id, payload)
 
@@ -6507,25 +6537,43 @@ async def discord_stop(app):
         except Exception: pass
     if discord_task is not None: discord_task.cancel()
 
-async def _discord_send(cid, username, text):
+def _discord_escape(t):
+    return _discord_mod.utils.escape_markdown(t) if _discord_mod else t
+
+async def _discord_post(cid, content):
     global _discord_pending
     try:
         ch = discord_client.get_channel(cid) if discord_client is not None else None
-        if ch is None: return
-        esc_md = _discord_mod.utils.escape_markdown if _discord_mod else (lambda t: t)
-        await ch.send(f"**{esc_md(username)}:** {esc_md(text)}")
+        if ch is not None: await ch.send(content)
     except Exception as e:
         print(f"[discord] send failed: {type(e).__name__}: {e}", flush=True)
     finally:
         _discord_pending -= 1
 
-def discord_forward(lobby_id, username, text):
-    """Queue a lobby chat line for the matching Discord channel. No-op when the bridge is off."""
+def _discord_queue(lobby_id, content):
     global _discord_pending
     cid = DISCORD_LOBBY_TO_CHANNEL.get(lobby_id)
     if not cid or discord_client is None or _discord_pending >= 100: return
     _discord_pending += 1
-    asyncio.ensure_future(_discord_send(cid, username, text))
+    asyncio.ensure_future(_discord_post(cid, content))
+
+def discord_forward(lobby_id, username, text, reply_to=None):
+    """Queue a lobby chat line (with its reply quote, if any) for the matching Discord channel. No-op when the bridge is off."""
+    content = f"**{_discord_escape(username)}:** {_discord_escape(text)}"
+    if isinstance(reply_to, dict) and reply_to.get("from") and reply_to.get("text"):
+        content = f"> \u21a9 **{_discord_escape(reply_to['from'])}:** {_discord_escape(reply_to['text'])}\n" + content
+    _discord_queue(lobby_id, content)
+
+_discord_event_last = {}
+def discord_forward_event(lobby_id, username, kind):
+    """Tell the Discord channel that a player joined/left the lobby (throttled so reconnect flapping stays quiet)."""
+    if lobby_id not in DISCORD_LOBBY_TO_CHANNEL or discord_client is None or not username: return
+    now = time.time(); key = (lobby_id, username.lower(), kind)
+    if now - _discord_event_last.get(key, 0) < 30: return
+    if len(_discord_event_last) > 2000:
+        for k in [k for k, t in _discord_event_last.items() if now - t > 60]: _discord_event_last.pop(k, None)
+    _discord_event_last[key] = now
+    _discord_queue(lobby_id, f"*{_discord_escape(username)} {kind} the lobby*")
 
 async def broadcast_to_lobby(lobby_id, data, exclude=None):
     msg = json.dumps(data)
