@@ -2138,12 +2138,13 @@ function tradeRender() {
   } else {
     const draft = tradeDraft || { fish: Object.assign({}, t.your_offer.fish), pb: t.your_offer.pb };
     const inv = (fishState && fishState.inv) || {};
-    const owned = ((fishState && fishState.catalog) || []).filter(it => inv[it.id] > 0).sort((a, b) => b.value - a.value);
+    const seenF = (fishState && fishState.seen) || {}, rk = it => FISH_RARITY_ORDER.indexOf(it.rarity);
+    const owned = ((fishState && fishState.catalog) || []).filter(it => seenF[it.id] || inv[it.id] > 0 || draft.fish[it.id]).sort((x, y) => rk(x) - rk(y) || x.value - y.value);
     const rows = owned.map(it => {
       const q = draft.fish[it.id] || 0;
-      return '<div class="trade-pick' + (q ? ' on' : '') + '"><span class="trade-pname" style="border-left:3px solid ' + (FISH_RARITY_COLORS[it.rarity] || '#888') + '">' + esc(it.name) + '<span class="trade-dim trade-block">' + it.value + ' · have ' + inv[it.id] + '</span></span>'
+      return '<div class="trade-pick' + (q ? ' on' : '') + '"><span class="trade-pname" style="border-left:3px solid ' + (FISH_RARITY_COLORS[it.rarity] || '#888') + '">' + esc(it.name) + '<span class="trade-dim trade-block">' + it.value + ' · have ' + (inv[it.id] || 0) + '</span></span>'
         + '<span class="trade-step"><button data-tdelta="-1" data-tid="' + esc(it.id) + '">−</button><b>' + q + '</b><button data-tdelta="1" data-tid="' + esc(it.id) + '">+</button></span></div>';
-    }).join('') || '<div class="trade-dim">Your bucket is empty.</div>';
+    }).join('') || '<div class="trade-dim">You have not discovered any fish yet.</div>';
     const iConf = t.you_confirmed, theyConf = t.they_confirmed;
     const empty = !Object.keys(draft.fish).length && !draft.pb && !Object.keys(t.their_offer.fish).length && !t.their_offer.pb;
     html = '<div class="trade-title">Trading with ' + esc(t.partner) + '</div>'
