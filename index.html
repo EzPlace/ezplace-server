@@ -123,6 +123,11 @@
   @media (max-width: 540px) { .menu-mini-btn span:not(.notif-badge) { display: none; } .menu-mini-btn { padding: 0; width: 28px; } }
   .menu-mini-btn .notif-badge { position: absolute; top: -5px; right: -5px; margin: 0; }
   #discord-float { position: fixed; top: 14px; right: 14px; z-index: 46; display: none; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 10px; background: #5865f2; color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; box-shadow: 0 4px 14px rgba(88,101,242,0.4); transition: background 0.15s ease, transform 0.15s ease; }
+  #request-float { position: fixed; top: 14px; left: 14px; z-index: 46; display: none; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 10px; background: #f5c518; color: #1a1500; font-size: 12px; font-weight: 700; text-decoration: none; box-shadow: 0 4px 14px rgba(245,197,24,0.4); transition: background 0.15s ease, transform 0.15s ease; }
+  #request-float:hover { background: #ffd93d; transform: translateY(-1px); }
+  #request-float .mi { width: 18px; height: 18px; }
+  body.menu-open:not(.in-lobby) #request-float { display: flex; }
+  @media (max-width: 640px) { #request-float span, #discord-float span { display: none; } #request-float, #discord-float { padding: 0 10px; } }
   #discord-float:hover { background: #4752c4; transform: translateY(-1px); }
   #discord-float .mi { width: 18px; height: 18px; }
   body.menu-open:not(.in-lobby) #discord-float { display: flex; }
@@ -436,12 +441,6 @@
   .mobile-chat-bubble.fading { animation: chatBubbleOut 0.4s ease forwards; }
   .mobile-chat-bubble .mcb-name { font-weight: 700; color: var(--accent); margin-right: 4px; }
   .mobile-chat-bubble .mcb-name.owner { color: var(--red); }
-  .rtc-tile { background: var(--bg-elevated); border: 1px solid var(--accent); border-radius: var(--radius-md); padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); display: flex; flex-direction: column; gap: 3px; }
-  .rtc-tile video { width: 180px; height: 135px; background: #000; border-radius: var(--radius-sm); object-fit: cover; display: block; }
-  .rtc-tile.audio-only { padding: 8px 12px; min-width: 120px; }
-  .rtc-tile.audio-only video { display: none; }
-  .rtc-tile .rtc-name { font-size: 11px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 4px; }
-  .rtc-tile .rtc-name .rtc-mic { font-size: 10px; }
 
   #mobile-sidebar-toggle { display: none; position: fixed; bottom: 14px; right: 14px; z-index: 45; width: 48px; height: 48px; font-size: 20px; border-radius: 50%; background: var(--accent); border: none; color: #fff; box-shadow: 0 4px 16px rgba(238,90,82,0.4); }
   #mobile-sidebar-toggle:hover { background: var(--accent-hover); }
@@ -518,9 +517,6 @@
   #sidebar-tabs { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 4px 8px 0; gap: 4px; }
   .sidebar-tab { color: var(--text-muted); font-weight: 500; border-bottom: 2px solid transparent; }
   .sidebar-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
-  #call-bar { background: transparent !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; }
-  #call-bar .win-btn { background: rgba(255,255,255,0.04) !important; border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary) !important; font-weight: 500; box-shadow: none; }
-  #call-bar .win-btn:hover { border-color: rgba(255,255,255,0.2); transform: none; }
   #chat-filter-bar { color: var(--text-muted); }
   #messages { background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; margin: 6px; }
   #chat-bar { border-top: 1px solid rgba(255,255,255,0.06); }
@@ -545,7 +541,6 @@
   #more-panel #btn-report:hover { background: rgba(240,100,100,0.1) !important; }
   .more-ping { padding: 6px 10px 2px; font-size: 10px; color: var(--text-muted); border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px; }
   #user-bar { padding: 8px 12px; }
-  #call-bar:not(:has(#btn-mute:not([style*="none"]))) { display: none !important; }
   #messages { margin: 8px; }
   #wheel-group { gap: 12px; }
   #wheel-side { gap: 8px; }
@@ -574,8 +569,6 @@
       <div id="more-wrap">
         <button id="btn-more" class="win-btn" title="More">More</button>
         <div id="more-panel" style="display:none">
-          <button id="btn-voice" class="more-item" style="display:none">Voice</button>
-          <button id="btn-video" class="more-item" style="display:none">Video</button>
           <button id="btn-timelapse" class="more-item" style="display:none">Flashback</button>
           <button id="btn-export-grid" class="more-item" style="display:none">Export</button>
           <button id="btn-import-grid" class="more-item" style="display:none">Import</button>
@@ -600,7 +593,7 @@
   <div id="cooldown-bar"><div id="cooldown-fill"></div></div>
   <div id="viewport-wrap">
     <canvas id="viewport"></canvas>
-    <div id="rtc-tiles" style="position:absolute;top:6px;right:6px;z-index:7;display:flex;flex-direction:column;gap:6px;max-width:200px;"></div>
+
     <div id="mobile-chat-overlay" style="position:absolute;top:6px;left:6px;right:6px;z-index:6;display:flex;flex-direction:column;gap:4px;pointer-events:none;"></div>
     <div id="zoom-buttons">
       <button id="zoom-in" class="win-btn">+</button>
@@ -963,10 +956,6 @@
   </div>
 
   <div id="chat-tab" class="tab-panel active">
-    <div id="call-bar" style="padding:6px 8px;border-bottom:1px solid var(--border);background:var(--bg-tertiary);display:none;gap:4px;align-items:center;flex-wrap:wrap;">
-      <button id="btn-mute" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--bg-elevated)">Mute</button>
-      <button id="btn-leave-call" class="win-btn" style="display:none;font-size:11px;padding:4px 10px;background:var(--red);color:#fff">End Call</button>
-    </div>
     <div id="messages"></div>
     <div id="typing-indicator" style="display:none;font-size:12px;color:var(--accent);font-weight:600;padding:6px 12px;background:var(--accent-dim);border-left:3px solid var(--accent);margin:4px 6px 0;border-radius:var(--radius-sm);"><span id="typing-text"></span><span id="typing-dots" style="display:inline-block;margin-left:2px;letter-spacing:1px;"></span></div>
     <div id="chat-reply-bar" style="display:none;align-items:center;gap:6px;padding:4px 8px;margin:0 6px;background:var(--accent-dim);border-left:3px solid var(--accent);border-radius:var(--radius-sm);font-size:11px;color:var(--text-secondary);"><span id="chat-reply-text" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><span id="chat-reply-cancel" style="cursor:pointer;font-weight:700;color:var(--text-muted);">&times;</span></div>
@@ -1180,6 +1169,7 @@
 <div id="menu">
   <canvas id="lobby-bg-canvas"></canvas>
   <div id="lobby-bg-overlay"></div>
+  <a id="request-float" href="https://docs.google.com/forms/d/e/1FAIpQLScEK1Y0x_fGSkRbJPWnALAI5cLA-SVvP1dC3fiKMBlJ-o_ztw/viewform?usp=publish-editor" target="_blank" rel="noopener noreferrer" title="Request a new feature or report a bug"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg><span>Request a new feature/bug fix</span></a>
   <a id="discord-float" href="https://discord.gg/ynMtYnuAbB" target="_blank" rel="noopener noreferrer"><svg class="mi" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.6 5.6A16.3 16.3 0 0 0 15.5 4.3l-.2.4a15 15 0 0 1 3.7 1.9 13.4 13.4 0 0 0-14 0 15 15 0 0 1 3.7-1.9l-.2-.4a16.3 16.3 0 0 0-4.1 1.3C2 9.5 1.3 13.3 1.6 17a16.5 16.5 0 0 0 5 2.5l1-1.7a10.6 10.6 0 0 1-1.7-.8l.4-.3a11.7 11.7 0 0 0 11.4 0l.4.3a10.6 10.6 0 0 1-1.7.8l1 1.7a16.5 16.5 0 0 0 5-2.5c.4-4.3-.7-8-2.8-11.4ZM8.7 14.7c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6.6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg><span>Join the Discord</span></a>
   <div id="menu-bubble">
     <div id="menu-head">
@@ -1703,8 +1693,11 @@ async function selectBackend() {
   try {
     const forced = new URLSearchParams(location.search).get('backend');
     if (forced) {
+      // Only our own hosts are accepted: an arbitrary host would receive the login token and could inject markup.
       const host = forced === 'proxy' ? (BACKEND_CANDIDATES[1] || BACKEND_CANDIDATES[0])
-                 : forced === 'primary' ? BACKEND_CANDIDATES[0] : forced;
+                 : forced === 'primary' ? BACKEND_CANDIDATES[0]
+                 : (BACKEND_CANDIDATES.includes(forced) ? forced : null);
+      if (!host) throw new Error('unknown backend');
       BACKEND_HOST = host; BACKEND = 'https://' + host; WS_HOST = host;
       return;
     }
@@ -1805,6 +1798,7 @@ const GUEST_BUTTONS = new Set(['btn-menu-earn2', 'btn-menu-lobbies', 'btn-menu-l
 function menuIsOpen() { return document.body.classList.contains('menu-open'); }
 function friendsViewOpen() { return menuIsOpen() && menuView === 'friends'; }
 function renderMenuHome() {
+  updateMenuOnlineVisibility();
   const authed = !!authToken;
   const guest = !authed && isGuest;
   document.getElementById('menu-home-auth').style.display = (authed || guest) ? 'none' : '';
@@ -1834,6 +1828,10 @@ function leaveMenuView() {
   const h = menuViewHooks[menuView];
   if (h && h.leave) { try { h.leave(); } catch {} }
 }
+function updateMenuOnlineVisibility() {
+  const box = document.getElementById('menu-online');
+  if (box) box.style.display = (authToken || isGuest) ? '' : 'none';
+}
 let _menuOnlineTimer = 0;
 async function refreshMenuOnline() {
   const el = document.getElementById('menu-online-text'); if (!el) return;
@@ -1843,9 +1841,11 @@ async function refreshMenuOnline() {
     try { const r = await fetch('/api/lobbies', { cache: 'no-store' }); const d = await r.json(); n = (d.lobbies || []).reduce((a, l) => a + (typeof l.online === 'number' ? l.online : 0), 0); } catch {}
   }
   if (n !== null) el.textContent = n + ' online';
+  else setTimeout(refreshMenuOnline, 3000);
 }
 function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen()) refreshMenuOnline(); }, 20000); }
 function openMenuView(name, resetHistory) {
+  updateMenuOnlineVisibility();
   startMenuOnlinePoll();
   document.body.classList.toggle('in-lobby', !!currentLobbyId);
   if (!document.getElementById('menu-view-' + name)) name = 'home';
@@ -2501,164 +2501,6 @@ function clearOwnCursor() {
   lastSentCursorX = -1; lastSentCursorY = -1; lastSentCursorTime = Date.now();
   ws.send(JSON.stringify({ type: 'cursor', x: null, y: null }));
 }
-const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
-const MAX_PEERS = 8;
-let localStream = null;
-let isVideoCall = false;
-let isMuted = false;
-const peers = new Map();
-
-function rtcLog(...args) { try { console.log('[RTC]', ...args); } catch {} }
-
-function rtcSend(type, payload) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) { rtcLog('WS not open, dropping', type); return; }
-  ws.send(JSON.stringify({ type, ...payload }));
-}
-
-function makeTile(name) {
-  const tile = document.createElement('div');
-  tile.className = 'rtc-tile audio-only';
-  tile.innerHTML = `<video autoplay playsinline></video><div class="rtc-name"><span class="rtc-mic">&#x1F3A4;</span><span>${esc(name)}</span></div>`;
-  document.getElementById('rtc-tiles').appendChild(tile);
-  return tile;
-}
-
-async function startCall(withVideo) {
-  if (localStream) return;
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    addSystemMsg('Voice/video requires a secure context. Try the HTTPS version of this site.');
-    return;
-  }
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: withVideo });
-  } catch (err) {
-    rtcLog('getUserMedia failed:', err.name, err.message);
-    addSystemMsg('Mic/camera permission denied or unavailable. (' + (err.name || 'error') + ')');
-    return;
-  }
-  isVideoCall = withVideo;
-  isMuted = false;
-  document.getElementById('btn-voice').style.display = 'none';
-  document.getElementById('btn-video').style.display = 'none';
-  document.getElementById('btn-mute').style.display = '';
-  document.getElementById('btn-leave-call').style.display = '';
-  const localTile = makeTile(username + ' (you)');
-  if (withVideo) localTile.classList.remove('audio-only');
-  localTile.querySelector('video').srcObject = localStream;
-  localTile.querySelector('video').muted = true;
-  peers.set('__self__', { pc: null, tile: localTile });
-  rtcLog('startCall: announcing rtc_join');
-  rtcSend('rtc_join', { video: withVideo });
-  addSystemMsg('You joined the ' + (withVideo ? 'video' : 'voice') + ' call. Others must click ' + (withVideo ? 'Video' : 'Voice') + ' to join you.');
-}
-
-function isPolite(remoteName) {
-  return (username || '').toLowerCase() < (remoteName || '').toLowerCase();
-}
-
-function makePeer(remoteName) {
-  if (peers.has(remoteName.toLowerCase())) return peers.get(remoteName.toLowerCase());
-  if (peers.size >= MAX_PEERS + 1) { rtcLog('Peer cap reached, ignoring', remoteName); return null; }
-  const pc = new RTCPeerConnection(RTC_CONFIG);
-  const tile = makeTile(remoteName);
-  const videoEl = tile.querySelector('video');
-  const peer = { pc, tile, video: videoEl, pendingIce: [], makingOffer: false, polite: isPolite(remoteName), ignoreOffer: false };
-  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-  pc.onicecandidate = e => { if (e.candidate) rtcSend('rtc_ice', { target: remoteName, candidate: e.candidate }); };
-  pc.ontrack = e => {
-    rtcLog('ontrack from', remoteName, e.track.kind);
-    videoEl.srcObject = e.streams[0];
-    if (e.track.kind === 'video') tile.classList.remove('audio-only');
-    videoEl.play().catch(err => rtcLog('video.play() rejected', err.name));
-  };
-  pc.onconnectionstatechange = () => {
-    rtcLog('connectionState', remoteName, pc.connectionState);
-    if (['failed', 'closed'].includes(pc.connectionState)) closePeer(remoteName);
-  };
-  pc.onnegotiationneeded = async () => {
-    try {
-      peer.makingOffer = true;
-      await pc.setLocalDescription();
-      rtcSend('rtc_offer', { target: remoteName, sdp: pc.localDescription });
-    } catch (err) {
-      rtcLog('negotiationneeded error', err);
-    } finally {
-      peer.makingOffer = false;
-    }
-  };
-  peers.set(remoteName.toLowerCase(), peer);
-  return peer;
-}
-
-function closePeer(remoteName) {
-  const key = remoteName.toLowerCase();
-  const p = peers.get(key);
-  if (!p) return;
-  if (p.pc) try { p.pc.close(); } catch {}
-  if (p.tile && p.tile.parentNode) p.tile.parentNode.removeChild(p.tile);
-  peers.delete(key);
-}
-
-function endCall() {
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-  for (const k of [...peers.keys()]) closePeer(k);
-  peers.clear();
-  rtcSend('rtc_leave', {});
-  isVideoCall = false; isMuted = false;
-  const showCall = !!currentLobbyId;
-  document.getElementById('btn-voice').style.display = showCall ? '' : 'none';
-  document.getElementById('btn-video').style.display = showCall ? '' : 'none';
-  document.getElementById('btn-mute').style.display = 'none';
-  document.getElementById('btn-leave-call').style.display = 'none';
-}
-
-function toggleMute() {
-  if (!localStream) return;
-  isMuted = !isMuted;
-  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
-  document.getElementById('btn-mute').textContent = isMuted ? 'Unmute' : 'Mute';
-}
-
-document.getElementById('btn-voice').onclick = () => startCall(false);
-document.getElementById('btn-video').onclick = () => startCall(true);
-document.getElementById('btn-mute').onclick = toggleMute;
-document.getElementById('btn-leave-call').onclick = endCall;
-
-async function handleRtcMessage(msg) {
-  rtcLog('recv', msg.type, 'from', msg.username);
-  if (msg.type === 'rtc_join') {
-    if (localStream) makePeer(msg.username);
-    return;
-  }
-  if (msg.type === 'rtc_leave') { closePeer(msg.username); return; }
-  if (!localStream) return;
-  const peer = makePeer(msg.username);
-  if (!peer) return;
-  const pc = peer.pc;
-  try {
-    if (msg.type === 'rtc_offer') {
-      const offerCollision = peer.makingOffer || pc.signalingState !== 'stable';
-      peer.ignoreOffer = !peer.polite && offerCollision;
-      if (peer.ignoreOffer) { rtcLog('ignoring colliding offer from', msg.username); return; }
-      await pc.setRemoteDescription(msg.sdp);
-      for (const c of peer.pendingIce) try { await pc.addIceCandidate(c); } catch (e) { rtcLog('flush ice err', e); }
-      peer.pendingIce = [];
-      await pc.setLocalDescription();
-      rtcSend('rtc_answer', { target: msg.username, sdp: pc.localDescription });
-    } else if (msg.type === 'rtc_answer') {
-      if (pc.signalingState === 'have-local-offer') await pc.setRemoteDescription(msg.sdp);
-      for (const c of peer.pendingIce) try { await pc.addIceCandidate(c); } catch (e) { rtcLog('flush ice err', e); }
-      peer.pendingIce = [];
-    } else if (msg.type === 'rtc_ice') {
-      if (!msg.candidate) return;
-      if (!pc.remoteDescription) { peer.pendingIce.push(msg.candidate); return; }
-      try { await pc.addIceCandidate(msg.candidate); } catch (e) { if (!peer.ignoreOffer) rtcLog('addIceCandidate err', e); }
-    }
-  } catch (err) {
-    rtcLog('handleRtcMessage error', msg.type, err);
-  }
-}
-
 const TL_EVENT_SIZE = 10;
 let tlState = null;
 let tlAnimFrame = null;
@@ -6960,7 +6802,8 @@ function logout() {
   document.getElementById('dm-toast-container').innerHTML = '';
   intentionalClose = true;
   if (ws) ws.close();
-  if (socialWs) socialWs.close();
+  clearTimeout(_socialReconnectTimer);
+  if (socialWs) { const old = socialWs; socialWs = null; old.close(); }
   userBar.style.display = 'none';
   const ub2 = document.getElementById('user-bar-row2'); if (ub2) ub2.style.display = 'none';
   updateSidebarTabs();
@@ -7555,8 +7398,7 @@ async function loadLobbies() {
   } catch {}
 }
 function resetLobbyUi() {
-  ['btn-leave-lobby', 'btn-export-grid', 'btn-import-grid', 'btn-manage-current', 'btn-voice', 'btn-video', 'btn-mute', 'btn-leave-call', 'btn-timelapse', 'call-bar'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
-  if (localStream) endCall();
+  ['btn-leave-lobby', 'btn-export-grid', 'btn-import-grid', 'btn-manage-current', 'btn-timelapse'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   document.getElementById('lobby-name-display').innerHTML = '';
 }
 
@@ -7571,9 +7413,6 @@ function joinLobby(id, name) {
   hideMenu();
   document.getElementById('btn-leave-lobby').style.display = '';
   document.getElementById('btn-export-grid').style.display = '';
-  document.getElementById('call-bar').style.display = 'flex';
-  document.getElementById('btn-voice').style.display = '';
-  document.getElementById('btn-video').style.display = '';
   document.getElementById('lobby-name-display').innerHTML = `Lobby: <b>${esc(name)}</b>`;
   messagesEl.innerHTML = '';
   grid = new Uint8Array(GRID_W * GRID_H); resetOffscreen(); render();
@@ -7912,7 +7751,6 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; setOffscreenPixel(msg.x, msg.y, msg.color); render(); break;
       case 'cursor': if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) { remoteCursors[msg.username.toLowerCase()] = { name: msg.username, x: msg.x, y: msg.y, lastUpdate: Date.now() }; render(); } break;
       case 'cursor_remove': if (msg.username) { delete remoteCursors[msg.username.toLowerCase()]; render(); } break;
-      case 'rtc_join': case 'rtc_leave': case 'rtc_offer': case 'rtc_answer': case 'rtc_ice': handleRtcMessage(msg); break;
       case 'brush_perm_update': brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); addSystemMsg(`Your brush perms updated: size=${brushPerm.size}, drag=${brushPerm.drag ? 'on' : 'off'}`); break;
       case 'typing': {
         if (!msg.username || msg.username.toLowerCase() === (username || '').toLowerCase()) break;
@@ -7931,7 +7769,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBux', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
       case 'streak_bonus': { myStreak = msg.count || myStreak; myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true }; if (msg.used_pass && myPurchases) myPurchases.streak_pass = msg.passes_left; applyPbState(); showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
-      case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); const stillHere = new Set(lobbyUsers.map(u => u.toLowerCase())); for (const k of [...peers.keys()]) { if (k !== '__self__' && !stillHere.has(k)) closePeer(k); } } break;
+      case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); } break;
       case 'perm': canPlace = !!msg.can_place; break;
       case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = username && ['toothpaste','juicebox'].includes(username.toLowerCase()); document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
       case 'pixel_owner_result': {
@@ -8068,17 +7906,30 @@ function showDmToast(from, text, onClick, hideBody) {
 }
 
 let socialWs = null;
+let _socialReconnectTimer = 0;
+const _seenSocialMsgs = new Set();
 function connectSocial() {
   if (!authToken) return;
+  // Never keep two live social sockets: every extra one delivers each DM/notification again.
+  if (socialWs && (socialWs.readyState === WebSocket.OPEN || socialWs.readyState === WebSocket.CONNECTING)) return;
+  clearTimeout(_socialReconnectTimer);
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const socialProto = BACKEND_HOST ? 'wss' : protocol;
   try { socialWs = new WebSocket(`${socialProto}://${WS_HOST}/ws/social`); } catch { return; }
+  const thisSocial = socialWs;
   socialWs.onopen = () => {
     socialWs.send(JSON.stringify({ type: 'auth', token: authToken, device_id: deviceId }));
     try { socialWs.send(JSON.stringify({ type: 'presence', afk: isAfk })); } catch {}
   };
   socialWs.onmessage = async e => {
+    if (thisSocial !== socialWs) return;
     const msg = JSON.parse(e.data);
+    if (msg.type === 'dm' || msg.type === 'group_msg') {
+      const k = msg.type + '|' + (msg.group_id || '') + '|' + msg.from + '|' + msg.time + '|' + (msg.text || msg.image_url || msg.image || '');
+      if (_seenSocialMsgs.has(k)) return;
+      _seenSocialMsgs.add(k);
+      if (_seenSocialMsgs.size > 300) _seenSocialMsgs.delete(_seenSocialMsgs.values().next().value);
+    }
     if (msg.type === 'achievement') {
       achievementToast(msg);
       pushLiveNotification(msg);
@@ -8281,7 +8132,12 @@ function connectSocial() {
       if (currentGroupId === msg.group_id) loadMsgList();
     }
   };
-  socialWs.onclose = () => { setTimeout(() => { if (authToken) connectSocial(); }, 5000); };
+  socialWs.onclose = () => {
+    if (thisSocial !== socialWs) return;
+    socialWs = null;
+    clearTimeout(_socialReconnectTimer);
+    _socialReconnectTimer = setTimeout(() => { if (authToken) connectSocial(); }, 5000);
+  };
 }
 
 function addSection(panel, text) {
@@ -8477,7 +8333,7 @@ function appendDmMsg(from, text, t, image, replyTo) {
     const img = document.createElement('img');
     img.src = image; img.referrerPolicy = 'no-referrer';
     img.style.cssText = 'display:block;max-width:240px;max-height:240px;margin-top:4px;border-radius:6px;cursor:pointer;border:1px solid var(--border);';
-    img.onclick = () => window.open(image, '_blank');
+    img.onclick = () => window.open(image, '_blank', 'noopener,noreferrer');
     d.appendChild(img);
   }
   d.querySelector('.dm-reply-btn').addEventListener('click', () => setDmReply(from, text || '[image]'));
@@ -9306,6 +9162,7 @@ setInterval(ezpVersionCheck, 45000);
   if (authToken && safeStore.getItem('ezplace_user')) username = safeStore.getItem('ezplace_user');
   showMenu('home');
   await selectBackend();
+  refreshMenuOnline();
   ezpVersionCheck();
   try {
     const r = await fetch(BACKEND + '/api/auth/status', { headers: authToken ? { Authorization: authToken } : {} });

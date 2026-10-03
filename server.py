@@ -106,6 +106,7 @@ def is_safe_image_url(url):
         p = urlparse(url)
         if p.scheme != "https": return False
         if p.username or p.password: return False
+        if not p.path.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")): return False
         return p.hostname is not None and p.hostname.lower() in ALLOWED_IMAGE_HOSTS
     except: return False
 lobbies = {}
@@ -182,6 +183,13 @@ def new_session(user):
     session_born[token] = now
     return token
 
+def _session_user(tok):
+    u = sessions.get(tok)
+    if u and time.time() - session_born.get(tok, time.time()) > SESSION_TTL:
+        sessions.pop(tok, None); session_born.pop(tok, None)
+        return None
+    return u
+
 def get_auth_user(request):
     tok = request.headers.get("Authorization", "")
     u = sessions.get(tok)
@@ -235,6 +243,26 @@ def get_leaderboard_top10(lobby):
 PBKDF2_ITERATIONS = 200_000
 MAX_PASSWORD_LEN = 128
 
+import unicodedata
+_STAFF_WORDS = {"ADMIN", "ADMINS", "ADMINISTRATOR", "MOD", "MODS", "MODERATOR", "CREATOR", "OWNER", "STAFF", "DEV", "DEVS", "DEVELOPER",
+                "SYSTEM", "OFFICIAL", "EZPLACE", "HELPER", "GM", "VIP"}
+_CONFUSABLES = str.maketrans({"А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T", "Х": "X", "І": "I", "Ѕ": "S", "Ј": "J",
+                              "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "і": "i", "ѕ": "s", "ј": "j", "у": "y",
+                              "Α": "A", "Β": "B", "Ε": "E", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X", "Ζ": "Z",
+                              "ο": "o", "ν": "v", "0": "O", "1": "I", "3": "E", "4": "A", "5": "S", "7": "T", "$": "S", "@": "A"})
+
+def clean_label(text):
+    """NFKC-normalise and drop control / invisible / bidi characters so labels cannot hide or fake text."""
+    t = unicodedata.normalize("NFKC", str(text or ""))
+    t = "".join(ch for ch in t if unicodedata.category(ch)[0] != "C")
+    return " ".join(t.split())
+
+def label_is_staffy(text):
+    folded = clean_label(text).translate(_CONFUSABLES).upper()
+    words = [re.sub(r"[^A-Z]", "", w) for w in re.split(r"[^A-Za-z0-9]+", folded) if w]
+    joined = re.sub(r"[^A-Z]", "", folded)
+    return joined in _STAFF_WORDS or any(w in _STAFF_WORDS for w in words)
+
 def hash_password(password, salt=None):
     if salt is None:
         salt = secrets.token_hex(16)
@@ -251,6 +279,12 @@ def verify_password(acc, password):
         return secrets.compare_digest(h, stored), False
     legacy = hashlib.sha256((salt + password).encode()).hexdigest()
     return secrets.compare_digest(legacy, stored), True
+
+async def ahash_password(password, salt=None):
+    return await asyncio.get_event_loop().run_in_executor(None, hash_password, password, salt)
+
+async def averify_password(acc, password):
+    return await asyncio.get_event_loop().run_in_executor(None, verify_password, acc, password)
 
 def clean_captchas():
     now = time.time()
@@ -440,13 +474,13 @@ def _local_today_iso(tz_offset_min):
     Local time = UTC - tz_offset_min. Clamps to +-1440 just in case."""
     try: off = int(tz_offset_min)
     except: off = 0
-    if off > 1440 or off < -1440: off = 0
+    if off > 720 or off < -840: off = 0
     return (datetime.utcnow() - timedelta(minutes=off)).date().isoformat()
 
 def _local_yesterday_iso(tz_offset_min):
     try: off = int(tz_offset_min)
     except: off = 0
-    if off > 1440 or off < -1440: off = 0
+    if off > 720 or off < -840: off = 0
     return (datetime.utcnow() - timedelta(minutes=off) - timedelta(days=1)).date().isoformat()
 
 async def save_streaks(): await db_save("store", "streaks", streaks)
@@ -652,7 +686,7 @@ _rate_limits = {}
 def check_rate_limit(identity, action, max_count, window_sec):
     if not identity:
         return True
-    key = (str(identity).lower(), action)
+    key = (str(identity).lower()[:64], action)
     now = time.time()
     cutoff = now - window_sec
     timestamps = _rate_limits.setdefault(key, [])
@@ -761,7 +795,8 @@ async def save_lobby(lid):
 
 async def save_all_lobbies():
     for lid in list(lobbies.keys()):
-        await save_lobby(lid)
+        try: await save_lobby(lid)
+        except Exception as e: print(f"[save_all_lobbies] {lid} failed: {type(e).__name__}: {e}", flush=True)
 
 async def flush_dirty_lobbies_loop(app):
     """Background task: every 60s, save any lobby that has unsaved pixel changes.
@@ -1158,7 +1193,7 @@ async def register_handler(request):
         return web.json_response({"error": "Wrong captcha - try the new one"}, status=400)
     if uname.lower() in {u.lower() for u in accounts}:
         return web.json_response({"error": "Username already taken"}, status=400)
-    pw_hash, salt = hash_password(pwd)
+    pw_hash, salt = await ahash_password(pwd)
     accounts[uname] = {"password_hash": pw_hash, "salt": salt, "algo": "pbkdf2", "created": time.time()}
     await save_accounts()
     token = new_session(uname)
@@ -1178,6 +1213,8 @@ async def login_handler(request):
     uname, pwd = str(data.get("username") or "").strip(), data.get("password", "")
     if not uname or not pwd or not isinstance(pwd, str):
         return web.json_response({"error": "Username and password required"}, status=400)
+    if len(uname) > 32:
+        return web.json_response({"error": "Invalid username or password"}, status=400)
     if not check_rate_limit(uname.lower() + "|" + get_client_ip(request), "login_user", 15, 300):
         return web.json_response({"error": "Too many login attempts for this account - try again in a few minutes."}, status=429)
     if is_banned(uname) or is_ip_banned(request):
@@ -1186,11 +1223,11 @@ async def login_handler(request):
     if not found:
         return web.json_response({"error": "Invalid username or password"}, status=400)
     acc = accounts[found]
-    ok, rehash = verify_password(acc, pwd)
+    ok, rehash = await averify_password(acc, pwd)
     if not ok:
         return web.json_response({"error": "Invalid username or password"}, status=400)
     if rehash:
-        pw_hash, salt = hash_password(pwd)
+        pw_hash, salt = await ahash_password(pwd)
         acc["password_hash"] = pw_hash; acc["salt"] = salt; acc["algo"] = "pbkdf2"
         await save_accounts()
     token = new_session(found)
@@ -1241,7 +1278,7 @@ async def lobby_preview_handler(request):
             "Content-Type": "application/octet-stream",
             "X-Width": str(lobby.get("width", 256)),
             "X-Height": str(lobby.get("height", 256)),
-            "Cache-Control": "public, max-age=60",
+            "Cache-Control": "public, max-age=60" if lobby.get("public") else "private, no-store",
         }
     )
 
@@ -1291,8 +1328,8 @@ async def create_lobby_handler(request):
     if not check_rate_limit(user, "lobby_create", 3, 60):
         return web.json_response({"error": "Slow down - max 3 lobby creates per minute."}, status=429)
     name = str(data.get("name") or "").strip()[:30]
-    is_public = data.get("public", False)
-    wl = data.get("whitelist_enabled", False)
+    is_public = bool(data.get("public", False))
+    wl = bool(data.get("whitelist_enabled", False))
     try: cooldown = max(0, min(MAX_COOLDOWN, float(data.get("cooldown", DEFAULT_COOLDOWN))))
     except: cooldown = DEFAULT_COOLDOWN
     try: lw = int(data.get("width", 256))
@@ -1436,7 +1473,7 @@ def get_user_level(name):
 async def leaderboard_handler(request):
     lid = request.query.get("lobby_id", "")
     lobby = lobbies.get(lid)
-    if not lobby:
+    if not lobby or not _lobby_readable(request, lobby):
         return web.json_response({"error": "Not found"}, status=404)
     pc = lobby.get("pixel_counts", {})
     top = sorted(pc.items(), key=lambda x: x[1], reverse=True)[:50]
@@ -1508,14 +1545,15 @@ async def friend_decline_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    target = str(data.get("username") or "").strip()
-    fd, td = get_friend_data(user), get_friend_data(target)
+    target = str(data.get("username") or "").strip()[:32]
+    fd = get_friend_data(user)
+    td = friends_data.get(target)  # never create entries for names that are not accounts
     if target in fd["incoming"]: fd["incoming"].remove(target)
-    if user in td["outgoing"]: td["outgoing"].remove(user)
+    if td is not None and user in td["outgoing"]: td["outgoing"].remove(user)
     await save_friends()
     try:
         await check_friend_achievements(user)
-        await check_friend_achievements(target)
+        if target in accounts: await check_friend_achievements(target)
     except Exception: pass
     return web.json_response({"ok": True})
 
@@ -1523,21 +1561,25 @@ async def friend_remove_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    target = str(data.get("username") or "").strip()
-    fd, td = get_friend_data(user), get_friend_data(target)
+    target = str(data.get("username") or "").strip()[:32]
+    fd = get_friend_data(user)
+    td = friends_data.get(target)
     if target in fd["friends"]: fd["friends"].remove(target)
-    if user in td["friends"]: td["friends"].remove(user)
+    if td is not None and user in td["friends"]: td["friends"].remove(user)
     await save_friends()
     return web.json_response({"ok": True})
 
 async def dm_history_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    target = request.query.get("with", "")
+    if not check_rate_limit(user, "dm_history", 120, 60):
+        return web.json_response({"error": "Slow down"}, status=429)
+    target = request.query.get("with", "")[:32]
     msgs = dms.get(dm_key(user, target), [])[-MAX_DM_HISTORY:]
     peer_last_seen = 0
-    if target:
-        mark_dm_seen(user, target)
+    canon = next((u for u in accounts if u.lower() == target.lower()), None) if target else None
+    if canon:
+        mark_dm_seen(user, canon)
         await save_dm_last_seen()
         peer_last_seen = dm_last_seen.get(target.lower(), {}).get(user.lower(), 0)
     return web.json_response({"messages": msgs, "peer_last_seen": peer_last_seen})
@@ -2139,7 +2181,7 @@ async def admin_reset_password_handler(request):
     if len(new_pw) < 4: return web.json_response({"error": "Password must be at least 4 characters"}, status=400)
     found = next((u for u in accounts if u.lower() == target.lower()), None)
     if not found: return web.json_response({"error": f"Account {target} not found"}, status=404)
-    pw_hash, salt = hash_password(str(new_pw)[:MAX_PASSWORD_LEN])
+    pw_hash, salt = await ahash_password(str(new_pw)[:MAX_PASSWORD_LEN])
     accounts[found]["password_hash"] = pw_hash
     accounts[found]["salt"] = salt
     accounts[found]["algo"] = "pbkdf2"
@@ -2174,10 +2216,10 @@ async def change_password_handler(request):
         return web.json_response({"error": f"New password must be at most {MAX_PASSWORD_LEN} characters"}, status=400)
     acc = accounts.get(user)
     if not acc: return web.json_response({"error": "Account not found"}, status=404)
-    ok, _ = verify_password(acc, old_pw)
+    ok, _ = await averify_password(acc, old_pw)
     if not ok:
         return web.json_response({"error": "Current password is incorrect"}, status=400)
-    pw_hash, salt = hash_password(new_pw)
+    pw_hash, salt = await ahash_password(new_pw)
     accounts[user]["password_hash"] = pw_hash
     accounts[user]["salt"] = salt
     accounts[user]["algo"] = "pbkdf2"
@@ -2282,6 +2324,31 @@ async def admin_delete_account_handler(request):
     if tlow in place_bucks: del place_bucks[tlow]; await save_place_bucks()
     if tlow in lifetime_pixels: del lifetime_pixels[tlow]; await save_lifetime_pixels()
     if tlow in purchases: del purchases[tlow]; await save_purchases()
+    # Anything keyed by name must go too, or whoever registers this name next inherits it (mod powers, big brush, history...).
+    for lst, saver in ((moderators, save_moderators), (fake_admins, save_fake_admins)):
+        if any(str(x).lower() == tlow for x in lst):
+            lst[:] = [x for x in lst if str(x).lower() != tlow]
+            try: await saver()
+            except Exception as e: print(f"[delete_account] save failed: {e}", flush=True)
+    for store, saver in ((brush_perms, save_brush_perms), (name_colors, save_name_colors), (profile_pictures, save_profile_pictures),
+                         (streaks, save_streaks), (fishing, save_fishing), (user_achievements, save_achievements),
+                         (notification_log, save_notifications), (user_devices, save_user_devices)):
+        dead = [k for k in store if str(k).lower() == tlow]
+        if dead:
+            for k in dead: del store[k]
+            try: await saver()
+            except Exception as e: print(f"[delete_account] save failed: {e}", flush=True)
+    groups_dirty = False
+    for gid in list(groups.keys()):
+        g = groups[gid]
+        if any(str(m).lower() == tlow for m in g.get("members", [])):
+            g["members"] = [m for m in g.get("members", []) if str(m).lower() != tlow]
+            groups_dirty = True
+            if not g["members"]: del groups[gid]
+            elif str(g.get("owner", "")).lower() == tlow: g["owner"] = g["members"][0]
+    if groups_dirty:
+        try: await save_groups()
+        except Exception as e: print(f"[delete_account] groups save failed: {e}", flush=True)
     return web.json_response({"ok": True, "message": f"Deleted account {found} ({len(owned_lids)} lobbies, {len(keys_to_delete)} DM threads, {disbanded} clans disbanded)"})
 
 async def admin_vip_add_handler(request):
@@ -2443,10 +2510,12 @@ async def clan_create_handler(request):
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
     if not check_rate_limit(user, "clan_create", 3, 600):
         return web.json_response({"error": "Slow down - too many clan create attempts."}, status=429)
-    name = str(data.get("name") or "").strip()[:30]
+    name = clean_label(data.get("name"))[:30]
     color = str(data.get("color") or "").strip()[:32]
     if not name or not color:
         return web.json_response({"error": "Name and color required"}, status=400)
+    if label_is_staffy(name):
+        return web.json_response({"error": "That clan name is reserved"}, status=400)
     if not is_hex_color(color):
         return web.json_response({"error": "Color must be a hex code"}, status=400)
     ulow = user.lower()
@@ -2761,11 +2830,11 @@ async def shop_buy_handler(request):
         return web.json_response({"error": "Unknown item"}, status=400)
                                                                                      
     if item == "custom_rank":
-        label = (data.get("label") or "").strip()[:16]
+        label = clean_label(data.get("label"))[:16]
         color = (data.get("color") or "").strip()[:32]
         if not label:
             return web.json_response({"error": "Rank label required"}, status=400)
-        if label.upper() in ("CREATOR", "ADMIN", "MODERATOR", "MOD") and not is_admin(user):
+        if label_is_staffy(label) and not is_admin(user):
             return web.json_response({"error": "That label is reserved"}, status=400)
         if not is_hex_color(color):
             return web.json_response({"error": "Color must be a hex code"}, status=400)
@@ -2958,7 +3027,7 @@ async def casino_roulette_handler(request):
     res, err = await _casino_open(request, "casino_roulette")
     if err: return err
     user, amount, data = res
-    choice = (data.get("choice") or "").strip().lower()
+    choice = str(data.get("choice") or "").strip().lower()
     if choice not in ("red", "black", "green"):
         credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
         return web.json_response({"error": "Choice must be red, black, or green"}, status=400)
@@ -3388,6 +3457,8 @@ async def casino_gd_start_handler(request):
         existing = gd_attempts.get(user.lower())
         if existing and not existing.get("done") and not existing.get("custom_id"):
             return web.json_response({"error": "Finish your current paid attempt first"}, status=400)
+        if not check_rate_limit(user, "gd_custom", 30, 60):
+            return web.json_response({"error": "Slow down"}, status=429)
         gd_attempts[user.lower()] = {"seed": 0, "bet": 0, "start_ts": time.time(), "done": False, "custom_id": level_id}
         return web.json_response({"ok": True, "custom": True, "level": lvl, "length": GD_LEVEL_LENGTH, "balance": get_pb(user)})
     try: amount = int(data.get("amount", 0))
@@ -3578,7 +3649,7 @@ async def casino_coinflip_handler(request):
     res, err = await _casino_open(request, "casino_coinflip")
     if err: return err
     user, amount, data = res
-    choice = (data.get("choice") or "").strip().lower()
+    choice = str(data.get("choice") or "").strip().lower()
     if choice not in ("heads", "tails"):
         credit_pb(user, amount); await save_place_bucks(); await push_pb_update(user)
         return web.json_response({"error": "Choice must be heads or tails"}, status=400)
@@ -3969,10 +4040,46 @@ async def uno_forfeit(user):
                 if room["players"][room["current"]]["is_ai"]:
                     asyncio.create_task(_uno_ai_turn(room))
 
+ROOM_LOBBY_TTL = 30 * 60
+MAX_OPEN_ROOMS = 300
+
+def _gc_stale_lobby_rooms():
+    """Refund and drop UNO/Battle rooms that sat in the lobby phase too long. Returns the names that were refunded."""
+    now = time.time(); refunded = []
+    for rid, r in list(uno_rooms.items()):
+        if r["phase"] == "lobby" and now - r.get("created_at", r.get("last_action_at", now)) > ROOM_LOBBY_TTL:
+            bet = r.get("bet_per_human", 0)
+            if bet > 0:
+                for p in r["players"]:
+                    if not p["is_ai"]: credit_pb(p["name"], bet); refunded.append(p["name"])
+            uno_rooms.pop(rid, None)
+    for rid, r in list(battle_rooms.items()):
+        if r["phase"] == "lobby" and now - r.get("created_at", r.get("last_action_at", now)) > ROOM_LOBBY_TTL:
+            if r["bet"] > 0:
+                for d in r["drawers"]: credit_pb(d, r["bet"]); refunded.append(d)
+            battle_rooms.pop(rid, None)
+    return refunded
+
+async def _room_create_guard(user, rooms, open_phases):
+    """Rate limit, drop stale lobby rooms (refunding stakes), and cap rooms per user and overall."""
+    if not check_rate_limit(user, "room_create", 6, 60):
+        return web.json_response({"error": "Slow down - too many rooms created."}, status=429)
+    stale = _gc_stale_lobby_rooms()
+    if stale:
+        await save_place_bucks()
+        for n in set(stale): await push_pb_update(n)
+    if len(rooms) >= MAX_OPEN_ROOMS:
+        return web.json_response({"error": "Too many open rooms right now - try again shortly."}, status=503)
+    if any(r["creator"].lower() == user.lower() and r["phase"] in open_phases for r in rooms.values()):
+        return web.json_response({"error": "You already have an open room - finish or leave it first."}, status=400)
+    return None
+
 async def uno_create_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    _blocked = await _room_create_guard(user, uno_rooms, ("lobby", "playing"))
+    if _blocked is not None: return _blocked
     try:
         bet = int(data.get("bet", 0))
         max_players = max(2, min(4, int(data.get("max_players", 2))))
@@ -3994,7 +4101,7 @@ async def uno_create_handler(request):
         "id": rid, "creator": user, "players": players, "phase": "lobby",
         "settings": {"max_players": max_players, "ai_count": ai_count, "stacking": stacking, "jump_ins": jump_ins, "multi_color": multi_color, "draw_till": draw_till, "bet": bet},
         "deck": [], "discard": [], "current": 0, "direction": 1, "current_color": None,
-        "pending_draws": 0, "pending_kind": None, "bet_per_human": bet, "pool": bet if bet > 0 else 0,
+        "pending_draws": 0, "pending_kind": None, "bet_per_human": bet, "pool": bet if bet > 0 else 0, "created_at": time.time(),
         "started_at": None, "last_action_at": time.time(),
         "spectators": [],
     }
@@ -4509,6 +4616,8 @@ async def battle_create_handler(request):
     data = await request.json()
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    _blocked = await _room_create_guard(user, battle_rooms, ("lobby", "drawing", "judging"))
+    if _blocked is not None: return _blocked
     try:
         bet = max(0, min(MAX_CASINO_BET, int(data.get("bet", 0))))
         draw_seconds = max(BATTLE_DRAW_SECONDS_MIN, min(BATTLE_DRAW_SECONDS_MAX, int(data.get("draw_seconds", BATTLE_DRAW_SECONDS_DEFAULT))))
@@ -4519,7 +4628,7 @@ async def battle_create_handler(request):
         "id": rid, "creator": user, "bet": bet, "pool": 0, "theme": theme,
         "phase": "lobby", "drawers": [], "judge": None, "spectators": [user],
         "grids": {}, "winner": None, "end_at": 0, "draw_seconds": draw_seconds,
-        "done_flags": set(), "last_action_at": time.time(), "invites": {},
+        "done_flags": set(), "last_action_at": time.time(), "invites": {}, "created_at": time.time(),
     }
     await _battle_push_state(battle_rooms[rid])
     return web.json_response({"ok": True, "room_id": rid, "state": _battle_public_state(battle_rooms[rid], user)})
@@ -5365,7 +5474,7 @@ async def _night_start_event():
     night_event["type"] = secrets.choice(NIGHT_EVENT_TYPES)
     night_event["phase"] = "signup"
     night_event["signups"] = []
-    night_event["signup_ips"] = {}
+    night_event["signup_devs"] = {}
     night_event["signup_end_ts"] = time.time() + NIGHT_EVENT_SIGNUP_SECONDS
     night_event["winner"] = None
     night_event["running_state"] = None
@@ -5451,11 +5560,11 @@ async def night_event_join_handler(request):
     created = (accounts.get(user) or {}).get("created")
     if created and time.time() - created < 24 * 3600:
         return web.json_response({"error": "Accounts must be at least 24 hours old to enter the night event"}, status=400)
-    ip = get_client_ip(request)
-    sig_ips = night_event.setdefault("signup_ips", {})
-    if ip in sig_ips and sig_ips[ip].lower() != user.lower():
-        return web.json_response({"error": "Only one entry per network"}, status=400)
-    sig_ips[ip] = user
+    dev = user_devices.get(user.lower())
+    sig_devs = night_event.setdefault("signup_devs", {})
+    if dev and dev in sig_devs and sig_devs[dev].lower() != user.lower():
+        return web.json_response({"error": "Only one entry per device"}, status=400)
+    if dev: sig_devs[dev] = user
     night_event["signups"].append(user)
     await _night_broadcast_state()
     return web.json_response({"ok": True, "state": _night_public_state()})
@@ -5473,6 +5582,8 @@ async def flappy_pass_handler(request):
     capped at 6/sec which is faster than any real flappy run can produce."""
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "flappy_gap", 1, 1):
+        return web.json_response({"ok": True, "balance": get_pb(user), "skipped": True})
     if not check_rate_limit(user, "flappy_pass", 50, 60):
         return web.json_response({"ok": True, "balance": get_pb(user), "skipped": True})
     if not check_rate_limit(user, "flappy_pass_day", 600, 86400):
@@ -5628,7 +5739,9 @@ async def social_ws_handler(request):
     if not _ws_acquire(_ws_ip):
         return web.Response(status=429, text="Too many connections")
     ws = web.WebSocketResponse()
-    await ws.prepare(request)
+    try: await ws.prepare(request)
+    except Exception:
+        _ws_release(_ws_ip); raise
     username = None
     social_clients[ws] = None
     social_ips[ws] = _ws_ip
@@ -5652,7 +5765,7 @@ async def social_ws_handler(request):
                     if data.get("type") == "auth":
                         token = data.get("token", "")
                         device_id = str(data.get("device_id", ""))[:64] or None
-                        if token in sessions:
+                        if _session_user(token):
                             username = sessions[token]
                             if is_banned(username):
                                 try: await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"})
@@ -5683,6 +5796,8 @@ async def social_ws_handler(request):
                             except: pass
                         else:
                             await ws.close()
+                    elif data.get("type") in ("presence", "group_seen", "dm_seen", "dm_typing") and username and not check_rate_limit(username, "social_misc", 60, 10):
+                        continue
                     elif data.get("type") == "presence" and username:
                         afk = bool(data.get("afk"))
                         ulow = username.lower()
@@ -5747,7 +5862,7 @@ async def social_ws_handler(request):
                                 if text: payload["text"] = text
                                 if image_url: payload["image_url"] = image_url
                                 if reply_obj: payload["reply_to"] = reply_obj
-                                try: print(f"[dm {username}->{target}] {text}{' [img]' if image_url else ''}", flush=True)
+                                try: print(f"[dm {username}->{target}] ({len(text or '')} chars){' [img]' if image_url else ''}", flush=True)
                                 except: pass
                                 await notify_social(target, payload)
                     elif data.get("type") == "group_msg" and username:
@@ -5776,7 +5891,7 @@ async def social_ws_handler(request):
                         fanout = {"type": "group_msg", "group_id": gid, "group_name": g.get("name", ""), "from": username, "time": msg_obj["time"]}
                         if text: fanout["text"] = text
                         if image_url: fanout["image_url"] = image_url
-                        try: print(f"[group {gid} ({g.get('name','')}) {username}] {text}{' [img]' if image_url else ''}", flush=True)
+                        try: print(f"[group {gid}] {username}: ({len(text or '')} chars){' [img]' if image_url else ''}", flush=True)
                         except: pass
                         for member in g.get("members", []):
                             if member.lower() != username.lower():
@@ -5826,7 +5941,7 @@ async def notify_social(target_username, data):
             except: pass
 
 ws_open_by_ip = {}
-WS_MAX_PER_IP = 60
+WS_MAX_PER_IP = 400  # a school can put hundreds of students behind one IP (each player holds two sockets)
 
 def _ws_acquire(ip):
     if ws_open_by_ip.get(ip, 0) >= WS_MAX_PER_IP: return False
@@ -5839,7 +5954,12 @@ def _ws_release(ip):
     else: ws_open_by_ip[ip] = n
 
 recent_chat = {}
+def _logsafe(text, limit=200):
+    return "".join(ch if ch.isprintable() else " " for ch in str(text))[:limit]
+
 def _chat_remember(lobby_id, user, text):
+    if len(recent_chat) > 500:
+        for k in [k for k in recent_chat if k not in lobbies]: recent_chat.pop(k, None)
     rc = recent_chat.setdefault(lobby_id, [])
     rc.append((user.lower(), text)); del rc[:-100]
 def _chat_reply_ok(lobby_id, rfrom, rtext):
@@ -5851,7 +5971,9 @@ async def websocket_handler(request):
     if not _ws_acquire(_ws_ip):
         return web.Response(status=429, text="Too many connections")
     ws = web.WebSocketResponse()
-    await ws.prepare(request)
+    try: await ws.prepare(request)
+    except Exception:
+        _ws_release(_ws_ip); raise
     username = None
     lobby_id = None
     last_pixel = 0
@@ -5882,7 +6004,7 @@ async def websocket_handler(request):
                         token = data.get("token", "")
                         lid = data.get("lobby_id", "")
                         device_id = str(data.get("device_id", ""))[:64] or None
-                        if token not in sessions:
+                        if not _session_user(token):
                             await ws.send_json({"type": "error", "text": "Invalid session"}); await ws.close(); break
                         username = sessions[token]
                         if is_banned(username):
@@ -5901,6 +6023,14 @@ async def websocket_handler(request):
                             await ws.send_json({"type": "error", "text": "Not whitelisted"}); await ws.close(); break
                         if username.lower() in [b.lower() for b in lobby.get("lobby_bans", [])]:
                             await ws.send_json({"type": "error", "text": "You are banned from this lobby"}); await ws.close(); break
+                        # One live session per account per lobby: close any older ones so the here/online counts stay honest.
+                        for w2, info2 in list(clients.items()):
+                            if w2 is not ws and info2 and info2.get("lobby_id") == lid and (info2.get("username") or "").lower() == username.lower():
+                                info2["dup_kicked"] = True
+                                try:
+                                    await w2.send_json({"type": "kicked", "text": "You joined this lobby from another tab or device, so this session was closed."})
+                                    await w2.close()
+                                except Exception: pass
                         can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
                         lobby_id = lid
                         clients[ws] = {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate"))}
@@ -6081,7 +6211,7 @@ async def websocket_handler(request):
                             try:
                                 _lname = lobby.get("name", "") if lobby else ""
                                 _pub = "public" if (lobby and lobby.get("public")) else "private"
-                                print(f"[chat {_pub} {lobby_id} ({_lname})] {username}: {text}", flush=True)
+                                print(f"[chat {_pub} {lobby_id} ({_logsafe(_lname, 40)})] {username}: {_logsafe(text)}", flush=True)
                             except: pass
                             await broadcast_to_lobby(lobby_id, chat_payload)
 
@@ -6092,11 +6222,15 @@ async def websocket_handler(request):
                             if is_admin(target):
                                 await ws.send_json({"type": "system", "text": "Cannot kick this user"})
                                 continue
+                            if not check_rate_limit(username, "lobby_mod", 20, 60): continue
+                            kicked_any = False
                             for cws, cinfo in list(clients.items()):
                                 if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower() and cws != ws:
+                                    kicked_any = True
                                     try: await cws.send_json({"type": "kicked", "text": f"Kicked from lobby by {username}"}); await cws.close()
                                     except: pass
-                            await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was kicked by the lobby owner"})
+                            if kicked_any:
+                                await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{target} was kicked by the lobby owner"})
 
                     elif data["type"] == "lobby_ban" and username and lobby_id:
                         lobby = lobbies.get(lobby_id)
@@ -6105,8 +6239,15 @@ async def websocket_handler(request):
                             if is_admin(target):
                                 await ws.send_json({"type": "system", "text": "Cannot ban this user"})
                                 continue
+                            if not check_rate_limit(username, "lobby_mod", 20, 60): continue
+                            if not any(u.lower() == target.lower() for u in accounts):
+                                await ws.send_json({"type": "system", "text": "No such user"})
+                                continue
                             if target.lower() != username.lower():
                                 lb = lobby.setdefault("lobby_bans", [])
+                                if len(lb) >= 500 and target.lower() not in [b.lower() for b in lb]:
+                                    await ws.send_json({"type": "system", "text": "Ban list is full (500) - unban someone first"})
+                                    continue
                                 if target.lower() not in [b.lower() for b in lb]:
                                     lb.append(target)
                                     await save_lobby(lobby_id)
@@ -6183,7 +6324,8 @@ async def websocket_handler(request):
                             if isinstance(new_grid, list) and len(new_grid) == expected and all(isinstance(c, int) and 0 <= c < PALETTE_SIZE for c in new_grid):
                                 lobby["grid"] = bytearray(new_grid)
                                 lobby["last_activity"] = time.time()
-                                imported_counts = data.get("pixel_counts")
+                                # Imported pixel counts feed the global leaderboard and levels, so only admins may set them.
+                                imported_counts = data.get("pixel_counts") if is_admin(username) else None
                                 if isinstance(imported_counts, dict):
                                     clean = {str(k)[:20]: min(int(v), expected) for k, v in imported_counts.items() if isinstance(v, (int, float)) and v >= 0}
                                     total_claimed = sum(clean.values())
@@ -6191,7 +6333,7 @@ async def websocket_handler(request):
                                         scale = expected / total_claimed
                                         clean = {k: int(v * scale) for k, v in clean.items()}
                                     lobby["pixel_counts"] = clean
-                                imported_owner = data.get("original_owner")
+                                imported_owner = data.get("original_owner") if is_admin(username) else None
                                 if isinstance(imported_owner, str) and imported_owner.strip():
                                     lobby["original_owner"] = imported_owner.strip()[:20]
                                 await save_lobby(lobby_id)
@@ -6201,21 +6343,8 @@ async def websocket_handler(request):
                             else:
                                 await ws.send_json({"type": "system", "text": f"Invalid grid data (expected {expected} pixels)"})
 
-                    elif data["type"] in ("rtc_join", "rtc_leave", "rtc_offer", "rtc_answer", "rtc_ice") and username and lobby_id:
-                                                                                                                    
-                        msg_type = data["type"]
-                        if msg_type in ("rtc_join", "rtc_leave"):
-                            await broadcast_to_lobby(lobby_id, {"type": msg_type, "username": username, "video": bool(data.get("video"))}, exclude=ws)
-                        else:
-                            target = str(data.get("target") or "").strip()[:20]
-                            if not target: continue
-                            payload = {"type": msg_type, "username": username, "sdp": data.get("sdp"), "candidate": data.get("candidate")}
-                            for cws, cinfo in list(clients.items()):
-                                if cinfo and cinfo.get("lobby_id") == lobby_id and cinfo.get("username", "").lower() == target.lower():
-                                    try: await cws.send_json(payload)
-                                    except: pass
-
                     elif data["type"] == "typing" and username and lobby_id:
+                        if not check_rate_limit(username, "typing", 20, 5): continue
                         state = bool(data.get("typing"))
                         await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": state}, exclude=ws)
                                                                                               
@@ -6267,8 +6396,11 @@ async def websocket_handler(request):
                 break
     finally:
         _ws_release(_ws_ip)
+        _was_dup = bool((clients.get(ws) or {}).get("dup_kicked"))
         del clients[ws]
-        if username and lobby_id:
+        if username and lobby_id and _was_dup:
+            await broadcast_online_lobby(lobby_id)
+        elif username and lobby_id:
             await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username})
             await broadcast_to_lobby(lobby_id, {"type": "typing", "username": username, "typing": False})
             await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} left"})
@@ -6734,10 +6866,25 @@ async def cors_middleware(request, handler):
         resp = await handler(request)
     resp.headers['Access-Control-Allow-Origin'] = '*'
     resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
     resp.headers.setdefault('Referrer-Policy', 'no-referrer')
     resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return resp
+
+@web.middleware
+async def json_guard_middleware(request, handler):
+    if request.path in ("/ws", "/ws/social"):
+        return await handler(request)
+    try:
+        return await handler(request)
+    except web.HTTPException:
+        raise
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Body must be JSON"}, status=400)
+    except Exception as e:
+        print(f"[error] {request.method} {request.path}: {type(e).__name__}: {e}", flush=True)
+        return web.json_response({"error": "Server error"}, status=500)
 
 _BAN_GUARD_EXEMPT_PATHS = {
     "/api/login", "/api/register", "/api/auth/suggest-mode", "/api/auth/status",
@@ -6833,6 +6980,8 @@ async def set_avatar_handler(request):
         return web.json_response({"error": f"Image too large (max {AVATAR_MAX_BYTES // 1024}KB base64)"}, status=400)
     if not AVATAR_DATA_URL_RE.match(avatar):
         return web.json_response({"error": "Invalid image data (must be data:image/... base64)"}, status=400)
+    if user.lower() not in profile_pictures and sum(len(v) for v in profile_pictures.values()) > 12_000_000:
+        return web.json_response({"error": "Avatar storage is full right now"}, status=503)
     profile_pictures[user.lower()] = avatar
     await save_profile_pictures()
     try: await unlock_achievement(user, "avatar_set")
@@ -7001,13 +7150,13 @@ async def fishing_sell_handler(request):
     await push_pb_update(user)
     return web.json_response({"ok": True, "sold": qty, "earned": earned, "state": _fish_state(user)})
 
-app = web.Application(middlewares=[cors_middleware, ban_guard_middleware])
+app = web.Application(middlewares=[cors_middleware, json_guard_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
 _g, _p = app.router.add_get, app.router.add_post
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
-    ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/logout", logout_handler), ("/api/version", version_handler),
+    ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/version", version_handler),
     ("/api/avatar", avatar_handler),
     ("/api/auth/suggest-mode", auth_suggest_mode_handler), ("/api/lobbies", lobbies_handler),
     ("/api/my-lobbies", my_lobbies_handler), ("/api/lobbies/info", lobby_detail_handler),
@@ -7042,7 +7191,7 @@ for _path, _h in (
     ("/ws", websocket_handler), ("/ws/social", social_ws_handler), ("/", index_handler),
 ): _g(_path, _h)
 for _path, _h in (
-    ("/api/register", register_handler), ("/api/login", login_handler),
+    ("/api/register", register_handler), ("/api/logout", logout_handler), ("/api/login", login_handler),
     ("/api/lobbies/create", create_lobby_handler), ("/api/lobbies/delete", delete_lobby_handler),
     ("/api/lobbies/update", update_lobby_handler), ("/api/lobbies/join-code", join_lobby_by_code_handler),
     ("/api/friends/add", friend_add_handler), ("/api/friends/accept", friend_accept_handler),
