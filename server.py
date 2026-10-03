@@ -7389,10 +7389,16 @@ def _fish_slot(user):
     return fishing.setdefault(user.lower(), {"inv": {}, "seen": {}, "casts": 0, "last_cast": 0})
 
 def _fish_ledger(st):
-    """Lifetime PlaceBux spent on / earned from fishing. Players who fished before this was tracked start from an estimate
-    (their cast count x the current cast cost); selling history before that is unknown and counts as 0."""
-    if "spent" not in st: st["spent"] = int(st.get("casts", 0)) * FISH_CAST_COST
-    if "earned" not in st: st["earned"] = 0
+    """Per-player fishing ledger: PlaceBux spent on casts (st["spent"]) and the cost basis of the fish still in the bucket (st["basis"]).
+    Profit figures are worth minus these. Call this BEFORE changing the bucket."""
+    if st.get("ledger_v") != 4:
+        inv = st.get("inv", {})
+        # Lifetime worth comes straight from the per-fish catch counts ("seen"), which have always been recorded. What was
+        # spent before this ledger existed is estimated as casts x the current cast cost (the price has changed over time).
+        st["spent"] = int(st.get("casts", 0)) * FISH_CAST_COST; st["earned"] = 0; st["ledger_v"] = 4
+        # cost basis of the fish already in the bucket: booked at their value, so they start at zero profit
+        st["basis"] = {k: float(int(n) * FISH_BY_ID[k]["value"]) for k, n in inv.items() if k in FISH_BY_ID and int(n) > 0}
+    st.setdefault("basis", {})
     return st
 
 def _fish_roll():
@@ -7414,8 +7420,10 @@ def _fish_state(user, now=None):
     day_key = (user.lower(), "fish_cast_day")
     used_today = len([t for t in _rate_limits.get(day_key, []) if t > now - 86400])
     _fish_ledger(st)
+    bucket_cost = sum(float(st["basis"].get(k, 0)) for k in inv)
     return {"catalog": FISH_CATALOG, "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
-            "spent": int(st["spent"]), "earned": int(st["earned"]),
+            "spent": int(st["spent"]), "earned": int(st["earned"]), "bucket_cost": int(round(bucket_cost)),
+            "total_worth": sum(n * FISH_BY_ID[k]["value"] for k, n in seen.items()),
             "cooldown": round(cooldown, 2), "cast_cooldown": FISH_CAST_COOLDOWN, "cast_cost": FISH_CAST_COST,
             "daily_cap": FISH_DAILY_CAP, "casts_left_today": max(0, FISH_DAILY_CAP - used_today), "balance": get_pb(user)}
 
@@ -7447,6 +7455,7 @@ async def fishing_cast_handler(request):
     inv[item["id"]] = int(inv.get(item["id"], 0)) + 1
     first_time = item["id"] not in seen
     seen[item["id"]] = int(seen.get(item["id"], 0)) + 1
+    st["basis"][item["id"]] = float(st["basis"].get(item["id"], 0)) + FISH_CAST_COST
     st["casts"] = int(st.get("casts", 0)) + 1
     st["last_cast"] = now
     await save_fishing()
@@ -7545,6 +7554,7 @@ async def mg_fish_stop_handler(request):
     inv[item["id"]] = int(inv.get(item["id"], 0)) + 1
     first_time = item["id"] not in seen
     seen[item["id"]] = int(seen.get(item["id"], 0)) + 1
+    _fish_ledger(st); st["basis"][item["id"]] = float(st["basis"].get(item["id"], 0)) + MG_COST
     await save_fishing()
     try:
         await unlock_achievement(user, "fish_first")
@@ -7568,6 +7578,7 @@ async def fishing_sell_handler(request):
     if not item: return web.json_response({"error": "Unknown item"}, status=400)
     st = _fish_slot(user)
     inv = st.setdefault("inv", {})
+    _fish_ledger(st)
     have = int(inv.get(item_id, 0))
     if have <= 0: return web.json_response({"error": "You don't have that item"}, status=400)
     qty_raw = data.get("qty", 1)
@@ -7576,8 +7587,10 @@ async def fishing_sell_handler(request):
         try: qty = int(qty_raw)
         except Exception: return web.json_response({"error": "Bad quantity"}, status=400)
     if qty < 1 or qty > have: return web.json_response({"error": "Bad quantity"}, status=400)
+    b = float(st["basis"].get(item_id, 0))
+    st["basis"][item_id] = b - b * qty / have
     inv[item_id] = have - qty
-    if inv[item_id] <= 0: inv.pop(item_id, None)
+    if inv[item_id] <= 0: inv.pop(item_id, None); st["basis"].pop(item_id, None)
     earned = item["value"] * qty
     _fish_ledger(st); st["earned"] += earned
     credit_pb(user, earned)
