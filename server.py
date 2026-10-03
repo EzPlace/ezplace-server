@@ -7401,15 +7401,108 @@ def _fish_ledger(st):
     st.setdefault("basis", {})
     return st
 
-def _fish_roll():
+# ---- Fishing rods: every cast wears the rod down; a snapped rod has to be replaced ----
+FISH_RODS = [  # (id, name, casts it survives, price to buy a new one)
+    ("wooden", "Thin Wooden Rod", 55, 10),
+    ("plastic", "Plastic Rod", 100, 20),
+    ("steel", "Hollow Steel Rod", 500, 50),
+    ("carbon", "Carbon Fiber Rod", 1000, 100),
+]
+FISH_ROD_BY_ID = {i: {"id": i, "name": n, "durability": d, "price": p} for (i, n, d, p) in FISH_RODS}
+FISH_ROD_CATALOG = [FISH_ROD_BY_ID[i] for (i, _n, _d, _p) in FISH_RODS]
+
+def _fish_rod(st):
+    """The player's current rod. Everyone starts with the free thin wooden rod; later copies of any rod cost money."""
+    r = st.get("rod")
+    if not isinstance(r, dict) or r.get("type") not in FISH_ROD_BY_ID:
+        r = {"type": "wooden", "uses": FISH_ROD_BY_ID["wooden"]["durability"]}
+        st["rod"] = r
+    return r
+
+def _fish_rod_info(st):
+    r = _fish_rod(st); d = FISH_ROD_BY_ID[r["type"]]; left = max(0, min(int(r.get("uses", 0)), d["durability"]))
+    return {"type": r["type"], "name": d["name"], "max": d["durability"], "left": left, "broken": left <= 0}
+
+def _fish_rod_use(st):
+    """Wear the rod down by one cast. Returns True if this cast snapped it."""
+    r = _fish_rod(st); r["uses"] = max(0, int(r.get("uses", 0)) - 1)
+    return r["uses"] <= 0
+
+# ---- Fishing maps: each has its own catch table, background and cast price. New maps are bought with fish from the bucket ----
+def _map_pool(d):
+    return {r: [i for i in ids.split() if i in FISH_BY_ID and FISH_BY_ID[i]["rarity"] == r] for r, ids in d.items()}
+
+FISH_MAPS = [
+    {"id": "pier", "name": "Sunny Pier", "blurb": "Where everyone starts: freshwater and shallow-sea catches.",
+     "cast_cost": FISH_CAST_COST, "weights": FISH_RARITY_WEIGHTS, "pool": None, "unlock": {}},
+    {"id": "reef", "name": "Coral Reef", "blurb": "Warm tropical shallows full of colourful reef fish.",
+     "cast_cost": 8, "weights": [("common", 470), ("uncommon", 300), ("rare", 150), ("epic", 60), ("legendary", 17), ("mythic", 3)],
+     "pool": _map_pool({
+         "common": "crab shrimp clam snail sardine anchovy mackerel guppy seaweed",
+         "uncommon": "starfish sea_urchin jellyfish pufferfish seahorse lobster squid pearl_clam tuna sunken_coin",
+         "rare": "angelfish lionfish moray_eel manta_ray stingray octopus barracuda ancient_pottery",
+         "epic": "hammerhead emerald pirate_cutlass gold_bar great_white",
+         "legendary": "mermaid_comb sunken_crown diamond",
+         "mythic": "poseidon_trident"}),
+     "unlock": {"common": 12, "uncommon": 6}},
+    {"id": "abyss", "name": "Midnight Abyss", "blurb": "A dark deep-sea trench: giants and sunken treasure.",
+     "cast_cost": 15, "weights": [("common", 345), ("uncommon", 300), ("rare", 200), ("epic", 100), ("legendary", 47), ("mythic", 8)],
+     "pool": _map_pool({
+         "common": "sardine anchovy mackerel herring seaweed driftwood tin_can rusty_hook old_boot",
+         "uncommon": "squid eel cod tuna message_bottle sunken_coin jellyfish",
+         "rare": "swordfish marlin octopus barracuda stingray manta_ray treasure_map silver_ring moray_eel",
+         "epic": "great_white hammerhead giant_squid anglerfish electric_eel pirate_cutlass gold_bar emerald",
+         "legendary": "blue_whale coelacanth sunken_crown diamond mermaid_comb",
+         "mythic": "kraken leviathan poseidon_trident"}),
+     "unlock": {"uncommon": 5, "rare": 4, "epic": 1}},
+]
+FISH_MAP_BY_ID = {m["id"]: m for m in FISH_MAPS}
+
+def _fish_map(st):
+    """The map the player is currently fishing on (pier unless they unlocked and travelled somewhere else)."""
+    unlocked = st.get("maps_unlocked")
+    if not isinstance(unlocked, list) or "pier" not in unlocked:
+        unlocked = ["pier"] + [m for m in (unlocked if isinstance(unlocked, list) else []) if m in FISH_MAP_BY_ID and m != "pier"]
+        st["maps_unlocked"] = unlocked
+    if st.get("map") not in unlocked or st.get("map") not in FISH_MAP_BY_ID: st["map"] = "pier"
+    return FISH_MAP_BY_ID[st["map"]]
+
+def _fish_map_catalog(st):
+    _fish_map(st)
+    return [{"id": m["id"], "name": m["name"], "blurb": m["blurb"], "cast_cost": m["cast_cost"], "unlock": m["unlock"],
+             "unlocked": m["id"] in st["maps_unlocked"]} for m in FISH_MAPS]
+
+def _fish_pick(map_id, rarity):
+    """A random fish of this rarity from the map's own catch table."""
+    m = FISH_MAP_BY_ID.get(map_id) or FISH_MAP_BY_ID["pier"]
+    ids = (m["pool"] or {}).get(rarity)
     rng = secrets.SystemRandom()
-    total = sum(w for _, w in FISH_RARITY_WEIGHTS)
-    pick = rng.randrange(total)
-    rarity = FISH_RARITY_WEIGHTS[-1][0]
-    for name, w in FISH_RARITY_WEIGHTS:
+    return FISH_BY_ID[rng.choice(ids)] if ids else rng.choice(FISH_BY_RARITY[rarity])
+
+def _fish_roll(map_id="pier"):
+    m = FISH_MAP_BY_ID.get(map_id) or FISH_MAP_BY_ID["pier"]
+    weights = m["weights"]
+    rng = secrets.SystemRandom()
+    pick = rng.randrange(sum(w for _, w in weights))
+    rarity = weights[-1][0]
+    for name, w in weights:
         if pick < w: rarity = name; break
         pick -= w
-    return rng.choice(FISH_BY_RARITY[rarity])
+    return _fish_pick(m["id"], rarity)
+
+def _fish_map_payment_plan(st, unlock):
+    """Which fish pay for a map: for every rarity asked for, the cheapest ones in the bucket first."""
+    inv = st.get("inv", {}); plan = []; missing = []
+    for rarity, need in unlock.items():
+        have = sorted((FISH_BY_ID[k]["value"], k, int(n)) for k, n in inv.items() if k in FISH_BY_ID and FISH_BY_ID[k]["rarity"] == rarity and int(n) > 0)
+        total = sum(n for _, _, n in have)
+        if total < need:
+            missing.append(f"{need - total} more {rarity}"); continue
+        left = need
+        for _value, k, n in have:
+            take = min(n, left); plan.append((k, take)); left -= take
+            if left <= 0: break
+    return plan, missing
 
 def _fish_state(user, now=None):
     now = now or time.time()
@@ -7422,9 +7515,10 @@ def _fish_state(user, now=None):
     _fish_ledger(st)
     bucket_cost = sum(float(st["basis"].get(k, 0)) for k in inv)
     return {"catalog": FISH_CATALOG, "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
+            "rod": _fish_rod_info(st), "rods": FISH_ROD_CATALOG,
             "spent": int(st["spent"]), "earned": int(st["earned"]), "bucket_cost": int(round(bucket_cost)),
             "total_worth": sum(n * FISH_BY_ID[k]["value"] for k, n in seen.items()),
-            "cooldown": round(cooldown, 2), "cast_cooldown": FISH_CAST_COOLDOWN, "cast_cost": FISH_CAST_COST,
+            "cooldown": round(cooldown, 2), "cast_cooldown": FISH_CAST_COOLDOWN, "cast_cost": _fish_map(st)["cast_cost"], "map": st["map"], "maps": _fish_map_catalog(st),
             "daily_cap": FISH_DAILY_CAP, "casts_left_today": max(0, FISH_DAILY_CAP - used_today), "balance": get_pb(user)}
 
 async def _fish_announce(text):
@@ -7445,21 +7539,25 @@ async def fishing_cast_handler(request):
     wait = float(st.get("last_cast", 0)) + FISH_CAST_COOLDOWN - now
     if wait > 0 and not is_admin(user):
         return web.json_response({"error": f"Your line is still out - wait {int(wait) + 1}s", "state": _fish_state(user, now)}, status=429)
+    if _fish_rod_info(st)["broken"]:
+        return web.json_response({"error": "Your rod is broken - buy a new one", "state": _fish_state(user, now)}, status=400)
     if not check_rate_limit(user, "fish_cast_day", FISH_DAILY_CAP, 86400):
         return web.json_response({"error": f"Daily cast limit reached ({FISH_DAILY_CAP} per day)", "state": _fish_state(user, now)}, status=429)
-    if FISH_CAST_COST and not spend_pb(user, FISH_CAST_COST):
-        return web.json_response({"error": f"Casting costs {FISH_CAST_COST} PlaceBux", "state": _fish_state(user, now)}, status=400)
-    _fish_ledger(st); st["spent"] += FISH_CAST_COST
-    item = _fish_roll()
+    fmap = _fish_map(st); cast_cost = fmap["cast_cost"]
+    if cast_cost and not spend_pb(user, cast_cost):
+        return web.json_response({"error": f"Casting here costs {cast_cost} PlaceBux", "state": _fish_state(user, now)}, status=400)
+    _fish_ledger(st); st["spent"] += cast_cost
+    item = _fish_roll(fmap["id"])
     inv = st.setdefault("inv", {}); seen = st.setdefault("seen", {})
     inv[item["id"]] = int(inv.get(item["id"], 0)) + 1
     first_time = item["id"] not in seen
     seen[item["id"]] = int(seen.get(item["id"], 0)) + 1
-    st["basis"][item["id"]] = float(st["basis"].get(item["id"], 0)) + FISH_CAST_COST
+    st["basis"][item["id"]] = float(st["basis"].get(item["id"], 0)) + cast_cost
     st["casts"] = int(st.get("casts", 0)) + 1
+    snapped = _fish_rod_use(st)
     st["last_cast"] = now
     await save_fishing()
-    if FISH_CAST_COST:
+    if cast_cost:
         await save_place_bucks()
         await push_pb_update(user)
     try:
@@ -7467,7 +7565,65 @@ async def fishing_cast_handler(request):
         if item["rarity"] in ("legendary", "mythic"): await unlock_achievement(user, "fish_legendary")
         if len(seen) >= 40: await unlock_achievement(user, "fish_collector")
     except Exception: pass
-    return web.json_response({"ok": True, "item": item, "new": first_time, "state": _fish_state(user, now)})
+    return web.json_response({"ok": True, "item": item, "new": first_time, "rod_snapped": snapped, "state": _fish_state(user, now)})
+
+async def fishing_map_unlock_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "fish_map", 20, 60):
+        return web.json_response({"error": "Slow down"}, status=429)
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
+    m = FISH_MAP_BY_ID.get(str(data.get("map_id") if isinstance(data, dict) else "").strip())
+    if not m: return web.json_response({"error": "Unknown map"}, status=400)
+    st = _fish_slot(user); _fish_ledger(st); _fish_map(st)
+    if m["id"] in st["maps_unlocked"]:
+        return web.json_response({"error": "You already unlocked this map", "state": _fish_state(user)}, status=400)
+    plan, missing = _fish_map_payment_plan(st, m["unlock"])
+    if missing:
+        return web.json_response({"error": "Not enough fish - you still need " + ", ".join(missing), "state": _fish_state(user)}, status=400)
+    paid = []; inv = st["inv"]
+    for k, take in plan:   # all changes happen before any await, so a double click cannot pay twice
+        have = int(inv.get(k, 0)); b = float(st["basis"].get(k, 0))
+        st["basis"][k] = b - b * take / have
+        inv[k] = have - take
+        if inv[k] <= 0: inv.pop(k, None); st["basis"].pop(k, None)
+        st["spent"] += FISH_BY_ID[k]["value"] * take      # the fish you hand over count as spent in the profit numbers
+        paid.append({"id": k, "name": FISH_BY_ID[k]["name"], "qty": take})
+    st["maps_unlocked"].append(m["id"])
+    await save_fishing()
+    return web.json_response({"ok": True, "paid": paid, "state": _fish_state(user)})
+
+async def fishing_map_travel_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "fish_map", 20, 60):
+        return web.json_response({"error": "Slow down"}, status=429)
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
+    mid = str(data.get("map_id") if isinstance(data, dict) else "").strip()
+    st = _fish_slot(user); _fish_map(st)
+    if mid not in FISH_MAP_BY_ID or mid not in st["maps_unlocked"]:
+        return web.json_response({"error": "You have not unlocked that map yet", "state": _fish_state(user)}, status=400)
+    st["map"] = mid
+    await save_fishing()
+    return web.json_response({"ok": True, "state": _fish_state(user)})
+
+async def fishing_rod_buy_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "fish_rod_buy", 20, 60):
+        return web.json_response({"error": "Slow down"}, status=429)
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
+    rod = FISH_ROD_BY_ID.get(str((data or {}).get("rod_id") if isinstance(data, dict) else "").strip())
+    if not rod: return web.json_response({"error": "Unknown rod"}, status=400)
+    if not spend_pb(user, rod["price"]):
+        return web.json_response({"error": f"A {rod['name']} costs {rod['price']} PlaceBux", "state": _fish_state(user)}, status=400)
+    st = _fish_slot(user); _fish_ledger(st); st["spent"] += rod["price"]   # rods count as fishing costs in the profit numbers
+    st["rod"] = {"type": rod["id"], "uses": rod["durability"]}
+    await save_fishing(); await save_place_bucks(); await push_pb_update(user)
+    return web.json_response({"ok": True, "state": _fish_state(user), "balance": get_pb(user)})
 
 # ---- Casino fishing minigame: stop the moving marker on a rarity zone ------------------------------------
 # The marker sweeps a bar whose zones (Common ... Mythic) are sized by rarity; the player stops it and gets a random fish
@@ -7508,6 +7664,8 @@ async def mg_fish_start_handler(request):
     cur = mg_attempts.get(ulow)
     if cur and not cur["done"] and time.time() - cur["start_ts"] < 60:
         return web.json_response({"error": "Finish your current cast first"}, status=400)
+    if _fish_rod_info(_fish_slot(user))["broken"]:
+        return web.json_response({"error": "Your rod is broken - buy a new one on the Fishing screen"}, status=400)
     if not spend_pb(user, MG_COST):
         return web.json_response({"error": f"Casting costs {MG_COST} PlaceBux"}, status=400)
     if not check_rate_limit(user, "mg_fish_day", MG_DAILY_PLAYS, 86400):
@@ -7539,6 +7697,11 @@ async def mg_fish_stop_handler(request):
         credit_pb(user, MG_COST)
         await save_place_bucks(); await push_pb_update(user)
         return web.json_response({"error": "Timing check failed - your cast was refunded"}, status=400)
+    if _fish_rod_info(_fish_slot(user))["broken"]:
+        _st = _fish_slot(user); _fish_ledger(_st); _st["spent"] -= MG_COST
+        credit_pb(user, MG_COST)
+        await save_place_bucks(); await push_pb_update(user)
+        return web.json_response({"error": "Your rod snapped before you could reel in - cast refunded"}, status=400)
     pos = mg_position(elapsed, a["first"])
     zone = mg_zone(pos); rarity = zone; downgraded = False
     if rarity in ("legendary", "mythic"):
@@ -7548,13 +7711,14 @@ async def mg_fish_stop_handler(request):
         if rec[1] >= MG_PREMIUM_DAILY: rarity = "epic"; downgraded = True
         else: rec[1] += 1
         mg_premium_day[ulow] = rec
-    item = secrets.SystemRandom().choice(FISH_BY_RARITY[rarity])
     st = _fish_slot(user)
+    item = _fish_pick(_fish_map(st)["id"], rarity)
     inv = st.setdefault("inv", {}); seen = st.setdefault("seen", {})
     inv[item["id"]] = int(inv.get(item["id"], 0)) + 1
     first_time = item["id"] not in seen
     seen[item["id"]] = int(seen.get(item["id"], 0)) + 1
     _fish_ledger(st); st["basis"][item["id"]] = float(st["basis"].get(item["id"], 0)) + MG_COST
+    snapped = _fish_rod_use(st)
     await save_fishing()
     try:
         await unlock_achievement(user, "fish_first")
@@ -7563,7 +7727,7 @@ async def mg_fish_stop_handler(request):
         if len(seen) >= 40: await unlock_achievement(user, "fish_collector")
     except Exception: pass
     return web.json_response({"ok": True, "item": item, "new": first_time, "zone": zone, "rarity": rarity, "downgraded": downgraded,
-                              "position": round(pos, 4), "balance": get_pb(user), "state": _fish_state(user)})
+                              "position": round(pos, 4), "balance": get_pb(user), "rod_snapped": snapped, "state": _fish_state(user)})
 
 async def fishing_sell_handler(request):
     user = get_auth_user(request)
@@ -7705,7 +7869,7 @@ for _path, _h in (
     ("/api/mod/report-resolve", report_resolve_handler),
     ("/api/account/set-avatar", set_avatar_handler),
     ("/api/fishing/cast", fishing_cast_handler), ("/api/fishing/sell", fishing_sell_handler),
-    ("/api/minigame/fish/start", mg_fish_start_handler), ("/api/minigame/fish/stop", mg_fish_stop_handler),
+    ("/api/fishing/rod/buy", fishing_rod_buy_handler), ("/api/fishing/map/unlock", fishing_map_unlock_handler), ("/api/fishing/map/travel", fishing_map_travel_handler), ("/api/minigame/fish/start", mg_fish_start_handler), ("/api/minigame/fish/stop", mg_fish_stop_handler),
     ("/api/account/clear-avatar", clear_avatar_handler),
 ): _p(_path, _h)
 
