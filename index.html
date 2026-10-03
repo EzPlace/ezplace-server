@@ -239,7 +239,7 @@
   .trade-cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
   .trade-col { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .trade-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-secondary); }
-  .trade-picks { display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow-y: auto; padding-right: 2px; }
+  .trade-picks { display: flex; flex-direction: column; gap: 3px; max-height: 60vh; overflow-y: auto; padding-right: 2px; }
   .trade-pick { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 8px; background: rgba(255,255,255,0.03); font-size: 12px; }
   .trade-pick.on { background: rgba(34,197,94,0.14); }
   .trade-pname { padding-left: 6px; min-width: 0; line-height: 1.2; }
@@ -1726,7 +1726,7 @@
         <div class="menu-section">Earning PlaceBux</div>
         <div class="earn-card"><div class="earn-title">Place pixels</div><div class="earn-desc">1 PlaceBux for every 100 pixels you place.</div></div>
         <div class="earn-card"><div class="earn-title">Daily streak</div><div class="earn-desc">Spend 15 active minutes on the site each day to claim your daily bonus: 2 PlaceBux times your streak length, up to 50 a day. Miss a day and the streak resets. The shop sells a 48-hour window and Streak Passes that protect it.</div></div>
-        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Trade: swap fish and PlaceBux with another player from the Trade button on the Fishing screen. Maps: Sunny Pier is free; Coral Reef (8 PlaceBux per cast) is unlocked by paying 12 common + 6 uncommon fish, and Midnight Abyss (15 per cast) by paying 5 uncommon + 4 rare + 1 epic fish. Each map has its own scenery and catches, and each of the two new maps has 9 fish you cannot catch anywhere else. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
+        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Trade: swap fish and PlaceBux with another player from the Trade button on the Fishing screen. Maps: Sunny Pier is free; Coral Reef (8 PlaceBux per cast) costs 150 PlaceBux to unlock once, and Midnight Abyss (15 per cast) costs 500. Each map has its own scenery and catches, and each of the two new maps has 9 fish you cannot catch anywhere else. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
         <div class="earn-card"><div class="earn-title">Flappy Bird</div><div class="earn-desc">1 PlaceBux per pipe you clear, no bet needed. Capped at 600 a day.</div></div>
         <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Battle Mode and Fishing Timing in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
         <div class="earn-card"><div class="earn-title">Night Event</div><div class="earn-desc">Watch the Lobbies screen for the Night Event banner. Sign up when it opens; the winner takes 10,000 PlaceBux.</div></div>
@@ -2052,10 +2052,8 @@ function fishRenderMaps() {
     if (here) status = '<span class="map-here">✓ You are here</span>';
     else if (m.unlocked) status = '<button class="map-btn" data-travel="' + esc(m.id) + '">Go fishing here</button>';
     else {
-      const entries = Object.entries(m.unlock || {});
-      const ok = entries.every(([r, n]) => (counts[r] || 0) >= n);
-      const need = entries.map(([r, n]) => '<span style="color:' + ((counts[r] || 0) >= n ? '#22c55e' : 'var(--red)') + '">' + n + ' ' + esc(r) + ' (you have ' + (counts[r] || 0) + ')</span>').join(' + ');
-      status = '<div class="map-need">Unlock by paying: ' + need + ' fish</div><button class="map-btn" data-unlock="' + esc(m.id) + '"' + (ok ? '' : ' disabled') + '>Unlock</button>';
+      const bal = fishState.balance || 0;
+      status = '<div class="map-need">Unlock for <b>' + m.price + ' PlaceBux</b>' + (bal >= m.price ? '' : ' <span style="color:var(--red)">(you have ' + bal + ')</span>') + '</div><button class="map-btn" data-unlock="' + esc(m.id) + '">Unlock</button>';
     }
     return '<div class="map-card' + (here ? ' here' : '') + '"><div class="map-swatch" style="background:' + (MAP_SWATCH[m.id] || '#444') + '"></div><div class="map-info">'
       + '<div class="map-name">' + esc(m.name) + '</div><div class="map-blurb">' + esc(m.blurb) + ' · ' + m.cast_cost + ' PlaceBux per cast</div>' + (m.exclusive ? '<div class="map-excl">' + m.exclusive + ' species found nowhere else</div>' : '') + status + '</div></div>';
@@ -2077,15 +2075,13 @@ async function fishTravelMap(id) {
 async function fishUnlockMap(id) {
   if (fishBusy || !authToken || !fishState) return;
   const m = (fishState.maps || []).find(x => x.id === id); if (!m) return;
-  const price = Object.entries(m.unlock || {}).map(([r, n]) => n + ' ' + r).join(' + ');
-  if (!confirm('Unlock ' + m.name + ' by paying ' + price + ' fish? The cheapest matching fish in your bucket are used.')) return;
   fishSetStatus('');
   try {
     const r = await fetch(BACKEND + '/api/fishing/map/unlock', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ map_id: id }) });
     const d = await r.json();
     if (d.state) fishApplyState(d.state);
     if (d.error) fishSetStatus(d.error, 'var(--red)');
-    else fishSetStatus('Unlocked ' + m.name + '! Paid ' + (d.paid || []).map(x => x.qty + '× ' + x.name).join(', ') + '.', 'var(--green)');
+    else fishSetStatus('Unlocked ' + m.name + ' for ' + d.paid + ' PlaceBux!', 'var(--green)');
   } catch { fishSetStatus('Server offline', 'var(--red)'); }
 }
 // ---- Trading with another player (fish + PlaceBux on top) ----
@@ -2158,7 +2154,9 @@ function tradeRender() {
       + (t.note ? '<div class="trade-note" style="color:var(--red)">' + esc(t.note) + '</div>' : '') + msg
       + '<div class="trade-row"><button class="map-btn" id="trade-confirm"' + (empty ? ' disabled' : '') + '>' + (iConf ? 'Un-confirm' : 'Confirm trade') + '</button><button class="map-btn trade-grey" id="trade-cancel">Cancel trade</button></div>';
   }
+  const oldPicks = panel.querySelector('.trade-picks'), keepTop = oldPicks ? oldPicks.scrollTop : 0;
   panel.innerHTML = '<div class="trade-card">' + html + '</div>';
+  const newPicks = panel.querySelector('.trade-picks'); if (newPicks) newPicks.scrollTop = keepTop;
   const $ = (id) => panel.querySelector('#' + id);
   if ($('trade-send')) $('trade-send').onclick = async () => {
     const to = ($('trade-to').value || '').trim(); if (!to) return;
