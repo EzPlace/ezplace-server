@@ -7388,6 +7388,13 @@ async def save_fishing(): await db_save("store", "fishing", fishing)
 def _fish_slot(user):
     return fishing.setdefault(user.lower(), {"inv": {}, "seen": {}, "casts": 0, "last_cast": 0})
 
+def _fish_ledger(st):
+    """Lifetime PlaceBux spent on / earned from fishing. Players who fished before this was tracked start from an estimate
+    (their cast count x the current cast cost); selling history before that is unknown and counts as 0."""
+    if "spent" not in st: st["spent"] = int(st.get("casts", 0)) * FISH_CAST_COST
+    if "earned" not in st: st["earned"] = 0
+    return st
+
 def _fish_roll():
     rng = secrets.SystemRandom()
     total = sum(w for _, w in FISH_RARITY_WEIGHTS)
@@ -7406,7 +7413,9 @@ def _fish_state(user, now=None):
     cooldown = 0 if is_admin(user) else max(0.0, float(st.get("last_cast", 0)) + FISH_CAST_COOLDOWN - now)
     day_key = (user.lower(), "fish_cast_day")
     used_today = len([t for t in _rate_limits.get(day_key, []) if t > now - 86400])
+    _fish_ledger(st)
     return {"catalog": FISH_CATALOG, "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
+            "spent": int(st["spent"]), "earned": int(st["earned"]),
             "cooldown": round(cooldown, 2), "cast_cooldown": FISH_CAST_COOLDOWN, "cast_cost": FISH_CAST_COST,
             "daily_cap": FISH_DAILY_CAP, "casts_left_today": max(0, FISH_DAILY_CAP - used_today), "balance": get_pb(user)}
 
@@ -7432,6 +7441,7 @@ async def fishing_cast_handler(request):
         return web.json_response({"error": f"Daily cast limit reached ({FISH_DAILY_CAP} per day)", "state": _fish_state(user, now)}, status=429)
     if FISH_CAST_COST and not spend_pb(user, FISH_CAST_COST):
         return web.json_response({"error": f"Casting costs {FISH_CAST_COST} PlaceBux", "state": _fish_state(user, now)}, status=400)
+    _fish_ledger(st); st["spent"] += FISH_CAST_COST
     item = _fish_roll()
     inv = st.setdefault("inv", {}); seen = st.setdefault("seen", {})
     inv[item["id"]] = int(inv.get(item["id"], 0)) + 1
@@ -7495,6 +7505,7 @@ async def mg_fish_start_handler(request):
         credit_pb(user, MG_COST)
         return web.json_response({"error": f"Daily limit reached ({MG_DAILY_PLAYS} casts per day)"}, status=429)
     first = secrets.randbelow(2)
+    _st = _fish_slot(user); _fish_ledger(_st); _st["spent"] += MG_COST
     mg_attempts[ulow] = {"start_ts": time.time(), "first": first, "done": False}
     await save_place_bucks(); await push_pb_update(user)
     return web.json_response({"ok": True, "first": first, "seg_ms": MG_SEG_MS, "speeds": list(MG_SPEEDS),
@@ -7515,6 +7526,7 @@ async def mg_fish_stop_handler(request):
     except Exception: elapsed = -1
     srv_ms = (time.time() - a["start_ts"]) * 1000.0
     if elapsed < 0 or elapsed > srv_ms + 100 or elapsed < srv_ms - 4000 or srv_ms > 90000:
+        _st = _fish_slot(user); _fish_ledger(_st); _st["spent"] -= MG_COST
         credit_pb(user, MG_COST)
         await save_place_bucks(); await push_pb_update(user)
         return web.json_response({"error": "Timing check failed - your cast was refunded"}, status=400)
@@ -7567,6 +7579,7 @@ async def fishing_sell_handler(request):
     inv[item_id] = have - qty
     if inv[item_id] <= 0: inv.pop(item_id, None)
     earned = item["value"] * qty
+    _fish_ledger(st); st["earned"] += earned
     credit_pb(user, earned)
     await save_fishing()
     await save_place_bucks()
