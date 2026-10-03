@@ -152,6 +152,10 @@ HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 def is_hex_color(c):
     return isinstance(c, str) and bool(HEX_COLOR_RE.match(c))
 
+def _mentions_discord(label):
+    folded = unicodedata.normalize("NFKC", str(label or "")).translate(_CONFUSABLES).upper()
+    return "DISCORD" in re.sub(r"[^A-Z]", "", folded)
+
 def get_rank(username):
     if not username:
         return None
@@ -160,6 +164,8 @@ def get_rank(username):
     if is_moderator(username):
         return {"label": "MOD", "color": "mod"}
     rk = ranks.get(username.lower())
+    if rk and _mentions_discord(rk.get("label")):
+        return None  # only the Discord bridge may carry a DISCORD tag, even for ranks bought before it was reserved
     if rk and not is_hex_color(rk.get("color")):
         rk = dict(rk, color="#daa520")
     return rk
@@ -261,7 +267,8 @@ def label_is_staffy(text):
     folded = clean_label(text).translate(_CONFUSABLES).upper()
     words = [re.sub(r"[^A-Z]", "", w) for w in re.split(r"[^A-Za-z0-9]+", folded) if w]
     joined = re.sub(r"[^A-Z]", "", folded)
-    return joined in _STAFF_WORDS or any(w in _STAFF_WORDS for w in words)
+    # "DISCORD" is blocked anywhere in a name (even inside a longer word) so nobody can pose as the bridge.
+    return joined in _STAFF_WORDS or any(w in _STAFF_WORDS for w in words) or "DISCORD" in joined
 
 def hash_password(password, salt=None):
     if salt is None:
@@ -346,6 +353,8 @@ def get_clan_tag(username):
     override = (clan.get("member_ranks") or {}).get(ulow) or {}
     color = override.get("color") or clan.get("color") or "#7c5cfc"
     if not is_hex_color(color): color = "#7c5cfc"
+    if _mentions_discord(clan.get("name")):
+        return None
     return {"label": clan.get("name") or "", "color": color}
 
 async def apply_clan_rank(username, clan):
@@ -1175,7 +1184,7 @@ async def register_handler(request):
         return web.json_response({"error": "Username and password required"}, status=400)
     if len(uname) < 3 or len(uname) > 20 or not uname.isalnum() or not uname.isascii():
         return web.json_response({"error": "Username must be 3-20 letters/numbers (A-Z, 0-9)"}, status=400)
-    if uname.lower() in RESERVED_USERNAMES:
+    if uname.lower() in RESERVED_USERNAMES or label_is_staffy(uname):
         return web.json_response({"error": "That username is reserved"}, status=400)
     if len(pwd) < 6:
         return web.json_response({"error": "Password must be at least 6 characters"}, status=400)
