@@ -1981,9 +1981,15 @@ function fishRender() {
   const stats = document.getElementById('fish-stats');
   const bucketValue = cat.reduce((s, it) => s + (inv[it.id] || 0) * it.value, 0);
   // Profit = everything the fish earned (sold + still in the bucket) minus what the casts cost.
-  const profit = (fishState.earned || 0) + bucketValue - (fishState.spent || 0);
-  const profitText = (profit >= 0 ? '+' : '\u2212') + Math.abs(profit) + ' PlaceBux';
-  stats.textContent = `${discovered} / ${cat.length} discovered \u00b7 ${fishState.casts || 0} casts \u00b7 bucket worth ${bucketValue} PlaceBux \u00b7 bucket profit ${profitText} \u00b7 ${fishState.casts_left_today} casts left today`;
+  // bucket = fish you still hold; total = every fish you have ever caught, sold or not.
+  //   bucket profit = bucket worth - what those fish cost to catch;  total profit = total worth - everything spent on casts.
+  const bucketProfit = bucketValue - (fishState.bucket_cost || 0);
+  const totalWorth = fishState.total_worth || 0;
+  const totalProfit = totalWorth - (fishState.spent || 0);
+  const signed = (n) => '<span style="color:' + (n >= 0 ? '#22c55e' : 'var(--red)') + '">' + (n >= 0 ? '+' : '\u2212') + Math.abs(n) + '</span>';
+  stats.innerHTML = discovered + ' / ' + cat.length + ' discovered \u00b7 ' + (fishState.casts || 0) + ' casts \u00b7 ' + fishState.casts_left_today + ' casts left today'
+    + '<br>bucket worth ' + bucketValue + ' \u00b7 bucket profit ' + signed(bucketProfit)
+    + '<br>total worth ' + totalWorth + ' \u00b7 total profit ' + signed(totalProfit) + ' PlaceBux';
   const invEl = document.getElementById('fish-inventory');
   const owned = cat.filter(it => inv[it.id] > 0).sort((a, b) => b.value - a.value || rank(b) - rank(a));
   invEl.innerHTML = owned.length ? owned.map(it => fishTile(it, { qty: inv[it.id], sell: true })).join('') : '<div class="lobby-empty" style="grid-column:1/-1;">Your bucket is empty. Cast a line!</div>';
