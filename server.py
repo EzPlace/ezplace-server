@@ -6869,7 +6869,7 @@ async def avatar_handler(request):
 
 
 FISH_CAST_COOLDOWN = 0
-FISH_CAST_COST = 14
+FISH_CAST_COST = 5
 FISH_DAILY_CAP = 500
 FISH_RARITY_WEIGHTS = [("common", 600), ("uncommon", 250), ("rare", 100), ("epic", 38), ("legendary", 10), ("mythic", 2)]
 FISH_ITEMS = [
