@@ -228,6 +228,36 @@
   .fs-avatar { position: absolute; left: 38px; top: 42px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; object-fit: cover; background: #222; }
   .fs-item { position: absolute; left: 0; top: 0; width: 56px; height: 34px; display: none; pointer-events: none; }
   .fs-item svg { width: 100%; height: 100%; overflow: visible; }
+  .map-list { display: flex; flex-direction: column; gap: 8px; }
+  .map-card { display: flex; gap: 10px; padding: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; align-items: stretch; }
+  .map-card.here { border-color: #22c55e; }
+  .map-swatch { width: 64px; min-height: 52px; border-radius: 8px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.18); }
+  .map-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+  .map-name { font-size: 14px; font-weight: 700; }
+  .map-blurb { font-size: 11px; color: var(--text-muted); }
+  .map-need { font-size: 11px; }
+  .map-here { font-size: 11px; font-weight: 700; color: #22c55e; }
+  .map-btn { align-self: flex-start; padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: var(--accent); color: #fff; cursor: pointer; font-family: inherit; }
+  .map-btn:disabled { opacity: 0.4; cursor: default; }
+  .rod-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; }
+  .rod-head { display: flex; align-items: center; gap: 10px; }
+  .rod-ico { width: 56px; height: 22px; flex-shrink: 0; }
+  .rod-name { font-size: 14px; font-weight: 700; }
+  .rod-sub { font-size: 11px; color: var(--text-muted); }
+  .rod-sub.broken { color: var(--red); font-weight: 700; }
+  .rod-bar { height: 8px; border-radius: 6px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .rod-fill { height: 100%; border-radius: 6px; transition: width 0.3s ease, background 0.3s ease; }
+  .rod-shop { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .rod-buy { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 9px; border-radius: 9px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary); cursor: pointer; font-family: inherit; text-align: left; }
+  .rod-buy:hover { border-color: var(--accent); background: rgba(255,255,255,0.07); }
+  .rod-buy.equipped { border-color: #22c55e; }
+  .rod-buy .rb-name { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 5px; }
+  .rod-buy .rb-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .rod-buy .rb-sub { font-size: 10px; color: var(--text-muted); }
+  .fs-shaking { animation: fsShake 0.07s linear infinite; }
+  @keyframes fsShake { 0% { transform: translate(0, 0); } 25% { transform: translate(-2px, 1px); } 50% { transform: translate(2px, -1px); } 75% { transform: translate(-1px, -1px); } 100% { transform: translate(0, 0); } }
+  .fs-snap-text { position: absolute; left: 50%; top: 24%; transform: translate(-50%, -50%); font-size: 34px; font-weight: 900; letter-spacing: 2px; color: #fff; -webkit-text-stroke: 2px #b91c1c; pointer-events: none; animation: fsSnapPop 1.1s ease forwards; z-index: 3; }
+  @keyframes fsSnapPop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-8deg); } 20% { opacity: 1; transform: translate(-50%, -50%) scale(1.25) rotate(4deg); } 35% { transform: translate(-50%, -50%) scale(1) rotate(-2deg); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -60%) scale(1); } }
   .mg-wrap { display: flex; flex-direction: column; gap: 8px; align-items: center; }
   .mg-live { font-size: 24px; font-weight: 800; letter-spacing: 2px; min-height: 30px; text-transform: uppercase; text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
   .mg-speed { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: var(--text-muted); min-height: 14px; }
@@ -1652,6 +1682,8 @@
         <div id="fish-scene" class="fish-scene" data-pfx="fs-"></div>
         <div id="fish-catch">Cast a line to see what you reel in.</div>
         <button class="menu-btn primary wide" id="btn-fish-cast">Cast line</button>
+        <div id="fish-map-panel"></div>
+        <div id="fish-rod-panel"></div>
         <div id="fish-stats"></div>
         <div id="fish-status" class="lobby-empty" style="padding:0;min-height:14px;"></div>
         <div class="menu-tabs">
@@ -1668,7 +1700,7 @@
         <div class="menu-section">Earning PlaceBux</div>
         <div class="earn-card"><div class="earn-title">Place pixels</div><div class="earn-desc">1 PlaceBux for every 100 pixels you place.</div></div>
         <div class="earn-card"><div class="earn-title">Daily streak</div><div class="earn-desc">Spend 15 active minutes on the site each day to claim your daily bonus: 2 PlaceBux times your streak length, up to 50 a day. Miss a day and the streak resets. The shop sells a 48-hour window and Streak Passes that protect it.</div></div>
-        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
+        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Maps: Sunny Pier is free; Coral Reef (8 PlaceBux per cast) is unlocked by paying 12 common + 6 uncommon fish, and Midnight Abyss (15 per cast) by paying 5 uncommon + 4 rare + 1 epic fish. Each map has its own scenery and its own catches. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
         <div class="earn-card"><div class="earn-title">Flappy Bird</div><div class="earn-desc">1 PlaceBux per pipe you clear, no bet needed. Capped at 600 a day.</div></div>
         <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Battle Mode and Fishing Timing in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
         <div class="earn-card"><div class="earn-title">Night Event</div><div class="earn-desc">Watch the Lobbies screen for the Night Event banner. Sign up when it opens; the winner takes 10,000 PlaceBux.</div></div>
@@ -1953,6 +1985,8 @@ function fishApplyState(st) {
   if (typeof st.balance === 'number') { myBalance = st.balance; applyPbState(); }
   fishRender();
   fishUpdateCooldown();
+  if (!fishBusy) fsSyncTheme();
+  ['fs-', 'mg-'].forEach(p => withScene(p, () => { if (!fishBusy) fsApplyRod(); }));
 }
 async function fishLoad() {
   if (!authToken) return;
@@ -1973,6 +2007,91 @@ function fishTile(it, opts) {
   const actions = opts.sell ? `<div class="fish-actions"><button data-sell="${esc(it.id)}" data-qty="1">Sell 1</button><button data-sell="${esc(it.id)}" data-qty="all">Sell all</button></div>` : '';
   return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
 }
+// ---- Fishing maps: pick where you fish; unlock new ones by paying with fish ----
+const MAP_SWATCH = {
+  pier: 'linear-gradient(#5aa9e6, #bfe6ff 55%, #2f8fc4 56%, #14456f)',
+  reef: 'linear-gradient(#5cc8ff, #dff8ff 55%, #35e0c9 56%, #0b6f86)',
+  abyss: 'linear-gradient(#050816, #231a52 55%, #0a2a55 56%, #01030d)',
+};
+function fishRenderMaps() {
+  const panel = document.getElementById('fish-map-panel');
+  if (!panel || !fishState || !fishState.maps) return;
+  const counts = {};
+  (fishState.catalog || []).forEach(it => { counts[it.rarity] = (counts[it.rarity] || 0) + ((fishState.inv || {})[it.id] || 0); });
+  panel.innerHTML = '<div class="map-list">' + fishState.maps.map(m => {
+    const here = fishState.map === m.id;
+    let status;
+    if (here) status = '<span class="map-here">✓ You are here</span>';
+    else if (m.unlocked) status = '<button class="map-btn" data-travel="' + esc(m.id) + '">Go fishing here</button>';
+    else {
+      const entries = Object.entries(m.unlock || {});
+      const ok = entries.every(([r, n]) => (counts[r] || 0) >= n);
+      const need = entries.map(([r, n]) => '<span style="color:' + ((counts[r] || 0) >= n ? '#22c55e' : 'var(--red)') + '">' + n + ' ' + esc(r) + ' (you have ' + (counts[r] || 0) + ')</span>').join(' + ');
+      status = '<div class="map-need">Unlock by paying: ' + need + ' fish</div><button class="map-btn" data-unlock="' + esc(m.id) + '"' + (ok ? '' : ' disabled') + '>Unlock</button>';
+    }
+    return '<div class="map-card' + (here ? ' here' : '') + '"><div class="map-swatch" style="background:' + (MAP_SWATCH[m.id] || '#444') + '"></div><div class="map-info">'
+      + '<div class="map-name">' + esc(m.name) + '</div><div class="map-blurb">' + esc(m.blurb) + ' · ' + m.cast_cost + ' PlaceBux per cast</div>' + status + '</div></div>';
+  }).join('') + '</div>';
+  panel.querySelectorAll('button[data-travel]').forEach(b => { b.onclick = () => fishTravelMap(b.dataset.travel); });
+  panel.querySelectorAll('button[data-unlock]').forEach(b => { b.onclick = () => fishUnlockMap(b.dataset.unlock); });
+}
+async function fishTravelMap(id) {
+  if (fishBusy || !authToken) return;
+  fishSetStatus('');
+  try {
+    const r = await fetch(BACKEND + '/api/fishing/map/travel', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ map_id: id }) });
+    const d = await r.json();
+    if (d.state) fishApplyState(d.state);
+    if (d.error) fishSetStatus(d.error, 'var(--red)');
+    else { const m = (d.state.maps || []).find(x => x.id === id); fishSetStatus('Now fishing at ' + (m ? m.name : id), 'var(--green)'); }
+  } catch { fishSetStatus('Server offline', 'var(--red)'); }
+}
+async function fishUnlockMap(id) {
+  if (fishBusy || !authToken || !fishState) return;
+  const m = (fishState.maps || []).find(x => x.id === id); if (!m) return;
+  const price = Object.entries(m.unlock || {}).map(([r, n]) => n + ' ' + r).join(' + ');
+  if (!confirm('Unlock ' + m.name + ' by paying ' + price + ' fish? The cheapest matching fish in your bucket are used.')) return;
+  fishSetStatus('');
+  try {
+    const r = await fetch(BACKEND + '/api/fishing/map/unlock', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ map_id: id }) });
+    const d = await r.json();
+    if (d.state) fishApplyState(d.state);
+    if (d.error) fishSetStatus(d.error, 'var(--red)');
+    else fishSetStatus('Unlocked ' + m.name + '! Paid ' + (d.paid || []).map(x => x.qty + '× ' + x.name).join(', ') + '.', 'var(--green)');
+  } catch { fishSetStatus('Server offline', 'var(--red)'); }
+}
+function fishRenderRod() {
+  const panel = document.getElementById('fish-rod-panel');
+  if (!panel || !fishState || !fishState.rod) return;
+  const r = fishState.rod, st = ROD_STYLES[r.type] || ROD_STYLES.wooden;
+  const pct = r.max ? Math.max(0, Math.min(100, Math.round(r.left / r.max * 100))) : 0;
+  const barColor = r.broken ? 'var(--red)' : (pct > 50 ? '#22c55e' : (pct > 20 ? '#f0b232' : '#ef4444'));
+  const icoColor = rodColor(r);
+  const shop = (fishState.rods || []).map(d => {
+    const c = (ROD_STYLES[d.id] || ROD_STYLES.wooden).c;
+    const eq = r.type === d.id && !r.broken;
+    return '<button class="rod-buy' + (eq ? ' equipped' : '') + '" data-rod="' + esc(d.id) + '"><span class="rb-name"><span class="rb-dot" style="background:' + c + '"></span>' + esc(d.name) + '</span><span class="rb-sub">' + d.durability + ' casts \u00b7 ' + d.price + ' PlaceBux' + (eq ? ' \u00b7 equipped' : '') + '</span></button>';
+  }).join('');
+  panel.innerHTML = '<div class="rod-card"><div class="rod-head">'
+    + '<svg class="rod-ico" viewBox="0 0 60 24" aria-hidden="true"><line x1="4" y1="20" x2="' + (r.broken ? 26 : 56) + '" y2="' + (r.broken ? 12 : 4) + '" stroke="' + icoColor + '" stroke-width="' + (st.w + 1) + '" stroke-linecap="round"/></svg>'
+    + '<div><div class="rod-name">' + esc(r.name) + '</div><div class="rod-sub' + (r.broken ? ' broken' : '') + '">' + (r.broken ? 'SNAPPED - buy a new rod' : r.left + ' / ' + r.max + ' casts left') + '</div></div></div>'
+    + '<div class="rod-bar"><div class="rod-fill" style="width:' + pct + '%;background:' + barColor + '"></div></div>'
+    + '<div class="rod-shop">' + shop + '</div></div>';
+  panel.querySelectorAll('button[data-rod]').forEach(b => { b.onclick = () => fishBuyRod(b.dataset.rod); });
+}
+async function fishBuyRod(id) {
+  if (fishBusy || !authToken || !fishState) return;
+  const d = (fishState.rods || []).find(x => x.id === id); if (!d) return;
+  const r = fishState.rod;
+  if (!r.broken && !confirm('Replace your ' + r.name + ' (' + r.left + ' casts left) with a new ' + d.name + ' for ' + d.price + ' PlaceBux?')) return;
+  fishSetStatus('');
+  try {
+    const res = await fetch(BACKEND + '/api/fishing/rod/buy', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ rod_id: id }) });
+    const j = await res.json();
+    if (j.state) fishApplyState(j.state);
+    if (j.error) fishSetStatus(j.error, 'var(--red)'); else fishSetStatus('Bought a ' + d.name + '!', 'var(--green)');
+  } catch { fishSetStatus('Server offline', 'var(--red)'); }
+}
 function fishRender() {
   if (!fishState) return;
   const cat = fishState.catalog || [], inv = fishState.inv || {}, seen = fishState.seen || {};
@@ -1990,6 +2109,8 @@ function fishRender() {
   stats.innerHTML = discovered + ' / ' + cat.length + ' discovered \u00b7 ' + (fishState.casts || 0) + ' casts \u00b7 ' + fishState.casts_left_today + ' casts left today'
     + '<br>bucket worth ' + bucketValue + ' \u00b7 bucket profit ' + signed(bucketProfit)
     + '<br>total worth ' + totalWorth + ' \u00b7 total profit ' + signed(totalProfit) + ' PlaceBux';
+  fishRenderMaps();
+  fishRenderRod();
   const invEl = document.getElementById('fish-inventory');
   const owned = cat.filter(it => inv[it.id] > 0).sort((a, b) => b.value - a.value || rank(b) - rank(a));
   invEl.innerHTML = owned.length ? owned.map(it => fishTile(it, { qty: inv[it.id], sell: true })).join('') : '<div class="lobby-empty" style="grid-column:1/-1;">Your bucket is empty. Cast a line!</div>';
@@ -2006,6 +2127,7 @@ function fishUpdateCooldown() {
   const left = Math.ceil((fishReadyAt - Date.now()) / 1000);
   if (fishBusy) { btn.disabled = true; btn.textContent = 'Casting...'; return; }
   if (left > 0) { btn.disabled = true; btn.textContent = `Line is out \u00b7 ${left}s`; return; }
+  if (fishState.rod && fishState.rod.broken) { btn.disabled = true; btn.textContent = 'Rod snapped - buy a new one below'; return; }
   if (fishState.casts_left_today <= 0) { btn.disabled = true; btn.textContent = 'No casts left today'; return; }
   btn.disabled = false;
   btn.textContent = fishState.cast_cost ? `Cast line (${fishState.cast_cost} PlaceBux)` : 'Cast line';
@@ -2087,9 +2209,10 @@ function _fsTip(phi) { const r = phi * Math.PI / 180; return [FS.bx + FS.len * M
 // Two copies of the fishing scene exist (Fishing screen: prefix "fs-", casino minigame: prefix "mg-"). FSP picks the active one.
 let FSP = 'fs-';
 const fsEl = (n) => document.getElementById(FSP + n);
-function buildFishScene(el, p) {
-  el.innerHTML = `
-    <svg class="fs-layer" viewBox="0 0 320 160" aria-hidden="true">
+// Backgrounds for the fishing scene, one per map. Same layout in all of them (dock on the left, water from y=104), so the
+// rod / cast / reel animations work unchanged. Each returns the markup for the background layer.
+const FISH_BG = {
+  pier: (p) => `
       <defs>
         <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5aa9e6"/><stop offset="1" stop-color="#bfe6ff"/></linearGradient>
         <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f8fc4"/><stop offset="1" stop-color="#14456f"/></linearGradient>
@@ -2101,24 +2224,91 @@ function buildFishScene(el, p) {
       <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".92"/>
       <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/></g>
       <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
-      <rect x="0" y="100" width="130" height="8" fill="#8b5a2b"/><rect x="0" y="107" width="130" height="3" fill="#5a3a1a"/>
+      <rect x="0" y="100" width="130" height="8" fill="#8b5a2b"/><rect x="0" y="107" width="130" height="3" fill="#5a3a1a"/>`,
+  reef: (p) => `
+      <defs>
+        <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5cc8ff"/><stop offset="1" stop-color="#dff8ff"/></linearGradient>
+        <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#35e0c9"/><stop offset="1" stop-color="#0b6f86"/></linearGradient>
+      </defs>
+      <rect width="320" height="110" fill="url(#${p}sky)"/>
+      <circle cx="276" cy="26" r="26" fill="#fff6b0" opacity=".35"/><circle cx="276" cy="26" r="15" fill="#fff2a0"/>
+      <ellipse cx="196" cy="28" rx="24" ry="7" fill="#fff" opacity=".85"/><ellipse cx="212" cy="23" rx="15" ry="6" fill="#fff" opacity=".85"/>
+      <ellipse cx="250" cy="105" rx="46" ry="9" fill="#f3dc9d"/>
+      <path d="M238 104 Q233 84 243 70" stroke="#8b5a2b" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M243 70 Q226 58 214 72 Q232 66 243 70Z" fill="#26a04b"/><path d="M243 70 Q262 56 274 70 Q256 64 243 70Z" fill="#33b85a"/><path d="M243 70 Q238 52 252 47 Q246 59 243 70Z" fill="#26a04b"/>
+      <path d="M268 104 Q272 90 266 80" stroke="#8b5a2b" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <path d="M266 80 Q254 72 246 82 Q258 77 266 80Z" fill="#33b85a"/><path d="M266 80 Q280 70 288 80 Q274 76 266 80Z" fill="#26a04b"/>
+      <rect x="26" y="106" width="8" height="54" fill="#e8dcc0"/><rect x="104" y="106" width="8" height="54" fill="#e8dcc0"/>
+      <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".92"/>
+      <path d="M150 160 V146 M150 152 L142 142 M150 152 L158 140" stroke="#ff7a59" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M170 160 V150 M170 154 L164 146 M170 154 L177 144" stroke="#ff5d8f" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <ellipse cx="196" cy="158" rx="15" ry="12" fill="#f472b6" opacity=".85"/>
+      <circle cx="232" cy="159" r="11" fill="#fbbf24" opacity=".85"/><circle cx="262" cy="160" r="9" fill="#fb923c" opacity=".85"/>
+      <path d="M212 160 q-5 -10 0 -18 t0 -16" stroke="#22c55e" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <path d="M286 160 q-5 -10 0 -18 t0 -14" stroke="#16a34a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <g fill="#ffd23f"><ellipse cx="146" cy="128" rx="6" ry="3.5"/><path d="M152 128 l6 -4 v8z"/></g>
+      <g fill="#60a5fa"><ellipse cx="256" cy="138" rx="6" ry="3.5"/><path d="M250 138 l-6 -4 v8z"/></g>
+      <g fill="#fb7185"><ellipse cx="206" cy="122" rx="5" ry="3"/><path d="M211 122 l5 -3 v6z"/></g>
+      <circle cx="132" cy="140" r="2" fill="none" stroke="#fff" stroke-opacity=".5"/><circle cx="136" cy="132" r="1.4" fill="none" stroke="#fff" stroke-opacity=".5"/>
+      <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="2"/></g>
+      <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
+      <rect x="0" y="100" width="130" height="8" fill="#e3c88d"/><rect x="0" y="107" width="130" height="3" fill="#b89455"/>`,
+  abyss: (p) => `
+      <defs>
+        <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#050816"/><stop offset="1" stop-color="#231a52"/></linearGradient>
+        <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a2a55"/><stop offset="1" stop-color="#01030d"/></linearGradient>
+        <radialGradient id="${p}glow"><stop offset="0" stop-color="#ffe9a0" stop-opacity=".9"/><stop offset="1" stop-color="#ffe9a0" stop-opacity="0"/></radialGradient>
+      </defs>
+      <rect width="320" height="110" fill="url(#${p}sky)"/>
+      <g fill="#fff"><circle cx="20" cy="14" r="1"/><circle cx="52" cy="30" r="1.3"/><circle cx="84" cy="10" r="1"/><circle cx="112" cy="26" r=".8"/><circle cx="140" cy="12" r="1.4"/><circle cx="168" cy="34" r="1"/><circle cx="196" cy="16" r="1.2"/><circle cx="224" cy="40" r=".8"/><circle cx="300" cy="12" r="1.1"/><circle cx="310" cy="46" r="1"/><circle cx="36" cy="52" r=".9"/><circle cx="244" cy="12" r="1"/></g>
+      <circle cx="268" cy="30" r="14" fill="#eef2fa"/><circle cx="275" cy="25" r="13" fill="#0c0c24"/>
+      <path d="M0 104 L40 84 L70 98 L110 76 L150 100 L200 80 L250 98 L290 82 L320 100 V104Z" fill="#0a0e24"/>
+      <rect x="26" y="106" width="8" height="54" fill="#2b2f3a"/><rect x="104" y="106" width="8" height="54" fill="#2b2f3a"/>
+      <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".96"/>
+      <g><path d="M190 138 Q200 118 210 138Z" fill="#22d3ee" opacity=".55"/><path d="M193 138 q-2 8 0 14 M200 138 q0 9 0 16 M207 138 q2 8 0 14" stroke="#67e8f9" stroke-width="1.3" fill="none" stroke-linecap="round" opacity=".8"/></g>
+      <g opacity=".75"><path d="M250 150 Q258 134 266 150Z" fill="#f472b6" opacity=".6"/><path d="M253 150 q-1 7 0 12 M258 150 q0 8 0 14 M263 150 q1 7 0 12" stroke="#f9a8d4" stroke-width="1.2" fill="none" stroke-linecap="round"/></g>
+      <ellipse cx="150" cy="148" rx="10" ry="6" fill="#0b1226"/><path d="M142 146 q-6 -8 -12 -4" stroke="#0b1226" stroke-width="1.2" fill="none"/><circle cx="130" cy="142" r="6" fill="#fde68a" opacity=".25"/><circle cx="130" cy="142" r="2.4" fill="#fde68a"/>
+      <g fill="#67e8f9" opacity=".8"><circle cx="170" cy="124" r="1.4"/><circle cx="226" cy="118" r="1.2"/><circle cx="286" cy="132" r="1.5"/><circle cx="120" cy="150" r="1.2"/><circle cx="238" cy="150" r="1.1"/><circle cx="300" cy="148" r="1.3"/></g>
+      <ellipse cx="160" cy="106" rx="170" ry="6" fill="#cbd5e1" opacity=".1"/>
+      <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#9ec5ff" stroke-opacity=".3" stroke-width="2"/></g>
+      <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
+      <rect x="0" y="100" width="130" height="8" fill="#4b5262"/><rect x="0" y="107" width="130" height="3" fill="#2b303c"/>
+      <rect x="121" y="80" width="3" height="20" fill="#2b303c"/><rect x="117" y="70" width="11" height="12" rx="2" fill="#fde68a"/><circle cx="122.5" cy="76" r="22" fill="url(#${p}glow)"/>`,
+};
+function buildFishScene(el, p, theme) {
+  theme = FISH_BG[theme] ? theme : 'pier';
+  el.dataset.theme = theme;
+  el.innerHTML = `
+    <svg class="fs-layer" viewBox="0 0 320 160" aria-hidden="true">${FISH_BG[theme](p)}
     </svg>
     <img id="${p}avatar" class="fs-avatar" alt="">
     <svg class="fs-layer" viewBox="0 0 320 160" aria-hidden="true">
       <ellipse id="${p}rip" cx="232" cy="108" rx="0" ry="0" fill="none" stroke="#fff" stroke-width="2" opacity="0"/>
       <line x1="66" y1="90" x2="72" y2="86" stroke="#e9b98a" stroke-width="5" stroke-linecap="round"/>
       <line id="${p}rod" x1="72" y1="86" x2="158" y2="36" stroke="#6b4423" stroke-width="3" stroke-linecap="round"/>
+      <line id="${p}rodhl" x1="72" y1="86" x2="158" y2="36" stroke="#fff" stroke-opacity=".5" stroke-width="1" stroke-linecap="round" style="display:none"/>
+      <g id="${p}rodpiece" style="display:none"><line id="${p}rodpiece-l" x1="0" y1="0" x2="0" y2="0" stroke="#6b4423" stroke-width="3" stroke-linecap="round"/></g>
       <path id="${p}line" d="" fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="1"/>
       <g id="${p}bob" style="display:none"><circle r="5" fill="#fff"/><path d="M-5 0A5 5 0 0 1 5 0Z" fill="#e53935"/></g>
     </svg>
     <div id="${p}item" class="fs-item"></div>`;
 }
-document.querySelectorAll('.fish-scene[data-pfx]').forEach(el => buildFishScene(el, el.dataset.pfx));
+document.querySelectorAll('.fish-scene[data-pfx]').forEach(el => buildFishScene(el, el.dataset.pfx, 'pier'));
+// Rebuild both scenes when the player's current map changes (never in the middle of a cast).
+function fsSyncTheme() {
+  const theme = (fishState && fishState.map) || 'pier';
+  document.querySelectorAll('.fish-scene[data-pfx]').forEach(el => {
+    if (el.dataset.theme === theme) return;
+    buildFishScene(el, el.dataset.pfx, theme);
+    withScene(el.dataset.pfx, fsSetup);
+  });
+}
 function withScene(p, fn) { const old = FSP; FSP = p; try { return fn(); } finally { FSP = old; } }
 function fsDraw(phi, bx, by, sag, showBob, showLine) {
   const [tx, ty] = _fsTip(phi);
   const rod = fsEl('rod'); if (!rod) return;
   rod.setAttribute('x2', tx.toFixed(1)); rod.setAttribute('y2', ty.toFixed(1));
+  const rhl = fsEl('rodhl'); if (rhl) { rhl.setAttribute('x2', tx.toFixed(1)); rhl.setAttribute('y2', ty.toFixed(1)); }
   const line = fsEl('line');
   if (showLine === undefined ? showBob : showLine) line.setAttribute('d', `M${tx.toFixed(1)} ${ty.toFixed(1)}Q${((tx + bx) / 2).toFixed(1)} ${((ty + by) / 2 + sag).toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`);
   else line.setAttribute('d', '');
@@ -2139,7 +2329,75 @@ function fsSetup() {
   if (wp && !wp.getAttribute('d')) { let d = 'M0 110'; for (let i = 0; i < 12; i++) d += 'q10 -6 20 0t20 0'; wp.setAttribute('d', d); }
   const av = fsEl('avatar');
   if (av) { av.onerror = () => { av.onerror = null; av.src = DEFAULT_AVATAR; }; av.src = avatarUrl(username); }
+  fsApplyRod();
   fsIdle();
+}
+// ---- rod looks + snap animation ----
+const ROD_STYLES = {
+  wooden: { c: '#6b4423', w: 3, hl: null },
+  plastic: { c: '#38bdf8', w: 3.6, hl: { o: 0.6, w: 1 } },
+  steel: { c: '#aeb8c2', w: 4.2, hl: { o: 0.85, w: 1.5 } },
+  carbon: { c: '#1f2937', w: 3.6, hl: { o: 0.4, w: 1.6, dash: '3 3' } },
+};
+function mixHex(a, b, t) {
+  const p = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const x = p(a), y = p(b);
+  return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+function rodColor(info) {
+  const st = ROD_STYLES[info.type] || ROD_STYLES.wooden;
+  const ratio = info.max ? info.left / info.max : 1;
+  // the closer the rod is to snapping the redder it gets
+  return (!info.broken && ratio < 0.2) ? mixHex(st.c, '#ef4444', Math.min(0.65, (0.2 - ratio) / 0.2 * 0.65)) : st.c;
+}
+function fsApplyRod() {
+  const rod = fsEl('rod'); if (!rod) return;
+  const info = (fishState && fishState.rod) || { type: 'wooden', left: 55, max: 55, broken: false };
+  const st = ROD_STYLES[info.type] || ROD_STYLES.wooden;
+  rod.setAttribute('stroke', rodColor(info)); rod.setAttribute('stroke-width', st.w);
+  const hl = fsEl('rodhl');
+  if (hl) {
+    if (st.hl) { hl.style.display = ''; hl.setAttribute('stroke-opacity', st.hl.o); hl.setAttribute('stroke-width', st.hl.w); if (st.hl.dash) hl.setAttribute('stroke-dasharray', st.hl.dash); else hl.removeAttribute('stroke-dasharray'); }
+    else hl.style.display = 'none';
+  }
+  FS.len = info.broken ? 45 : 100;   // a snapped rod is just a stub
+  fsDraw(FS.rest, FS.tx, FS.ty, 0, false);
+}
+async function fsSnapRod() {
+  const rod = fsEl('rod'), hl = fsEl('rodhl'), pg = fsEl('rodpiece'), pl = fsEl('rodpiece-l');
+  if (!rod || !pg || !pl) return;
+  const scene = rod.closest('.fish-scene');
+  const baseColor = rod.getAttribute('stroke');
+  const setRod = (x, y) => { rod.setAttribute('x2', x.toFixed(1)); rod.setAttribute('y2', y.toFixed(1)); if (hl) { hl.setAttribute('x2', x.toFixed(1)); hl.setAttribute('y2', y.toFixed(1)); } };
+  // 1. the rod strains: it shakes and turns red
+  if (scene) scene.classList.add('fs-shaking');
+  await _fsAnim(600, t => { const [x, y] = _fsTip(FS.rest + Math.sin(t * 55) * 5 * t); setRod(x, y); rod.setAttribute('stroke', mixHex(baseColor, '#ef4444', t * 0.9)); });
+  if (scene) scene.classList.remove('fs-shaking');
+  // 2. SNAP: the rod breaks in two, the top half tumbles into the water
+  const [fx, fy] = _fsTip(FS.rest);
+  const mx = FS.bx + (fx - FS.bx) * 0.45, my = FS.by + (fy - FS.by) * 0.45;
+  setRod(mx, my); rod.setAttribute('stroke', baseColor);
+  const lineEl = fsEl('line'); if (lineEl) lineEl.setAttribute('d', '');
+  const bobEl = fsEl('bob'); if (bobEl) bobEl.style.display = 'none';
+  pl.setAttribute('x1', mx.toFixed(1)); pl.setAttribute('y1', my.toFixed(1)); pl.setAttribute('x2', fx.toFixed(1)); pl.setAttribute('y2', fy.toFixed(1));
+  pl.setAttribute('stroke', baseColor); pl.setAttribute('stroke-width', rod.getAttribute('stroke-width'));
+  pg.style.display = ''; pg.setAttribute('opacity', '1');
+  if (scene) { const tx = document.createElement('div'); tx.className = 'fs-snap-text'; tx.textContent = 'SNAP!'; scene.appendChild(tx); setTimeout(() => tx.remove(), 1200); }
+  const cx = (mx + fx) / 2, cy = (my + fy) / 2, waterY = 106;
+  let splashAt = -1; const rip = fsEl('rip');
+  await _fsAnim(1300, t => {
+    const sec = t * 0.95, dx = 46 * sec, dy = 0.5 * 330 * sec * sec;
+    pg.setAttribute('transform', 'translate(' + dx.toFixed(1) + ' ' + dy.toFixed(1) + ') rotate(' + (260 * sec).toFixed(1) + ' ' + cx.toFixed(1) + ' ' + cy.toFixed(1) + ')');
+    const y = cy + dy;
+    if (y > waterY) {
+      if (splashAt < 0) { splashAt = t; if (rip) rip.setAttribute('cx', (cx + dx).toFixed(1)); }
+      pg.setAttribute('opacity', Math.max(0, 1 - (y - waterY) / 22).toFixed(2));
+      fsRipple(Math.min(1, (t - splashAt) * 3.5));
+    }
+  });
+  pg.style.display = 'none'; pg.removeAttribute('transform');
+  if (rip) rip.setAttribute('cx', '232');
+  FS.len = 45; fsDraw(FS.rest, FS.tx, FS.ty, 0, false);
 }
 async function fsCastAnim() {
   await _fsAnim(700, t => {
@@ -2199,19 +2457,24 @@ async function fishCast() {
     if (!d || d.netfail || d.error || !d.item) {
       await fsRetract();
       if (d && d.state) fishApplyState(d.state);
-      if (d && d.netfail) { fishSetStatus('Server offline', 'var(--red)'); catchEl.textContent = 'The line snapped.'; }
+      if (d && d.netfail) { fishSetStatus('Server offline', 'var(--red)'); catchEl.textContent = 'Connection lost.'; }
       else { if (d && d.error) fishSetStatus(d.error, 'var(--red)'); catchEl.textContent = 'Nothing this time.'; }
     } else {
       await fsBite();
       await fsReel(d.item);
       const it = d.item;
       fishShowPopup(it, d.new);
-      if (d.state) fishApplyState(d.state);
       catchEl.style.setProperty('--rc', FISH_RARITY_COLORS[it.rarity] || 'var(--text-primary)');
       catchEl.innerHTML = `<b>${esc(it.name)}</b><span class="fish-rarity">${esc(it.rarity)}</span> · worth ${it.value} PlaceBux${d.new ? ' · new discovery' : ''}`;
       void catchEl.offsetWidth; catchEl.classList.add('pop');
+      if (d.rod_snapped) {
+        await fsSnapRod();
+        fishSetStatus('Your rod snapped! Buy a new one below.', 'var(--red)');
+      }
+      if (d.state) fishApplyState(d.state);
+      if (d.rod_snapped) fsApplyRod();   // state updates are held back while casting, so redraw the broken stub in its own colour
     }
-  } catch (e) { fishSetStatus('Something went wrong', 'var(--red)'); catchEl.textContent = 'The line snapped.'; }
+  } catch (e) { fishSetStatus('Something went wrong', 'var(--red)'); catchEl.textContent = 'Something went wrong.'; }
   fsIdle();
   fishBusy = false; fishUpdateCooldown();
 }
@@ -2311,8 +2574,10 @@ async function mgPlay() {
     if (res.error || !res.item) { await fsRetract(); mgSetMsg(res.error || 'Nothing this time.', 'var(--red)'); if (typeof res.balance === 'number') { myBalance = res.balance; applyPbState(); } return; }
     await fsReel(res.item);
     fishShowPopup(res.item, res.new);
+    if (res.rod_snapped) { await fsSnapRod(); }
     if (typeof res.balance === 'number') { myBalance = res.balance; applyPbState(); const sb = document.getElementById('shop-balance'); if (sb) sb.textContent = myUnlimited ? '∞' : myBalance; }
     if (res.state) fishApplyState(res.state);
+    if (res.rod_snapped) fsApplyRod();
     mgSetMsg(res.downgraded
       ? zone.toUpperCase() + ' hit - daily limit for legendary/mythic reached, so you got an epic: ' + res.item.name
       : zone.toUpperCase() + ' → ' + res.item.name + (res.new ? ' (new discovery!)' : '') + ' - added to your collection', FISH_RARITY_COLORS[res.rarity] || 'var(--text-primary)');
@@ -4391,7 +4656,7 @@ function openShop() {
   }
 }
 menuViewHooks.shop = { enter: openShop };
-menuViewHooks.casino = { enter: () => { withScene('mg-', fsSetup);  const cb = document.getElementById('casino-balance'); if (cb) cb.textContent = myUnlimited ? '∞' : myBalance; } };
+menuViewHooks.casino = { enter: () => { withScene('mg-', fsSetup); if (!fishState && authToken) fishLoad().then(() => withScene('mg-', fsApplyRod));  const cb = document.getElementById('casino-balance'); if (cb) cb.textContent = myUnlimited ? '∞' : myBalance; } };
 document.getElementById('btn-shop').onclick = () => { if (!authToken) { alert('Log in to use the shop.'); return; } openMenuView('shop'); };
 
 function showShopTab(name) {
