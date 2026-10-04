@@ -7185,6 +7185,7 @@ async def on_startup(app):
     app["clan_cleanup_task"] = asyncio.create_task(cleanup_clans(app))
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
     app["sessions_task"] = asyncio.create_task(sessions_save_loop(app))
+    app["batched_task"] = asyncio.create_task(batched_save_loop(app))
     app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
     app["idle_task"] = asyncio.create_task(idle_reward_loop(app))
@@ -7195,6 +7196,8 @@ async def on_startup(app):
         await save_economy_history()
 
 async def on_cleanup(app):
+    try: await flush_dirty_saves()
+    except Exception: pass
     try: await save_sessions()
     except Exception: pass
     app["cleanup_task"].cancel()
@@ -7432,6 +7435,35 @@ FISH_BY_RARITY = {}
 for _it in FISH_CATALOG: FISH_BY_RARITY.setdefault(_it["rarity"], []).append(_it)
 fishing = {}
 async def save_fishing(): await db_save("store", "fishing", fishing)
+
+# ---- Batched saves -------------------------------------------------------------------------------------------------
+# These data sets change on almost every click and each save re-sends the whole data set to MongoDB, which was most of the
+# server's outgoing traffic. Calling the save now only marks it dirty; one background task writes each dirty set at most
+# once every few seconds (and everything is flushed on shutdown). A hard crash can lose at most a few seconds of changes.
+SAVE_BATCH_SECONDS = 5
+_dirty_saves = {}
+def _batched(real):
+    async def save():
+        _dirty_saves[real.__name__] = real
+    save.__name__ = real.__name__
+    return save
+async def flush_dirty_saves():
+    for name in list(_dirty_saves):
+        real = _dirty_saves.pop(name, None)
+        if not real: continue
+        try: await real()
+        except Exception as e:
+            _dirty_saves.setdefault(name, real); print("batched save failed:", name, e)
+async def batched_save_loop(app):
+    while True:
+        await asyncio.sleep(SAVE_BATCH_SECONDS)
+        try: await flush_dirty_saves()
+        except asyncio.CancelledError: break
+        except Exception as e: print("batched save loop:", e)
+save_place_bucks = _batched(save_place_bucks)
+save_fishing = _batched(save_fishing)
+save_lifetime_pixels = _batched(save_lifetime_pixels)
+save_stay_seconds = _batched(save_stay_seconds)
 
 def _fish_slot(user):
     return fishing.setdefault(user.lower(), {"inv": {}, "seen": {}, "casts": 0, "last_cast": 0})
