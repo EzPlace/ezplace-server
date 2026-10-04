@@ -305,6 +305,17 @@ async def db_load(collection, key):
     doc = await db[collection].find_one({"_id": key})
     return doc["data"] if doc else None
 
+_sessions_saved = None
+async def save_sessions():
+    global _sessions_saved
+    snap = {t: [u, session_born.get(t, time.time())] for t, u in list(sessions.items())}
+    if snap == _sessions_saved: return
+    await db_save("store", "sessions", snap); _sessions_saved = snap
+async def sessions_save_loop(app):
+    while True:
+        await asyncio.sleep(15)
+        try: await save_sessions()
+        except Exception as e: print("session save failed:", e)
 async def save_accounts(): await db_save("store", "accounts", accounts)
 async def save_friends(): await db_save("store", "friends", friends_data)
 async def save_bans(): await db_save("store", "bans", bans)
@@ -1025,6 +1036,14 @@ async def load_all_data():
     user_ips = await db_load("store", "user_ips") or {}
     global fishing
     fishing = await db_load("store", "fishing") or {}
+    # logins survive a server restart (they used to live in memory only, so every restart left browsers holding dead tokens)
+    _now = time.time()
+    for _tok, _e in ((await db_load("store", "sessions")) or {}).items():
+        try:
+            _u, _born = _e[0], float(_e[1])
+            if isinstance(_tok, str) and _u in accounts and _now - _born <= SESSION_TTL:
+                sessions[_tok] = _u; session_born[_tok] = _born
+        except Exception: pass
     global gd_levels, _gd_levels_max_seen
     gd_levels = await db_load("store", "gd_levels") or {}
     # If primary is empty, try the backup - this catches the case where a bad save
@@ -5725,7 +5744,7 @@ async def auth_status_handler(request):
     token = request.headers.get("Authorization", "")
     username = sessions.get(token)
     banned = bool(username and is_banned(username)) or is_ip_banned(request)
-    return web.json_response({"ok": True, "banned": banned, "redirect": "https://www.pornhub.com" if banned else None})
+    return web.json_response({"ok": True, "banned": banned, "authed": bool(_session_user(token)), "redirect": "https://www.pornhub.com" if banned else None})
 
 async def night_event_state_handler(request):
     if not night_event["next_event_ts"]:
@@ -7165,6 +7184,7 @@ async def on_startup(app):
     app["cleanup_task"] = asyncio.create_task(cleanup_inactive_lobbies(app))
     app["clan_cleanup_task"] = asyncio.create_task(cleanup_clans(app))
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
+    app["sessions_task"] = asyncio.create_task(sessions_save_loop(app))
     app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
     app["idle_task"] = asyncio.create_task(idle_reward_loop(app))
@@ -7175,6 +7195,8 @@ async def on_startup(app):
         await save_economy_history()
 
 async def on_cleanup(app):
+    try: await save_sessions()
+    except Exception: pass
     app["cleanup_task"].cancel()
     app["clan_cleanup_task"].cancel()
     app["lb_task"].cancel()
@@ -7518,7 +7540,7 @@ def _fish_state(user, now=None):
     _fish_ledger(st)
     bucket_cost = sum(float(st["basis"].get(k, 0)) for k in inv)
     return {"catalog": FISH_CATALOG, "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
-            "rod": _fish_rod_info(st), "rods": FISH_ROD_CATALOG,
+            "rod": _fish_rod_info(st), "rods": [dict(r, owned=int((st.get("rods") or {}).get(r["id"], 0))) for r in FISH_ROD_CATALOG],
             "spent": int(st["spent"]), "earned": int(st["earned"]), "bucket_cost": int(round(bucket_cost)),
             "total_worth": sum(n * FISH_BY_ID[k]["value"] for k, n in caught.items()), "trade_net": int(st.get("trade_net", 0)),
             "cooldown": round(cooldown, 2), "cast_cooldown": FISH_CAST_COOLDOWN, "cast_cost": _fish_map(st)["cast_cost"], "map": st["map"], "maps": _fish_map_catalog(st),
@@ -7809,9 +7831,19 @@ async def fishing_rod_buy_handler(request):
     except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
     rod = FISH_ROD_BY_ID.get(str((data or {}).get("rod_id") if isinstance(data, dict) else "").strip())
     if not rod: return web.json_response({"error": "Unknown rod"}, status=400)
+    st = _fish_slot(user); _fish_ledger(st)
+    cur = _fish_rod(st); stash = st.setdefault("rods", {})
+    if cur["type"] == rod["id"] and int(cur.get("uses", 0)) > 0:
+        return web.json_response({"ok": True, "equipped": True, "state": _fish_state(user), "balance": get_pb(user)})
+    if int(stash.get(rod["id"], 0)) > 0:       # a rod you already own: switch to it for free, keeping its wear
+        if int(cur.get("uses", 0)) > 0: stash[cur["type"]] = int(cur["uses"])
+        st["rod"] = {"type": rod["id"], "uses": int(stash.pop(rod["id"]))}
+        await save_fishing()
+        return web.json_response({"ok": True, "equipped": True, "state": _fish_state(user), "balance": get_pb(user)})
     if not spend_pb(user, rod["price"]):
         return web.json_response({"error": f"A {rod['name']} costs {rod['price']} PlaceBux", "state": _fish_state(user)}, status=400)
-    st = _fish_slot(user); _fish_ledger(st); st["spent"] += rod["price"]   # rods count as fishing costs in the profit numbers
+    st["spent"] += rod["price"]   # rods count as fishing costs in the profit numbers
+    if int(cur.get("uses", 0)) > 0: stash[cur["type"]] = int(cur["uses"])    # keep the rod you were using
     st["rod"] = {"type": rod["id"], "uses": rod["durability"]}
     await save_fishing(); await save_place_bucks(); await push_pb_update(user)
     return web.json_response({"ok": True, "state": _fish_state(user), "balance": get_pb(user)})

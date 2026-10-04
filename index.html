@@ -1755,8 +1755,17 @@ let WS_HOST = BACKEND_HOST || location.host;
 const _origFetch = window.fetch;
 window.fetch = function(url, ...args) {
   if (typeof url === 'string' && url.startsWith('/')) url = BACKEND + url;
-  return _origFetch.call(this, url, ...args);
+  const p = _origFetch.call(this, url, ...args);
+  const sent = args[0] && args[0].headers && args[0].headers.Authorization;
+  if (sent && sent === authToken) p.then(r => { if (r.status === 401 && authToken === sent) { try { r.clone().json().then(j => { if (j && /not authenticated/i.test(j.error || '') && authToken === sent) ghostLogout(); }).catch(() => {}); } catch {} } }).catch(() => {});
+  return p;
 };
+function ghostLogout() {
+  authToken = ''; username = '';
+  try { safeStore.removeItem('ezplace_token'); safeStore.removeItem('ezplace_user'); } catch {}
+  try { logout(); } catch {}
+  try { setAuthMode(false); openMenuView('auth', true); } catch {}
+}
 
 async function selectBackend() {
   if (location.hostname === RENDER_HOST) return;
@@ -2215,8 +2224,8 @@ function fishRenderRod() {
   const icoColor = rodColor(r);
   const shop = (fishState.rods || []).map(d => {
     const c = (ROD_STYLES[d.id] || ROD_STYLES.wooden).c;
-    const eq = r.type === d.id && !r.broken;
-    return '<button class="rod-buy' + (eq ? ' equipped' : '') + '" data-rod="' + esc(d.id) + '"><span class="rb-name"><span class="rb-dot" style="background:' + c + '"></span>' + esc(d.name) + '</span><span class="rb-sub">' + d.durability + ' casts \u00b7 ' + d.price + ' PlaceBux' + (eq ? ' \u00b7 equipped' : '') + '</span></button>';
+    const eq = r.type === d.id && !r.broken, owned = !eq && d.owned > 0;
+    return '<button class="rod-buy' + (eq ? ' equipped' : '') + '" data-rod="' + esc(d.id) + '"><span class="rb-name"><span class="rb-dot" style="background:' + c + '"></span>' + esc(d.name) + '</span><span class="rb-sub">' + (owned ? 'owned - ' + d.owned + ' / ' + d.durability + ' casts left - tap to equip' : d.durability + ' casts - ' + d.price + ' PlaceBux') + (eq ? ' - equipped' : '') + '</span></button>';
   }).join('');
   panel.innerHTML = '<div class="rod-card"><div class="rod-head">'
     + '<svg class="rod-ico" viewBox="0 0 60 24" aria-hidden="true"><line x1="4" y1="20" x2="' + (r.broken ? 26 : 56) + '" y2="' + (r.broken ? 12 : 4) + '" stroke="' + icoColor + '" stroke-width="' + (st.w + 1) + '" stroke-linecap="round"/></svg>'
@@ -2234,7 +2243,7 @@ async function fishBuyRod(id) {
     const res = await fetch(BACKEND + '/api/fishing/rod/buy', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ rod_id: id }) });
     const j = await res.json();
     if (j.state) fishApplyState(j.state);
-    if (j.error) fishSetStatus(j.error, 'var(--red)'); else fishSetStatus('Bought a ' + d.name + '!', 'var(--green)');
+    if (j.error) fishSetStatus(j.error, 'var(--red)'); else fishSetStatus(j.equipped ? 'Equipped ' + d.name : 'Bought a ' + d.name + '!', 'var(--green)');
   } catch { fishSetStatus('Server offline', 'var(--red)'); }
 }
 function fishRender() {
@@ -9809,6 +9818,8 @@ setInterval(ezpVersionCheck, 45000);
     if (r.status === 403) { ezpWriteBanFlag(); location.replace('https://www.google.com'); return; }
     const d = await r.json();
     if (d && d.banned) { ezpWriteBanFlag(); location.replace(d.redirect || 'https://www.google.com'); return; }
+    // the server no longer knows this login (expired or kicked): drop it instead of pretending to be logged in
+    if (authToken && d && d.authed === false) { authToken = ''; username = ''; safeStore.removeItem('ezplace_token'); safeStore.removeItem('ezplace_user'); }
   } catch {}
   if (BACKEND_HOST && BACKEND_HOST !== BACKEND_CANDIDATES[0]) addSystemMsg('Primary server unreachable - connected via backup proxy.');
   if (authToken && safeStore.getItem('ezplace_user')) {
