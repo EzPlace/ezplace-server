@@ -7389,9 +7389,21 @@ FISH_ITEMS = [
     ("vampire_squid", "Vampire Squid", "rare", 26), ("gulper_eel", "Gulper Eel", "rare", 22),
     ("goblin_shark", "Goblin Shark", "epic", 90), ("colossal_squid", "Colossal Squid", "legendary", 400),
     ("megalodon", "Megalodon", "mythic", 2200),
+    # ---- more Coral Reef exclusives ----
+    ("damselfish", "Damselfish", "common", 2), ("hermit_crab", "Hermit Crab", "common", 3), ("cleaner_wrasse", "Cleaner Wrasse", "common", 3),
+    ("triggerfish", "Triggerfish", "uncommon", 7), ("cuttlefish", "Cuttlefish", "uncommon", 8), ("nudibranch", "Nudibranch", "uncommon", 6),
+    ("mantis_shrimp", "Mantis Shrimp", "rare", 22), ("blue_ringed_octopus", "Blue-Ringed Octopus", "rare", 24), ("reef_shark", "Reef Shark", "rare", 20),
+    ("tiger_shark", "Tiger Shark", "epic", 70), ("giant_grouper", "Giant Grouper", "epic", 70),
+    ("coral_crown", "Coral Crown", "legendary", 340), ("reef_guardian", "Reef Guardian", "mythic", 1400),
+    # ---- more Midnight Abyss exclusives ----
+    ("cusk_eel", "Cusk Eel", "common", 3), ("hatchetfish", "Hatchetfish", "common", 2), ("deepsea_isopod", "Deep-Sea Isopod", "common", 3),
+    ("fangtooth", "Fangtooth", "uncommon", 7), ("barreleye", "Barreleye", "uncommon", 8), ("sea_spider", "Giant Sea Spider", "uncommon", 7),
+    ("frilled_shark", "Frilled Shark", "rare", 24), ("oarfish", "Oarfish", "rare", 24), ("black_swallower", "Black Swallower", "rare", 22),
+    ("giant_isopod", "Giant Isopod", "epic", 75), ("sleeper_shark", "Greenland Sleeper Shark", "epic", 90),
+    ("black_pearl", "Black Pearl", "legendary", 320), ("abyssal_horror", "Abyssal Horror", "mythic", 1300),
 ]
-FISH_EXCLUSIVE = {i: "reef" for i in "clownfish blue_tang parrotfish butterflyfish sea_turtle mandarin_dragonet whale_shark giant_pearl rainbow_serpent".split()}
-FISH_EXCLUSIVE.update({i: "abyss" for i in "lanternfish ghost_shrimp viperfish dumbo_octopus vampire_squid gulper_eel goblin_shark colossal_squid megalodon".split()})
+FISH_EXCLUSIVE = {i: "reef" for i in "clownfish blue_tang parrotfish butterflyfish sea_turtle mandarin_dragonet whale_shark giant_pearl rainbow_serpent damselfish hermit_crab cleaner_wrasse triggerfish cuttlefish nudibranch mantis_shrimp blue_ringed_octopus reef_shark tiger_shark giant_grouper coral_crown reef_guardian".split()}
+FISH_EXCLUSIVE.update({i: "abyss" for i in "lanternfish ghost_shrimp viperfish dumbo_octopus vampire_squid gulper_eel goblin_shark colossal_squid megalodon cusk_eel hatchetfish deepsea_isopod fangtooth barreleye sea_spider frilled_shark oarfish black_swallower giant_isopod sleeper_shark black_pearl abyssal_horror".split()})
 FISH_CATALOG = [{"id": i, "name": n, "rarity": ra, "value": v, "map": FISH_EXCLUSIVE.get(i)} for (i, n, ra, v) in FISH_ITEMS]
 FISH_BY_ID = {it["id"]: it for it in FISH_CATALOG}
 FISH_BY_RARITY = {}
@@ -7450,25 +7462,13 @@ FISH_MAPS = [
     {"id": "pier", "name": "Sunny Pier", "blurb": "Where everyone starts: freshwater and shallow-sea catches.",
      "cast_cost": FISH_CAST_COST, "price": 0, "weights": FISH_RARITY_WEIGHTS,
      "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if not i.get("map")] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")}},
-    {"id": "reef", "name": "Coral Reef", "blurb": "Warm tropical shallows full of colourful reef fish.",
-     "cast_cost": 8, "weights": [("common", 470), ("uncommon", 300), ("rare", 150), ("epic", 60), ("legendary", 17), ("mythic", 3)],
-     "pool": _map_pool({
-         "common": "crab shrimp clam snail sardine anchovy mackerel guppy seaweed clownfish blue_tang",
-         "uncommon": "starfish sea_urchin jellyfish pufferfish seahorse lobster squid pearl_clam tuna sunken_coin parrotfish butterflyfish",
-         "rare": "angelfish lionfish moray_eel manta_ray stingray octopus barracuda ancient_pottery sea_turtle mandarin_dragonet",
-         "epic": "hammerhead emerald pirate_cutlass gold_bar great_white whale_shark",
-         "legendary": "mermaid_comb sunken_crown diamond giant_pearl",
-         "mythic": "poseidon_trident rainbow_serpent"}),
+    {"id": "reef", "name": "Coral Reef", "blurb": "Warm tropical shallows with fish found nowhere else.",
+     "cast_cost": FISH_CAST_COST, "weights": [("common", 610), ("uncommon", 250), ("rare", 100), ("epic", 30), ("legendary", 8), ("mythic", 2)],
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "reef"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
      "price": 150},
-    {"id": "abyss", "name": "Midnight Abyss", "blurb": "A dark deep-sea trench: giants and sunken treasure.",
-     "cast_cost": 15, "weights": [("common", 345), ("uncommon", 300), ("rare", 200), ("epic", 100), ("legendary", 47), ("mythic", 8)],
-     "pool": _map_pool({
-         "common": "sardine anchovy mackerel herring seaweed driftwood tin_can rusty_hook old_boot lanternfish ghost_shrimp",
-         "uncommon": "squid eel cod tuna message_bottle sunken_coin jellyfish viperfish dumbo_octopus",
-         "rare": "swordfish marlin octopus barracuda stingray manta_ray treasure_map silver_ring moray_eel vampire_squid gulper_eel",
-         "epic": "great_white hammerhead giant_squid anglerfish electric_eel pirate_cutlass gold_bar emerald goblin_shark",
-         "legendary": "blue_whale coelacanth sunken_crown diamond mermaid_comb colossal_squid",
-         "mythic": "kraken leviathan poseidon_trident megalodon"}),
+    {"id": "abyss", "name": "Midnight Abyss", "blurb": "A dark deep-sea trench with strange creatures of its own.",
+     "cast_cost": FISH_CAST_COST, "weights": [("common", 600), ("uncommon", 255), ("rare", 100), ("epic", 34), ("legendary", 9), ("mythic", 2)],
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "abyss"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
      "price": 500},
 ]
 FISH_MAP_BY_ID = {m["id"]: m for m in FISH_MAPS}
