@@ -1726,7 +1726,7 @@
         <div class="menu-section">Earning PlaceBux</div>
         <div class="earn-card"><div class="earn-title">Place pixels</div><div class="earn-desc">1 PlaceBux for every 100 pixels you place.</div></div>
         <div class="earn-card"><div class="earn-title">Daily streak</div><div class="earn-desc">Spend 15 active minutes on the site each day to claim your daily bonus: 2 PlaceBux times your streak length, up to 50 a day. Miss a day and the streak resets. The shop sells a 48-hour window and Streak Passes that protect it.</div></div>
-        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Trade: swap fish and PlaceBux with another player from the Trade button on the Fishing screen. Maps: Sunny Pier is free; Coral Reef (8 PlaceBux per cast) costs 150 PlaceBux to unlock once, and Midnight Abyss (15 per cast) costs 500. Each map has its own scenery and catches, and each of the two new maps has 9 fish you cannot catch anywhere else. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
+        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Trade: swap fish and PlaceBux with another player from the Trade button on the Fishing screen. Maps: Sunny Pier is free; Coral Reef costs 150 PlaceBux to unlock once, and Midnight Abyss costs 500. Every map has its own fish and casting costs 5 PlaceBux everywhere. Each map has its own scenery and catches, and each of the two new maps has 9 fish you cannot catch anywhere else. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
         <div class="earn-card"><div class="earn-title">Flappy Bird</div><div class="earn-desc">1 PlaceBux per pipe you clear, no bet needed. Capped at 600 a day.</div></div>
         <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Battle Mode and Fishing Timing in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
         <div class="earn-card"><div class="earn-title">Night Event</div><div class="earn-desc">Watch the Lobbies screen for the Night Event banner. Sign up when it opens; the winner takes 10,000 PlaceBux.</div></div>
@@ -1910,7 +1910,7 @@ async function refreshMenuOnline() {
   if (n === null) {
     try { const r = await fetch('/api/lobbies', { cache: 'no-store' }); const d = await r.json(); n = (d.lobbies || []).reduce((a, l) => a + (typeof l.online === 'number' ? l.online : 0), 0); } catch {}
   }
-  if (n !== null) el.textContent = n + ' online';
+  if (n !== null) { if (authToken && n < 1) { n = 1; setTimeout(refreshMenuOnline, 2000); } el.textContent = n + ' online'; }
   else setTimeout(refreshMenuOnline, 3000);
 }
 function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen()) refreshMenuOnline(); }, 20000); }
@@ -2354,6 +2354,12 @@ Object.assign(FISH_ART_MAP, {
   // Coral Reef
   clownfish: ['fish', '#ff7a1a', '#ffffff'], blue_tang: ['tall', '#2563eb', '#fde047'], parrotfish: ['fish', '#22c55e', '#f472b6'], butterflyfish: ['tall', '#fde047', '#111827'],
   sea_turtle: ['turtle', '#3f9d5a', '#7bbf6a'], mandarin_dragonet: ['fish', '#2dd4bf', '#f97316'], whale_shark: ['whaleshark', '#4b6a8a'], giant_pearl: ['pearl', '#f5f0ff', '#e8c1d5'], rainbow_serpent: ['serpent', '#14b8a6'],
+  // more Coral Reef
+  damselfish: ['fish', '#3b82f6', '#fde047'], hermit_crab: ['crab', '#d97757'], cleaner_wrasse: ['long', '#38bdf8'], triggerfish: ['tall', '#a3a3a3', '#f59e0b'], cuttlefish: ['squid', '#c4a484'], nudibranch: ['snail', '#f472b6', '#a855f7'],
+  mantis_shrimp: ['shrimp', '#22c55e'], blue_ringed_octopus: ['octo', '#facc15'], reef_shark: ['shark', '#6b8ba4'], tiger_shark: ['shark', '#7a8f6a'], giant_grouper: ['fish', '#8a6a3a', '#5a3f1a'], coral_crown: ['crown', '#fb7185'], reef_guardian: ['whale', '#0d9488', true],
+  // more Midnight Abyss
+  cusk_eel: ['long', '#52525b'], hatchetfish: ['tall', '#94a3b8', '#475569'], deepsea_isopod: ['shrimp', '#a1a1aa'], fangtooth: ['viperfish', '#27272a', '#18181b'], barreleye: ['fish', '#64748b', '#334155'], sea_spider: ['crab', '#7c3aed'],
+  frilled_shark: ['long', '#78716c'], oarfish: ['long', '#cbd5e1'], black_swallower: ['angler', '#18181b'], giant_isopod: ['crab', '#a8a29e'], sleeper_shark: ['shark', '#57534e'], black_pearl: ['pearl', '#1f2937', '#334155'], abyssal_horror: ['octo', '#4c1d95'],
   // Midnight Abyss
   lanternfish: ['lantern', '#334155', '#1e293b'], ghost_shrimp: ['shrimp', '#cfe1ff'], viperfish: ['viperfish', '#1f2937', '#0f172a'], dumbo_octopus: ['dumbo', '#f0abfc'],
   vampire_squid: ['squid', '#7a1f2b'], gulper_eel: ['gulper', '#1e293b'], goblin_shark: ['bill', '#d89aa8', '#e8c5cd'], colossal_squid: ['squid', '#a23b6b'], megalodon: ['megalodon', '#475569'],
@@ -8546,6 +8552,7 @@ function connectSocial() {
   socialWs.onopen = () => {
     socialWs.send(JSON.stringify({ type: 'auth', token: authToken, device_id: deviceId }));
     try { socialWs.send(JSON.stringify({ type: 'presence', afk: isAfk })); } catch {}
+    setTimeout(refreshMenuOnline, 1200);
   };
   socialWs.onmessage = async e => {
     if (thisSocial !== socialWs) return;
