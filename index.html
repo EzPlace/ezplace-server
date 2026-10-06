@@ -1878,6 +1878,7 @@ function menuIsOpen() { return document.body.classList.contains('menu-open'); }
 function friendsViewOpen() { return menuIsOpen() && menuView === 'friends'; }
 function renderMenuHome() {
   updateMenuOnlineVisibility();
+  startMenuOnlinePoll();
   const authed = !!authToken;
   const guest = !authed && isGuest;
   document.getElementById('menu-home-auth').style.display = (authed || guest) ? 'none' : '';
@@ -1922,7 +1923,8 @@ async function refreshMenuOnline() {
   if (n !== null) { if (authToken && n < 1) { n = 1; setTimeout(refreshMenuOnline, 2000); } el.textContent = n + ' online'; }
   else setTimeout(refreshMenuOnline, 3000);
 }
-function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen()) refreshMenuOnline(); }, 20000); }
+function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen() && !document.hidden) refreshMenuOnline(); }, 8000); }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && menuIsOpen()) refreshMenuOnline(); });
 function openMenuView(name, resetHistory) {
   updateMenuOnlineVisibility();
   startMenuOnlinePoll();
@@ -2039,7 +2041,8 @@ function fishTile(it, opts) {
   const known = !opts.hidden;
   const name = known ? esc(it.name) : 'Undiscovered';
   const meta = known ? `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ${it.value} PlaceBux${opts.qty ? ' &middot; x' + opts.qty : ''}${opts.caught ? ' &middot; caught ' + opts.caught : ''}` : `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ? PlaceBux`;
-  const actions = opts.sell ? `<div class="fish-actions"><button data-sell="${esc(it.id)}" data-qty="1">Sell 1</button><button data-sell="${esc(it.id)}" data-qty="all">Sell all</button></div>` : '';
+  const bb = opts.buyback ? '<div class="fish-actions"><button data-buyback="' + esc(it.id) + '" data-qty="1">Buy back 1 (' + it.value + ')</button>' + (opts.buyback > 1 ? '<button data-buyback="' + esc(it.id) + '" data-qty="all">Buy back all ' + opts.buyback + ' (' + it.value * opts.buyback + ')</button>' : '') + '</div>' : '';
+  const actions = bb || opts.sell ? `<div class="fish-actions"><button data-sell="${esc(it.id)}" data-qty="1">Sell 1</button><button data-sell="${esc(it.id)}" data-qty="all">Sell all</button></div>` : '';
   const chip = it.map ? '<span class="fish-mapchip">' + esc(FISH_MAP_NAMES[it.map] || it.map) + ' only</span>' : '';
   return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}${chip}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
 }
@@ -2271,7 +2274,9 @@ function fishRender() {
   invEl.querySelectorAll('button[data-sell]').forEach(b => { b.onclick = () => fishSell(b.dataset.sell, b.dataset.qty); });
   const colEl = document.getElementById('fish-collection');
   const all = cat.slice().sort((a, b) => rank(a) - rank(b) || a.value - b.value);
-  colEl.innerHTML = all.map(it => fishTile(it, seen[it.id] ? { caught: seen[it.id] } : { hidden: true })).join('');
+  const soldMap = fishState.sold || {};
+  colEl.innerHTML = all.map(it => fishTile(it, seen[it.id] ? { caught: seen[it.id], buyback: soldMap[it.id] || 0 } : { hidden: true })).join('');
+  colEl.querySelectorAll('button[data-buyback]').forEach(b => { b.onclick = () => fishBuyback(b.dataset.buyback, b.dataset.qty); });
   invEl.style.display = fishTab === 'inventory' ? '' : 'none';
   colEl.style.display = fishTab === 'collection' ? '' : 'none';
 }
@@ -2782,6 +2787,16 @@ async function fishSell(itemId, qty) {
     if (d.state) fishApplyState(d.state);
     if (d.error) fishSetStatus(d.error, 'var(--red)');
     else fishSetStatus(`Sold ${d.sold} for ${d.earned} PlaceBux`, 'var(--green)');
+  } catch { fishSetStatus('Server offline', 'var(--red)'); }
+}
+async function fishBuyback(itemId, qty) {
+  if (!authToken) return;
+  try {
+    const r = await fetch(BACKEND + '/api/fishing/buyback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ item_id: itemId, qty: qty === 'all' ? 'all' : 1 }) });
+    const d = await r.json();
+    if (d.state) fishApplyState(d.state);
+    if (d.error) fishSetStatus(d.error, 'var(--red)');
+    else fishSetStatus('Bought back ' + d.bought + ' for ' + d.paid + ' PlaceBux - it is in your bucket now', 'var(--green)');
   } catch { fishSetStatus('Server offline', 'var(--red)'); }
 }
 document.getElementById('btn-fish-cast').onclick = fishCast;

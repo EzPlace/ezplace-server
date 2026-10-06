@@ -7574,7 +7574,7 @@ def _fish_state(user, now=None):
     return {"catalog": FISH_CATALOG, "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
             "rod": _fish_rod_info(st), "rods": [dict(r, owned=int((st.get("rods") or {}).get(r["id"], 0))) for r in FISH_ROD_CATALOG],
             "spent": int(st["spent"]), "earned": int(st["earned"]), "bucket_cost": int(round(bucket_cost)),
-            "total_worth": sum(n * FISH_BY_ID[k]["value"] for k, n in caught.items()), "trade_net": int(st.get("trade_net", 0)),
+            "total_worth": sum(n * FISH_BY_ID[k]["value"] for k, n in caught.items()), "trade_net": int(st.get("trade_net", 0)), "sold": dict(_fish_sold(st)),
             "cooldown": round(cooldown, 2), "cast_cooldown": FISH_CAST_COOLDOWN, "cast_cost": _fish_map(st)["cast_cost"], "map": st["map"], "maps": _fish_map_catalog(st),
             "daily_cap": FISH_DAILY_CAP, "casts_left_today": max(0, FISH_DAILY_CAP - used_today), "balance": get_pb(user)}
 
@@ -7984,6 +7984,45 @@ async def mg_fish_stop_handler(request):
     return web.json_response({"ok": True, "item": item, "new": first_time, "zone": zone, "rarity": rarity, "downgraded": downgraded,
                               "position": round(pos, 4), "balance": get_pb(user), "rod_snapped": snapped, "state": _fish_state(user)})
 
+def _fish_sold(st):
+    """Fish the player sold and has not bought back (what the buy-back button can return). Players from before this existed
+    start with caught minus what is still in the bucket."""
+    if st.get("sold_v") != 1:
+        inv, seen = st.get("inv", {}), st.get("seen", {})
+        st["sold"] = {k: int(n) - int(inv.get(k, 0)) for k, n in seen.items() if k in FISH_BY_ID and int(n) - int(inv.get(k, 0)) > 0}
+        st["sold_v"] = 1
+    return st.setdefault("sold", {})
+
+async def fishing_buyback_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "fish_buyback", 30, 60):
+        return web.json_response({"error": "Slow down"}, status=429)
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
+    if not isinstance(data, dict): return web.json_response({"error": "Bad payload"}, status=400)
+    item = FISH_BY_ID.get(str(data.get("item_id") or "").strip())
+    if not item: return web.json_response({"error": "Unknown item"}, status=400)
+    st = _fish_slot(user); _fish_ledger(st)
+    sold = _fish_sold(st); can = int(sold.get(item["id"], 0))
+    if can <= 0: return web.json_response({"error": "You have not sold any " + item["name"]}, status=400)
+    qty_raw = data.get("qty", 1)
+    if qty_raw == "all": qty = can
+    else:
+        try: qty = int(qty_raw)
+        except Exception: return web.json_response({"error": "Bad quantity"}, status=400)
+    if qty < 1 or qty > can: return web.json_response({"error": "Bad quantity"}, status=400)
+    cost = item["value"] * qty                       # buying back costs exactly what selling paid, so it can never be farmed
+    if not spend_pb(user, cost):
+        return web.json_response({"error": f"Buying back {qty} {item['name']} costs {cost} PlaceBux", "state": _fish_state(user)}, status=400)
+    inv = st.setdefault("inv", {})
+    inv[item["id"]] = int(inv.get(item["id"], 0)) + qty
+    st["basis"][item["id"]] = float(st["basis"].get(item["id"], 0)) + cost    # back in the bucket at its value: no profit, no loss
+    sold[item["id"]] = can - qty
+    if sold[item["id"]] <= 0: sold.pop(item["id"], None)
+    await save_fishing(); await save_place_bucks(); await push_pb_update(user)
+    return web.json_response({"ok": True, "bought": qty, "paid": cost, "state": _fish_state(user)})
+
 async def fishing_sell_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
@@ -8006,6 +8045,7 @@ async def fishing_sell_handler(request):
         try: qty = int(qty_raw)
         except Exception: return web.json_response({"error": "Bad quantity"}, status=400)
     if qty < 1 or qty > have: return web.json_response({"error": "Bad quantity"}, status=400)
+    _sold = _fish_sold(st); _sold[item_id] = int(_sold.get(item_id, 0)) + qty
     b = float(st["basis"].get(item_id, 0))
     st["basis"][item_id] = b - b * qty / have
     inv[item_id] = have - qty
@@ -8123,7 +8163,7 @@ for _path, _h in (
     ("/api/report", report_submit_handler),
     ("/api/mod/report-resolve", report_resolve_handler),
     ("/api/account/set-avatar", set_avatar_handler),
-    ("/api/fishing/cast", fishing_cast_handler), ("/api/fishing/sell", fishing_sell_handler),
+    ("/api/fishing/cast", fishing_cast_handler), ("/api/fishing/sell", fishing_sell_handler), ("/api/fishing/buyback", fishing_buyback_handler),
     ("/api/fishing/rod/buy", fishing_rod_buy_handler), ("/api/trade/invite", trade_invite_handler), ("/api/trade/respond", trade_respond_handler), ("/api/trade/offer", trade_offer_handler), ("/api/trade/confirm", trade_confirm_handler), ("/api/trade/cancel", trade_cancel_handler), ("/api/fishing/map/unlock", fishing_map_unlock_handler), ("/api/fishing/map/travel", fishing_map_travel_handler), ("/api/minigame/fish/start", mg_fish_start_handler), ("/api/minigame/fish/stop", mg_fish_stop_handler),
     ("/api/account/clear-avatar", clear_avatar_handler),
 ): _p(_path, _h)
