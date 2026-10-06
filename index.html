@@ -2042,7 +2042,7 @@ function fishTile(it, opts) {
   const name = known ? esc(it.name) : 'Undiscovered';
   const meta = known ? `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ${it.value} PlaceBux${opts.qty ? ' &middot; x' + opts.qty : ''}${opts.caught ? ' &middot; caught ' + opts.caught : ''}` : `<span class="fish-rarity">${esc(it.rarity)}</span> &middot; ? PlaceBux`;
   const bb = opts.buyback ? '<div class="fish-actions"><button data-buyback="' + esc(it.id) + '" data-qty="1">Buy back 1 (' + it.value + ')</button>' + (opts.buyback > 1 ? '<button data-buyback="' + esc(it.id) + '" data-qty="all">Buy back all ' + opts.buyback + ' (' + it.value * opts.buyback + ')</button>' : '') + '</div>' : '';
-  const actions = bb || opts.sell ? `<div class="fish-actions"><button data-sell="${esc(it.id)}" data-qty="1">Sell 1</button><button data-sell="${esc(it.id)}" data-qty="all">Sell all</button></div>` : '';
+  const actions = bb || (opts.sell ? `<div class="fish-actions"><button data-sell="${esc(it.id)}" data-qty="1">Sell 1</button><button data-sell="${esc(it.id)}" data-qty="all">Sell all</button></div>` : '');
   const chip = it.map ? '<span class="fish-mapchip">' + esc(FISH_MAP_NAMES[it.map] || it.map) + ' only</span>' : '';
   return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}${chip}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
 }
