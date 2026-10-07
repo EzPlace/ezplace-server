@@ -620,9 +620,59 @@
   #wheel-group { gap: 12px; }
   #wheel-side { gap: 8px; }
   #btn-undo { margin-left: 4px; }
+  /* ===== Halloween theme ===== */
+  :root {
+    --bg-primary: #120a1c;
+    --bg-secondary: #1a1026;
+    --bg-tertiary: #22142f;
+    --bg-elevated: #2b1a3b;
+    --bg-hover: #36214a;
+    --border: #4a2d63;
+    --border-light: #66408a;
+    --text-primary: #f3e9ff;
+    --text-secondary: #c4afd9;
+    --text-muted: #8f78a8;
+    --accent: #ff7a1a;
+    --accent-hover: #ff9640;
+    --accent-dim: rgba(255,122,26,0.2);
+    --green: #7ee06a;
+    --red: #ff5a6e;
+    --yellow: #ffc233;
+    --gold: #ffb43a;
+    --teal: #6ee7c8;
+    --surface: #1d1129;
+    --input-bg: #160d20;
+    --scrollbar: #4a2d63;
+    --scrollbar-hover: #66408a;
+  }
+  body { background: radial-gradient(ellipse at 50% 120%, #3a1457 0%, #120a1c 55%) fixed, var(--bg-primary); }
+  #menu-title { color: #ff9640; text-shadow: 0 0 10px rgba(255,122,26,0.65), 0 0 22px rgba(160,70,255,0.35); }
+  #menu-title::before { content: '\1F383\00a0'; }
+  #menu-title::after { content: '\00a0\1F47B'; }
+  .menu-btn.primary, .map-btn, .shop-buy { box-shadow: 0 0 12px rgba(255,122,26,0.25); }
+  ::selection { background: rgba(255,122,26,0.4); }
+  #lobby-bg-overlay { background: rgba(26, 8, 44, 0.72); }
+  #menu-bubble { background: rgba(28, 14, 42, 0.95); border-color: rgba(255,122,26,0.28); box-shadow: 0 24px 64px rgba(0,0,0,0.6), 0 0 38px rgba(150,70,255,0.22); }
+  .menu-btn { background: rgba(255,255,255,0.045); border-color: rgba(190,140,255,0.16); }
+  .menu-btn:hover { border-color: rgba(255,122,26,0.55); }
+  #hw-deco { position: fixed; inset: 0; pointer-events: none; z-index: 46; overflow: hidden; display: none; }
+  body.menu-open:not(.in-lobby) #hw-deco { display: block; }
+  #hw-deco .hw-web { position: absolute; top: 0; width: 120px; height: 120px; opacity: .55; }
+  #hw-deco .hw-web.l { left: 0; }
+  #hw-deco .hw-web.r { right: 0; transform: scaleX(-1); }
+  #hw-deco .hw-fog { position: absolute; left: -10%; right: -10%; bottom: 0; height: 160px; background: radial-gradient(ellipse at 50% 100%, rgba(170,110,255,0.22), transparent 70%); animation: hwFog 9s ease-in-out infinite alternate; }
+  #hw-deco .hw-bat { position: absolute; font-size: 22px; filter: drop-shadow(0 0 4px #000); animation: hwFly linear infinite; opacity: .9; }
+  #hw-deco .hw-pump { position: absolute; bottom: 8px; font-size: 34px; filter: drop-shadow(0 0 10px rgba(255,122,26,0.8)); animation: hwGlow 2.6s ease-in-out infinite alternate; }
+  #hw-deco .hw-pump.a { left: 14px; } #hw-deco .hw-pump.b { right: 14px; font-size: 28px; animation-delay: 1.2s; }
+  @keyframes hwFly { from { transform: translateX(-60px) translateY(0); } 25% { transform: translateX(25vw) translateY(-26px); } 50% { transform: translateX(50vw) translateY(10px); } 75% { transform: translateX(75vw) translateY(-22px); } to { transform: translateX(calc(100vw + 60px)) translateY(0); } }
+  @keyframes hwGlow { from { filter: drop-shadow(0 0 4px rgba(255,122,26,0.4)); } to { filter: drop-shadow(0 0 14px rgba(255,150,40,1)); } }
+  @keyframes hwFog { from { transform: translateX(-3%); opacity: .6; } to { transform: translateX(3%); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { #hw-deco .hw-bat, #hw-deco .hw-pump, #hw-deco .hw-fog { animation: none; } #hw-deco .hw-bat { display: none; } }
+  @media (max-width: 640px) { #hw-deco .hw-web { width: 80px; height: 80px; } #hw-deco .hw-pump { font-size: 26px; } }
 </style>
 </head>
 <body>
+<div id="hw-deco" aria-hidden="true"><svg class="hw-web l" viewBox="0 0 120 120" fill="none" stroke="#d9c8f0" stroke-width="1" aria-hidden="true"><path d="M0 0L120 0M0 0L0 120M0 0L100 60M0 0L60 100M0 0L115 28M0 0L28 115"/><path d="M30 0Q26 26 0 30M60 0Q52 52 0 60M92 0Q80 80 0 92M120 0Q108 108 0 120"/></svg><svg class="hw-web r" viewBox="0 0 120 120" fill="none" stroke="#d9c8f0" stroke-width="1" aria-hidden="true"><path d="M0 0L120 0M0 0L0 120M0 0L100 60M0 0L60 100M0 0L115 28M0 0L28 115"/><path d="M30 0Q26 26 0 30M60 0Q52 52 0 60M92 0Q80 80 0 92M120 0Q108 108 0 120"/></svg><div class="hw-fog"></div><span class="hw-bat" style="top:12%;animation-duration:16s">🦇</span><span class="hw-bat" style="top:26%;animation-duration:23s;animation-delay:-9s;font-size:17px">🦇</span><span class="hw-bat" style="top:6%;animation-duration:29s;animation-delay:-18s;font-size:26px">🦇</span><span class="hw-pump a">🎃</span><span class="hw-pump b">🎃</span></div>
 
 <div id="tab-warning">&#x26A0; EzPlace is open in another tab. &#x26A0;</div>
 <div id="disconnect-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:90;background:var(--red);color:#fff;text-align:center;padding:8px 12px;font-size:13px;font-weight:600;animation:fadeIn 0.3s ease;">Disconnected from server. Refreshing...</div>
@@ -4850,7 +4900,7 @@ function openShop() {
     spc.textContent = n > 0 ? ('(you own ' + n + ')') : '';
   }
 }
-menuViewHooks.shop = { enter: openShop };
+menuViewHooks.shop = { enter: () => openShop() };
 menuViewHooks.casino = { enter: () => { withScene('mg-', fsSetup); if (!fishState && authToken) fishLoad().then(() => withScene('mg-', fsApplyRod));  const cb = document.getElementById('casino-balance'); if (cb) cb.textContent = myUnlimited ? '∞' : myBalance; } };
 document.getElementById('btn-shop').onclick = () => { if (!authToken) { alert('Log in to use the shop.'); return; } openMenuView('shop'); };
 
@@ -4937,7 +4987,7 @@ document.querySelectorAll('#menu-view-shop .shop-sell').forEach(btn => {
   const origOpen = openShop;
   openShop = function() {
     origOpen();
-    btn.textContent = (myUnlimited || myPurchases.custom_rank) ? 'Save' : '70 $';
+    btn.textContent = (myUnlimited || myPurchases.custom_rank) ? 'Owned - Save' : '70 $';
     btn.disabled = false;
     btn.style.background = 'var(--accent)';
     btn.style.color = '#fff';
@@ -4974,7 +5024,7 @@ document.querySelectorAll('#menu-view-shop .shop-sell').forEach(btn => {
   const origOpen = openShop;
   openShop = function() {
     origOpen();
-    btn.textContent = (myUnlimited || myPurchases.name_color) ? 'Save' : '30 $';
+    btn.textContent = (myUnlimited || myPurchases.name_color) ? 'Owned - Save' : '30 $';
     btn.disabled = false;
     btn.style.background = 'var(--accent)';
     btn.style.color = '#fff';
