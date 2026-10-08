@@ -416,9 +416,44 @@
   .msg .name.vip { color: var(--gold); font-weight: 700; }
   .msg .vip-badge { font-size: 10px; font-weight: 700; margin-right: 3px; color: #daa520; }
   .msg .rank-badge { font-size: 10px; font-weight: 700; margin-right: 3px; }
-  .ez-avatar { display: inline-block; width: 26px; height: 26px; border-radius: 50%; vertical-align: middle; margin-right: 5px; object-fit: cover; background: var(--bg-elevated); flex-shrink: 0; }
-  .ez-avatar.lg { width: 36px; height: 36px; margin-right: 8px; }
-  .ez-avatar.xl { width: 72px; height: 72px; margin-right: 0; }
+  .ez-avatar { display: inline-block; width: 30px; height: 30px; border-radius: 50%; vertical-align: middle; margin-right: 5px; object-fit: cover; background: var(--bg-elevated); flex-shrink: 0; }
+  .ez-avatar.lg { width: 42px; height: 42px; margin-right: 8px; }
+  .ez-avatar.xl { width: 84px; height: 84px; margin-right: 0; }
+  .ez-avw { position: relative; display: inline-block; vertical-align: middle; flex-shrink: 0; line-height: 0; margin-right: 5px; }
+  .ez-avw.lg { margin-right: 8px; } .ez-avw.xl { margin-right: 0; }
+  .ez-avw .ez-avatar { margin-right: 0; display: block; }
+  .ez-cos { position: absolute; right: -5px; bottom: -5px; width: 48%; height: 48%; min-width: 14px; min-height: 14px; border-radius: 28%; background: #17151c; border: 1.5px solid rgba(255,255,255,0.35); padding: 1px; display: flex; box-shadow: 0 1px 4px rgba(0,0,0,0.6); pointer-events: none; box-sizing: border-box; }
+  .ez-cos svg { width: 100%; height: 100%; display: block; }
+  .ps-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; margin-bottom: 4px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; color: var(--text-primary); cursor: pointer; text-align: left; font: inherit; }
+  .ps-row:hover { border-color: var(--accent); }
+  .ps-rname { flex: 1; font-weight: 600; } .ps-rlvl { font-size: 11px; color: #22d3ee; font-weight: 700; }
+  .ps-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; margin-top: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
+  .ps-top { display: flex; gap: 14px; align-items: center; } .ps-who { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .ps-name { font-size: 18px; font-weight: 800; word-break: break-all; } .ps-sub { font-size: 11px; color: var(--text-muted); }
+  .ps-tag { margin-left: 6px; padding: 1px 7px; border-radius: 8px; font-size: 10px; font-weight: 700; background: var(--bg-elevated); border: 1px solid var(--border); vertical-align: middle; }
+  .ps-lvl { display: flex; align-items: center; gap: 8px; background: var(--bg-elevated); padding: 8px; border-radius: 8px; font-size: 11px; } .ps-lvl b { color: #22d3ee; font-size: 14px; }
+  .ps-bar { flex: 1; height: 8px; background: rgba(255,255,255,0.15); border-radius: 4px; overflow: hidden; } .ps-bar div { height: 100%; background: #22d3ee; }
+  .ps-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; font-size: 11px; } .ps-stats div { background: var(--bg-elevated); padding: 6px 8px; border-radius: 6px; } .ps-stats b { display: block; font-size: 13px; margin-top: 1px; }
+  .ps-actions { display: flex; gap: 8px; flex-wrap: wrap; } .ps-btn { padding: 7px 14px; font-size: 12px; font-weight: 700; background: var(--accent); color: #fff; }
+  .ps-btn.grey { background: var(--bg-elevated); color: var(--text-primary); } .ps-btn.danger { background: var(--red); } .ps-btn:disabled { opacity: .6; cursor: default; }
+  .ps-note, .ps-msg { font-size: 12px; }
+  .packs-intro { font-size: 12px; line-height: 1.5; color: var(--text-secondary); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+  .packs-intro b { color: var(--text-primary); }
+  #packs-me { display: flex; gap: 14px; align-items: center; padding: 10px 12px; margin-bottom: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; }
+  .pk-me-name { font-weight: 800; font-size: 15px; } .pk-me-eq { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .pack-card { margin-bottom: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
+  .pack-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+  .pack-name { font-size: 15px; font-weight: 800; } .pack-blurb { font-size: 11px; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+  .pack-owned { font-size: 12px; font-weight: 700; color: var(--green); white-space: nowrap; } .pack-buy { white-space: nowrap; }
+  .pack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+  .pack-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: var(--text-primary); cursor: pointer; font: inherit; }
+  .pack-item:hover { border-color: var(--accent); }
+  .pack-item.locked { opacity: .5; filter: grayscale(.6); }
+  .pack-item.equipped { border-color: var(--green); box-shadow: 0 0 0 2px rgba(94,194,122,0.3); }
+  .pi-art { width: 46px; height: 46px; display: block; } .pi-art svg { width: 100%; height: 100%; display: block; }
+  .pi-name { font-size: 10px; line-height: 1.15; text-align: center; font-weight: 600; }
+  .pi-eq { position: absolute; top: 2px; right: 2px; font-size: 7px; font-weight: 800; background: var(--green); color: #000; padding: 1px 4px; border-radius: 6px; }
+
   .msg .rank-badge.rainbow { background: linear-gradient(120deg, #ff006e, #fb5607, #ffbe0b, #8338ec, #3a86ff, #06ffa5, #ff006e); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
   .discord-grad, .msg .rank-badge.discord-grad { font-weight: 700; background: linear-gradient(120deg, #5865f2, #3b82f6, #22d3ee, #4752c4, #7983f5, #5865f2); background-size: 400% 400%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: lava-flow 6s ease-in-out infinite; }
   .msg.discord-msg { border-left: 3px solid #5865f2; background: rgba(88,101,242,0.08); padding-left: 6px; border-radius: 0 6px 6px 0; }
@@ -1362,6 +1397,8 @@
             <button class="menu-btn" id="btn-achievements"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg><span class="menu-label">Achievements</span></button>
             <button class="menu-btn" id="btn-menu-clans"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="menu-label">Clans</span></button>
             <button class="menu-btn" id="btn-menu-fishing"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg><span class="menu-label">Fishing</span></button>
+            <button class="menu-btn" id="btn-menu-search"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><span>Player Search</span></button>
+            <button class="menu-btn" id="btn-menu-packs"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 13h18"/><path d="M12 8c-2-4-6-3-5 0 .6 1.5 5 0 5 0zM12 8c2-4 6-3 5 0-.6 1.5-5 0-5 0z"/></svg><span>Packs</span></button>
             <button class="menu-btn" id="btn-menu-earn2"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M14.5 9.5a2.5 2.5 0 0 0-2.5-1.5c-1.4 0-2.5.8-2.5 1.8 0 2.4 5 1.2 5 3.6 0 1-1.1 1.8-2.5 1.8a2.5 2.5 0 0 1-2.5-1.5"/><path d="M12 6.5v1.5"/><path d="M12 16v1.5"/></svg><span class="menu-label">How to earn PlaceBux &amp; levels</span></button>
           </div>
           <div id="menu-guest-note" style="display:none">
@@ -1727,7 +1764,7 @@
       <div class="menu-view" id="menu-view-settings">
     <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
       <div style="display:flex;align-items:center;gap:12px;padding:6px 0;">
-        <img id="settings-avatar-preview" class="ez-avatar xl" src="" alt="">
+        <span class="ez-avw xl"><img id="settings-avatar-preview" class="ez-avatar xl" src="" alt=""><span id="settings-cos" class="ez-cos" style="display:none"></span></span>
         <div style="display:flex;flex-direction:column;gap:6px;flex:1;">
           <div style="font-size:12px;font-weight:600;">Profile Picture</div>
           <div style="display:flex;gap:6px;">
@@ -1781,6 +1818,24 @@
     </div>
       </div>
 
+      <div class="menu-view" id="menu-view-search">
+        <div class="menu-section">Find a player</div>
+        <div style="display:flex;gap:6px;padding-top:6px;">
+          <input id="ps-input" class="win-input" type="text" placeholder="Type a username" maxlength="20" autocomplete="off" style="flex:1">
+          <button id="ps-go" class="win-btn" style="background:var(--accent);color:#fff;font-weight:700;">Search</button>
+        </div>
+        <div id="ps-suggest" style="margin-top:8px;"></div>
+        <div id="ps-result"></div>
+      </div>
+
+      <div class="menu-view" id="menu-view-packs">
+        <div class="menu-balance">Balance <span id="packs-balance">0</span></div>
+        <div class="packs-intro"><b>Packs are cosmetic stickers for your profile picture.</b> Buy a pack once (it's a one-time purchase and yours forever), then tap any character or item inside it to wear it. It shows in the <b>bottom-right corner</b> of your profile picture for everyone to see.<br><b>You can only have ONE cosmetic equipped at a time</b>: equipping another one swaps it. Tap the equipped one again to take it off.</div>
+        <div id="packs-me"></div>
+        <div id="packs-msg" style="min-height:16px;font-size:12px;margin:2px 0 8px;"></div>
+        <div id="packs-list"></div>
+      </div>
+
       <div class="menu-view" id="menu-view-clans">
     <div id="clan-invite-banner" style="display:none;width:100%;max-width:480px;margin:8px 0 0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(238,90,82,0.4);"></div>
         <div class="menu-section" style="display:flex;justify-content:space-between;align-items:center;">
@@ -1815,7 +1870,7 @@
         <div class="menu-section">Earning PlaceBux</div>
         <div class="earn-card"><div class="earn-title">Place pixels</div><div class="earn-desc">1 PlaceBux for every 100 pixels you place.</div></div>
         <div class="earn-card"><div class="earn-title">Daily streak</div><div class="earn-desc">Spend 15 active minutes on the site each day to claim your daily bonus: 2 PlaceBux times your streak length, up to 50 a day. Miss a day and the streak resets. The shop sells a 48-hour window and Streak Passes that protect it.</div></div>
-        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Trade: swap fish and PlaceBux with another player from the Trade button on the Fishing screen. Maps: Sunny Pier is free; Coral Reef costs 150 PlaceBux to unlock once, and Midnight Abyss costs 500. Every map has its own fish and casting costs 5 PlaceBux everywhere. Each map has its own scenery and catches, and each of the two new maps has 9 fish you cannot catch anywhere else. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
+        <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Trade: swap fish and PlaceBux with another player from the Trade button on the Fishing screen. Maps: Sunny Pier is free; Maps unlock once for PlaceBux: Coral Reef 150, Midnight Abyss 500, Frostbite Lake 1000, Misty Bayou 2000, Magma Lagoon 4000. Every map has its own fish and casting costs 5 PlaceBux everywhere. Each map has its own scenery and catches, and each of the two new maps has 9 fish you cannot catch anywhere else. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
         <div class="earn-card"><div class="earn-title">Flappy Bird</div><div class="earn-desc">1 PlaceBux per pipe you clear, no bet needed. Capped at 600 a day.</div></div>
         <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Battle Mode and Fishing Timing in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
         <div class="earn-card"><div class="earn-title">Night Event</div><div class="earn-desc">Watch the Lobbies screen for the Night Event banner. Sign up when it opens; the winner takes 10,000 PlaceBux.</div></div>
@@ -1957,7 +2012,7 @@ let cooldownTimer = null;
 let currentLobbyId = null;
 let currentLobbyName = '';
 let currentLobbyOwner = null;
-const MENU_TITLES = { auth: '', lobbies: 'Lobbies', friends: 'Friends & Chats', shop: 'Shop', casino: 'Casino', notifications: 'Notifications', settings: 'Settings', leaderboard: 'Leaderboard', economy: 'Economy', achievements: 'Achievements', clans: 'Clans', fishing: 'Fishing', earn: 'PlaceBux & Levels' };
+const MENU_TITLES = { auth: '', lobbies: 'Lobbies', friends: 'Friends & Chats', shop: 'Shop', casino: 'Casino', notifications: 'Notifications', settings: 'Settings', leaderboard: 'Leaderboard', economy: 'Economy', achievements: 'Achievements', clans: 'Clans', fishing: 'Fishing', earn: 'PlaceBux & Levels', search: 'Player Search', packs: 'Packs' };
 const menuViewHooks = {};
 let menuView = 'home';
 let isGuest = false;
@@ -2095,6 +2150,159 @@ document.getElementById('btn-menu-earn2').onclick = () => openMenuView('earn');
 document.getElementById('btn-menu-fishing').onclick = () => requireAuthView('fishing');
 document.getElementById('btn-menu-casino').onclick = () => requireAuthView('casino');
 
+// ---- Player search ----
+let psTimer = 0, psRel = null;
+async function psApi(path, body) {
+  try {
+    const r = await fetch(BACKEND + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: body ? JSON.stringify(body) : undefined });
+    return await r.json();
+  } catch { return { error: 'Server offline' }; }
+}
+async function psSuggest(q) {
+  const box = document.getElementById('ps-suggest'); if (!box) return;
+  q = (q || '').trim();
+  if (!q) { box.innerHTML = ''; return; }
+  const d = await psApi('/api/players/search?q=' + encodeURIComponent(q));
+  if ((document.getElementById('ps-input').value || '').trim() !== q) return;
+  if (d.error) { box.innerHTML = '<div class="lobby-empty">' + esc(d.error) + '</div>'; return; }
+  box.innerHTML = (d.players || []).length ? '' : '<div class="lobby-empty">No player found with "' + esc(q) + '" in their name.</div>';
+  (d.players || []).forEach(p => {
+    const row = document.createElement('button'); row.className = 'ps-row';
+    row.innerHTML = '<span class="f-status ' + (p.online ? 'online' : 'offline') + '"></span>' + avatarImg(p.name) + '<span class="ps-rname">' + esc(p.name) + '</span><span class="ps-rlvl">L' + p.level + '</span>';
+    row.onclick = () => psShow(p.name);
+    box.appendChild(row);
+  });
+}
+async function psRelation(name) {
+  const d = await psApi('/api/friends');
+  const low = name.toLowerCase(), has = (arr) => (arr || []).some(x => String(x && x.name || x).toLowerCase() === low);
+  if (d.error) return 'none';
+  if (has(d.friends)) return 'friend';
+  if (has(d.incoming)) return 'incoming';
+  if (has(d.outgoing)) return 'outgoing';
+  return 'none';
+}
+async function psShow(name) {
+  const out = document.getElementById('ps-result'); if (!out) return;
+  out.innerHTML = '<div class="lobby-empty">Loading...</div>';
+  const d = await psApi('/api/profile?user=' + encodeURIComponent(name));
+  if (d.error) { out.innerHTML = '<div class="lobby-empty" style="color:var(--red)">' + esc(d.error) + '</div>'; return; }
+  const rel = (d.name.toLowerCase() === (username || '').toLowerCase()) ? 'self' : await psRelation(d.name);
+  psRender(d, rel, '');
+}
+function psRender(d, rel, msg, msgColor) {
+  const out = document.getElementById('ps-result'); if (!out) return;
+  const rank = d.rank && d.rank.label ? '<span class="ps-tag" style="background:' + esc(d.rank.color || '#7c5cfc') + ';color:#fff">' + esc(d.rank.label) + '</span>' : (d.vip ? '<span class="ps-tag" style="background:var(--gold);color:#000">VIP</span>' : '');
+  const clan = d.clan && d.clan.tag ? '<span class="ps-tag">[' + esc(d.clan.tag) + ']</span>' : '';
+  const nameStyle = d.name_color && /^#[0-9a-fA-F]{3,8}$/.test(d.name_color) ? 'color:' + d.name_color + ';' : '';
+  const online = d.online ? '<span style="color:#22c55e">&#9679; Online</span>' : '<span style="color:var(--text-muted)">Last online ' + esc(d.last_online ? fmtRelTime(d.last_online) : 'a while ago') + '</span>';
+  const joined = d.join_ts ? new Date(d.join_ts * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'unknown';
+  const pct = (d.pixels % 1000) / 10;
+  let actions = '';
+  if (rel === 'self') actions = '<div class="ps-note">This is you.</div>';
+  else if (rel === 'friend') actions = '<button class="win-btn ps-btn danger" id="ps-remove">Remove friend</button>';
+  else if (rel === 'incoming') actions = '<button class="win-btn ps-btn" id="ps-accept">Accept friend request</button><button class="win-btn ps-btn grey" id="ps-decline">Decline</button>';
+  else if (rel === 'outgoing') actions = '<button class="win-btn ps-btn grey" disabled>Friend request sent</button>';
+  else actions = '<button class="win-btn ps-btn" id="ps-add">Send friend request</button>';
+  out.innerHTML = '<div class="ps-card">'
+    + '<div class="ps-top">' + avatarBig(d.name, d.cosmetic, 84) + '<div class="ps-who"><div class="ps-name" style="' + nameStyle + '">' + esc(d.name) + rank + clan + '</div><div class="ps-sub">' + online + '</div><div class="ps-sub">Joined ' + esc(joined) + '</div></div></div>'
+    + '<div class="ps-lvl"><b>LEVEL ' + d.level + '</b><div class="ps-bar"><div style="width:' + pct + '%"></div></div><span>' + (d.pixels % 1000) + '/1000</span></div>'
+    + '<div class="ps-stats"><div>Pixels placed<b>' + d.pixels.toLocaleString() + '</b></div><div>Friends<b>' + d.friends + '</b></div><div>Lobbies owned<b>' + d.lobbies_owned + '</b></div><div>Achievements<b>' + d.achievements_unlocked + ' / ' + d.achievement_total + '</b></div></div>'
+    + (msg ? '<div class="ps-msg" style="color:' + (msgColor || 'var(--text-muted)') + '">' + esc(msg) + '</div>' : '')
+    + '<div class="ps-actions">' + actions + '<button class="win-btn ps-btn grey" id="ps-full">Full profile</button></div></div>';
+  const $ = (id) => out.querySelector('#' + id);
+  const act = async (path, okRel, okMsg) => {
+    const r = await psApi(path, { username: d.name });
+    if (r.error) { psRender(d, rel, r.error, 'var(--red)'); return; }
+    psRender(d, r.accepted ? 'friend' : okRel, r.accepted ? 'They had already asked you, so you are now friends!' : okMsg, 'var(--green)');
+  };
+  if ($('ps-add')) $('ps-add').onclick = () => act('/api/friends/add', 'outgoing', 'Friend request sent to ' + d.name + '.');
+  if ($('ps-accept')) $('ps-accept').onclick = () => act('/api/friends/accept', 'friend', 'You are now friends with ' + d.name + '.');
+  if ($('ps-decline')) $('ps-decline').onclick = () => act('/api/friends/decline', 'none', 'Request declined.');
+  if ($('ps-remove')) $('ps-remove').onclick = (e) => {
+    const b = e.target;
+    if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Tap again to remove ' + d.name; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = 'Remove friend'; } }, 4000); return; }
+    act('/api/friends/remove', 'none', 'Removed ' + d.name + ' from your friends.');
+  };
+  if ($('ps-full')) $('ps-full').onclick = () => openProfile(d.name);
+  if (typeof loadFriendsList === 'function') { try { loadFriendsList(); } catch {} }
+}
+function avatarBig(name, cos, px) {
+  return '<span style="position:relative;display:inline-block;line-height:0;flex-shrink:0;width:' + px + 'px;height:' + px + 'px"><img src="' + avatarUrl(name) + '" onerror="this.onerror=null;this.src=DEFAULT_AVATAR" alt="" style="width:' + px + 'px;height:' + px + 'px;border-radius:14px;border:2px solid var(--border);object-fit:cover;background:var(--bg-elevated)">'
+    + (cos ? '<span class="ez-cos" style="width:40%;height:40%;right:-7px;bottom:-7px">' + cosmeticArt(cos) + '</span>' : '') + '</span>';
+}
+(function setupPlayerSearch() {
+  const inp = document.getElementById('ps-input'), go = document.getElementById('ps-go');
+  if (!inp) return;
+  inp.addEventListener('input', () => { clearTimeout(psTimer); psTimer = setTimeout(() => psSuggest(inp.value), 220); });
+  const search = async () => {
+    const q = inp.value.trim(); if (!q) return;
+    const d = await psApi('/api/profile?user=' + encodeURIComponent(q));
+    if (d && !d.error) { document.getElementById('ps-suggest').innerHTML = ''; psShow(d.name); } else { psSuggest(q); document.getElementById('ps-result').innerHTML = ''; }
+  };
+  go.onclick = search;
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+})();
+menuViewHooks.search = { enter: () => { const i = document.getElementById('ps-input'); if (i) setTimeout(() => i.focus(), 50); } };
+document.getElementById('btn-menu-search').onclick = () => requireAuthView('search');
+
+// ---- Packs ----
+let packsState = null, cosmeticMap = {};
+async function cosmeticsRefresh() {
+  try { const r = await fetch(BACKEND + '/api/cosmetics/equipped', { cache: 'no-store' }); const d = await r.json(); if (d && d.equipped) { cosmeticMap = d.equipped; refreshOwnCosBadge(); } } catch {}
+}
+function refreshOwnCosBadge() {
+  const el = document.getElementById('settings-cos'); if (!el) return;
+  const c = cosmeticMap[(username || '').toLowerCase()];
+  el.style.display = c ? '' : 'none'; el.innerHTML = c ? cosmeticArt(c) : '';
+}
+function packsSetMsg(t, c) { const m = document.getElementById('packs-msg'); if (m) { m.textContent = t || ''; m.style.color = c || 'var(--text-muted)'; } }
+async function packsLoad() {
+  const d = await psApi('/api/packs/state');
+  if (d.error) { packsSetMsg(d.error, 'var(--red)'); return; }
+  packsApply(d);
+}
+function packsApply(d) {
+  packsState = d;
+  if (username) { if (d.equipped) cosmeticMap[username.toLowerCase()] = d.equipped; else delete cosmeticMap[username.toLowerCase()]; }
+  refreshOwnCosBadge();
+  if (typeof d.balance === 'number') { myBalance = d.balance; try { applyPbState(); } catch {} }
+  packsRender();
+}
+function packsRender() {
+  const root = document.getElementById('packs-list'); if (!root || !packsState) return;
+  const s = packsState, eq = s.equipped;
+  const nameOf = {}; s.packs.forEach(p => p.items.forEach(i => { nameOf[i.id] = i.name; }));
+  document.getElementById('packs-balance').textContent = s.balance;
+  document.getElementById('packs-me').innerHTML = avatarBig(username, eq, 76)
+    + '<div class="pk-me-info"><div class="pk-me-name">' + esc(username || '') + '</div><div class="pk-me-eq">' + (eq ? 'Wearing: <b>' + esc(nameOf[eq] || eq) + '</b>' : 'No cosmetic equipped') + '</div>'
+    + (eq ? '<button class="win-btn" id="pk-unequip" style="font-size:11px;padding:3px 10px;margin-top:6px">Take it off</button>' : '') + '</div>';
+  const un = document.getElementById('pk-unequip'); if (un) un.onclick = () => packsEquip('');
+  root.innerHTML = s.packs.map(p => '<div class="pack-card"><div class="pack-head"><div style="min-width:0"><div class="pack-name">' + esc(p.name) + '</div><div class="pack-blurb">' + esc(p.blurb) + '</div></div>'
+    + (p.owned ? '<div class="pack-owned">&#10003; Owned</div>' : '<button class="map-btn pack-buy" data-buy="' + esc(p.id) + '">Buy - ' + p.price.toLocaleString() + ' PlaceBux</button>') + '</div>'
+    + '<div class="pack-grid">' + p.items.map(i => '<button class="pack-item' + (p.owned ? '' : ' locked') + (eq === i.id ? ' equipped' : '') + '" data-item="' + esc(i.id) + '" data-pack="' + esc(p.id) + '" title="' + esc(i.name) + '"><span class="pi-art">' + cosmeticArt(i.id) + '</span><span class="pi-name">' + esc(i.name) + '</span>' + (eq === i.id ? '<span class="pi-eq">EQUIPPED</span>' : '') + '</button>').join('') + '</div></div>').join('');
+  root.querySelectorAll('[data-buy]').forEach(b => { b.onclick = () => packsBuy(b.dataset.buy); });
+  root.querySelectorAll('.pack-item').forEach(b => { b.onclick = () => {
+    const pack = s.packs.find(p => p.id === b.dataset.pack);
+    if (!pack.owned) { packsSetMsg('Buy ' + pack.name + ' first to use this one.', 'var(--red)'); return; }
+    packsEquip(eq === b.dataset.item ? '' : b.dataset.item);
+  }; });
+}
+async function packsBuy(id) {
+  packsSetMsg('');
+  const d = await psApi('/api/packs/buy', { pack_id: id });
+  if (d.packs) packsApply(d);
+  if (d.error) packsSetMsg(d.error, 'var(--red)'); else packsSetMsg('Pack unlocked! Tap any item in it to wear it.', 'var(--green)');
+}
+async function packsEquip(itemId) {
+  packsSetMsg('');
+  const d = await psApi('/api/packs/equip', { item_id: itemId });
+  if (d.packs) packsApply(d);
+  if (d.error) packsSetMsg(d.error, 'var(--red)'); else packsSetMsg(itemId ? 'Equipped! It now shows on the corner of your profile picture.' : 'Cosmetic removed.', 'var(--green)');
+}
+menuViewHooks.packs = { enter: () => { packsSetMsg(''); packsLoad(); } };
+document.getElementById('btn-menu-packs').onclick = () => requireAuthView('packs');
+setInterval(() => { if (document.visibilityState === 'visible') cosmeticsRefresh(); }, 60000);
 const FISH_RARITY_COLORS = { common: '#9aa0a6', uncommon: '#5ec27a', rare: '#3b82f6', epic: '#a855f7', legendary: '#e6b04d', mythic: '#ee5a52' };
 const FISH_RARITY_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
 let fishState = null, fishTick = null, fishTab = 'inventory', fishBusy = false, fishReadyAt = 0;
@@ -2136,11 +2344,14 @@ function fishTile(it, opts) {
   return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}${chip}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
 }
 // ---- Fishing maps: pick where you fish; unlock new ones by paying with fish ----
-const FISH_MAP_NAMES = { reef: 'Coral Reef', abyss: 'Midnight Abyss' };
+const FISH_MAP_NAMES = { reef: 'Coral Reef', abyss: 'Midnight Abyss', frozen: 'Frostbite Lake', bayou: 'Misty Bayou', volcano: 'Magma Lagoon' };
 const MAP_SWATCH = {
   pier: 'linear-gradient(#5aa9e6, #bfe6ff 55%, #2f8fc4 56%, #14456f)',
   reef: 'linear-gradient(#5cc8ff, #dff8ff 55%, #35e0c9 56%, #0b6f86)',
   abyss: 'linear-gradient(#050816, #231a52 55%, #0a2a55 56%, #01030d)',
+  frozen: 'linear-gradient(#0b1d3a, #2fd9b0 40%, #d8f1ff 55%, #9fd3ee 56%, #3f7fa8)',
+  bayou: 'linear-gradient(#2a3a2a, #a9b98a 55%, #4f5f2a 56%, #1d2814)',
+  volcano: 'linear-gradient(#2a0a08, #b8340f 50%, #5a1608 55%, #1a0a08 56%, #ff6a1a)',
 };
 function fishRenderMaps() {
   const panel = document.getElementById('fish-map-panel');
@@ -2467,6 +2678,26 @@ Object.assign(FISH_ART_MAP, {
   lanternfish: ['lantern', '#334155', '#1e293b'], ghost_shrimp: ['shrimp', '#cfe1ff'], viperfish: ['viperfish', '#1f2937', '#0f172a'], dumbo_octopus: ['dumbo', '#f0abfc'],
   vampire_squid: ['squid', '#7a1f2b'], gulper_eel: ['gulper', '#1e293b'], goblin_shark: ['bill', '#d89aa8', '#e8c5cd'], colossal_squid: ['squid', '#a23b6b'], megalodon: ['megalodon', '#475569'],
 });
+Object.assign(FISH_ART_MAP, {
+  // Frostbite Lake, Misty Bayou, Magma Lagoon
+  ice_minnow: ['fish', '#bfe3f5', '#7fb6d6'], frost_perch: ['fish', '#9ec9e8', '#4f86b5'], snow_crab: ['crab', '#e8f1f7'], krill: ['shrimp', '#f4a6a0'],
+  glacier_loach: ['long', '#8fb8cf'], arctic_char: ['fish', '#e8825a', '#9fc6dd'], burbot: ['long', '#8a8f6a'], walleye: ['fish', '#c9b45a', '#6b6a3a'],
+  ice_jelly: ['jelly', '#9fe6ff'], polar_cod: ['fish', '#a9b9c6', '#5d7385'], narwhal: ['bill', '#9fb2c4', '#f1ead2'], sturgeon: ['long', '#6f7f8f'],
+  harp_seal: ['whale', '#c7ccd2'], beluga: ['whale', '#f1f4f7'], frozen_compass: ['coin', '#8fd0ee'], orca: ['whale', '#1d242c', true],
+  glacier_shark: ['shark', '#a8d4e8'], aurora_ray: ['ray', '#2ec4a6', '#9b7bff'], ice_crown: ['crown', '#9fe2ff'], aurora_pearl: ['pearl', '#b6f5e0', '#7bb7d6'],
+  ice_titan: ['whale', '#7fc4ea', true], aurora_serpent: ['serpent', '#34d399'], mudskipper: ['tadpole', '#7a6a3a'], crawdad: ['crab', '#b5532f'],
+  mosquitofish: ['fish', '#8f9a6a', '#4c5a2a'], swamp_snail: ['snail', '#7a8a3a', '#a89a62'], stickleback: ['fish', '#6a8a52', '#3a4e2a'], bullfrog: ['tadpole', '#4f8a2e'],
+  snapping_turtle: ['turtle', '#5a6a2e', '#7a8a4a'], bowfin: ['long', '#5a7a3a'], crappie: ['tall', '#a8b86a', '#4a5a2a'], water_moccasin: ['long', '#4a3f2a'],
+  alligator_gar: ['bill', '#6f7f4a', '#b7b88a'], blue_catfish: ['fish', '#5f87a8', '#2f4a66'], hellbender: ['long', '#7a6a52'], wisp_jar: ['bottle', '#9dffb0', true],
+  gator_snapper: ['turtle', '#3f5a2a', '#6f8a3a'], gator: ['shark', '#3f6a2e'], giant_catfish: ['fish', '#4a5a6a', '#2a343e'], riverboat_bell: ['coin', '#c9a24a'],
+  swamp_queen_crown: ['crown', '#7fb83a'], cypress_emerald: ['gem', '#3fcf7a'], bayou_leviathan: ['serpent', '#3f8f4a'], swamp_hydra: ['octo', '#3f7f3a'],
+  ember_minnow: ['fish', '#ff9a4a', '#c2410c'], magma_crab: ['crab', '#d9480f'], cinder_shrimp: ['shrimp', '#f08a3a'], ash_eel: ['long', '#6b6b6b'],
+  pumice_snail: ['snail', '#8a8a8a', '#bcbcbc'], fire_eel: ['long', '#ef4444'], obsidian_urchin: ['urchin', '#171717'], magma_squid: ['squid', '#f97316'],
+  ember_puffer: ['puffer', '#fb923c'], sulfur_jelly: ['jelly', '#facc15'], magma_ray: ['ray', '#7c2d12', '#fb923c'], lava_lobster: ['crab', '#b91c1c'],
+  phoenix_fish: ['fish', '#f97316', '#fde047'], obsidian_blade: ['cutlass'], fire_opal: ['gem', '#ff7a45'], magma_shark: ['shark', '#7a2a12'],
+  inferno_hammerhead: ['hammer', '#b4421a'], ruby: ['gem', '#e11d48'], molten_crown: ['crown', '#ff7a1a'], dragons_heart: ['gem', '#ef4444'],
+  lava_leviathan: ['whale', '#9a2a10', true], ember_phoenix: ['serpent', '#f97316'],
+});
 function fishArt(it) {
   const m = FISH_ART_MAP[it && it.id];
   const col = FISH_RARITY_COLORS[it && it.rarity] || '#9aa0a6';
@@ -2548,6 +2779,65 @@ const FISH_BG = {
       <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
       <rect x="0" y="100" width="130" height="8" fill="#4b5262"/><rect x="0" y="107" width="130" height="3" fill="#2b303c"/>
       <rect x="121" y="80" width="3" height="20" fill="#2b303c"/><rect x="117" y="70" width="11" height="12" rx="2" fill="#fde68a"/><circle cx="122.5" cy="76" r="22" fill="url(#${p}glow)"/>`,
+  frozen: (p) => `
+      <defs>
+        <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1d3a"/><stop offset=".55" stop-color="#2a7f9a"/><stop offset="1" stop-color="#bfe3f5"/></linearGradient>
+        <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fd3ee"/><stop offset="1" stop-color="#2f6f9a"/></linearGradient>
+        <linearGradient id="${p}aur" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#34d399" stop-opacity="0"/><stop offset=".4" stop-color="#34d399" stop-opacity=".55"/><stop offset=".7" stop-color="#a78bfa" stop-opacity=".5"/><stop offset="1" stop-color="#a78bfa" stop-opacity="0"/></linearGradient>
+      </defs>
+      <rect width="320" height="110" fill="url(#${p}sky)"/>
+      <path d="M0 40 Q70 8 140 36 T320 20 V50 Q240 62 160 46 T0 62Z" fill="url(#${p}aur)"/>
+      <g fill="#fff"><circle cx="30" cy="12" r="1"/><circle cx="90" cy="22" r="1.1"/><circle cx="150" cy="8" r="1"/><circle cx="214" cy="14" r="1.2"/><circle cx="290" cy="10" r="1"/></g>
+      <path d="M130 104 L168 66 L196 90 L226 56 L270 104Z" fill="#e8f4fb"/><path d="M168 66 L180 80 L172 84 L162 74Z M226 56 L238 74 L228 78 L220 66Z" fill="#b7d9ec"/>
+      <path d="M0 104 Q60 92 120 104Z" fill="#f4fbff"/>
+      <rect x="26" y="106" width="8" height="54" fill="#8fb6cc"/><rect x="104" y="106" width="8" height="54" fill="#8fb6cc"/>
+      <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".95"/>
+      <g fill="#fff" opacity=".55"><path d="M170 112 l10 -3 l8 6 l-12 3z"/><path d="M244 124 l14 -2 l6 6 l-14 3z"/><path d="M206 140 l9 -3 l9 5 l-11 3z"/></g>
+      <path d="M150 160 Q154 146 160 156 Q166 140 170 160" stroke="#d8f1ff" stroke-width="2" fill="none" opacity=".7"/>
+      <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="2"/></g>
+      <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
+      <rect x="0" y="100" width="130" height="8" fill="#c7dbe6"/><rect x="0" y="107" width="130" height="3" fill="#8fb6cc"/>`,
+  bayou: (p) => `
+      <defs>
+        <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4a2e"/><stop offset="1" stop-color="#c9d4a6"/></linearGradient>
+        <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5a6a2e"/><stop offset="1" stop-color="#1b2512"/></linearGradient>
+      </defs>
+      <rect width="320" height="110" fill="url(#${p}sky)"/>
+      <circle cx="262" cy="34" r="16" fill="#f4f0c8" opacity=".75"/><circle cx="262" cy="34" r="30" fill="#f4f0c8" opacity=".12"/>
+      <g fill="#243018"><path d="M150 104 V40 M150 70 L128 56 M150 62 L172 46" stroke="#243018" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M286 104 V30 M286 62 L262 44 M286 54 L308 38" stroke="#243018" stroke-width="6" fill="none" stroke-linecap="round"/></g>
+      <g fill="#6f8a3a" opacity=".85"><path d="M128 56 q-14 6 -20 16 q14 -4 20 -16z"/><path d="M172 46 q16 4 24 16 q-16 -2 -24 -16z"/><path d="M262 44 q-16 8 -24 20 q16 -6 24 -20z"/><path d="M308 38 q-14 6 -18 18 q14 -4 18 -18z"/></g>
+      <g stroke="#9bad7a" stroke-width="1.4" fill="none" opacity=".8"><path d="M128 56 q-2 18 -6 30 M135 58 q-2 22 -8 36 M172 46 q2 20 8 34 M164 48 q1 22 4 38 M262 44 q-3 20 -8 34 M308 38 q-2 20 -6 36"/></g>
+      <ellipse cx="160" cy="100" rx="190" ry="10" fill="#dfe6c0" opacity=".28"/>
+      <rect x="26" y="106" width="8" height="54" fill="#4a3a22"/><rect x="104" y="106" width="8" height="54" fill="#4a3a22"/>
+      <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".96"/>
+      <g fill="#7fae3a" opacity=".85"><ellipse cx="190" cy="108" rx="10" ry="2.6"/><ellipse cx="226" cy="110" rx="8" ry="2.2"/><ellipse cx="262" cy="108" rx="11" ry="2.6"/></g>
+      <g fill="#3f5a22"><ellipse cx="218" cy="150" rx="22" ry="5"/><path d="M200 150 q4 -12 10 -4 M236 150 q-2 -10 6 -6" stroke="#3f5a22" stroke-width="2" fill="none"/></g>
+      <g fill="#ffe27a"><circle cx="226" cy="146" r="1.5"/><circle cx="232" cy="146" r="1.5"/></g>
+      <g fill="#d6e06a" opacity=".85"><circle cx="150" cy="86" r="1.6"/><circle cx="196" cy="74" r="1.3"/><circle cx="236" cy="88" r="1.5"/><circle cx="172" cy="94" r="1.2"/></g>
+      <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#c9d89a" stroke-opacity=".3" stroke-width="2"/></g>
+      <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
+      <rect x="0" y="100" width="130" height="8" fill="#6b4f2a"/><rect x="0" y="107" width="130" height="3" fill="#3f2f18"/>`,
+  volcano: (p) => `
+      <defs>
+        <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a0606"/><stop offset=".6" stop-color="#8a1f0c"/><stop offset="1" stop-color="#f08a2a"/></linearGradient>
+        <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a1208"/><stop offset="1" stop-color="#0d0605"/></linearGradient>
+        <radialGradient id="${p}glow"><stop offset="0" stop-color="#ffd27a" stop-opacity=".95"/><stop offset="1" stop-color="#ff6a1a" stop-opacity="0"/></radialGradient>
+      </defs>
+      <rect width="320" height="110" fill="url(#${p}sky)"/>
+      <ellipse cx="226" cy="54" rx="60" ry="26" fill="#2a0c08" opacity=".55"/><ellipse cx="190" cy="40" rx="40" ry="16" fill="#2a0c08" opacity=".5"/>
+      <path d="M150 104 L204 46 L222 46 L282 104Z" fill="#241010"/>
+      <path d="M204 46 L212 60 L218 48 L222 46Z" fill="#ff7a1a"/><path d="M212 60 Q214 80 206 98 M216 54 Q224 76 232 96" stroke="#ff7a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <circle cx="213" cy="42" r="14" fill="url(#${p}glow)"/>
+      <g fill="#ffb347"><circle cx="196" cy="30" r="1.6"/><circle cx="232" cy="24" r="1.3"/><circle cx="206" cy="14" r="1.2"/><circle cx="246" cy="38" r="1.4"/></g>
+      <rect x="26" y="106" width="8" height="54" fill="#2a1a16"/><rect x="104" y="106" width="8" height="54" fill="#2a1a16"/>
+      <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".97"/>
+      <path d="M180 112 Q190 108 200 114 T222 112" stroke="#ff7a1a" stroke-width="2" fill="none" opacity=".8"/><path d="M236 130 Q248 126 258 132 T282 130" stroke="#ff6a1a" stroke-width="2" fill="none" opacity=".7"/>
+      <path d="M150 150 Q164 144 176 152 T204 150" stroke="#ff9a3a" stroke-width="1.8" fill="none" opacity=".6"/>
+      <g fill="#3a1f18"><ellipse cx="146" cy="146" rx="12" ry="7"/><ellipse cx="270" cy="152" rx="14" ry="6"/></g>
+      <g fill="#ffd27a" opacity=".9"><circle cx="170" cy="126" r="1.4"/><circle cx="214" cy="140" r="1.2"/><circle cx="296" cy="120" r="1.5"/><circle cx="130" cy="130" r="1.2"/></g>
+      <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#ff9a3a" stroke-opacity=".4" stroke-width="2"/></g>
+      <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
+      <rect x="0" y="100" width="130" height="8" fill="#4a2a20"/><rect x="0" y="107" width="130" height="3" fill="#2a1612"/>`,
 };
 function buildFishScene(el, p, theme) {
   theme = FISH_BG[theme] ? theme : 'pier';
@@ -4220,6 +4510,147 @@ function addSystemMsg(text) { const d = document.createElement('div'); d.classNa
 function safeColor(c, fallback) { return (typeof c === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c)) ? c : (fallback || 'var(--accent)'); }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/`/g, '&#96;'); }
 const DEFAULT_AVATAR = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="%23a5a5a5"/><circle cx="32" cy="26" r="12" fill="%23f0f0f0"/><ellipse cx="32" cy="56" rx="18" ry="12" fill="%23f0f0f0"/></svg>'.replace(/%23/g, '#'));
+// ---- Cosmetic packs: artwork (original simplified drawings, all inline SVG) ----
+function _px(draw, outline) {
+  const g = Array.from({ length: 16 }, () => Array(16).fill(null));
+  const set = (x, y, c) => { x = Math.round(x); y = Math.round(y); if (x >= 0 && x < 16 && y >= 0 && y < 16 && c) g[y][x] = c; };
+  const rect = (x, y, w, h, c) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) set(x + i, y + j, c); };
+  const disc = (cx, cy, r, c) => { for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) set(x, y, c); };
+  draw(set, rect, disc, g);
+  if (outline) {
+    const add = [];
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (!g[y][x] && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => g[y + dy] && g[y + dy][x + dx])) add.push([x, y]);
+    add.forEach(([x, y]) => { g[y][x] = outline; });
+  }
+  let r = '';
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (g[y][x]) r += '<rect x="' + x + '" y="' + y + '" width="1.04" height="1.04" fill="' + g[y][x] + '"/>';
+  return '<svg viewBox="0 0 16 16" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">' + r + '</svg>';
+}
+const _MC_TIER = {
+  diamond: { light: '#c9fbf6', mid: '#4fd8cf', dark: '#1b9aa3' },
+  netherite: { light: '#8a808f', mid: '#524a58', dark: '#2f2a34' },
+};
+const _MC_WOOD = '#8a5a2b', _MC_WOOD_D = '#5a3a1a', _MC_LINE = '#15101a';
+function _mcSword(t) {
+  return _px((set, rect) => {
+    for (let i = 0; i < 9; i++) { set(4 + i, 11 - i, t.light); set(5 + i, 11 - i, t.mid); }
+    set(14, 3, t.mid); set(13, 2, t.light);
+    [[1, 10], [2, 11], [3, 12], [4, 13], [5, 14]].forEach(([x, y]) => set(x, y, '#8e8e9b'));
+    set(2, 13, _MC_WOOD); set(1, 14, _MC_WOOD); set(0, 15, _MC_WOOD_D);
+    set(3, 13, _MC_WOOD_D);
+  }, _MC_LINE);
+}
+function _mcAxe(t) {
+  return _px((set) => {
+    for (let i = 0; i < 9; i++) { set(2 + i, 14 - i, _MC_WOOD); set(3 + i, 14 - i, _MC_WOOD_D); }
+    const head = { 1: [11, 13], 2: [10, 14], 3: [9, 14], 4: [9, 13], 5: [9, 12], 6: [10, 11] };
+    Object.entries(head).forEach(([y, [a, b]]) => { for (let x = a; x <= b; x++) set(x, +y, x === a ? t.light : (x === b ? t.dark : t.mid)); });
+  }, _MC_LINE);
+}
+function _mcMace(t) {
+  return _px((set, rect, disc) => {
+    for (let i = 0; i < 8; i++) { set(2 + i, 14 - i, _MC_WOOD); set(3 + i, 14 - i, _MC_WOOD_D); }
+    disc(11, 4, 2.6, t.mid);
+    [[11, 0], [11, 8], [7, 4], [15, 4]].forEach(([x, y]) => set(x, y, t.dark));
+    [[13, 2], [9, 2], [13, 6], [9, 6]].forEach(([x, y]) => set(x, y, t.dark));
+    set(10, 3, t.light); set(11, 2, t.light); set(9, 4, t.light); set(12, 6, t.dark); set(13, 5, t.dark);
+  }, _MC_LINE);
+}
+function _mcCube(top, left, right, seed, grassSide) {
+  let s = seed;
+  const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  return _px((set) => {
+    for (let x = 0; x < 16; x++) {
+      const h = x < 8 ? x : 15 - x, k = Math.floor(h / 2);
+      for (let y = 3 - k; y <= 4 + k; y++) if (y >= 0) set(x, y, pick(top));
+      const t0 = 5 + k;
+      for (let y = t0; y < Math.min(16, t0 + 9); y++) set(x, y, grassSide && y - t0 < 2 ? pick(top) : pick(x < 8 ? left : right));
+    }
+  }, '#101010');
+}
+function _mcApple() {
+  return _px((set, rect, disc) => {
+    disc(8, 9.5, 5.4, '#f2c82a');
+    disc(6.5, 8, 2.2, '#ffe26a');
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if ((x - 8) ** 2 + (y - 9.5) ** 2 > 20 && (x - 8) ** 2 + (y - 9.5) ** 2 <= 29 && x + y > 17) set(x, y, '#c28e12');
+    set(8, 3, '#6b4a1b'); set(8, 4, '#6b4a1b'); set(9, 3, '#3fa34d'); set(10, 2, '#3fa34d'); set(10, 3, '#2d7a38');
+    [[3, 4], [13, 5], [12, 13], [4, 13], [8, 8], [10, 11], [6, 11]].forEach(([x, y]) => set(x, y, '#c78bff'));
+    [[2, 8], [13, 9], [7, 14]].forEach(([x, y]) => set(x, y, '#8a4bd8'));
+  }, '#3b2a05');
+}
+function _mcTotem() {
+  return _px((set, rect) => {
+    rect(5, 1, 6, 6, '#e8c13a'); rect(5, 1, 6, 1, '#3fa34d');
+    rect(6, 3, 1, 1, '#2b1b0a'); rect(9, 3, 1, 1, '#2b1b0a'); rect(7, 5, 2, 1, '#8a5a2b');
+    rect(2, 8, 12, 2, '#e8c13a'); rect(5, 8, 6, 7, '#e8c13a');
+    rect(7, 8, 2, 7, '#3fa34d'); rect(2, 8, 12, 1, '#f6dc6a');
+    rect(6, 14, 4, 1, '#c79a1a');
+  }, '#3a2a08');
+}
+function _mcElytra() {
+  return _px((set) => {
+    for (let side = 0; side < 2; side++) {
+      for (let y = 2; y <= 14; y++) for (let x = 1; x <= 7; x++) {
+        if (x < 1 + Math.floor((y - 2) * 0.3) || x > 7 - Math.max(0, y - 9)) continue;
+        const px = side ? 15 - x : x;
+        set(px, y, (x + y) % 4 === 0 ? '#6f6f8a' : (y < 6 ? '#cfcfe6' : '#a9a9bd'));
+      }
+    }
+    set(7, 2, '#55556f'); set(8, 2, '#55556f'); set(7, 3, '#55556f'); set(8, 3, '#55556f');
+  }, '#2a2a3a');
+}
+const _SV = (inner, bg) => '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" stroke-linejoin="round" stroke-linecap="round">' + (bg ? '<rect width="100" height="100" fill="' + bg + '"/>' : '') + inner + '</svg>';
+const _EYE = (x, y, r) => '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="#111"/>';
+function _crewmate(col, dark, impostor) {
+  return _SV('<rect x="18" y="38" width="14" height="34" rx="7" fill="' + dark + '" stroke="#111" stroke-width="3"/>'
+    + '<path d="M30 80 V62 Q30 20 58 20 Q80 20 80 44 V80 Q80 88 72 88 H64 Q58 88 58 82 V76 H50 V82 Q50 88 44 88 H38 Q30 88 30 80Z" fill="' + col + '" stroke="#111" stroke-width="3"/>'
+    + '<path d="M52 32 H74 Q82 32 82 42 Q82 52 74 52 H52 Q44 52 44 42 Q44 32 52 32Z" fill="#9dd6ee" stroke="#111" stroke-width="3"/>'
+    + '<ellipse cx="60" cy="38" rx="9" ry="3.5" fill="#fff" opacity=".75"/>'
+    + (impostor ? '<path d="M50 34 L72 44" stroke="#111" stroke-width="3.5"/><path d="M70 64 L90 56 L86 66 Z" fill="#cfd8e3" stroke="#111" stroke-width="2.5"/><rect x="62" y="62" width="10" height="5" rx="2" fill="#444" stroke="#111" stroke-width="2"/>' : ''));
+}
+function _cup(stripe) {
+  return _SV('<path d="M26 40 H74 L67 78 Q50 88 33 78Z" fill="#fff" stroke="#111" stroke-width="3.5"/><path d="M28 50 H72" stroke="' + stripe + '" stroke-width="7"/>'
+    + '<path d="M60 40 L66 8 L84 8" stroke="#111" stroke-width="9" fill="none"/><path d="M60 40 L66 8 L84 8" stroke="' + stripe + '" stroke-width="4.5" fill="none"/>'
+    + '<ellipse cx="42" cy="62" rx="5" ry="7" fill="#111"/><ellipse cx="58" cy="62" rx="5" ry="7" fill="#111"/><ellipse cx="43" cy="60" rx="1.8" ry="3" fill="#fff"/><ellipse cx="59" cy="60" rx="1.8" ry="3" fill="#fff"/>'
+    + '<path d="M44 74 Q50 79 56 74" stroke="#111" stroke-width="2.5" fill="none"/>');
+}
+const COS_ART = {
+  // ---- Indie pack ----
+  kris: () => _SV('<path d="M22 96 Q24 72 50 72 Q76 72 78 96Z" fill="#3b6fd8" stroke="#111" stroke-width="3"/><rect x="40" y="66" width="20" height="12" fill="#e9bf94"/><circle cx="50" cy="44" r="25" fill="#e9bf94" stroke="#111" stroke-width="3"/><path d="M22 46 Q18 10 50 12 Q82 10 78 46 Q74 30 66 30 Q50 22 34 30 Q26 30 22 46Z" fill="#3a2418" stroke="#111" stroke-width="3"/><path d="M22 42 V62 Q22 66 28 62 V42Z M78 42 V62 Q78 66 72 62 V42Z" fill="#3a2418"/>' + _EYE(41, 48, 3.2) + _EYE(59, 48, 3.2) + '<path d="M44 59 Q50 63 56 59" stroke="#111" stroke-width="2.5" fill="none"/>'),
+  ralsei: () => _SV('<path d="M50 2 L80 38 H20Z" fill="#2f9e5a" stroke="#111" stroke-width="3"/><rect x="18" y="34" width="64" height="9" rx="4" fill="#238048" stroke="#111" stroke-width="3"/><circle cx="50" cy="3" r="5" fill="#fff"/><ellipse cx="50" cy="60" rx="26" ry="23" fill="#e4e4ee" stroke="#111" stroke-width="3"/><path d="M26 48 L18 38 L34 42Z M74 48 L82 38 L66 42Z" fill="#e4e4ee" stroke="#111" stroke-width="2"/><circle cx="40" cy="58" r="8" fill="none" stroke="#f1c40f" stroke-width="2.6"/><circle cx="60" cy="58" r="8" fill="none" stroke="#f1c40f" stroke-width="2.6"/><path d="M48 58 H52" stroke="#f1c40f" stroke-width="2.6"/>' + _EYE(40, 58, 2.6) + _EYE(60, 58, 2.6) + '<ellipse cx="50" cy="68" rx="3" ry="2" fill="#333"/><path d="M26 80 Q50 98 74 80 L74 92 Q50 106 26 92Z" fill="#ec4899" stroke="#111" stroke-width="3"/>'),
+  sans: () => _SV('<path d="M10 100 Q14 70 50 70 Q86 70 90 100Z" fill="#2f6fd6" stroke="#111" stroke-width="3"/><path d="M26 74 Q50 84 74 74 L74 84 Q50 94 26 84Z" fill="#f4f4f4" stroke="#111" stroke-width="2.5"/><ellipse cx="50" cy="42" rx="31" ry="27" fill="#f6f6f6" stroke="#111" stroke-width="3"/><ellipse cx="37" cy="40" rx="8" ry="9" fill="#111"/><ellipse cx="63" cy="40" rx="8" ry="9" fill="#111"/><circle cx="37" cy="40" r="2.3" fill="#fff"/><circle cx="63" cy="40" r="3" fill="#7be8ff"/><circle cx="63" cy="40" r="6" fill="none" stroke="#38c8ff" stroke-width="2"/><path d="M47 52 L53 52 L50 58Z" fill="#111"/><path d="M24 62 Q50 82 76 62" stroke="#111" stroke-width="3" fill="none"/><path d="M32 66 V73 M40 70 V77 M50 72 V79 M60 70 V77 M68 66 V73" stroke="#111" stroke-width="2"/>'),
+  flowey: () => _SV('<path d="M50 70 V98" stroke="#2f9e44" stroke-width="7"/><path d="M50 88 Q30 80 28 92 Q42 94 50 88Z" fill="#2f9e44"/>' + [0, 45, 90, 135, 180, 225, 270, 315].map(a => '<ellipse cx="50" cy="22" rx="11" ry="17" fill="#f6d02f" stroke="#111" stroke-width="2.5" transform="rotate(' + a + ' 50 46)"/>').join('') + '<circle cx="50" cy="46" r="24" fill="#fff7c8" stroke="#111" stroke-width="3"/><ellipse cx="41" cy="42" rx="4" ry="6" fill="#111"/><ellipse cx="59" cy="42" rx="4" ry="6" fill="#111"/><path d="M36 54 Q50 68 64 54" stroke="#111" stroke-width="3" fill="none"/><path d="M42 58 V62 M50 61 V65 M58 58 V62" stroke="#111" stroke-width="2"/>'),
+  madeline: () => _SV('<path d="M24 98 Q28 74 50 74 Q72 74 76 98Z" fill="#2e86de" stroke="#111" stroke-width="3"/><circle cx="50" cy="48" r="24" fill="#f6d2b4" stroke="#111" stroke-width="3"/><path d="M22 52 Q14 8 52 10 Q88 10 78 52 Q76 30 62 28 Q44 32 34 26 Q24 32 22 52Z" fill="#e4402a" stroke="#111" stroke-width="3"/><path d="M22 50 Q10 62 24 84 Q26 66 30 54Z M78 50 Q90 62 76 84 Q74 66 70 54Z" fill="#e4402a" stroke="#111" stroke-width="3"/>' + _EYE(41, 50, 3) + _EYE(59, 50, 3) + '<path d="M45 61 Q50 65 55 61" stroke="#111" stroke-width="2.4" fill="none"/>'),
+  badeline: () => _SV('<path d="M24 98 Q28 74 50 74 Q72 74 76 98Z" fill="#5b3a8a" stroke="#111" stroke-width="3"/><circle cx="50" cy="48" r="24" fill="#e8d0e4" stroke="#111" stroke-width="3"/><path d="M22 52 Q14 8 52 10 Q88 10 78 52 Q76 30 62 28 Q44 32 34 26 Q24 32 22 52Z" fill="#7a2fb5" stroke="#111" stroke-width="3"/><path d="M22 50 Q10 62 24 84 Q26 66 30 54Z M78 50 Q90 62 76 84 Q74 66 70 54Z" fill="#7a2fb5" stroke="#111" stroke-width="3"/>' + _EYE(41, 50, 3) + _EYE(59, 50, 3) + '<circle cx="41" cy="50" r="1.4" fill="#ff4d6d"/><circle cx="59" cy="50" r="1.4" fill="#ff4d6d"/><path d="M45 62 Q50 60 55 62" stroke="#111" stroke-width="2.4" fill="none"/>'),
+  cuphead: () => _cup('#e03131'),
+  mugman: () => _cup('#1c7ed6'),
+  isaac: () => _SV('<circle cx="50" cy="52" r="34" fill="#f8ddc8" stroke="#111" stroke-width="3.5"/><ellipse cx="37" cy="48" rx="8" ry="11" fill="#111"/><ellipse cx="63" cy="48" rx="8" ry="11" fill="#111"/><circle cx="39" cy="44" r="2.4" fill="#fff"/><circle cx="65" cy="44" r="2.4" fill="#fff"/><path d="M33 60 Q30 74 34 82 M67 60 Q70 74 66 82" stroke="#4aa8ff" stroke-width="5" fill="none"/><ellipse cx="50" cy="70" rx="6" ry="4" fill="#7a2a2a" stroke="#111" stroke-width="2"/><ellipse cx="26" cy="62" rx="5" ry="3" fill="#f4a3a3" opacity=".7"/><ellipse cx="74" cy="62" rx="5" ry="3" fill="#f4a3a3" opacity=".7"/>'),
+  v1: () => _SV('<rect x="24" y="22" width="52" height="52" rx="14" fill="#454b5a" stroke="#111" stroke-width="3.5"/><rect x="30" y="38" width="40" height="14" rx="5" fill="#ff3b30" stroke="#111" stroke-width="2.5"/><rect x="34" y="41" width="32" height="3" fill="#ffd0cc"/><path d="M24 30 H76" stroke="#d4a017" stroke-width="4"/><path d="M34 74 V90 M66 74 V90" stroke="#454b5a" stroke-width="10"/><path d="M34 74 V90 M66 74 V90" stroke="#d4a017" stroke-width="2.4"/><text x="50" y="68" text-anchor="middle" font-family="Arial" font-weight="900" font-size="15" fill="#d4a017">V1</text>'),
+  crewmate_red: () => _crewmate('#c51111', '#8f0c0c', false),
+  crewmate_cyan: () => _crewmate('#38d6e0', '#1e9aa6', false),
+  impostor: () => _crewmate('#7a0a14', '#4a050c', true),
+  // ---- Minecraft pack ----
+  diamond_sword: () => _mcSword(_MC_TIER.diamond), netherite_sword: () => _mcSword(_MC_TIER.netherite),
+  diamond_axe: () => _mcAxe(_MC_TIER.diamond), netherite_axe: () => _mcAxe(_MC_TIER.netherite),
+  diamond_mace: () => _mcMace(_MC_TIER.diamond), netherite_mace: () => _mcMace(_MC_TIER.netherite),
+  enchanted_golden_apple: () => _mcApple(), totem_of_undying: () => _mcTotem(), elytra: () => _mcElytra(),
+  bedrock: () => _mcCube(['#6b6b6b', '#4a4a4a', '#838383', '#2f2f2f', '#585858'], ['#555', '#3a3a3a', '#6d6d6d', '#262626'], ['#444', '#2c2c2c', '#585858', '#1c1c1c'], 7, false),
+  grass_block: () => _mcCube(['#5aab34', '#4f9a2c', '#69bb3e', '#47892a'], ['#8a5a36', '#7a4c2a', '#9a6a40', '#6b3f20'], ['#6f4527', '#5f3a1f', '#7d5230', '#4f2f18'], 3, true),
+  // ---- Meme pack ----
+  trollface: () => _SV('<path d="M50 6 C22 6 10 34 13 58 C16 82 34 95 50 95 C66 95 84 82 87 58 C90 34 78 6 50 6Z" fill="#fff" stroke="#111" stroke-width="3.5"/><path d="M22 34 Q32 24 42 32 M58 32 Q68 24 78 34" stroke="#111" stroke-width="3.5" fill="none"/><path d="M26 42 Q34 36 42 42 Q34 47 26 42Z M58 42 Q66 36 74 42 Q66 47 58 42Z" fill="#fff" stroke="#111" stroke-width="2.5"/><circle cx="35" cy="42" r="2.4" fill="#111"/><circle cx="67" cy="42" r="2.4" fill="#111"/><path d="M14 56 Q50 98 86 56 Q50 70 14 56Z" fill="#fff" stroke="#111" stroke-width="3.5"/><path d="M26 63 L28 71 M36 66 L38 76 M46 68 L47 79 M56 68 L56 79 M66 66 L65 76 M75 63 L73 71" stroke="#111" stroke-width="2"/><path d="M8 46 Q4 58 14 62 M92 46 Q96 58 86 62" stroke="#111" stroke-width="3" fill="none"/>'),
+  pepe: () => _SV('<path d="M14 50 Q8 24 34 18 Q50 12 66 18 Q92 24 86 50 Q90 76 66 84 Q50 90 34 84 Q10 76 14 50Z" fill="#6aa84f" stroke="#111" stroke-width="3.5"/><ellipse cx="34" cy="38" rx="14" ry="13" fill="#fff" stroke="#111" stroke-width="3"/><ellipse cx="66" cy="38" rx="14" ry="13" fill="#fff" stroke="#111" stroke-width="3"/><circle cx="37" cy="40" r="5" fill="#111"/><circle cx="63" cy="40" r="5" fill="#111"/><path d="M20 32 Q34 22 48 32 M52 32 Q66 22 80 32" stroke="#4a7f35" stroke-width="5" fill="none"/><path d="M22 64 Q50 78 78 64 Q76 80 50 82 Q24 80 22 64Z" fill="#c0392b" stroke="#111" stroke-width="3"/><path d="M26 66 Q50 74 74 66" stroke="#7a1f16" stroke-width="2" fill="none"/>'),
+  harold: () => _SV('<path d="M18 40 Q12 8 50 8 Q88 8 82 40Z" fill="#e8e8ee" stroke="#111" stroke-width="3"/><ellipse cx="50" cy="52" rx="30" ry="36" fill="#e3b48a" stroke="#111" stroke-width="3.5"/><path d="M14 40 Q10 56 20 62 Q20 48 24 40Z M86 40 Q90 56 80 62 Q80 48 76 40Z" fill="#e8e8ee" stroke="#111" stroke-width="2.5"/><path d="M28 36 Q38 30 46 36 M54 36 Q62 30 72 36" stroke="#8f8f98" stroke-width="4" fill="none"/><ellipse cx="38" cy="44" rx="5" ry="3.4" fill="#fff" stroke="#111" stroke-width="2"/><ellipse cx="62" cy="44" rx="5" ry="3.4" fill="#fff" stroke="#111" stroke-width="2"/><circle cx="38" cy="44" r="1.8" fill="#111"/><circle cx="62" cy="44" r="1.8" fill="#111"/><path d="M26 30 Q50 22 74 30 M30 24 Q50 18 70 24" stroke="#c89c74" stroke-width="2" fill="none"/><path d="M50 46 V58 Q46 60 44 58" stroke="#b9855c" stroke-width="2.5" fill="none"/><path d="M30 68 Q50 86 70 68 Q50 76 30 68Z" fill="#fff" stroke="#111" stroke-width="3"/><path d="M36 71 H64" stroke="#aaa" stroke-width="1.5"/><path d="M34 62 Q50 58 66 62" stroke="#8f8f98" stroke-width="4" fill="none"/>'),
+  poker_face: () => _SV('<circle cx="50" cy="50" r="40" fill="#f4d03f" stroke="#111" stroke-width="3.5"/><path d="M26 40 H44 M56 40 H74" stroke="#111" stroke-width="4"/><path d="M26 44 Q35 52 44 44 M56 44 Q65 52 74 44" fill="#fff" stroke="#111" stroke-width="3"/><circle cx="35" cy="47" r="3" fill="#111"/><circle cx="65" cy="47" r="3" fill="#111"/><path d="M34 68 H66" stroke="#111" stroke-width="4.5"/><path d="M22 28 L40 32 M78 28 L60 32" stroke="#111" stroke-width="3.5"/>'),
+};
+function cosmeticSvg(id) { const f = COS_ART[id]; return f ? f() : ''; }
+// Real artwork lives on the server (cosmetics/<id>.png); if an image is missing the drawn version above is used instead.
+const _COS_PIXEL = new Set(['diamond_sword', 'netherite_sword', 'diamond_axe', 'netherite_axe', 'diamond_mace', 'netherite_mace', 'enchanted_golden_apple', 'totem_of_undying', 'elytra', 'bedrock', 'grass_block']);
+function cosFallback(img) { const id = img.getAttribute('data-cos'); const w = document.createElement('span'); w.style.cssText = 'display:block;width:100%;height:100%'; w.innerHTML = cosmeticSvg(id); if (img.parentNode) img.parentNode.replaceChild(w, img); }
+function cosmeticArt(id) {
+  if (!COS_ART[id]) return '';
+  return '<img src="' + BACKEND + '/cosmetics/' + id + '.png" data-cos="' + id + '" alt="" draggable="false" onerror="cosFallback(this)" style="width:100%;height:100%;object-fit:contain;display:block;' + (_COS_PIXEL.has(id) ? 'image-rendering:pixelated;' : '') + '">';
+}
 let _avatarBust = Date.now();
 function avatarUrl(user) {
   if (!user) return DEFAULT_AVATAR;
@@ -4227,7 +4658,9 @@ function avatarUrl(user) {
 }
 function avatarImg(user, cls) {
   const safeUser = String(user || '').replace(/"/g, '&quot;');
-  return '<img class="ez-avatar' + (cls ? ' ' + cls : '') + '" src="' + avatarUrl(user) + '" onerror="this.onerror=null;this.src=DEFAULT_AVATAR" alt="" style="cursor:pointer;" data-open-profile="' + safeUser + '" title="View profile">';
+  const _cos = (typeof cosmeticMap !== 'undefined') && cosmeticMap[String(user || '').toLowerCase()];
+  const _img = '<img class="ez-avatar' + (cls ? ' ' + cls : '') + '" src="' + avatarUrl(user) + '" onerror="this.onerror=null;this.src=DEFAULT_AVATAR" alt="" style="cursor:pointer;" data-open-profile="' + safeUser + '" title="View profile">';
+  return _cos ? '<span class="ez-avw' + (cls ? ' ' + cls : '') + '">' + _img + '<span class="ez-cos">' + cosmeticArt(_cos) + '</span></span>' : _img;
 }
 function linkify(escapedHtml) {
   return escapedHtml.replace(/\bhttps?:\/\/[^\s<>"'`]+/gi, (m) => {
@@ -4577,6 +5010,7 @@ async function doAuth(endpoint, needCaptcha) {
 }
 
 function showLoggedIn() {
+  cosmeticsRefresh();
   userBar.style.display = 'flex';
   updateSidebarTabs();
   renderMenuHome();
@@ -4832,7 +5266,7 @@ async function openProfile(name) {
       `<span title="${esc(a.name)} — ${esc(a.desc)}" style="background:var(--bg-elevated);border:1px solid #ffd700;border-radius:6px;padding:3px 6px;font-size:14px;cursor:help;">${a.icon}</span>`).join('');
     body.innerHTML = `
       <div style="display:flex;gap:12px;align-items:center;">
-        <img src="${avatarUrl(d.name)}" onerror="this.onerror=null;this.src=DEFAULT_AVATAR;" style="width:72px;height:72px;border-radius:8px;border:2px solid var(--border);">
+        ${avatarBig(d.name, d.cosmetic, 80)}
         <div style="flex:1;min-width:0;">
           <div style="font-size:18px;font-weight:800;${nameStyle}">${esc(d.name)}${rankBadge}${clanBadge}</div>
           <div>${online}</div>
@@ -7748,7 +8182,7 @@ applyPrefs();
   const open = () => {
     document.getElementById('account-settings-username').textContent = username || '';
     const previewImg = document.getElementById('settings-avatar-preview');
-    if (previewImg) { previewImg.src = avatarUrl(username); previewImg.onerror = () => { previewImg.onerror = null; previewImg.src = DEFAULT_AVATAR; }; }
+    if (previewImg) { previewImg.src = avatarUrl(username); previewImg.onerror = () => { previewImg.onerror = null; previewImg.src = DEFAULT_AVATAR; }; refreshOwnCosBadge(); }
     document.getElementById('settings-avatar-status').textContent = '';
     oldEl.value = ''; newEl.value = ''; new2El.value = '';
     setStatus('', true); status.style.color = 'var(--text-muted)';
@@ -9967,6 +10401,7 @@ setInterval(ezpVersionCheck, 45000);
   showMenu('home');
   await selectBackend();
   refreshMenuOnline();
+  cosmeticsRefresh();
   ezpVersionCheck();
   try {
     const r = await fetch(BACKEND + '/api/auth/status', { headers: authToken ? { Authorization: authToken } : {} });
