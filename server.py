@@ -1036,8 +1036,9 @@ async def load_all_data():
     global economy_history
     economy_history = await db_load("store", "economy_history") or []
     user_ips = await db_load("store", "user_ips") or {}
-    global fishing
+    global fishing, cosmetics_data
     fishing = await db_load("store", "fishing") or {}
+    cosmetics_data = await db_load("store", "cosmetics") or {}
     # logins survive a server restart (they used to live in memory only, so every restart left browsers holding dead tokens)
     _now = time.time()
     for _tok, _e in ((await db_load("store", "sessions")) or {}).items():
@@ -3609,6 +3610,7 @@ async def profile_handler(request):
         "rank": get_rank(canonical),
         "clan": my_clan,
         "name_color": get_name_color(canonical),
+        "cosmetic": equipped_cosmetic(canonical),
         "last_online": last_online.get(ulow),
     })
 
@@ -7436,9 +7438,18 @@ FISH_ITEMS = [
     ("frilled_shark", "Frilled Shark", "rare", 24), ("oarfish", "Oarfish", "rare", 24), ("black_swallower", "Black Swallower", "rare", 22),
     ("giant_isopod", "Giant Isopod", "epic", 75), ("sleeper_shark", "Greenland Sleeper Shark", "epic", 90),
     ("black_pearl", "Black Pearl", "legendary", 320), ("abyssal_horror", "Abyssal Horror", "mythic", 1300),
+    # ---- Frostbite Lake exclusives ----
+    ("ice_minnow", "Ice Minnow", "common", 2), ("frost_perch", "Frost Perch", "common", 2), ("snow_crab", "Snow Crab", "common", 3), ("krill", "Krill", "common", 2), ("glacier_loach", "Glacier Loach", "common", 3), ("arctic_char", "Arctic Char", "uncommon", 7), ("burbot", "Burbot", "uncommon", 6), ("walleye", "Walleye", "uncommon", 7), ("ice_jelly", "Ice Jelly", "uncommon", 6), ("polar_cod", "Polar Cod", "uncommon", 7), ("narwhal", "Narwhal", "rare", 25), ("sturgeon", "Sturgeon", "rare", 22), ("harp_seal", "Harp Seal", "rare", 22), ("beluga", "Beluga", "rare", 24), ("frozen_compass", "Frozen Compass", "rare", 20), ("orca", "Orca", "epic", 85), ("glacier_shark", "Glacier Shark", "epic", 75), ("aurora_ray", "Aurora Ray", "epic", 70), ("ice_crown", "Ice Crown", "legendary", 350), ("aurora_pearl", "Aurora Pearl", "legendary", 330), ("ice_titan", "Ice Titan", "mythic", 1400), ("aurora_serpent", "Aurora Serpent", "mythic", 1300),
+    # ---- Misty Bayou exclusives ----
+    ("mudskipper", "Mudskipper", "common", 2), ("crawdad", "Crawdad", "common", 3), ("mosquitofish", "Mosquitofish", "common", 2), ("swamp_snail", "Swamp Snail", "common", 2), ("stickleback", "Stickleback", "common", 2), ("bullfrog", "Bullfrog", "uncommon", 6), ("snapping_turtle", "Snapping Turtle", "uncommon", 8), ("bowfin", "Bowfin", "uncommon", 7), ("crappie", "Crappie", "uncommon", 6), ("water_moccasin", "Water Moccasin", "uncommon", 7), ("alligator_gar", "Alligator Gar", "rare", 24), ("blue_catfish", "Blue Catfish", "rare", 22), ("hellbender", "Hellbender", "rare", 21), ("wisp_jar", "Will-o-Wisp Jar", "rare", 20), ("gator_snapper", "Gator Snapper", "rare", 25), ("gator", "Gator", "epic", 85), ("giant_catfish", "Giant Catfish", "epic", 70), ("riverboat_bell", "Riverboat Bell", "epic", 70), ("swamp_queen_crown", "Swamp Queen's Crown", "legendary", 340), ("cypress_emerald", "Cypress Emerald", "legendary", 330), ("bayou_leviathan", "Bayou Leviathan", "mythic", 1400), ("swamp_hydra", "Swamp Hydra", "mythic", 1350),
+    # ---- Magma Lagoon exclusives ----
+    ("ember_minnow", "Ember Minnow", "common", 2), ("magma_crab", "Magma Crab", "common", 3), ("cinder_shrimp", "Cinder Shrimp", "common", 3), ("ash_eel", "Ash Eel", "common", 2), ("pumice_snail", "Pumice Snail", "common", 2), ("fire_eel", "Fire Eel", "uncommon", 7), ("obsidian_urchin", "Obsidian Urchin", "uncommon", 7), ("magma_squid", "Magma Squid", "uncommon", 8), ("ember_puffer", "Ember Puffer", "uncommon", 7), ("sulfur_jelly", "Sulfur Jelly", "uncommon", 6), ("magma_ray", "Magma Ray", "rare", 24), ("lava_lobster", "Lava Lobster", "rare", 23), ("phoenix_fish", "Phoenix Fish", "rare", 26), ("obsidian_blade", "Obsidian Blade", "rare", 20), ("fire_opal", "Fire Opal", "rare", 22), ("magma_shark", "Magma Shark", "epic", 90), ("inferno_hammerhead", "Inferno Hammerhead", "epic", 80), ("ruby", "Ruby", "epic", 75), ("molten_crown", "Molten Crown", "legendary", 360), ("dragons_heart", "Dragon's Heart", "legendary", 340), ("lava_leviathan", "Lava Leviathan", "mythic", 1500), ("ember_phoenix", "Ember Phoenix", "mythic", 1400),
 ]
 FISH_EXCLUSIVE = {i: "reef" for i in "clownfish blue_tang parrotfish butterflyfish sea_turtle mandarin_dragonet whale_shark giant_pearl rainbow_serpent damselfish hermit_crab cleaner_wrasse triggerfish cuttlefish nudibranch mantis_shrimp blue_ringed_octopus reef_shark tiger_shark giant_grouper coral_crown reef_guardian".split()}
 FISH_EXCLUSIVE.update({i: "abyss" for i in "lanternfish ghost_shrimp viperfish dumbo_octopus vampire_squid gulper_eel goblin_shark colossal_squid megalodon cusk_eel hatchetfish deepsea_isopod fangtooth barreleye sea_spider frilled_shark oarfish black_swallower giant_isopod sleeper_shark black_pearl abyssal_horror".split()})
+FISH_EXCLUSIVE.update({i: "frozen" for i in "ice_minnow frost_perch snow_crab krill glacier_loach arctic_char burbot walleye ice_jelly polar_cod narwhal sturgeon harp_seal beluga frozen_compass orca glacier_shark aurora_ray ice_crown aurora_pearl ice_titan aurora_serpent".split()})
+FISH_EXCLUSIVE.update({i: "bayou" for i in "mudskipper crawdad mosquitofish swamp_snail stickleback bullfrog snapping_turtle bowfin crappie water_moccasin alligator_gar blue_catfish hellbender wisp_jar gator_snapper gator giant_catfish riverboat_bell swamp_queen_crown cypress_emerald bayou_leviathan swamp_hydra".split()})
+FISH_EXCLUSIVE.update({i: "volcano" for i in "ember_minnow magma_crab cinder_shrimp ash_eel pumice_snail fire_eel obsidian_urchin magma_squid ember_puffer sulfur_jelly magma_ray lava_lobster phoenix_fish obsidian_blade fire_opal magma_shark inferno_hammerhead ruby molten_crown dragons_heart lava_leviathan ember_phoenix".split()})
 FISH_CATALOG = [{"id": i, "name": n, "rarity": ra, "value": v, "map": FISH_EXCLUSIVE.get(i)} for (i, n, ra, v) in FISH_ITEMS]
 FISH_BY_ID = {it["id"]: it for it in FISH_CATALOG}
 FISH_BY_RARITY = {}
@@ -7534,6 +7545,18 @@ FISH_MAPS = [
      "cast_cost": FISH_CAST_COST, "weights": [("common", 600), ("uncommon", 255), ("rare", 100), ("epic", 34), ("legendary", 9), ("mythic", 2)],
      "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "abyss"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
      "price": 500},
+    {"id": "frozen", "name": "Frostbite Lake", "blurb": "An icy northern lake under the aurora.",
+     "cast_cost": FISH_CAST_COST, "weights": [("common", 600), ("uncommon", 252), ("rare", 100), ("epic", 36), ("legendary", 10), ("mythic", 2)],
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "frozen"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
+     "price": 1000},
+    {"id": "bayou", "name": "Misty Bayou", "blurb": "A foggy swamp full of things with teeth.",
+     "cast_cost": FISH_CAST_COST, "weights": [("common", 600), ("uncommon", 252), ("rare", 100), ("epic", 36), ("legendary", 10), ("mythic", 2)],
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "bayou"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
+     "price": 2000},
+    {"id": "volcano", "name": "Magma Lagoon", "blurb": "A lava-heated lagoon at the foot of a volcano.",
+     "cast_cost": FISH_CAST_COST, "weights": [("common", 600), ("uncommon", 250), ("rare", 100), ("epic", 38), ("legendary", 10), ("mythic", 2)],
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "volcano"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
+     "price": 4000},
 ]
 FISH_MAP_BY_ID = {m["id"]: m for m in FISH_MAPS}
 
@@ -8068,12 +8091,113 @@ async def fishing_sell_handler(request):
     await push_pb_update(user)
     return web.json_response({"ok": True, "sold": qty, "earned": earned, "state": _fish_state(user)})
 
+# ---- Cosmetic packs: one-time purchases; one cosmetic can be equipped at a time and shows on the profile picture ----------
+PACKS = [
+    {"id": "indie", "name": "The Indie Pack", "price": 5000,
+     "blurb": "Characters from Deltarune, Undertale, Celeste, Cuphead, The Binding of Isaac, ULTRAKILL and Among Us.",
+     "items": [("kris", "Kris"), ("ralsei", "Ralsei"), ("sans", "Sans"), ("flowey", "Flowey"), ("madeline", "Madeline"), ("badeline", "Badeline"),
+               ("cuphead", "Cuphead"), ("mugman", "Mugman"), ("isaac", "Isaac"), ("v1", "V1"),
+               ("crewmate_red", "Red Crewmate"), ("crewmate_cyan", "Cyan Crewmate"), ("impostor", "Impostor")]},
+    {"id": "minecraft", "name": "The Minecraft Pack", "price": 2000,
+     "blurb": "Diamond and netherite swords, axes and maces, an enchanted golden apple, a totem of undying, elytra, bedrock and a grass block.",
+     "items": [("diamond_sword", "Diamond Sword"), ("netherite_sword", "Netherite Sword"), ("diamond_axe", "Diamond Axe"), ("netherite_axe", "Netherite Axe"),
+               ("diamond_mace", "Diamond Mace"), ("netherite_mace", "Netherite Mace"), ("enchanted_golden_apple", "Enchanted Golden Apple"),
+               ("totem_of_undying", "Totem of Undying"), ("elytra", "Elytra"), ("bedrock", "Bedrock"), ("grass_block", "Grass Block")]},
+    {"id": "meme", "name": "The Meme Pack", "price": 2500,
+     "blurb": "Trollface, Pepe the Frog, Hide the Pain Harold and Poker Face.",
+     "items": [("trollface", "Trollface"), ("pepe", "Pepe the Frog"), ("harold", "Hide the Pain Harold"), ("poker_face", "Poker Face")]},
+]
+PACK_BY_ID = {p["id"]: p for p in PACKS}
+COSMETIC_PACK = {i: p["id"] for p in PACKS for i, _n in p["items"]}
+cosmetics_data = {}
+async def save_cosmetics(): await db_save("store", "cosmetics", cosmetics_data)
+
+def _cos_slot(user):
+    c = cosmetics_data.setdefault(user.lower(), {"packs": [], "equipped": ""})
+    c.setdefault("packs", []); c.setdefault("equipped", "")
+    return c
+
+def equipped_cosmetic(user):
+    c = cosmetics_data.get((user or "").lower()) or {}
+    e = c.get("equipped") or ""
+    return e if e in COSMETIC_PACK and COSMETIC_PACK[e] in (c.get("packs") or []) else ""
+
+def _packs_state(user):
+    c = _cos_slot(user)
+    return {"packs": [{"id": p["id"], "name": p["name"], "price": p["price"], "blurb": p["blurb"], "owned": p["id"] in c["packs"],
+                       "items": [{"id": i, "name": n} for i, n in p["items"]]} for p in PACKS],
+            "equipped": equipped_cosmetic(user), "balance": get_pb(user)}
+
+async def packs_state_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    return web.json_response({"ok": True, **_packs_state(user)})
+
+async def packs_buy_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "pack_buy", 10, 60): return web.json_response({"error": "Slow down"}, status=429)
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
+    pack = PACK_BY_ID.get(str((data or {}).get("pack_id") if isinstance(data, dict) else "").strip())
+    if not pack: return web.json_response({"error": "Unknown pack"}, status=400)
+    c = _cos_slot(user)
+    if pack["id"] in c["packs"]: return web.json_response({"error": "You already own this pack", **_packs_state(user)}, status=400)
+    if not spend_pb(user, pack["price"]):
+        return web.json_response({"error": f"{pack['name']} costs {pack['price']} PlaceBux", **_packs_state(user)}, status=400)
+    c["packs"].append(pack["id"])
+    await save_cosmetics(); await save_place_bucks(); await push_pb_update(user)
+    return web.json_response({"ok": True, **_packs_state(user)})
+
+async def packs_equip_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "pack_equip", 30, 60): return web.json_response({"error": "Slow down"}, status=429)
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
+    item = str((data or {}).get("item_id") if isinstance(data, dict) else "").strip()
+    c = _cos_slot(user)
+    if item:
+        if item not in COSMETIC_PACK: return web.json_response({"error": "Unknown cosmetic"}, status=400)
+        if COSMETIC_PACK[item] not in c["packs"]: return web.json_response({"error": "Buy that pack first"}, status=403)
+    c["equipped"] = item                       # only one cosmetic at a time: this replaces whatever was equipped
+    await save_cosmetics()
+    return web.json_response({"ok": True, **_packs_state(user)})
+
+async def cosmetics_equipped_handler(request):
+    """Everyone's equipped cosmetic (only players who have one), so the page can draw the badge next to avatars."""
+    out = {}
+    for u in cosmetics_data:
+        e = equipped_cosmetic(u)
+        if e: out[u] = e
+    return web.json_response({"equipped": out})
+
+COSMETIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cosmetics")
+async def cosmetic_image_handler(request):
+    """Cosmetic artwork (cosmetics/<id>.png). Only known cosmetic ids are served; the browser keeps them for a day."""
+    name = request.match_info.get("name", "")
+    if not re.fullmatch(r"[a-z0-9_]{1,40}\.png", name) or name[:-4] not in COSMETIC_PACK: return web.Response(status=404)
+    path = os.path.join(COSMETIC_DIR, name)
+    if not os.path.isfile(path): return web.Response(status=404)
+    return web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+
+async def player_search_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "player_search", 40, 30): return web.json_response({"error": "Slow down"}, status=429)
+    q = (request.query.get("q") or "").strip().lower()[:20]
+    if not q: return web.json_response({"players": []})
+    starts = sorted((u for u in accounts if u.lower().startswith(q)), key=str.lower)
+    has = sorted((u for u in accounts if q in u.lower() and not u.lower().startswith(q)), key=str.lower)
+    return web.json_response({"players": [{"name": n, "online": is_online(n), "level": get_user_level(n)} for n in (starts + has)[:10]]})
+
 app = web.Application(middlewares=[cors_middleware, json_guard_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
 app.on_startup.append(discord_start)
 app.on_cleanup.append(discord_stop)
 _g, _p = app.router.add_get, app.router.add_post
+_g("/cosmetics/{name}", cosmetic_image_handler)
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
     ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/version", version_handler),
@@ -8089,7 +8213,7 @@ for _path, _h in (
     ("/api/admin/richest", admin_richest_handler), ("/api/admin/device-bans", admin_device_bans_handler),
     ("/api/admin/mod-list", admin_mod_list_handler), ("/api/admin/mod-ban-log", admin_mod_ban_log_handler),
     ("/api/admin/ipbans", _admin_json_view("ip_bans", lambda: ip_bans)),
-    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler), ("/api/trade/state", trade_state_handler),
+    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler), ("/api/packs/state", packs_state_handler), ("/api/cosmetics/equipped", cosmetics_equipped_handler), ("/api/players/search", player_search_handler), ("/api/trade/state", trade_state_handler),
     ("/api/me", me_handler), ("/api/streak/progress", streak_progress_handler),
     ("/api/uno/list", uno_list_handler),
     ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
@@ -8173,7 +8297,7 @@ for _path, _h in (
     ("/api/report", report_submit_handler),
     ("/api/mod/report-resolve", report_resolve_handler),
     ("/api/account/set-avatar", set_avatar_handler),
-    ("/api/fishing/cast", fishing_cast_handler), ("/api/fishing/sell", fishing_sell_handler), ("/api/fishing/buyback", fishing_buyback_handler),
+    ("/api/fishing/cast", fishing_cast_handler), ("/api/fishing/sell", fishing_sell_handler), ("/api/packs/buy", packs_buy_handler), ("/api/packs/equip", packs_equip_handler), ("/api/fishing/buyback", fishing_buyback_handler),
     ("/api/fishing/rod/buy", fishing_rod_buy_handler), ("/api/trade/invite", trade_invite_handler), ("/api/trade/respond", trade_respond_handler), ("/api/trade/offer", trade_offer_handler), ("/api/trade/confirm", trade_confirm_handler), ("/api/trade/cancel", trade_cancel_handler), ("/api/fishing/map/unlock", fishing_map_unlock_handler), ("/api/fishing/map/travel", fishing_map_travel_handler), ("/api/minigame/fish/start", mg_fish_start_handler), ("/api/minigame/fish/stop", mg_fish_stop_handler),
     ("/api/account/clear-avatar", clear_avatar_handler),
 ): _p(_path, _h)
