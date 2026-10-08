@@ -413,11 +413,13 @@ async def save_reports(): await db_save("store", "reports", reports[-REPORTS_MAX
 async def save_profile_pictures(): await db_save("store", "profile_pictures", profile_pictures)
 def get_presence(username): return presence.get((username or "").lower()) or None
 
+PRESENCE_ACTIVITIES = {"", "Fishing", "In the casino", "In a lobby", "Playing a minigame"}   # fixed list: the client cannot show friends arbitrary text
+
 async def push_friend_presence(user):
     """Push presence state to everyone who has this user as a friend."""
     ulow = user.lower()
     p = presence.get(ulow) or {"afk": False, "since": time.time()}
-    payload = {"type": "friend_presence", "user": user, "afk": bool(p.get("afk")), "since": p.get("since", time.time()), "online": is_online(user)}
+    payload = {"type": "friend_presence", "user": user, "afk": bool(p.get("afk")), "since": p.get("since", time.time()), "activity": p.get("activity", ""), "online": is_online(user)}
     for friend_user, fd in list(friends_data.items()):
         if user in (fd.get("friends") or []):
             try: await notify_social(friend_user, payload)
@@ -1433,6 +1435,12 @@ async def update_lobby_handler(request):
         info = lobby_info(lobby, True)
         info["lobby_bans"] = lobby.get("lobby_bans", [])
         return web.json_response({"ok": True, "lobby": info})
+    wl_add = None
+    if "add_whitelist" in data:
+        n = str(data.get("add_whitelist") or "").strip()[:20]
+        if n:
+            wl_add = next((u for u in accounts if u.lower() == n.lower()), None)
+            if wl_add is None: return web.json_response({"error": f"No player named {n}"}, status=404)
     if "public" in data:
         lobby["public"] = bool(data["public"])
         if lobby["public"]:
@@ -1442,12 +1450,12 @@ async def update_lobby_handler(request):
     if "whitelist_enabled" in data:
         lobby["whitelist_enabled"] = bool(data["whitelist_enabled"])
         if lobby["whitelist_enabled"] and user not in lobby["whitelist"]: lobby["whitelist"].append(user)
-    if "add_whitelist" in data and lobby["whitelist_enabled"]:
-        n = str(data.get("add_whitelist") or "").strip()[:20]
-        if n and n not in lobby["whitelist"] and len(lobby["whitelist"]) < 200: lobby["whitelist"].append(n)
+    if wl_add and lobby["whitelist_enabled"]:
+        if not any(x.lower() == wl_add.lower() for x in lobby["whitelist"]) and len(lobby["whitelist"]) < 200: lobby["whitelist"].append(wl_add)
     if "remove_whitelist" in data and lobby["whitelist_enabled"]:
         n = str(data.get("remove_whitelist") or "").strip()[:20]
-        if n in lobby["whitelist"] and n.lower() != user.lower(): lobby["whitelist"].remove(n)
+        for x in [x for x in lobby["whitelist"] if x.lower() == n.lower()]:
+            if x.lower() != user.lower(): lobby["whitelist"].remove(x)
     if "lobby_unban" in data:
         n = str(data.get("lobby_unban") or "").strip()[:20]
         if n:
@@ -1523,6 +1531,7 @@ async def friends_list_handler(request):
             "online": online,
             "afk": bool(p.get("afk")) if online else False,
             "afk_since": p.get("since") if online and p.get("afk") else None,
+            "activity": p.get("activity", "") if online and not p.get("afk") else "",
             "last_online": last_online.get(f.lower()),
             "level": get_user_level(f),
         }
@@ -6003,11 +6012,12 @@ async def social_ws_handler(request):
                         continue
                     elif data.get("type") == "presence" and username:
                         afk = bool(data.get("afk"))
+                        act = data.get("activity", "")
+                        act = act if isinstance(act, str) and act in PRESENCE_ACTIVITIES else ""
                         ulow = username.lower()
                         prev = presence.get(ulow) or {}
-                        if prev.get("afk") != afk:
-                            presence[ulow] = {"afk": afk, "since": time.time()}
-                            print(f"[presence] {username} -> {'AFK' if afk else 'active'}", flush=True)
+                        if prev.get("afk") != afk or prev.get("activity", "") != act:
+                            presence[ulow] = {"afk": afk, "since": prev.get("since", time.time()) if prev.get("afk") == afk else time.time(), "activity": act}
                             try: await push_friend_presence(username)
                             except Exception as e: print(f"[presence] push failed for {username}: {e}", flush=True)
                     elif data.get("type") == "group_seen" and username:
