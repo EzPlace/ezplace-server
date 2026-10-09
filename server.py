@@ -11,7 +11,7 @@ import struct
 import time
 import zlib
 import gzip
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 try:
     from zoneinfo import ZoneInfo
     EASTERN_TZ = ZoneInfo("America/New_York")
@@ -3604,7 +3604,6 @@ async def profile_handler(request):
         "achievements_unlocked": len(ach_map),
         "achievement_ids": list(ach_map.keys()),
         "achievement_total": len(ACHIEVEMENTS),
-        "join_ts": account.get("created"),
         "online": is_online(canonical),
         "vip": is_vip(canonical),
         "rank": get_rank(canonical),
@@ -8107,6 +8106,17 @@ PACKS = [
      "blurb": "Trollface, Pepe the Frog, Hide the Pain Harold and Poker Face.",
      "items": [("trollface", "Trollface"), ("pepe", "Pepe the Frog"), ("harold", "Hide the Pain Harold"), ("poker_face", "Poker Face")]},
 ]
+GMOD_PACK_ENDS = datetime(2026, 12, 24, 5, 0, 0, tzinfo=timezone.utc).timestamp()   # midnight US Eastern going into 24 Dec 2026
+PACKS.append({"id": "gmod", "name": "The Garry's Mod Pack", "price": 2000, "expires": GMOD_PACK_ENDS,
+     "blurb": "Limited time until 24 December! Garry's Mod and Half-Life 2: the G-Man, Gordon Freeman, Alyx, a headcrab, the crowbar, the physics, gravity and tool guns, and more. Bought items are yours to keep after it ends.",
+     "items": [("gman", "G-Man"), ("gordon_freeman", "Gordon Freeman"), ("alyx", "Alyx Vance"), ("combine_soldier", "Combine Soldier"), ("headcrab", "Headcrab"), ("antlion", "Antlion"),
+               ("gnome_chompski", "Gnome Chompski"), ("lambda", "Lambda"), ("crowbar", "Crowbar"), ("gravity_gun", "Gravity Gun"), ("physgun", "Physics Gun"), ("toolgun", "Tool Gun")]})
+# Limited-time pack: can only be bought until midnight US Eastern at the start of 1 Nov 2026 (04:00 UTC); whoever bought it keeps the items.
+HALLOWEEN_PACK_ENDS = datetime(2026, 11, 1, 4, 0, 0, tzinfo=timezone.utc).timestamp()
+PACKS.append({"id": "halloween", "name": "The Halloween Pack", "price": 500, "expires": HALLOWEEN_PACK_ENDS,
+     "blurb": "Limited time! Only on sale until Halloween ends. After that it is gone for good, but everyone who bought it keeps all the items.",
+     "items": [("hw_jack_o_lantern", "Jack-o'-lantern"), ("hw_ghost", "Ghost"), ("hw_bat", "Bat"), ("hw_spider", "Spider"), ("hw_spider_web", "Spider Web"), ("hw_skull", "Skull"),
+               ("hw_vampire", "Vampire"), ("hw_zombie", "Zombie"), ("hw_witch", "Witch"), ("hw_candy", "Candy"), ("hw_black_cat", "Black Cat"), ("hw_tombstone", "Tombstone")]})
 PACK_BY_ID = {p["id"]: p for p in PACKS}
 COSMETIC_PACK = {i: p["id"] for p in PACKS for i, _n in p["items"]}
 cosmetics_data = {}
@@ -8122,11 +8132,20 @@ def equipped_cosmetic(user):
     e = c.get("equipped") or ""
     return e if e in COSMETIC_PACK and COSMETIC_PACK[e] in (c.get("packs") or []) else ""
 
+def _pack_expired(p): return bool(p.get("expires")) and time.time() >= p["expires"]
+
 def _packs_state(user):
     c = _cos_slot(user)
-    return {"packs": [{"id": p["id"], "name": p["name"], "price": p["price"], "blurb": p["blurb"], "owned": p["id"] in c["packs"],
-                       "items": [{"id": i, "name": n} for i, n in p["items"]]} for p in PACKS],
-            "equipped": equipped_cosmetic(user), "balance": get_pb(user)}
+    out = []
+    for p in PACKS:
+        owned = p["id"] in c["packs"]
+        expired = _pack_expired(p)
+        if expired and not owned: continue          # an ended limited pack disappears for people who never bought it
+        e = {"id": p["id"], "name": p["name"], "price": p["price"], "blurb": p["blurb"], "owned": owned,
+             "items": [{"id": i, "name": n} for i, n in p["items"]]}
+        if p.get("expires"): e["expires_in"] = max(0, int(p["expires"] - time.time())); e["expired"] = expired
+        out.append(e)
+    return {"packs": out, "equipped": equipped_cosmetic(user), "balance": get_pb(user)}
 
 async def packs_state_handler(request):
     user = get_auth_user(request)
@@ -8143,6 +8162,7 @@ async def packs_buy_handler(request):
     if not pack: return web.json_response({"error": "Unknown pack"}, status=400)
     c = _cos_slot(user)
     if pack["id"] in c["packs"]: return web.json_response({"error": "You already own this pack", **_packs_state(user)}, status=400)
+    if _pack_expired(pack): return web.json_response({"error": f"{pack['name']} has ended and can no longer be bought", **_packs_state(user)}, status=400)
     if not spend_pb(user, pack["price"]):
         return web.json_response({"error": f"{pack['name']} costs {pack['price']} PlaceBux", **_packs_state(user)}, status=400)
     c["packs"].append(pack["id"])

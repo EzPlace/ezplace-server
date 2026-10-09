@@ -444,6 +444,10 @@
   .pack-card { margin-bottom: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
   .pack-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
   .pack-name { font-size: 15px; font-weight: 800; } .pack-blurb { font-size: 11px; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+  .pack-card.limited { border-color: rgba(242,106,27,0.6); box-shadow: 0 0 18px rgba(242,106,27,0.18); }
+  .pack-timer { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 800; background: rgba(242,106,27,0.18); color: #ff9a4a; border: 1px solid rgba(242,106,27,0.5); }
+  .pack-timer.over { background: rgba(255,255,255,0.08); color: var(--text-muted); border-color: rgba(255,255,255,0.15); }
+  .pack-credit { font-size: 10px; color: var(--text-muted); margin: 4px 2px 10px; }
   .pack-owned { font-size: 12px; font-weight: 700; color: var(--green); white-space: nowrap; } .pack-buy { white-space: nowrap; }
   .pack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
   .pack-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: var(--text-primary); cursor: pointer; font: inherit; }
@@ -2196,7 +2200,6 @@ function psRender(d, rel, msg, msgColor) {
   const clan = d.clan && d.clan.tag ? '<span class="ps-tag">[' + esc(d.clan.tag) + ']</span>' : '';
   const nameStyle = d.name_color && /^#[0-9a-fA-F]{3,8}$/.test(d.name_color) ? 'color:' + d.name_color + ';' : '';
   const online = d.online ? '<span style="color:#22c55e">&#9679; Online</span>' : '<span style="color:var(--text-muted)">Last online ' + esc(d.last_online ? fmtRelTime(d.last_online) : 'a while ago') + '</span>';
-  const joined = d.join_ts ? new Date(d.join_ts * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'unknown';
   const pct = (d.pixels % 1000) / 10;
   let actions = '';
   if (rel === 'self') actions = '<div class="ps-note">This is you.</div>';
@@ -2205,7 +2208,7 @@ function psRender(d, rel, msg, msgColor) {
   else if (rel === 'outgoing') actions = '<button class="win-btn ps-btn grey" disabled>Friend request sent</button>';
   else actions = '<button class="win-btn ps-btn" id="ps-add">Send friend request</button>';
   out.innerHTML = '<div class="ps-card">'
-    + '<div class="ps-top">' + avatarBig(d.name, d.cosmetic, 84) + '<div class="ps-who"><div class="ps-name" style="' + nameStyle + '">' + esc(d.name) + rank + clan + '</div><div class="ps-sub">' + online + '</div><div class="ps-sub">Joined ' + esc(joined) + '</div></div></div>'
+    + '<div class="ps-top">' + avatarBig(d.name, d.cosmetic, 84) + '<div class="ps-who"><div class="ps-name" style="' + nameStyle + '">' + esc(d.name) + rank + clan + '</div><div class="ps-sub">' + online + '</div></div></div>'
     + '<div class="ps-lvl"><b>LEVEL ' + d.level + '</b><div class="ps-bar"><div style="width:' + pct + '%"></div></div><span>' + (d.pixels % 1000) + '/1000</span></div>'
     + '<div class="ps-stats"><div>Pixels placed<b>' + d.pixels.toLocaleString() + '</b></div><div>Friends<b>' + d.friends + '</b></div><div>Lobbies owned<b>' + d.lobbies_owned + '</b></div><div>Achievements<b>' + d.achievements_unlocked + ' / ' + d.achievement_total + '</b></div></div>'
     + (msg ? '<div class="ps-msg" style="color:' + (msgColor || 'var(--text-muted)') + '">' + esc(msg) + '</div>' : '')
@@ -2278,15 +2281,31 @@ function packsRender() {
     + '<div class="pk-me-info"><div class="pk-me-name">' + esc(username || '') + '</div><div class="pk-me-eq">' + (eq ? 'Wearing: <b>' + esc(nameOf[eq] || eq) + '</b>' : 'No cosmetic equipped') + '</div>'
     + (eq ? '<button class="win-btn" id="pk-unequip" style="font-size:11px;padding:3px 10px;margin-top:6px">Take it off</button>' : '') + '</div>';
   const un = document.getElementById('pk-unequip'); if (un) un.onclick = () => packsEquip('');
-  root.innerHTML = s.packs.map(p => '<div class="pack-card"><div class="pack-head"><div style="min-width:0"><div class="pack-name">' + esc(p.name) + '</div><div class="pack-blurb">' + esc(p.blurb) + '</div></div>'
+  const now = Date.now();
+  root.innerHTML = s.packs.map(p => '<div class="pack-card' + (p.expires_in !== undefined ? ' limited' : '') + '"><div class="pack-head"><div style="min-width:0"><div class="pack-name">' + esc(p.name) + '</div>' + (p.expires_in !== undefined ? '<span class="pack-timer' + (p.expired ? ' over' : '') + '" data-end="' + (now + p.expires_in * 1000) + '"></span>' : '') + '<div class="pack-blurb">' + esc(p.blurb) + '</div></div>'
     + (p.owned ? '<div class="pack-owned">&#10003; Owned</div>' : '<button class="map-btn pack-buy" data-buy="' + esc(p.id) + '">Buy - ' + p.price.toLocaleString() + ' PlaceBux</button>') + '</div>'
     + '<div class="pack-grid">' + p.items.map(i => '<button class="pack-item' + (p.owned ? '' : ' locked') + (eq === i.id ? ' equipped' : '') + '" data-item="' + esc(i.id) + '" data-pack="' + esc(p.id) + '" title="' + esc(i.name) + '"><span class="pi-art">' + cosmeticArt(i.id) + '</span><span class="pi-name">' + esc(i.name) + '</span>' + (eq === i.id ? '<span class="pi-eq">EQUIPPED</span>' : '') + '</button>').join('') + '</div></div>').join('');
+  if (s.packs.some(p => p.id === 'halloween')) root.insertAdjacentHTML('beforeend', '<div class="pack-credit">Halloween pack art: Twemoji by Twitter / jdecked, CC-BY 4.0.</div>');
+  packsTick();
   root.querySelectorAll('[data-buy]').forEach(b => { b.onclick = () => packsBuy(b.dataset.buy); });
   root.querySelectorAll('.pack-item').forEach(b => { b.onclick = () => {
     const pack = s.packs.find(p => p.id === b.dataset.pack);
     if (!pack.owned) { packsSetMsg('Buy ' + pack.name + ' first to use this one.', 'var(--red)'); return; }
     packsEquip(eq === b.dataset.item ? '' : b.dataset.item);
   }; });
+}
+let packsTimerId = 0, packsReloaded = false;
+function packsTick() {
+  const els = document.querySelectorAll('#packs-list .pack-timer'); if (!els.length) { clearInterval(packsTimerId); packsTimerId = 0; return; }
+  const left = (el) => Math.floor((+el.dataset.end - Date.now()) / 1000); let justEnded = false;
+  els.forEach(el => {
+    const t = left(el);
+    if (t <= 0) { if (!el.classList.contains('over')) justEnded = true; el.classList.add('over'); el.textContent = 'Ended - owners keep their items'; return; }
+    const d = Math.floor(t / 86400), h = Math.floor(t % 86400 / 3600), m = Math.floor(t % 3600 / 60), sec = t % 60;
+    el.textContent = '\u23F3 ' + (d ? d + 'd ' : '') + String(h).padStart(2, '0') + 'h ' + String(m).padStart(2, '0') + 'm ' + String(sec).padStart(2, '0') + 's left';
+  });
+  if (justEnded && !packsReloaded) { packsReloaded = true; packsLoad().finally(() => { packsReloaded = false; }); }
+  if (!packsTimerId) packsTimerId = setInterval(packsTick, 1000);
 }
 async function packsBuy(id) {
   packsSetMsg('');
@@ -4646,9 +4665,8 @@ const COS_ART = {
 function cosmeticSvg(id) { const f = COS_ART[id]; return f ? f() : ''; }
 // Real artwork lives on the server (cosmetics/<id>.png); if an image is missing the drawn version above is used instead.
 const _COS_PIXEL = new Set(['diamond_sword', 'netherite_sword', 'diamond_axe', 'netherite_axe', 'diamond_mace', 'netherite_mace', 'enchanted_golden_apple', 'totem_of_undying', 'elytra', 'bedrock', 'grass_block']);
-function cosFallback(img) { const id = img.getAttribute('data-cos'); const w = document.createElement('span'); w.style.cssText = 'display:block;width:100%;height:100%'; w.innerHTML = cosmeticSvg(id); if (img.parentNode) img.parentNode.replaceChild(w, img); }
+function cosFallback(img) { const id = img.getAttribute('data-cos'); const w = document.createElement('span'); w.style.cssText = 'display:block;width:100%;height:100%'; w.innerHTML = cosmeticSvg(id) || '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:60%">?</span>'; if (img.parentNode) img.parentNode.replaceChild(w, img); }
 function cosmeticArt(id) {
-  if (!COS_ART[id]) return '';
   return '<img src="' + BACKEND + '/cosmetics/' + id + '.png" data-cos="' + id + '" alt="" draggable="false" onerror="cosFallback(this)" style="width:100%;height:100%;object-fit:contain;display:block;' + (_COS_PIXEL.has(id) ? 'image-rendering:pixelated;' : '') + '">';
 }
 let _avatarBust = Date.now();
