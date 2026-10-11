@@ -22,7 +22,7 @@
  *    Your proxy HOST is the part after https://  (e.g. ezplace-proxy-abc123.deno.dev)
  * 5. In index.html, add that host to BACKEND_CANDIDATES:
  *        const BACKEND_CANDIDATES = [
- *          'ezplace-server.onrender.com',
+ *          'ezplace-server-9oas.onrender.com',
  *          'ezplace-proxy-abc123.deno.dev',
  *        ];
  *    Push index.html + sync the GitHub Pages mirror. Failover is automatic.
@@ -30,7 +30,7 @@
  * (Send me the .deno.dev URL and I'll wire it into BACKEND_CANDIDATES + push.)
  */
 
-const TARGET = "ezplace-server.onrender.com";
+const TARGET = "ezplace-server-9oas.onrender.com";
 // Set PROXY_SECRET as an environment variable in the Deno Deploy project (same value as PROXY_SHARED_SECRET on the backend).
 const PROXY_SECRET = Deno.env.get("PROXY_SECRET") || "";
 

@@ -1892,9 +1892,9 @@
 </div>
 
 <script>
-const RENDER_HOST = 'ezplace-server.onrender.com';
+const RENDER_HOST = 'ezplace-server-9oas.onrender.com';
 const BACKEND_CANDIDATES = [
-  'ezplace-server.onrender.com',
+  'ezplace-server-9oas.onrender.com',
   'dirty-clam-17.averagetoothpasteenjoyer.deno.net',
 ];
 let BACKEND_HOST = location.hostname === RENDER_HOST ? '' : BACKEND_CANDIDATES[0];
@@ -4189,7 +4189,7 @@ function lobbyBgFrame() {
     lobbyBg.cam.x += (lobbyBg.target.x - lobbyBg.cam.x) * 0.004;
     lobbyBg.cam.y += (lobbyBg.target.y - lobbyBg.cam.y) * 0.004;
     if (Date.now() >= lobbyBg.nextTargetAt) lobbyBgPickTarget();
-    if (Date.now() - lobbyBg.lastFetch > 90000) lobbyBgFetch();
+    if (Date.now() - lobbyBg.lastFetch > 300000) lobbyBgFetch();
     const ctx = cvs.getContext('2d', { alpha: false });
     ctx.imageSmoothingEnabled = false;
     const srcRectW = w / lobbyBg.zoom;

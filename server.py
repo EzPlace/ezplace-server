@@ -1159,20 +1159,28 @@ def generate_captcha_svg(text):
 
 try:
     with open("index.html", "rb") as _f:
-        _INDEX_ETAG = hashlib.md5(_f.read()).hexdigest()
-except: _INDEX_ETAG = ""
+        _INDEX_RAW = _f.read()
+    _INDEX_ETAG = hashlib.md5(_INDEX_RAW).hexdigest()
+    _INDEX_GZ = gzip.compress(_INDEX_RAW, compresslevel=9)
+except:
+    _INDEX_RAW = b""; _INDEX_GZ = b""; _INDEX_ETAG = ""
+# "no-cache" (not "no-store") lets browsers keep a copy and revalidate with the ETag,
+# so repeat visits cost a 304 instead of the full ~700KB page.
 _INDEX_HEADERS = {
-    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, private",
-    "Pragma": "no-cache",
-    "Expires": "0",
+    "Cache-Control": "no-cache, must-revalidate",
     "ETag": '"' + _INDEX_ETAG + '"',
-    "Vary": "*",
+    "Vary": "Accept-Encoding",
 }
 
 async def index_handler(request):
     if _INDEX_ETAG and request.headers.get("If-None-Match", "") == '"' + _INDEX_ETAG + '"':
         return web.Response(status=304, headers=_INDEX_HEADERS)
-    return web.FileResponse("index.html", headers=_INDEX_HEADERS)
+    if not _INDEX_RAW:
+        return web.FileResponse("index.html", headers=_INDEX_HEADERS)
+    if "gzip" in request.headers.get("Accept-Encoding", ""):
+        return web.Response(body=_INDEX_GZ, content_type="text/html", charset="utf-8",
+                            headers={**_INDEX_HEADERS, "Content-Encoding": "gzip"})
+    return web.Response(body=_INDEX_RAW, content_type="text/html", charset="utf-8", headers=_INDEX_HEADERS)
 
 async def version_handler(request):
     return web.json_response({"etag": _INDEX_ETAG}, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, private", "Pragma": "no-cache", "Expires": "0"})
@@ -7230,6 +7238,10 @@ async def cors_middleware(request, handler):
         resp = web.Response()
     else:
         resp = await handler(request)
+    # Compress API/grid responses (big JSON lists, raw grid snapshots) to save bandwidth.
+    if (isinstance(resp, web.Response) and not resp.prepared and resp.body
+            and 'Content-Encoding' not in resp.headers and len(resp.body) > 1024):
+        resp.enable_compression()
     resp.headers['Access-Control-Allow-Origin'] = '*'
     resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
     resp.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')

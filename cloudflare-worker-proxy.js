@@ -19,7 +19,7 @@
  * 5. Your proxy URL is shown, e.g.  ezplace-proxy.YOURNAME.workers.dev
  * 6. In index.html, find BACKEND_CANDIDATES and uncomment / set that host:
  *        const BACKEND_CANDIDATES = [
- *          'ezplace-server.onrender.com',
+ *          'ezplace-server-9oas.onrender.com',
  *          'ezplace-proxy.YOURNAME.workers.dev',
  *        ];
  *    Push index.html (and sync the GitHub Pages mirror). Done — failover is
@@ -29,7 +29,7 @@
  * and list them all in BACKEND_CANDIDATES for extra resilience.
  */
 
-const TARGET_HOST = 'ezplace-server.onrender.com';
+const TARGET_HOST = 'ezplace-server-9oas.onrender.com';
 
 export default {
   async fetch(request, env) {
