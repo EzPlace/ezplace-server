@@ -2148,7 +2148,7 @@ async def admin_replace_color_handler(request):
         lobby["last_activity"] = time.time()
         mark_lobby_dirty(lobby_id)
         for (x, y) in changes:
-            await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": to_color})
+            queue_pixel(lobby_id, x, y, to_color)
     return web.json_response({"ok": True, "changed": len(changes), "area": area, "from": from_color, "to": to_color})
 
 async def admin_pb_grant_handler(request):
@@ -6200,6 +6200,7 @@ async def websocket_handler(request):
     lobby_id = None
     last_pixel = 0
     last_cursor = 0
+    last_cursor_pos = None
     last_rate_warn = 0
     chat_times = []
     last_chat_text = ""
@@ -6255,7 +6256,7 @@ async def websocket_handler(request):
                                 except Exception: pass
                         can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
                         lobby_id = lid
-                        clients[ws] = {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate"))}
+                        _clients_set(ws, {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch"))})
                         await track_ip(username, request)
                         grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                         if is_fake_admin(username): grid_msg["fake_admin"] = True
@@ -6274,7 +6275,7 @@ async def websocket_handler(request):
                         if not lobby or not lobby.get("public"):
                             await ws.send_json({"type": "error", "text": "Guests can only watch public lobbies"}); await ws.close(); break
                         username = ""; lobby_id = lid
-                        clients[ws] = {"username": "", "guest": True, "lobby_id": lobby_id, "ip": get_client_ip(request), "can_place": False, "no_deflate": bool(data.get("no_deflate"))}
+                        _clients_set(ws, {"username": "", "guest": True, "lobby_id": lobby_id, "ip": get_client_ip(request), "can_place": False, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch"))})
                         await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": False, "brush_perm": {"size": 1, "drag": False}}, lobby["grid"])
 
                     elif data["type"] == "pixel" and username and lobby_id:
@@ -6315,7 +6316,7 @@ async def websocket_handler(request):
                                 set_pixel_author(lobby, x, y, username)
                                 mark_lobby_dirty(lobby_id)
                                 await award_pixel_placement(username, 1)
-                            await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                            queue_pixel(lobby_id, x, y, color, ws)
 
                     elif data["type"] == "pixel_undo" and username and lobby_id:
 
@@ -6352,7 +6353,7 @@ async def websocket_handler(request):
                                 append_event(lobby, x, y, color, old_color)
                                 set_pixel_author(lobby, x, y, username)
                                 mark_lobby_dirty(lobby_id)
-                            await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                            queue_pixel(lobby_id, x, y, color, ws)
 
                     elif data["type"] == "brush_undo" and username and lobby_id:
                         if not clients.get(ws, {}).get("can_place", True):
@@ -6396,7 +6397,7 @@ async def websocket_handler(request):
                                         append_event(lobby, x, y, color, old_color)
                                         set_pixel_author(lobby, x, y, username)
                                     placed += 1
-                                    await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                                    queue_pixel(lobby_id, x, y, color, ws)
                                 if placed:
                                     lobby["last_activity"] = time.time()
                                     last_pixel = lobby["last_activity"]
@@ -6531,7 +6532,7 @@ async def websocket_handler(request):
                                         set_pixel_author(lobby, x, y, username)
                                         changed_count += 1
                                     placed += 1
-                                    await broadcast_to_lobby(lobby_id, {"type": "pixel", "x": x, "y": y, "color": color}, exclude=ws)
+                                    queue_pixel(lobby_id, x, y, color, ws)
                                 if placed:
                                     lobby["last_activity"] = time.time()
                                     last_pixel = lobby["last_activity"]
@@ -6581,7 +6582,7 @@ async def websocket_handler(request):
 
                     elif data["type"] == "cursor" and username and lobby_id:
                         now_c = time.time()
-                        if now_c - last_cursor < 0.05:
+                        if now_c - last_cursor < 0.1:
                             continue
                         last_cursor = now_c
                         lobby = lobbies.get(lobby_id)
@@ -6594,6 +6595,8 @@ async def websocket_handler(request):
                         if x is None or y is None:
                             await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username}, exclude=ws)
                         elif isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
+                            if (x, y) == last_cursor_pos: continue
+                            last_cursor_pos = (x, y)
                             await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y}, exclude=ws)
 
                     elif data["type"] == "pixel_owner" and username and lobby_id and (is_admin(username) or is_moderator(username)):
@@ -6621,7 +6624,7 @@ async def websocket_handler(request):
     finally:
         _ws_release(_ws_ip)
         _was_dup = bool((clients.get(ws) or {}).get("dup_kicked"))
-        del clients[ws]
+        _clients_drop(ws)
         if username and lobby_id and _was_dup:
             await broadcast_online_lobby(lobby_id)
         elif username and lobby_id:
@@ -6797,12 +6800,71 @@ def discord_forward_event(lobby_id, username, kind):
     _discord_event_last[key] = now
     _discord_queue(lobby_id, f"*{_discord_escape(username)} {kind} the lobby*")
 
+# Which sockets are in which lobby, so a broadcast only touches that lobby's players instead of scanning every connection.
+lobby_members = {}
+def _clients_set(ws, info):
+    """Register/replace a socket's info and keep lobby_members in step with it."""
+    _clients_forget(ws)
+    clients[ws] = info
+    if info and info.get("lobby_id"): lobby_members.setdefault(info["lobby_id"], set()).add(ws)
+def _clients_forget(ws):
+    old = clients.get(ws)
+    if old and old.get("lobby_id") in lobby_members:
+        lobby_members[old["lobby_id"]].discard(ws)
+        if not lobby_members[old["lobby_id"]]: lobby_members.pop(old["lobby_id"], None)
+def _clients_drop(ws):
+    _clients_forget(ws)
+    clients.pop(ws, None)
+
+async def _send_many(pairs, timeout=5):
+    """Send (ws, payload) pairs at the same time so one slow connection cannot hold up the rest; give up on stragglers after `timeout`."""
+    async def one(ws, payload):
+        try:
+            if isinstance(payload, bytes): await ws.send_bytes(payload)
+            else: await ws.send_str(payload)
+        except Exception: pass
+    if not pairs: return
+    if len(pairs) == 1:
+        await one(*pairs[0]); return
+    try: await asyncio.wait_for(asyncio.gather(*(one(w, p) for w, p in pairs)), timeout)
+    except Exception: pass
+
 async def broadcast_to_lobby(lobby_id, data, exclude=None):
+    members = lobby_members.get(lobby_id)
+    if not members: return
     msg = json.dumps(data)
-    for ws, info in list(clients.items()):
-        if info and info.get("lobby_id") == lobby_id and ws != exclude and not ws.closed:
-            try: await ws.send_str(msg)
-            except: pass
+    await _send_many([(ws, msg) for ws in list(members) if ws is not exclude and not ws.closed])
+
+# Pixels are collected for a few milliseconds and sent as one message per player, instead of one message per pixel per player.
+PIXEL_BATCH_SECONDS = 0.05
+_pix_pending = {}
+def queue_pixel(lobby_id, x, y, color, exclude=None):
+    item = (x, y, color, exclude)
+    lst = _pix_pending.get(lobby_id)
+    if lst is None:
+        _pix_pending[lobby_id] = [item]
+        asyncio.get_running_loop().call_later(PIXEL_BATCH_SECONDS, lambda: asyncio.ensure_future(flush_pixels(lobby_id)))
+    else:
+        lst.append(item)
+
+async def flush_pixels(lobby_id):
+    lst = _pix_pending.pop(lobby_id, None)
+    members = lobby_members.get(lobby_id)
+    if not lst or not members: return
+    excluders = {e for _x, _y, _c, e in lst if e is not None}
+    shared = json.dumps({"type": "pixels", "p": [[x, y, c] for x, y, c, _e in lst]})
+    singles = [json.dumps({"type": "pixel", "x": x, "y": y, "color": c}) for x, y, c, _e in lst]
+    pairs = []
+    for ws in list(members):
+        if ws.closed: continue
+        info = clients.get(ws) or {}
+        mine = lst if ws not in excluders else [it for it in lst if it[3] is not ws]
+        if not mine: continue
+        if info.get("batch"):
+            pairs.append((ws, shared if len(mine) == len(lst) else json.dumps({"type": "pixels", "p": [[x, y, c] for x, y, c, _e in mine]})))
+        else:                                   # older page without batch support: one message per pixel, as before
+            for it in mine: pairs.append((ws, singles[lst.index(it)]))
+    await _send_many(pairs)
 
 def _compress_grid(grid_bytes):
     """zlib-compress the raw grid bytes. Mostly-empty 1024x1024 grids drop from 1MB
@@ -6825,14 +6887,16 @@ async def send_grid_to_ws(ws, meta_dict, grid_bytes):
         await ws.send_bytes(_compress_grid(grid_bytes))
 
 async def broadcast_grid_to_lobby(lobby_id, meta_dict, grid_bytes, exclude=None):
+    await flush_pixels(lobby_id)                # pixels queued before a full-canvas change must arrive before it, not after
     meta_def = dict(meta_dict); meta_def["binary"] = True; meta_def["compressed"] = "deflate"; meta_def["uncompressed_size"] = len(grid_bytes)
     meta_raw = dict(meta_dict); meta_raw["binary"] = True; meta_raw["compressed"] = "none"; meta_raw["uncompressed_size"] = len(grid_bytes)
     meta_def_str = json.dumps(meta_def)
     meta_raw_str = json.dumps(meta_raw)
     grid_def = _compress_grid(grid_bytes)
     grid_raw = bytes(grid_bytes)
-    for ws, info in list(clients.items()):
-        if info and info.get("lobby_id") == lobby_id and ws != exclude and not ws.closed:
+    for ws in list(lobby_members.get(lobby_id, ())):
+        info = clients.get(ws)
+        if info and ws != exclude and not ws.closed:
             try:
                 if info.get("no_deflate"):
                     await ws.send_str(meta_raw_str); await ws.send_bytes(grid_raw)
@@ -7496,6 +7560,8 @@ save_place_bucks = _batched(save_place_bucks)
 save_fishing = _batched(save_fishing)
 save_lifetime_pixels = _batched(save_lifetime_pixels)
 save_stay_seconds = _batched(save_stay_seconds)
+save_user_devices = _batched(save_user_devices)     # written on every join/login; the data is only a history, so a few seconds of delay is fine
+save_user_ips = _batched(save_user_ips)
 
 def _fish_slot(user):
     return fishing.setdefault(user.lower(), {"inv": {}, "seen": {}, "casts": 0, "last_cast": 0})
@@ -8129,6 +8195,12 @@ PACKS.append({"id": "halloween", "name": "The Halloween Pack", "price": 500, "ex
      "blurb": "Limited time! Only on sale until Halloween ends. After that it is gone for good, but everyone who bought it keeps all the items.",
      "items": [("hw_jack_o_lantern", "Jack-o'-lantern"), ("hw_ghost", "Ghost"), ("hw_bat", "Bat"), ("hw_spider", "Spider"), ("hw_spider_web", "Spider Web"), ("hw_skull", "Skull"),
                ("hw_vampire", "Vampire"), ("hw_zombie", "Zombie"), ("hw_witch", "Witch"), ("hw_candy", "Candy"), ("hw_black_cat", "Black Cat"), ("hw_tombstone", "Tombstone")]})
+PACKS.append({"id": "cat", "name": "The Cat Pack", "price": 500,
+     "blurb": "Cats! Famous internet cats (Nyan Cat, Grumpy Cat, Maxwell, Keyboard Cat, Smudge, Banana Cat, Garfield), cat faces, and drawn cats: orange, black, gray, white, Siamese and calico, plus yarn, a fish and a paw print.",
+     "items": [("cat_nyan", "Nyan Cat"), ("cat_grumpy", "Grumpy Cat"), ("cat_maxwell", "Maxwell"), ("cat_keyboard", "Keyboard Cat"), ("cat_smudge", "Smudge"), ("cat_banana", "Banana Cat"), ("cat_garfield", "Garfield"),
+               ("cat_face", "Cat"), ("cat_grin", "Grinning Cat"), ("cat_joy", "Laughing Cat"), ("cat_heart_eyes", "Heart-Eyes Cat"), ("cat_smirk", "Smirking Cat"), ("cat_kiss", "Kissing Cat"), ("cat_scream", "Shocked Cat"), ("cat_cry", "Crying Cat"), ("cat_pout", "Grumpy Face Cat"), ("cat_tabby", "Tabby Cat"),
+               ("cat_orange", "Orange Tabby"), ("cat_black", "Black Cat"), ("cat_gray", "Gray Cat"), ("cat_white", "White Cat"), ("cat_siamese", "Siamese"), ("cat_calico", "Calico"),
+               ("cat_yarn", "Ball of Yarn"), ("cat_fish", "Fish"), ("cat_paw", "Paw Print")]})
 PACK_BY_ID = {p["id"]: p for p in PACKS}
 COSMETIC_PACK = {i: p["id"] for p in PACKS for i, _n in p["items"]}
 cosmetics_data = {}

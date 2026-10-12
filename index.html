@@ -2284,7 +2284,7 @@ function packsRender() {
   root.innerHTML = s.packs.map(p => '<div class="pack-card' + (p.expires_in !== undefined ? ' limited' : '') + '"><div class="pack-head"><div style="min-width:0"><div class="pack-name">' + esc(p.name) + '</div>' + (p.expires_in !== undefined ? '<span class="pack-timer' + (p.expired ? ' over' : '') + '" data-end="' + (now + p.expires_in * 1000) + '"></span>' : '') + '<div class="pack-blurb">' + esc(p.blurb) + '</div></div>'
     + (p.owned ? '<div class="pack-owned">&#10003; Owned</div>' : '<button class="map-btn pack-buy" data-buy="' + esc(p.id) + '">Buy - ' + p.price.toLocaleString() + ' PlaceBux</button>') + '</div>'
     + '<div class="pack-grid">' + p.items.map(i => '<button class="pack-item' + (p.owned ? '' : ' locked') + (eq === i.id ? ' equipped' : '') + '" data-item="' + esc(i.id) + '" data-pack="' + esc(p.id) + '" title="' + esc(i.name) + '"><span class="pi-art">' + cosmeticArt(i.id) + '</span><span class="pi-name">' + esc(i.name) + '</span>' + (eq === i.id ? '<span class="pi-eq">EQUIPPED</span>' : '') + '</button>').join('') + '</div></div>').join('');
-  if (s.packs.some(p => p.id === 'halloween')) root.insertAdjacentHTML('beforeend', '<div class="pack-credit">Halloween pack art: Twemoji by Twitter / jdecked, CC-BY 4.0.</div>');
+  if (s.packs.some(p => p.id === 'halloween' || p.id === 'cat')) root.insertAdjacentHTML('beforeend', '<div class="pack-credit">Halloween pack and cat emoji art: Twemoji by Twitter / jdecked, CC-BY 4.0.</div>');
   packsTick();
   root.querySelectorAll('[data-buy]').forEach(b => { b.onclick = () => packsBuy(b.dataset.buy); });
   root.querySelectorAll('.pack-item').forEach(b => { b.onclick = () => {
@@ -4633,7 +4633,29 @@ function _cup(stripe) {
     + '<ellipse cx="42" cy="62" rx="5" ry="7" fill="#111"/><ellipse cx="58" cy="62" rx="5" ry="7" fill="#111"/><ellipse cx="43" cy="60" rx="1.8" ry="3" fill="#fff"/><ellipse cx="59" cy="60" rx="1.8" ry="3" fill="#fff"/>'
     + '<path d="M44 74 Q50 79 56 74" stroke="#111" stroke-width="2.5" fill="none"/>');
 }
+function _cat(fur, ear, o) {
+  o = o || {};
+  return _SV('<path d="M18 46 L20 8 L44 26Z M82 46 L80 8 L56 26Z" fill="' + fur + '" stroke="#111" stroke-width="3.5"/><path d="M24 36 L25 17 L38 28Z M76 36 L75 17 L62 28Z" fill="' + ear + '"/>'
+    + '<ellipse cx="50" cy="56" rx="36" ry="32" fill="' + fur + '" stroke="#111" stroke-width="3.5"/>'
+    + (o.mask ? '<ellipse cx="50" cy="62" rx="18" ry="20" fill="' + o.mask + '"/>' : '')
+    + (o.stripes ? '<path d="M50 26 V38 M40 28 L42 38 M60 28 L58 38" stroke="' + o.stripes + '" stroke-width="3.5" fill="none"/><path d="M16 54 H26 M16 62 H25 M84 54 H74 M84 62 H75" stroke="' + o.stripes + '" stroke-width="3.5" fill="none"/>' : '')
+    + (o.patch ? '<path d="M18 50 Q20 28 40 30 Q36 48 18 50Z" fill="' + o.patch[0] + '"/><path d="M82 62 Q84 44 64 46 Q66 62 82 62Z" fill="' + o.patch[1] + '"/>' : '')
+    + '<ellipse cx="36" cy="52" rx="6" ry="8" fill="' + (o.eye || '#f1c40f') + '" stroke="#111" stroke-width="2"/><ellipse cx="64" cy="52" rx="6" ry="8" fill="' + (o.eye || '#f1c40f') + '" stroke="#111" stroke-width="2"/>'
+    + '<ellipse cx="36" cy="52" rx="2.2" ry="6" fill="#111"/><ellipse cx="64" cy="52" rx="2.2" ry="6" fill="#111"/>'
+    + '<path d="M45 64 H55 L50 70Z" fill="#f48fb1" stroke="#111" stroke-width="2"/><path d="M50 70 V74 M50 74 Q43 80 37 75 M50 74 Q57 80 63 75" stroke="#111" stroke-width="2.5" fill="none"/>'
+    + '<path d="M8 62 H28 M8 70 L28 67 M92 62 H72 M92 70 L72 67" stroke="#111" stroke-width="2" fill="none"/>');
+}
 const COS_ART = {
+  // ---- Cat pack ----
+  cat_orange: () => _cat('#f0933a', '#f4a6a0', { stripes: '#c2661a', mask: '#ffd9a8' }),
+  cat_black: () => _cat('#2b2b33', '#6b4a5a', { eye: '#7be86b' }),
+  cat_gray: () => _cat('#9aa0ab', '#f4a6a0', { stripes: '#6f7480', mask: '#d6d9df' }),
+  cat_white: () => _cat('#f6f6f6', '#f4b6b0', { eye: '#4aa8ff' }),
+  cat_siamese: () => _cat('#f1dfc4', '#8a6a52', { mask: '#6b4a38', eye: '#4aa8ff' }),
+  cat_calico: () => _cat('#f6f2ea', '#f4a6a0', { patch: ['#e8903a', '#3a3a42'] }),
+  cat_yarn: () => _SV('<circle cx="50" cy="52" r="34" fill="#e0457b" stroke="#111" stroke-width="3.5"/><path d="M22 40 Q50 56 78 36 M18 54 Q50 72 82 52 M26 70 Q50 82 74 68 M36 22 Q56 40 70 24 M32 82 Q54 66 68 84" stroke="#a8244f" stroke-width="3" fill="none"/><path d="M78 74 Q92 80 88 92 Q80 98 70 90" stroke="#e0457b" stroke-width="5" fill="none"/><path d="M78 74 Q92 80 88 92 Q80 98 70 90" stroke="#111" stroke-width="1.5" fill="none"/>'),
+  cat_fish: () => _SV('<path d="M14 50 Q40 20 68 42 L90 24 L86 50 L90 76 L68 58 Q40 80 14 50Z" fill="#4aa8ff" stroke="#111" stroke-width="3.5"/><path d="M30 42 Q38 50 30 58 M42 38 Q50 50 42 62" stroke="#2677c9" stroke-width="3" fill="none"/><circle cx="26" cy="46" r="4" fill="#fff" stroke="#111" stroke-width="2"/><circle cx="25" cy="46" r="1.8" fill="#111"/><path d="M16 54 Q20 56 22 54" stroke="#111" stroke-width="2" fill="none"/>'),
+  cat_paw: () => _SV('<ellipse cx="50" cy="66" rx="24" ry="20" fill="#f4a6c0" stroke="#111" stroke-width="3.5"/><ellipse cx="22" cy="42" rx="10" ry="13" fill="#f4a6c0" stroke="#111" stroke-width="3.5" transform="rotate(-20 22 42)"/><ellipse cx="40" cy="26" rx="10" ry="14" fill="#f4a6c0" stroke="#111" stroke-width="3.5" transform="rotate(-6 40 26)"/><ellipse cx="60" cy="26" rx="10" ry="14" fill="#f4a6c0" stroke="#111" stroke-width="3.5" transform="rotate(6 60 26)"/><ellipse cx="78" cy="42" rx="10" ry="13" fill="#f4a6c0" stroke="#111" stroke-width="3.5" transform="rotate(20 78 42)"/>'),
   // ---- Indie pack ----
   kris: () => _SV('<path d="M22 96 Q24 72 50 72 Q76 72 78 96Z" fill="#3b6fd8" stroke="#111" stroke-width="3"/><rect x="40" y="66" width="20" height="12" fill="#e9bf94"/><circle cx="50" cy="44" r="25" fill="#e9bf94" stroke="#111" stroke-width="3"/><path d="M22 46 Q18 10 50 12 Q82 10 78 46 Q74 30 66 30 Q50 22 34 30 Q26 30 22 46Z" fill="#3a2418" stroke="#111" stroke-width="3"/><path d="M22 42 V62 Q22 66 28 62 V42Z M78 42 V62 Q78 66 72 62 V42Z" fill="#3a2418"/>' + _EYE(41, 48, 3.2) + _EYE(59, 48, 3.2) + '<path d="M44 59 Q50 63 56 59" stroke="#111" stroke-width="2.5" fill="none"/>'),
   ralsei: () => _SV('<path d="M50 2 L80 38 H20Z" fill="#2f9e5a" stroke="#111" stroke-width="3"/><rect x="18" y="34" width="64" height="9" rx="4" fill="#238048" stroke="#111" stroke-width="3"/><circle cx="50" cy="3" r="5" fill="#fff"/><ellipse cx="50" cy="60" rx="26" ry="23" fill="#e4e4ee" stroke="#111" stroke-width="3"/><path d="M26 48 L18 38 L34 42Z M74 48 L82 38 L66 42Z" fill="#e4e4ee" stroke="#111" stroke-width="2"/><circle cx="40" cy="58" r="8" fill="none" stroke="#f1c40f" stroke-width="2.6"/><circle cx="60" cy="58" r="8" fill="none" stroke="#f1c40f" stroke-width="2.6"/><path d="M48 58 H52" stroke="#f1c40f" stroke-width="2.6"/>' + _EYE(40, 58, 2.6) + _EYE(60, 58, 2.6) + '<ellipse cx="50" cy="68" rx="3" ry="2" fill="#333"/><path d="M26 80 Q50 98 74 80 L74 92 Q50 106 26 92Z" fill="#ec4899" stroke="#111" stroke-width="3"/>'),
@@ -4665,7 +4687,10 @@ function cosmeticSvg(id) { const f = COS_ART[id]; return f ? f() : ''; }
 // Real artwork lives on the server (cosmetics/<id>.png); if an image is missing the drawn version above is used instead.
 const _COS_PIXEL = new Set(['diamond_sword', 'netherite_sword', 'diamond_axe', 'netherite_axe', 'diamond_mace', 'netherite_mace', 'enchanted_golden_apple', 'totem_of_undying', 'elytra', 'bedrock', 'grass_block']);
 function cosFallback(img) { const id = img.getAttribute('data-cos'); const w = document.createElement('span'); w.style.cssText = 'display:block;width:100%;height:100%'; w.innerHTML = cosmeticSvg(id) || '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:60%">?</span>'; if (img.parentNode) img.parentNode.replaceChild(w, img); }
+// drawn-only cosmetics (no picture file on the server): skip the image request and use the drawing straight away
+const _COS_NO_IMG = new Set(["cat_orange", "cat_black", "cat_gray", "cat_white", "cat_siamese", "cat_calico", "cat_yarn", "cat_fish", "cat_paw"]);
 function cosmeticArt(id) {
+  if (_COS_NO_IMG.has(id)) return cosmeticSvg(id);
   return '<img src="' + BACKEND + '/cosmetics/' + id + '.png" data-cos="' + id + '" alt="" draggable="false" onerror="cosFallback(this)" style="width:100%;height:100%;object-fit:contain;display:block;' + (_COS_PIXEL.has(id) ? 'image-rendering:pixelated;' : '') + '">';
 }
 let _avatarBust = Date.now();
@@ -8947,8 +8972,8 @@ function connectToLobby(lobbyId, lobbyName) {
   ws.binaryType = 'arraybuffer';
   const noDeflate = (typeof DecompressionStream === 'undefined' || typeof ReadableStream === 'undefined' || typeof Response === 'undefined' || !Blob.prototype.stream);
   ws.onopen = () => {
-    if (authToken) ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate }));
-    else ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, no_deflate: noDeflate }));
+    if (authToken) ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate, batch: true }));
+    else ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, no_deflate: noDeflate, batch: true }));
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
   };
@@ -8994,6 +9019,7 @@ function connectToLobby(lobbyId, lobbyName) {
   ws.onmessage = (e) => { wsQueue.push(e.data); pumpWsQueue(); };
   function handleWsMessage(msg) {
     switch (msg.type) {
+      case 'pixels': for (const p of msg.p) { grid[p[1] * GRID_W + p[0]] = p[2]; setOffscreenPixel(p[0], p[1], p[2]); } render(); break;
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; setOffscreenPixel(msg.x, msg.y, msg.color); render(); break;
       case 'cursor': if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) { remoteCursors[msg.username.toLowerCase()] = { name: msg.username, x: msg.x, y: msg.y, lastUpdate: Date.now() }; render(); } break;
       case 'cursor_remove': if (msg.username) { delete remoteCursors[msg.username.toLowerCase()]; render(); } break;
