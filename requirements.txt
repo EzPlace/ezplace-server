@@ -2,3 +2,4 @@ aiohttp
 motor
 pymongo[srv]
 discord.py
+uvloop; sys_platform != "win32"

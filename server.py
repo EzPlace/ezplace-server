@@ -11,6 +11,7 @@ import struct
 import time
 import zlib
 import gzip
+import array
 from datetime import date, datetime, timedelta, timezone
 try:
     from zoneinfo import ZoneInfo
@@ -743,12 +744,49 @@ def append_event(lobby, x, y, new_color, old_color):
     if drop > 0:
         del log[:drop]
 
+class PixelAuthors:
+    """cell index -> username, kept as 2 bytes per cell plus a name table. A plain dict cost ~100 bytes per painted cell, so one
+    fully painted 2048x2048 lobby could use ~400 MB of memory; this uses 8 MB. It behaves like the old dict (get, [], items, len)."""
+    __slots__ = ("ids", "names", "index")
+    def __init__(self, size):
+        self.ids = array.array("H", bytes(2 * max(1, int(size)))); self.names = [""]; self.index = {}
+    @classmethod
+    def from_dict(cls, d, size):
+        pa = cls(max(size, (max(d) + 1) if d else 1))
+        for i, n in (d or {}).items(): pa[i] = n
+        return pa
+    def _grow(self, i): self.ids.extend(array.array("H", bytes(2 * (i + 1 - len(self.ids)))))
+    def __setitem__(self, i, name):
+        if i >= len(self.ids): self._grow(i)
+        k = self.index.get(name)
+        if k is None:
+            k = len(self.names) if len(self.names) < 65535 else 65535
+            if k == len(self.names): self.names.append(name)
+            self.index[name] = k
+        self.ids[i] = k
+    def get(self, i, default=None):
+        if 0 <= i < len(self.ids):
+            k = self.ids[i]
+            if k: return self.names[k] if k < len(self.names) else default
+        return default
+    def __getitem__(self, i):
+        v = self.get(i)
+        if v is None: raise KeyError(i)
+        return v
+    def __len__(self): return sum(1 for k in self.ids if k)
+    def __bool__(self): return any(self.ids)
+    def items(self):
+        for i, k in enumerate(self.ids):
+            if k and k < len(self.names): yield i, self.names[k]
+
 def set_pixel_author(lobby, x, y, username):
-    """Record the last user to write each cell, for the admin hover-to-see-placer tool.
-    In-memory only - intentionally NOT persisted (would bloat DB/bandwidth) so it
-    resets when the server restarts."""
+    """Record the last user to write each cell, for the admin hover-to-see-placer tool. Saved with the lobby (compactly)."""
     lw = lobby.get("width", 256)
-    lobby.setdefault("pixel_authors", {})[y * lw + x] = username
+    pa = lobby.get("pixel_authors")
+    if not isinstance(pa, PixelAuthors):
+        pa = PixelAuthors.from_dict(pa if isinstance(pa, dict) else {}, lw * lobby.get("height", 256))
+        lobby["pixel_authors"] = pa
+    pa[y * lw + x] = username
 
 def get_oldest_event_time(lobby):
     log = lobby.get("events")
@@ -782,8 +820,8 @@ def pack_pixel_authors(authors):
     out += recs
     return bytes(out)
 
-def unpack_pixel_authors(blob):
-    authors = {}
+def unpack_pixel_authors(blob, size=0):
+    authors = PixelAuthors(size) if size else {}
     if not blob:
         return authors
     try:
@@ -1095,7 +1133,7 @@ async def load_all_data():
         events_data = doc.get("events")
         grid_ba = _to_bytearray(grid_data)
         events_ba = bytearray(events_data) if events_data else bytearray()
-        pauthors = unpack_pixel_authors(doc.get("pauthors"))
+        pauthors = unpack_pixel_authors(doc.get("pauthors"), int(meta.get("width", 256)) * int(meta.get("height", 256)))
         if lid.startswith("public_") and lid in lobbies:
             expected_size = lobbies[lid]["width"] * lobbies[lid]["height"]
             if "pixel_counts" in meta:
@@ -1622,13 +1660,14 @@ async def dm_history_handler(request):
         return web.json_response({"error": "Slow down"}, status=429)
     target = request.query.get("with", "")[:32]
     msgs = dms.get(dm_key(user, target), [])[-MAX_DM_HISTORY:]
-    peer_last_seen = 0
+    peer_last_seen = 0; my_last_seen = 0; peer_viewing = False
     canon = next((u for u in accounts if u.lower() == target.lower()), None) if target else None
     if canon:
-        mark_dm_seen(user, canon)
-        await save_dm_last_seen()
-        peer_last_seen = dm_last_seen.get(target.lower(), {}).get(user.lower(), 0)
-    return web.json_response({"messages": msgs, "peer_last_seen": peer_last_seen})
+        # Opening the history is NOT "seen": the page reports that itself (dm_seen) only while the tab is visible and the person is active.
+        my_last_seen = dm_last_seen.get(user.lower(), {}).get(canon.lower(), 0)
+        peer_last_seen = dm_last_seen.get(canon.lower(), {}).get(user.lower(), 0)
+        peer_viewing = _user_viewing(canon, "dm", user.lower())
+    return web.json_response({"messages": msgs, "peer_last_seen": peer_last_seen, "my_last_seen": my_last_seen, "peer_viewing": peer_viewing, "now": time.time()})
 
 async def dm_unread_handler(request):
     user = get_auth_user(request)
@@ -2765,6 +2804,45 @@ async def groups_my_handler(request):
             out.append({"id": g["id"], "name": g["name"], "owner": g["owner"], "members": g["members"]})
     return web.json_response({"groups": out})
 
+# Which chat each social socket is actively looking at (tab visible and not AFK): ("dm", peer_lower) or ("group", group_id).
+viewing_by_ws = {}
+def _user_viewing(user, kind, key):
+    ul = (user or "").lower()
+    for w, v in list(viewing_by_ws.items()):
+        u = social_clients.get(w)
+        if u and u.lower() == ul and v == (kind, key): return True
+    return False
+
+async def _notify_viewing(user, kind, key, state):
+    """Tell the other side(s) of a chat that this user started/stopped looking at it."""
+    if kind == "dm":
+        peer = next((u for u in accounts if u.lower() == key), None)
+        if peer: await notify_social(peer, {"type": "viewing_update", "kind": "dm", "user": user, "viewing": state})
+    else:
+        g = groups.get(key)
+        if g:
+            for m in list(g.get("members", [])):
+                if m.lower() != user.lower():
+                    await notify_social(m, {"type": "viewing_update", "kind": "group", "group_id": key, "user": user, "viewing": state})
+
+async def group_rename_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "group_rename", 10, 60): return web.json_response({"error": "Slow down"}, status=429)
+    try: data = await request.json()
+    except Exception: return web.json_response({"error": "Bad JSON"}, status=400)
+    if not isinstance(data, dict): return web.json_response({"error": "Bad payload"}, status=400)
+    g = groups.get(str(data.get("group_id") or ""))
+    if not g: return web.json_response({"error": "Group not found"}, status=404)
+    if user.lower() not in [m.lower() for m in g.get("members", [])]: return web.json_response({"error": "Not a member"}, status=403)
+    name = " ".join(str(data.get("name") or "").split())[:30]
+    if not name: return web.json_response({"error": "Group name required"}, status=400)
+    g["name"] = name
+    await save_groups()
+    for m in list(g.get("members", [])):
+        await notify_social(m, {"type": "group_renamed", "group_id": g["id"], "name": name, "by": user})
+    return web.json_response({"ok": True, "name": name})
+
 async def group_create_handler(request):
     data = await request.json()
     user = get_auth_user(request)
@@ -2799,9 +2877,12 @@ async def group_messages_handler(request):
     if not g: return web.json_response({"error": "Group not found"}, status=404)
     if user.lower() not in [m.lower() for m in g.get("members", [])]:
         return web.json_response({"error": "Not a member"}, status=403)
-    mark_group_seen(user, gid)
-    await save_group_last_seen()
-    return web.json_response({"messages": group_messages.get(gid, [])[-MAX_DM_HISTORY:], "members": g["members"], "owner": g["owner"], "name": g["name"]})
+    ul = user.lower()
+    my_last_seen = group_last_seen.get(ul, {}).get(gid, 0)
+    seen = {m: group_last_seen.get(m.lower(), {}).get(gid, 0) for m in g["members"] if m.lower() != ul}
+    viewers = [m for m in g["members"] if m.lower() != ul and _user_viewing(m, "group", gid)]
+    return web.json_response({"messages": group_messages.get(gid, [])[-MAX_DM_HISTORY:], "members": g["members"], "owner": g["owner"], "name": g["name"],
+                              "my_last_seen": my_last_seen, "seen": seen, "viewers": viewers, "now": time.time()})
 
 async def group_leave_handler(request):
     data = await request.json()
@@ -5848,9 +5929,18 @@ async def clan_remove_member_handler(request):
     await notify_social(member, {"type": "clan_removed", "clan_name": clan["name"], "by": user})
     return web.json_response({"ok": True, "message": f"Removed {member} from clan"})
 
+_online_summary_cache = (0.0, None)
 async def online_summary_handler(request):
-    """Total online + per-lobby online + flat user list, for the homepage.
-    `total` counts unique authenticated users across both lobby (clients) and
+    """Total online + per-lobby online + flat user list, for the homepage. Shared by every open menu, so it is built at most once every 2 seconds."""
+    global _online_summary_cache
+    if time.time() - _online_summary_cache[0] < 2.0 and _online_summary_cache[1] is not None:
+        return web.json_response(_online_summary_cache[1])
+    payload = _build_online_summary()
+    _online_summary_cache = (time.time(), payload)
+    return web.json_response(payload)
+
+def _build_online_summary():
+    """`total` counts unique authenticated users across both lobby (clients) and
     homepage (social_clients) WebSocket connections."""
     seen = set(); users = []
     for info in clients.values():
@@ -5869,7 +5959,7 @@ async def online_summary_handler(request):
         if not lid or not info.get("username"): continue
         per_lobby[lid] = per_lobby.get(lid, 0) + 1
     total = len(users)
-    return web.json_response({"total": total, "users": users, "per_lobby": per_lobby})
+    return {"total": total, "users": users, "per_lobby": per_lobby}
 
 async def admin_brush_perm_set_handler(request):
     data = await request.json()
@@ -5994,6 +6084,7 @@ async def social_ws_handler(request):
                                 await ws.close(); break
                             if is_ip_banned(request): await ws.close(); break
                             if is_device_banned(device_id): await ws.close(); break
+                            if not social_clients.get(ws): _online_inc(username)
                             social_clients[ws] = username
                             if device_id:
                                 track_user_device(username, device_id)
@@ -6017,7 +6108,7 @@ async def social_ws_handler(request):
                             except: pass
                         else:
                             await ws.close()
-                    elif data.get("type") in ("presence", "group_seen", "dm_seen", "dm_typing") and username and not check_rate_limit(username, "social_misc", 60, 10):
+                    elif data.get("type") in ("presence", "group_seen", "dm_seen", "dm_typing", "viewing") and username and not check_rate_limit(username, "social_misc", 60, 10):
                         continue
                     elif data.get("type") == "presence" and username:
                         afk = bool(data.get("afk"))
@@ -6034,13 +6125,33 @@ async def social_ws_handler(request):
                         if gid and gid in groups:
                             mark_group_seen(username, gid)
                             await save_group_last_seen()
+                            now_seen = group_last_seen.get(username.lower(), {}).get(gid, time.time())
+                            for member in list(groups[gid].get("members", [])):
+                                if member.lower() != username.lower():
+                                    await notify_social(member, {"type": "group_seen_by", "group_id": gid, "user": username, "time": now_seen})
+                    elif data.get("type") == "viewing" and username:
+                        kind = data.get("kind"); new = None
+                        if kind == "dm":
+                            peer = str(data.get("peer") or "").strip()[:20]
+                            if peer and peer in get_friend_data(username)["friends"]: new = ("dm", peer.lower())
+                        elif kind == "group":
+                            gid = str(data.get("group_id") or "")
+                            g = groups.get(gid)
+                            if g and username.lower() in [m.lower() for m in g.get("members", [])]: new = ("group", gid)
+                        old = viewing_by_ws.get(ws)
+                        if new == old: continue
+                        already_new = bool(new) and _user_viewing(username, *new)
+                        if new: viewing_by_ws[ws] = new
+                        else: viewing_by_ws.pop(ws, None)
+                        if old and not _user_viewing(username, *old): await _notify_viewing(username, old[0], old[1], False)
+                        if new and not already_new: await _notify_viewing(username, new[0], new[1], True)
                     elif data.get("type") == "dm_seen" and username:
                         peer = str(data.get("peer") or "").strip()[:20]
                         if peer and peer in get_friend_data(username)["friends"]:
                             mark_dm_seen(username, peer)
                             await save_dm_last_seen()
 
-                            await notify_social(peer, {"type": "dm_seen_by", "peer": username})
+                            await notify_social(peer, {"type": "dm_seen_by", "peer": username, "time": dm_last_seen.get(username.lower(), {}).get(peer.lower(), time.time())})
                     elif data.get("type") == "dm_typing" and username:
                         peer = str(data.get("to") or "").strip()
                         if peer:
@@ -6107,12 +6218,20 @@ async def social_ws_handler(request):
                         msg_obj = {"from": username, "time": time.time()}
                         if text: msg_obj["text"] = text
                         if image_url: msg_obj["image_url"] = image_url
+                        rt = data.get("reply_to"); reply_obj = None
+                        if isinstance(rt, dict):
+                            rfrom = str(rt.get("from", ""))[:30]; rtext = str(rt.get("text", ""))[:120]
+                            # only quote something that really is in this group's history
+                            if rfrom and rtext and any(str(x.get("from", "")).lower() == rfrom.lower() and ((x.get("text") or "") or "[image]")[:120] == rtext for x in group_messages.get(gid, [])):
+                                reply_obj = {"from": rfrom, "text": rtext}
+                        if reply_obj: msg_obj["reply_to"] = reply_obj
                         group_messages.setdefault(gid, []).append(msg_obj)
                         if len(group_messages[gid]) > MAX_DM_HISTORY: group_messages[gid] = group_messages[gid][-MAX_DM_HISTORY:]
                         await save_group_messages(gid)
                         fanout = {"type": "group_msg", "group_id": gid, "group_name": g.get("name", ""), "from": username, "time": msg_obj["time"]}
                         if text: fanout["text"] = text
                         if image_url: fanout["image_url"] = image_url
+                        if reply_obj: fanout["reply_to"] = reply_obj
                         try: print(f"[group {gid}] {username}: ({len(text or '')} chars){' [img]' if image_url else ''}", flush=True)
                         except: pass
                         for member in g.get("members", []):
@@ -6127,8 +6246,13 @@ async def social_ws_handler(request):
         _ws_release(_ws_ip)
         was_authed = bool(social_clients.get(ws))
         disconnected_user = social_clients.get(ws)
+        _old_view = viewing_by_ws.pop(ws, None)
+        _online_dec(social_clients.get(ws))
         del social_clients[ws]
         social_ips.pop(ws, None)
+        if _old_view and disconnected_user and not _user_viewing(disconnected_user, *_old_view):
+            try: await _notify_viewing(disconnected_user, _old_view[0], _old_view[1], False)
+            except Exception: pass
         if was_authed:
             await broadcast_online_all_lobbies()
             still_online = any(uname and uname.lower() == disconnected_user.lower() for uname in social_clients.values())
@@ -6261,6 +6385,9 @@ async def websocket_handler(request):
                         grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                         if is_fake_admin(username): grid_msg["fake_admin"] = True
                         await send_grid_to_ws(ws, grid_msg, lobby["grid"])
+                        if lobby.get("pixel_counts"):
+                            try: await ws.send_json({"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
+                            except Exception: pass
                         await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{username} joined"})
                         discord_forward_event(lobby_id, username, "joined")
                         await broadcast_online_lobby(lobby_id)
@@ -6277,6 +6404,9 @@ async def websocket_handler(request):
                         username = ""; lobby_id = lid
                         _clients_set(ws, {"username": "", "guest": True, "lobby_id": lobby_id, "ip": get_client_ip(request), "can_place": False, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch"))})
                         await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": False, "brush_perm": {"size": 1, "drag": False}}, lobby["grid"])
+                        if lobby.get("pixel_counts"):
+                            try: await ws.send_json({"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
+                            except Exception: pass
 
                     elif data["type"] == "pixel" and username and lobby_id:
                         if not clients.get(ws, {}).get("can_place", True):
@@ -6802,13 +6932,23 @@ def discord_forward_event(lobby_id, username, kind):
 
 # Which sockets are in which lobby, so a broadcast only touches that lobby's players instead of scanning every connection.
 lobby_members = {}
+online_sockets = {}                  # player (lowercase) -> how many of their sockets are connected (lobby + homepage); len() = players online
+def _online_inc(name):
+    if name: k = name.lower(); online_sockets[k] = online_sockets.get(k, 0) + 1
+def _online_dec(name):
+    if name:
+        k = name.lower(); n = online_sockets.get(k, 0) - 1
+        if n > 0: online_sockets[k] = n
+        else: online_sockets.pop(k, None)
 def _clients_set(ws, info):
     """Register/replace a socket's info and keep lobby_members in step with it."""
     _clients_forget(ws)
     clients[ws] = info
     if info and info.get("lobby_id"): lobby_members.setdefault(info["lobby_id"], set()).add(ws)
+    if info: _online_inc(info.get("username"))
 def _clients_forget(ws):
     old = clients.get(ws)
+    if old: _online_dec(old.get("username"))
     if old and old.get("lobby_id") in lobby_members:
         lobby_members[old["lobby_id"]].discard(ws)
         if not lobby_members[old["lobby_id"]]: lobby_members.pop(old["lobby_id"], None)
@@ -6866,10 +7006,19 @@ async def flush_pixels(lobby_id):
             for it in mine: pairs.append((ws, singles[lst.index(it)]))
     await _send_many(pairs)
 
+_grid_zip_cache = {}
 def _compress_grid(grid_bytes):
     """zlib-compress the raw grid bytes. Mostly-empty 1024x1024 grids drop from 1MB
-    to ~5KB; dense art still drops 30-50%."""
-    return zlib.compress(bytes(grid_bytes), level=6)
+    to ~5KB; dense art still drops 30-50%. The result is remembered while the canvas is identical (a crowd joining the same lobby
+    used to compress the whole canvas once per person)."""
+    raw = bytes(grid_bytes)
+    key = hashlib.blake2b(raw, digest_size=16).digest() + len(raw).to_bytes(4, "little")
+    hit = _grid_zip_cache.get(key)
+    if hit is not None: return hit
+    z = zlib.compress(raw, level=6)
+    if len(_grid_zip_cache) >= 6: _grid_zip_cache.pop(next(iter(_grid_zip_cache)))
+    _grid_zip_cache[key] = z
+    return z
 
 async def send_grid_to_ws(ws, meta_dict, grid_bytes):
     info = clients.get(ws) or {}
@@ -6911,36 +7060,34 @@ async def broadcast_online_all_lobbies():
     for lid in active_lobbies:
         await broadcast_online_lobby(lid)
 
+def _global_online_total():
+    """Unique logged-in players across lobby and homepage sockets (an exact running count, so this is instant)."""
+    return len(online_sockets)
+
 async def broadcast_online_lobby(lobby_id):
-    count = sum(1 for info in clients.values() if info and info.get("username") and info.get("lobby_id") == lobby_id)
-                                                                                               
-    total_seen = set()
-    for info in clients.values():
-        if not info: continue
-        n = info.get("username")
-        if n: total_seen.add(n.lower())
-    for uname in social_clients.values():
-        if uname: total_seen.add(uname.lower())
-    total = len(total_seen)
-                                                                                                                    
-    seen = set()
-    users = []
-    for info in clients.values():
-        if not info or info.get("lobby_id") != lobby_id:
-            continue
-        n = info.get("username")
-        if n and n.lower() not in seen:
-            seen.add(n.lower())
-            users.append(n)
-    await broadcast_to_lobby(lobby_id, {"type": "online", "count": count, "total": total, "users": users})
+    seen = set(); users = []; count = 0
+    for ws in list(lobby_members.get(lobby_id, ())):
+        info = clients.get(ws)
+        n = info.get("username") if info else None
+        if not n: continue
+        count += 1
+        if n.lower() not in seen:
+            seen.add(n.lower()); users.append(n)
+    await broadcast_to_lobby(lobby_id, {"type": "online", "count": count, "total": _global_online_total(), "users": users})
 
 async def leaderboard_broadcast_loop(app):
+    last_sent = {}
     while True:
         await asyncio.sleep(5)
-        for lid, lobby in list(lobbies.items()):
-            online = sum(1 for c in clients.values() if c and c.get("lobby_id") == lid)
-            if online > 0 and lobby.get("pixel_counts"):
-                await broadcast_to_lobby(lid, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
+        for lid in list(lobby_members):                       # only lobbies somebody is in
+            lobby = lobbies.get(lid)
+            if not lobby or not lobby.get("pixel_counts"): continue
+            board = get_leaderboard_top10(lobby)
+            key = json.dumps(board)
+            if last_sent.get(lid) == key: continue            # nothing changed since the last broadcast: send nothing
+            last_sent[lid] = key
+            await broadcast_to_lobby(lid, {"type": "leaderboard_update", "leaderboard": board})
+        for lid in [l for l in last_sent if l not in lobby_members]: last_sent.pop(lid, None)
 
 async def cleanup_inactive_lobbies(app):
     while True:
@@ -8386,7 +8533,7 @@ for _path, _h in (
     ("/api/sketch/leave", sketch_leave_handler), ("/api/night-event/join", night_event_join_handler),
     ("/api/admin/night-event-trigger", admin_night_event_trigger_handler),
     ("/api/clans/remove-member", clan_remove_member_handler), ("/api/groups/create", group_create_handler),
-    ("/api/groups/leave", group_leave_handler), ("/api/groups/add-member", group_add_member_handler),
+    ("/api/groups/leave", group_leave_handler), ("/api/groups/rename", group_rename_handler), ("/api/groups/add-member", group_add_member_handler),
     ("/api/clans/create", clan_create_handler), ("/api/clans/request-join", clan_request_join_handler),
     ("/api/clans/handle-request", clan_handle_request_handler),
     ("/api/clans/update-color", clan_update_color_handler),
@@ -8409,4 +8556,7 @@ for _path, _h in (
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     print(f"Starting EzPlace server on port {port}")
+    try:
+        import uvloop; asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    except Exception: pass
     web.run_app(app, host="0.0.0.0", port=port)
