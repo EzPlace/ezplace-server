@@ -84,6 +84,9 @@
   @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
   .msg { animation: fadeIn 0.2s ease; }
+  .lobby-card.current { opacity: .55; cursor: not-allowed; border-color: var(--green) !important; background: rgba(94,194,122,0.07) !important; }
+  .lobby-card.current:hover { transform: none !important; }
+  .lobby-here { margin-left: 6px; padding: 1px 8px; border-radius: 8px; font-size: 10px; font-weight: 800; background: var(--green); color: #000; vertical-align: middle; }
   .lobby-card { animation: slideIn 0.2s ease; transition: all 0.2s ease; }
   .friend-item { animation: fadeIn 0.15s ease; }
   .lb-row { animation: fadeIn 0.15s ease; }
@@ -167,7 +170,8 @@
   #menu-brand { display: flex; align-items: center; gap: 10px; }
   #menu-title { font-size: 24px; font-weight: 700; letter-spacing: -0.6px; color: var(--text-primary); line-height: 1; }
   #menu-logo { width: 34px; height: auto; display: block; }
-  #menu-notice { margin: 0 0 12px; padding: 8px 12px; font-size: 11px; line-height: 1.45; text-align: center; color: var(--text-muted); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; }
+  #menu-msg { text-align: center; font-size: 12px; font-weight: 500; color: var(--text-secondary); min-height: 16px; margin: -2px 0 6px; padding: 0 14px; line-height: 1.35; transition: opacity .35s; }
+  #menu-msg.out { opacity: 0; }
   #menu-online { display: flex; align-items: center; justify-content: center; gap: 6px; margin: -6px 0 10px; font-size: 11px; font-weight: 600; color: var(--text-muted); flex-shrink: 0; }
   #menu-online .mo-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(94,194,122,0.6); }
   #menu-subtitle { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.2px; padding-bottom: 14px; flex-shrink: 0; }
@@ -245,6 +249,16 @@
   .fs-item { position: absolute; left: 0; top: 0; width: 56px; height: 34px; display: none; pointer-events: none; }
   .fs-item svg { width: 100%; height: 100%; overflow: visible; }
   #btn-fish-trade.alert { border-color: #f0b232; box-shadow: 0 0 0 2px rgba(240,178,50,0.35); }
+  .mk-tabs { display: flex; gap: 4px; }
+  .mk-tab { flex: 1; padding: 6px 4px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .mk-tab.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .mk-list { display: flex; flex-direction: column; gap: 5px; max-height: 340px; overflow-y: auto; padding-right: 2px; }
+  .mk-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,0.04); border-radius: 8px; }
+  .mk-art { width: 40px; height: 28px; flex-shrink: 0; } .mk-art svg, .mk-art img { width: 100%; height: 100%; display: block; }
+  .mk-info { flex: 1; min-width: 0; } .mk-name { font-size: 13px; font-weight: 700; } .mk-sub { font-size: 11px; }
+  .mk-tag { margin-left: 4px; padding: 0 5px; border-radius: 6px; font-size: 9px; font-weight: 700; background: rgba(255,255,255,0.08); color: var(--text-muted); }
+  .mk-tag.good { background: rgba(94,194,122,0.2); color: var(--green); } .mk-tag.high { background: rgba(240,100,100,0.18); color: var(--red); }
+  .mk-buy { display: flex; align-items: center; gap: 4px; flex-shrink: 0; } .mk-qty { width: 54px !important; padding: 4px 6px !important; }
   .trade-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
   .trade-title { font-size: 14px; font-weight: 700; }
   .trade-sub, .trade-dim { font-size: 11px; color: var(--text-muted); }
@@ -1094,6 +1108,7 @@
 <div id="clan-create-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:380px;max-width:100%;padding:18px;display:flex;flex-direction:column;gap:10px;">
     <div style="font-weight:700;font-size:15px;">Create Clan</div>
+    <div style="font-size:12px;font-weight:700;color:var(--gold);">Costs <span id="clan-create-cost">70 $</span> PlaceBux (the same as a custom rank)</div>
     <div style="font-size:11px;color:var(--text-muted);">You become the owner right away and other players can request to join. Clans are deleted after 7 days with no member online, or after 3 weeks if they still have fewer than 3 people.</div>
     <input id="clan-create-name" class="win-input" type="text" placeholder="Clan name (max 30 chars) - this is also your chat rank tag" maxlength="30">
     <div style="display:flex;align-items:center;gap:8px;">
@@ -1409,11 +1424,11 @@
       <div id="menu-brand"><button id="btn-account-settings" class="menu-mini-btn" title="Settings" style="display:none"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Settings</span></button><div id="menu-title">EzPlace</div><img id="menu-logo" src="data:image/png;base64,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" alt=""><button id="btn-notifications" class="menu-mini-btn" title="Notifications" style="display:none"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Notifications</span><span id="notif-badge" class="notif-badge" style="display:none"></span></button></div>
       <button id="menu-close" class="menu-icon-btn" title="Back to lobby" style="display:none"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <div id="menu-online" title="Players online right now"><span class="mo-dot"></span><span id="menu-online-text">-- online</span></div>
+    <div id="menu-msg"></div>
+    <div id="menu-online" title="Players online right now"><span class="mo-dot"></span><span id="menu-online-text">Loading...</span></div>
     <div id="menu-subtitle" style="display:none"></div>
     <div id="menu-body">
       <div class="menu-view active" id="menu-view-home">
-        <div id="menu-notice">Due to EzPlace having a low player count, it is no longer being updated until there is more site activity. Updated last October 14, 2026</div>
         <div id="menu-home-auth" class="menu-grid">
           <button class="menu-btn primary wide" id="btn-menu-register">Create Account</button>
           <button class="menu-btn wide" id="btn-menu-login">I already have an account</button>
@@ -1897,6 +1912,8 @@
         <button class="menu-btn primary wide" id="btn-fish-cast">Cast line</button>
         <button class="menu-btn wide" id="btn-fish-trade">Trade</button>
         <div id="fish-trade-panel" style="display:none"></div>
+        <button class="menu-btn wide" id="btn-fish-market">Market</button>
+        <div id="fish-market-panel" style="display:none"></div>
         <div id="fish-map-panel"></div>
         <div id="fish-rod-panel"></div>
         <div id="fish-stats"></div>
@@ -2108,11 +2125,130 @@ async function refreshMenuOnline() {
   if (n === null) {
     try { const r = await fetch('/api/lobbies', { cache: 'no-store' }); const d = await r.json(); n = (d.lobbies || []).reduce((a, l) => a + (typeof l.online === 'number' ? l.online : 0), 0); } catch {}
   }
-  if (n !== null) { if (authToken && n < 1) { n = 1; setTimeout(refreshMenuOnline, 2000); } el.textContent = n + ' online'; }
+  if (n !== null) {
+    // right after logging in the server may not have counted us yet and says 0: keep showing Loading... and ask again, instead of flashing a wrong number
+    if (authToken && n < 1) { if (_onlineZeroTries++ < 4) { setTimeout(refreshMenuOnline, 1500); return; } n = 1; }
+    _onlineZeroTries = 0; el.textContent = n + ' online';
+  }
   else setTimeout(refreshMenuOnline, 3000);
 }
+let _onlineZeroTries = 0;
 function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen() && !document.hidden) refreshMenuOnline(); }, 8000); }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && menuIsOpen()) refreshMenuOnline(); });
+// ---- Rotating menu messages (kept right here so nothing has to be fetched; the same list is in randommsg.txt) ----
+const MENU_MESSAGES = [
+    "hi",
+  "now is your chance to be a BIG SHOT!",
+  "thats niche bro",
+  "join the discord server for update announcements, link drops, and other stuff",
+  "draw something stop looking here",
+  "this place is ez bro",
+  "i don't really know what to write here",
+  "👍",
+  "invite your friends here if you even have any",
+  "why am I writing this again?",
+  "plz join the discord? 👉👈",
+  "ezplace's server is running on hopes and dreams not electricity",
+  "suggest an update",
+  "pixels are free but your time isnt",
+  "fish. thats it. thats the game",
+  "have you fished today? your bucket misses you",
+  "the casino always wins. except when it doesnt",
+  "clans: because friends are cheaper than enemies",
+  "a wild pixel appeared",
+  "your drawing is a masterpiece. probably",
+  "draw a dog. nobody will question it",
+  "fun fact: this message was written at 3am",
+  "PlaceBux cant buy happiness but they can buy packs",
+  "the leaderboard is watching you",
+  "please dont draw that",
+  "pro tip: undo exists",
+  "who needs sleep when there are pixels",
+  "trade your fish before they swim away",
+  "one more pixel and then ill stop",
+  "the mythic fish is very rare. good luck",
+  "definitely not a pyramid scheme",
+  "this message is brought to you by nothing",
+  "press F to pay respects to your cooldown",
+  "meow",
+  "you found a secret message! just kidding, theres like 100 of them",
+  "the cat pack costs 500 PlaceBux. cats are worth it",
+  "sometimes the best art is a single red pixel",
+  "rare fish are rare. thats why theyre called rare",
+  "pixel by pixel, we build something mediocre",
+  "touch grass. then come back and draw some",
+  "ask your friends to play. or dont. im not your boss",
+  "abyss fish look scary but theyre just vibing",
+  "is it art? who knows",
+  "imagine losing at slots lol (me)",
+  "EzPlace: now with 100% more fish",
+  "have you hugged a pixel today",
+  "wow you read this whole thing",
+  "keep clicking, something might happen",
+  "buy a rod. snap a rod. repeat",
+  "your PlaceBux are safe with us (probably)",
+  "sans wants you to try the indie pack",
+  "no refunds on lost bets",
+  "friends make lobbies less lonely",
+  "who put this here",
+  "draw a smiley face and call it a day",
+  "fishing is just gambling with extra steps",
+  "slay your cooldown",
+  "we ran out of ideas around message 40",
+  "i love you for reading this",
+  "rate this message 5 stars",
+  "free real estate (the canvas)",
+  "big pixel energy",
+  "you can open the menu inside a lobby now. the future is here",
+  "remember to save your masterpiece as a png",
+  "if you read this you owe me a pixel",
+  "the discord has memes. sometimes",
+  "todays forecast: pixels with a chance of fish",
+  "you vs the cooldown",
+  "gm gn gg",
+  "no thoughts, just pixels",
+  "daily reminder to drink water and place pixels",
+  "this canvas has seen things",
+  "the slot machine says 7. life says 3",
+  "shoutout to everyone who reads these",
+  "you could be doing homework but here we are",
+  "a pixel a day keeps the boredom away",
+  "type @ in a group chat. you can mention people now",
+  "you can rename group chats now. go nuts",
+  "trading fish is a real thing here. try it",
+  "the fish market is open. prices are made up",
+  "fish go brrr",
+  "someone out there is drawing a very bad cat right now",
+  "mythic fish: the final boss of fishing",
+  "your cursor is someones favorite cursor",
+  "the real treasure was the pixels we placed along the way",
+  "bet it all on red. then bet it again",
+  "i would draw something but im stuck on the first pixel",
+  "if the canvas is empty, you are the main character",
+  "fresh pixels, hot off the press",
+  "a lobby without you is just a rectangle",
+  "tip: the more you fish the more you fish",
+  "collect all the fish. then collect the rest",
+  "ez means easy. this was not easy to build",
+  "the cooldown is a suggestion",
+  "pixel art is just really slow painting",
+  "please enjoy this randomly selected message",
+  "somewhere a crab is judging your fishing skills",
+  "this place is ez, but the fish are not",
+  "check your bucket. i believe in you",
+  "the algorithm picked this message just for you"
+];
+(function menuMessages() {
+  const el = document.getElementById('menu-msg'); if (!el) return;
+  let last = -1;
+  const pick = () => { let i; do { i = Math.floor(Math.random() * MENU_MESSAGES.length); } while (i === last && MENU_MESSAGES.length > 1); last = i; return MENU_MESSAGES[i]; };
+  el.textContent = pick();
+  setInterval(() => {
+    if (document.hidden || !menuIsOpen()) return;
+    el.classList.add('out');
+    setTimeout(() => { el.textContent = pick(); el.classList.remove('out'); }, 350);
+  }, 5000);
+})();
 function openMenuView(name, resetHistory) {
   updateMenuOnlineVisibility();
   startMenuOnlinePoll();
@@ -2464,10 +2600,10 @@ async function tradeApi(path, body) {
     return await r.json();
   } catch { return { error: 'Server offline' }; }
 }
-function showTradeToast(text, onClick) {
+function showTradeToast(text, onClick, title) {
   const container = document.getElementById('dm-toast-container'); if (!container) return;
   const toast = document.createElement('div'); toast.className = 'dm-toast';
-  toast.innerHTML = '<div class="dm-toast-from">\u{1F91D} Trade</div><div class="dm-toast-text">' + esc(text) + '</div>';
+  toast.innerHTML = '<div class="dm-toast-from">' + esc(title || '\u{1F91D} Trade') + '</div><div class="dm-toast-text">' + esc(text) + '</div>';
   toast.onclick = () => { toast.classList.add('closing'); setTimeout(() => toast.remove(), 250); if (onClick) onClick(); };
   container.appendChild(toast);
   setTimeout(() => { if (!toast.parentNode) return; toast.classList.add('closing'); setTimeout(() => toast.remove(), 250); }, 8000);
@@ -2577,6 +2713,110 @@ function tradeFinished(t) {
   fishLoad(); tradeRender();
 }
 document.getElementById('btn-fish-trade').onclick = tradeToggle;
+// ---- Fish market (player-to-player; fish only) ----
+let marketOpen = false, marketTab = 'browse', marketData = null, marketMsg = '', marketMsgColor = '';
+const marketFilter = { q: '', rarity: '', sort: 'price' };
+const marketSell = { fish: '', qty: 1, price: 1 };
+async function marketApi(path, body) {
+  try {
+    const r = await fetch(BACKEND + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: body ? JSON.stringify(body) : undefined });
+    return await r.json();
+  } catch { return { error: 'Server offline' }; }
+}
+function marketSetMsg(t, c) { marketMsg = t || ''; marketMsgColor = c || ''; }
+function marketToggle() { marketOpen = !marketOpen; marketRender(); if (marketOpen) marketLoad(); }
+async function marketLoad() {
+  if (!authToken || !marketOpen) return;
+  const qs = marketTab === 'mine' ? 'mine=1' : 'q=' + encodeURIComponent(marketFilter.q) + '&rarity=' + encodeURIComponent(marketFilter.rarity) + '&sort=' + marketFilter.sort;
+  const d = await marketApi('/api/market/list?' + qs);
+  if (d.error) marketSetMsg(d.error, 'var(--red)'); else marketData = d;
+  marketRender();
+}
+function marketAgo(sec) { return sec < 3600 ? Math.max(1, Math.round(sec / 60)) + 'm' : sec < 86400 ? Math.round(sec / 3600) + 'h' : Math.round(sec / 86400) + 'd'; }
+function marketRow(l, mine) {
+  const col = FISH_RARITY_COLORS[l.rarity] || '#888';
+  const vs = l.price < l.value ? '<span class="mk-tag good">below value</span>' : (l.price > l.value ? '<span class="mk-tag high">above value</span>' : '<span class="mk-tag">at value</span>');
+  const right = mine
+    ? '<button class="map-btn trade-grey" data-mkcancel="' + esc(l.id) + '">Cancel</button>'
+    : '<div class="mk-buy"><input type="number" class="win-input mk-qty" min="1" max="' + l.qty + '" value="1" data-mkqty="' + esc(l.id) + '"><button class="map-btn" data-mkbuy="' + esc(l.id) + '">Buy <span data-mktotal="' + esc(l.id) + '">' + l.price + '</span></button></div>';
+  return '<div class="mk-row" style="border-left:3px solid ' + col + '"><div class="mk-art">' + fishArt({ id: l.fish, rarity: l.rarity }) + '</div>'
+    + '<div class="mk-info"><div class="mk-name">' + esc(l.name) + ' <span class="trade-dim">x' + l.qty + '</span></div>'
+    + '<div class="mk-sub"><b>' + l.price + '</b> each · worth ' + l.value + ' ' + vs + '</div>'
+    + '<div class="mk-sub trade-dim">' + (mine ? 'listed ' + marketAgo(l.age) + ' ago' : 'by ' + esc(l.seller)) + '</div></div>' + right + '</div>';
+}
+function marketRender() {
+  const panel = document.getElementById('fish-market-panel'), btn = document.getElementById('btn-fish-market');
+  if (!panel) return;
+  panel.style.display = marketOpen ? '' : 'none';
+  if (btn) btn.textContent = marketOpen ? 'Market (close)' : 'Market';
+  if (!marketOpen) return;
+  const d = marketData || { listings: [], total: 0, my_count: 0, max_listings: 20, fee: 0.05, ttl_days: 14, balance: (fishState && fishState.balance) || 0 };
+  const msg = marketMsg ? '<div class="trade-note" style="color:' + (marketMsgColor || 'var(--text-muted)') + '">' + esc(marketMsg) + '</div>' : '';
+  const tabs = '<div class="mk-tabs">' + [['browse', 'Browse'], ['sell', 'Sell'], ['mine', 'My listings' + (d.my_count ? ' (' + d.my_count + ')' : '')]].map(([id, label]) => '<button class="mk-tab' + (marketTab === id ? ' on' : '') + '" data-mktab="' + id + '">' + label + '</button>').join('') + '</div>';
+  let body = '', have = 0, cap = 0;
+  if (marketTab === 'browse') {
+    body = '<div class="trade-row"><input id="mk-q" class="win-input" placeholder="Search fish" maxlength="30" value="' + esc(marketFilter.q) + '">'
+      + '<select id="mk-rarity" class="win-input" style="width:auto"><option value="">All rarities</option>' + FISH_RARITY_ORDER.map(r => '<option value="' + r + '"' + (marketFilter.rarity === r ? ' selected' : '') + '>' + r + '</option>').join('') + '</select>'
+      + '<select id="mk-sort" class="win-input" style="width:auto"><option value="price"' + (marketFilter.sort === 'price' ? ' selected' : '') + '>Cheapest first</option><option value="newest"' + (marketFilter.sort === 'newest' ? ' selected' : '') + '>Newest</option><option value="value"' + (marketFilter.sort === 'value' ? ' selected' : '') + '>Most valuable</option></select></div>'
+      + '<div class="mk-list">' + (d.listings.length ? d.listings.map(l => marketRow(l, false)).join('') : '<div class="trade-dim" style="padding:8px">No fish for sale' + (marketFilter.q || marketFilter.rarity ? ' matching that' : ' yet') + '. Be the first to list some in the Sell tab.</div>') + '</div>'
+      + (d.total > d.listings.length ? '<div class="trade-dim">Showing ' + d.listings.length + ' of ' + d.total + ' - search to narrow it down.</div>' : '');
+  } else if (marketTab === 'mine') {
+    body = '<div class="mk-list">' + (d.listings.length ? d.listings.map(l => marketRow(l, true)).join('') : '<div class="trade-dim" style="padding:8px">You have nothing listed.</div>') + '</div><div class="trade-dim">Unsold fish come back to your bucket after ' + d.ttl_days + ' days.</div>';
+  } else {
+    const inv = (fishState && fishState.inv) || {};
+    const owned = ((fishState && fishState.catalog) || []).filter(it => inv[it.id] > 0).sort((a, b) => b.value - a.value);
+    if (!marketSell.fish || !(inv[marketSell.fish] > 0)) { marketSell.fish = owned.length ? owned[0].id : ''; if (marketSell.fish) { marketSell.price = (owned[0].value) || 1; marketSell.qty = 1; } }
+    const it = owned.find(x => x.id === marketSell.fish);
+    have = it ? inv[it.id] : 0; cap = it ? Math.max(50, 10 * it.value) : 0;
+    const recv = Math.floor(marketSell.price * marketSell.qty * (1 - d.fee));
+    body = owned.length
+      ? '<div class="trade-row"><label class="trade-dim" style="min-width:60px">Fish</label><select id="mk-fish" class="win-input" style="flex:1">' + owned.map(x => '<option value="' + esc(x.id) + '"' + (x.id === marketSell.fish ? ' selected' : '') + '>' + esc(x.name) + ' (have ' + inv[x.id] + ', worth ' + x.value + ')</option>').join('') + '</select></div>'
+        + '<div class="trade-row"><label class="trade-dim" style="min-width:60px">How many</label><input id="mk-sqty" class="win-input" type="number" min="1" max="' + have + '" value="' + marketSell.qty + '"><label class="trade-dim">Price each</label><input id="mk-sprice" class="win-input" type="number" min="1" max="' + cap + '" value="' + marketSell.price + '"></div>'
+        + '<div class="trade-dim">Max price ' + cap + ' each. A ' + Math.round(d.fee * 100) + '% fee is taken: you would receive <b style="color:var(--gold)">' + recv + ' PlaceBux</b> if it all sells. You can have ' + d.max_listings + ' listings (' + d.my_count + ' used).</div>'
+        + '<div class="trade-row"><button class="map-btn" id="mk-list">List for sale</button></div>'
+      : '<div class="trade-dim" style="padding:8px">Your bucket is empty - catch some fish to sell.</div>';
+  }
+  panel.innerHTML = '<div class="trade-card"><div class="trade-title">Fish Market</div><div class="trade-sub">Buy and sell fish with other players. Balance: <b>' + ((fishState && fishState.balance) || d.balance || 0) + '</b> PlaceBux</div>' + tabs + msg + body + '</div>';
+  const $ = (id) => panel.querySelector('#' + id);
+  panel.querySelectorAll('[data-mktab]').forEach(b => { b.onclick = () => { marketTab = b.dataset.mktab; marketSetMsg(''); marketData = null; marketRender(); marketLoad(); }; });
+  let qT = 0;
+  if ($('mk-q')) $('mk-q').oninput = (e) => { marketFilter.q = e.target.value; clearTimeout(qT); qT = setTimeout(marketLoad, 350); };
+  if ($('mk-rarity')) $('mk-rarity').onchange = (e) => { marketFilter.rarity = e.target.value; marketLoad(); };
+  if ($('mk-sort')) $('mk-sort').onchange = (e) => { marketFilter.sort = e.target.value; marketLoad(); };
+  panel.querySelectorAll('[data-mkqty]').forEach(inp => {
+    const l = (d.listings || []).find(x => x.id === inp.dataset.mkqty); if (!l) return;
+    inp.oninput = () => { const q = Math.max(1, Math.min(l.qty, parseInt(inp.value) || 1)); const t = panel.querySelector('[data-mktotal="' + l.id + '"]'); if (t) t.textContent = l.price * q; };
+  });
+  panel.querySelectorAll('[data-mkbuy]').forEach(b => { b.onclick = async () => {
+    const id = b.dataset.mkbuy, inp = panel.querySelector('[data-mkqty="' + id + '"]'), qty = Math.max(1, parseInt(inp && inp.value) || 1);
+    b.disabled = true;
+    const r = await marketApi('/api/market/buy', { listing_id: id, qty });
+    if (r.state) fishApplyState(r.state);
+    if (r.error) marketSetMsg(r.error, 'var(--red)'); else marketSetMsg('Bought ' + r.bought + ' for ' + r.paid + ' PlaceBux - they are in your bucket.', 'var(--green)');
+    marketLoad();
+  }; });
+  panel.querySelectorAll('[data-mkcancel]').forEach(b => { b.onclick = async () => {
+    b.disabled = true;
+    const r = await marketApi('/api/market/cancel', { listing_id: b.dataset.mkcancel });
+    if (r.state) fishApplyState(r.state);
+    if (r.error) marketSetMsg(r.error, 'var(--red)'); else marketSetMsg('Listing cancelled - the fish are back in your bucket.', 'var(--green)');
+    marketLoad();
+  }; });
+  if ($('mk-fish')) {
+    $('mk-fish').onchange = (e) => { marketSell.fish = e.target.value; const it2 = ((fishState && fishState.catalog) || []).find(x => x.id === marketSell.fish); marketSell.price = it2 ? it2.value : 1; marketSell.qty = 1; marketRender(); };
+    $('mk-sqty').oninput = (e) => { marketSell.qty = Math.max(1, Math.min(have, parseInt(e.target.value) || 1)); };
+    $('mk-sprice').oninput = (e) => { marketSell.price = Math.max(1, Math.min(cap, parseInt(e.target.value) || 1)); };
+    $('mk-sqty').onchange = $('mk-sprice').onchange = () => marketRender();
+    $('mk-list').onclick = async () => {
+      const r = await marketApi('/api/market/create', { fish_id: marketSell.fish, qty: marketSell.qty, price: marketSell.price });
+      if (r.state) fishApplyState(r.state);
+      if (r.error) { marketSetMsg(r.error, 'var(--red)'); marketRender(); }
+      else { marketSetMsg('Listed! It shows in the Browse tab and under My listings.', 'var(--green)'); marketSell.qty = 1; marketTab = 'mine'; marketData = null; marketRender(); marketLoad(); }
+    };
+  }
+}
+document.getElementById('btn-fish-market').onclick = marketToggle;
+
 function fishRenderRod() {
   const panel = document.getElementById('fish-rod-panel');
   if (!panel || !fishState || !fishState.rod) return;
@@ -3245,7 +3485,7 @@ document.querySelectorAll('.menu-tab[data-ftab]').forEach(t => {
     fishRender();
   };
 });
-menuViewHooks.fishing = { enter: () => { fsSetup(); fishLoad(); tradeLoad(); if (!fishTick) fishTick = setInterval(fishUpdateCooldown, 500); }, leave: () => { if (fishTick) { clearInterval(fishTick); fishTick = null; } } };
+menuViewHooks.fishing = { enter: () => { fsSetup(); fishLoad(); tradeLoad(); if (marketOpen) marketLoad(); if (!fishTick) fishTick = setInterval(fishUpdateCooldown, 500); }, leave: () => { if (fishTick) { clearInterval(fishTick); fishTick = null; } } };
 function updateSidebarTabs() {
   const authed = !!authToken;
   const inLobby = !!currentLobbyId;
@@ -8623,6 +8863,7 @@ document.getElementById('btn-create-clan').onclick = () => {
   if (!authToken) { alert('Log in to create a clan.'); return; }
   document.getElementById('clan-create-modal').style.display = 'flex';
   document.getElementById('clan-create-error').textContent = '';
+  const cc = document.getElementById('clan-create-cost'); if (cc) cc.textContent = String(SHOP_PRICES_LABEL.custom_rank || '70').replace(/[^0-9]/g, '');
 };
 document.getElementById('btn-clan-create-cancel').onclick = () => { document.getElementById('clan-create-modal').style.display = 'none'; };
 document.getElementById('btn-clan-create-submit').onclick = async () => {
@@ -8636,6 +8877,7 @@ document.getElementById('btn-clan-create-submit').onclick = async () => {
     if (data.error) { err.textContent = data.error; return; }
     document.getElementById('clan-create-modal').style.display = 'none';
     addSystemMsg('Clan created. Players can now request to join.');
+    try { const me = await (await fetch(BACKEND + '/api/me', { headers: { Authorization: authToken } })).json(); if (typeof me.balance === 'number') { myBalance = me.balance; applyPbState(); } } catch {}
     loadClans();
   } catch { err.textContent = 'Server offline.'; }
 };
@@ -8648,6 +8890,13 @@ function lobbyCard(l, opts) {
   // Just left this lobby: the server may still count us, so don't show ourselves.
   if (recentlyLeftLobby && recentlyLeftLobby.id === l.id && Date.now() - recentlyLeftLobby.ts < 4000) online = Math.max(0, online - 1);
   card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${opts.meta} &middot; ${l.width}x${l.height} &middot; ${l.cooldown}s cd</div>${expiryLine}</div><div class="lobby-bottom"><span class="lobby-online${online ? '' : ' empty'}" title="People in this lobby right now">${online} online</span>${opts.actions || ''}</div>`;
+  if (currentLobbyId && currentLobbyId === l.id) {
+    // the lobby you are already in: show it, but it cannot be clicked (use X / Escape to go back to it)
+    card.classList.add('current'); card.title = 'You are already in this lobby';
+    const t = card.querySelector('.lobby-title'); if (t) t.insertAdjacentHTML('beforeend', ' <span class="lobby-here">You are here</span>');
+    card.onclick = e => { if (!e.target.closest('.lobby-actions')) e.preventDefault(); };
+    return card;
+  }
   card.onclick = e => { if (!e.target.closest('.lobby-actions')) joinLobby(l.id, l.name); };
   return card;
 }
@@ -8686,6 +8935,7 @@ function resetLobbyUi() {
 }
 
 function joinLobby(id, name) {
+  if (currentLobbyId && currentLobbyId === id && ws && ws.readyState === WebSocket.OPEN) { hideMenu(); return; }   // already in this lobby (e.g. joined again by code): just go back to it
   if (!authToken && !isGuest) { lobbyError.textContent = 'Login first'; return; }
   const guest = !authToken && isGuest;
   document.body.classList.toggle('guest-mode', guest);
@@ -9018,8 +9268,8 @@ function connectToLobby(lobbyId, lobbyName) {
   ws.binaryType = 'arraybuffer';
   const noDeflate = (typeof DecompressionStream === 'undefined' || typeof ReadableStream === 'undefined' || typeof Response === 'undefined' || !Blob.prototype.stream);
   ws.onopen = () => {
-    if (authToken) ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate, batch: true }));
-    else ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, no_deflate: noDeflate, batch: true }));
+    if (authToken) ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate, batch: true, bin: true }));
+    else ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, no_deflate: noDeflate, batch: true, bin: true }));
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
   };
@@ -9038,6 +9288,15 @@ function connectToLobby(lobbyId, lobbyName) {
       const data = wsQueue.shift();
       try {
         if (data instanceof ArrayBuffer) {
+          const u8 = new Uint8Array(data);
+          if (u8.length && u8[0] === 0xEC) {          // a batch of pixels: 5 bytes each (x, y as 16-bit, colour as 8-bit)
+            for (let i = 1; i + 4 < u8.length; i += 5) {
+              const px = u8[i] | (u8[i + 1] << 8), py = u8[i + 2] | (u8[i + 3] << 8), pc = u8[i + 4];
+              grid[py * GRID_W + px] = pc; setOffscreenPixel(px, py, pc);
+            }
+            render();
+            continue;
+          }
           if (pendingGridMeta) {
             const meta = pendingGridMeta;
             pendingGridMeta = null;
@@ -9448,6 +9707,8 @@ function connectSocial() {
       if (msg.type === 'trade_invite') { tradeSetMsg(''); showTradeToast(msg.trade.partner + ' wants to trade with you - tap to open', () => { openMenuView('fishing'); tradeOpen = true; tradeRender(); }); playNotifSound(); }
       tradeRender();
     }
+    if (msg.type === 'market_sold') { showTradeToast(msg.qty + 'x ' + msg.fish + ' sold to ' + msg.buyer + ' for ' + msg.total + ' PlaceBux', () => { openMenuView('fishing'); marketOpen = true; marketTab = 'mine'; marketRender(); marketLoad(); }, '\u{1F41F} Fish Market'); if (marketOpen) marketLoad(); }
+    if (msg.type === 'market_expired') { showTradeToast('Your ' + msg.qty + 'x ' + msg.fish + ' listing expired - the fish are back in your bucket', null, '\u{1F41F} Fish Market'); fishLoad(); }
     if (msg.type === 'trade_done') { tradeFinished(msg.trade); showTradeToast('Trade with ' + msg.trade.partner + ' complete!'); }
     if (msg.type === 'trade_closed') { fishTrade = null; tradeDraft = null; tradeSetMsg(msg.reason || 'Trade closed', 'var(--red)'); tradeRender(); }
     if (msg.type === 'friend_presence') {
