@@ -2121,7 +2121,7 @@ let _menuOnlineTimer = 0;
 async function refreshMenuOnline() {
   const el = document.getElementById('menu-online-text'); if (!el) return;
   let n = null;
-  try { const r = await fetch('/api/online-summary', { cache: 'no-store' }); if (r.ok) { const d = await r.json(); if (typeof d.total === 'number') n = d.total; } } catch {}
+  try { const r = await fetch('/api/online-summary?lite=1', { cache: 'no-store' }); if (r.ok) { const d = await r.json(); if (typeof d.total === 'number') n = d.total; } } catch {}
   if (n === null) {
     try { const r = await fetch('/api/lobbies', { cache: 'no-store' }); const d = await r.json(); n = (d.lobbies || []).reduce((a, l) => a + (typeof l.online === 'number' ? l.online : 0), 0); } catch {}
   }
@@ -2133,7 +2133,7 @@ async function refreshMenuOnline() {
   else setTimeout(refreshMenuOnline, 3000);
 }
 let _onlineZeroTries = 0;
-function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen() && !document.hidden) refreshMenuOnline(); }, 8000); }
+function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen() && !document.hidden) refreshMenuOnline(); }, 15000); }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && menuIsOpen()) refreshMenuOnline(); });
 // ---- Rotating menu messages (kept right here so nothing has to be fetched; the same list is in randommsg.txt) ----
 const MENU_MESSAGES = [
@@ -2497,7 +2497,7 @@ async function packsEquip(itemId) {
 }
 menuViewHooks.packs = { enter: () => { packsSetMsg(''); packsLoad(); } };
 document.getElementById('btn-menu-packs').onclick = () => requireAuthView('packs');
-setInterval(() => { if (document.visibilityState === 'visible') cosmeticsRefresh(); }, 60000);
+setInterval(() => { if (document.visibilityState === 'visible') cosmeticsRefresh(); }, 300000);
 const FISH_RARITY_COLORS = { common: '#9aa0a6', uncommon: '#5ec27a', rare: '#3b82f6', epic: '#a855f7', legendary: '#e6b04d', mythic: '#ee5a52' };
 const FISH_RARITY_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
 let fishState = null, fishTick = null, fishTab = 'inventory', fishBusy = false, fishReadyAt = 0;
@@ -2509,6 +2509,7 @@ function fishSetStatus(text, color) {
 }
 function fishApplyState(st) {
   if (!st) return;
+  if (!st.catalog && fishState && fishState.catalog) st.catalog = fishState.catalog;   // the server only sends the static catalog once
   fishState = st;
   fishReadyAt = 0;
   if (typeof st.balance === 'number') { myBalance = st.balance; applyPbState(); }
@@ -3794,7 +3795,7 @@ function sendCursor(x, y) {
   if (!ws || ws.readyState !== WebSocket.OPEN || !currentLobbyId) return;
   const now = Date.now();
   if (x === lastSentCursorX && y === lastSentCursorY) return;
-  if (now - lastSentCursorTime < 60) return;
+  if (document.hidden || now - lastSentCursorTime < 150) return;
   lastSentCursorX = x; lastSentCursorY = y; lastSentCursorTime = now;
   ws.send(JSON.stringify({ type: 'cursor', x, y }));
 }
@@ -6776,7 +6777,7 @@ async function sketchOpenAndPoll(rid, initialState) {
   sketchPoll();
 }
 async function sketchPoll() {
-  if (!sketchRoomId) return;
+  if (!sketchRoomId || document.hidden) return;
   try {
     const r = await fetch(BACKEND + '/api/sketch/state?room_id=' + encodeURIComponent(sketchRoomId) + '&since=' + sketchStrokeIdx + '&epoch=' + sketchStrokesEpoch, { headers: { Authorization: authToken } });
     const d = await r.json();
@@ -7965,7 +7966,7 @@ let economyPollTimer = null;
 function startEconomyPoll() {
   stopEconomyPoll();
   loadEconomyStats();
-  economyPollTimer = setInterval(loadEconomyStats, 5000);
+  economyPollTimer = setInterval(() => { if (!document.hidden) loadEconomyStats(); }, 20000);
 }
 function stopEconomyPoll() {
   if (economyPollTimer) { clearInterval(economyPollTimer); economyPollTimer = null; }
@@ -9268,8 +9269,8 @@ function connectToLobby(lobbyId, lobbyName) {
   ws.binaryType = 'arraybuffer';
   const noDeflate = (typeof DecompressionStream === 'undefined' || typeof ReadableStream === 'undefined' || typeof Response === 'undefined' || !Blob.prototype.stream);
   ws.onopen = () => {
-    if (authToken) ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate, batch: true, bin: true }));
-    else ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, no_deflate: noDeflate, batch: true, bin: true }));
+    if (authToken) ws.send(JSON.stringify({ type: 'auth', token: authToken, lobby_id: lobbyId, device_id: deviceId, no_deflate: noDeflate, batch: true, bin: true, curs: true }));
+    else ws.send(JSON.stringify({ type: 'guest_join', lobby_id: lobbyId, no_deflate: noDeflate, batch: true, bin: true, curs: true }));
     addSystemMsg(`Connecting to ${lobbyName}...`);
     document.getElementById('disconnect-banner').style.display = 'none';
   };
@@ -9326,6 +9327,7 @@ function connectToLobby(lobbyId, lobbyName) {
     switch (msg.type) {
       case 'pixels': for (const p of msg.p) { grid[p[1] * GRID_W + p[0]] = p[2]; setOffscreenPixel(p[0], p[1], p[2]); } render(); break;
       case 'pixel': grid[msg.y * GRID_W + msg.x] = msg.color; setOffscreenPixel(msg.x, msg.y, msg.color); render(); break;
+      case 'cursors': { const meLow = (username || '').toLowerCase(); for (const c of msg.c || []) { if (c[0] && c[0].toLowerCase() !== meLow) remoteCursors[c[0].toLowerCase()] = { name: c[0], x: c[1], y: c[2], lastUpdate: Date.now() }; } render(); break; }
       case 'cursor': if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) { remoteCursors[msg.username.toLowerCase()] = { name: msg.username, x: msg.x, y: msg.y, lastUpdate: Date.now() }; render(); } break;
       case 'cursor_remove': if (msg.username) { delete remoteCursors[msg.username.toLowerCase()]; render(); } break;
       case 'brush_perm_update': brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); addSystemMsg(`Your brush perms updated: size=${brushPerm.size}, drag=${brushPerm.drag ? 'on' : 'off'}`); break;
@@ -9366,7 +9368,7 @@ function connectToLobby(lobbyId, lobbyName) {
   }
   ws.onclose = () => { clearInterval(pingInterval); document.getElementById('ping-ms').textContent = '--'; if (!intentionalClose) { document.getElementById('disconnect-banner').style.display = ''; setTimeout(() => location.reload(), 3000); } };
   ws.onerror = () => { ws = null; clearInterval(pingInterval); if (!intentionalClose) { document.getElementById('disconnect-banner').style.display = ''; setTimeout(() => location.reload(), 3000); } };
-  let pingInterval = setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping', time: Date.now() })); }, 3000);
+  let pingInterval = setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping', time: Date.now() })); }, 25000);
 }
 
 document.querySelectorAll('.sidebar-tab').forEach(tab => {
@@ -10946,7 +10948,7 @@ async function ezpVersionCheck() {
     }
   } catch {}
 }
-setInterval(ezpVersionCheck, 45000);
+setInterval(() => { if (!document.hidden) ezpVersionCheck(); }, 120000);
 
 (async () => {
   if (authToken && safeStore.getItem('ezplace_user')) username = safeStore.getItem('ezplace_user');

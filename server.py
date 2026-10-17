@@ -851,6 +851,7 @@ async def save_lobby(lid):
     events_bytes = bytes(lobby.get("events", b""))
     pauthors_bytes = pack_pixel_authors(lobby.get("pixel_authors") or {})
     await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_bytes, "events": events_bytes, "pauthors": pauthors_bytes}}, upsert=True)
+    _bw_add("db", "lobby saves", len(grid_bytes) + len(events_bytes) + len(pauthors_bytes))
     dirty_lobbies.discard(lid)
 
 async def save_all_lobbies():
@@ -858,13 +859,14 @@ async def save_all_lobbies():
         try: await save_lobby(lid)
         except Exception as e: print(f"[save_all_lobbies] {lid} failed: {type(e).__name__}: {e}", flush=True)
 
+LOBBY_SAVE_SECONDS = 180      # each save writes the whole canvas to the database, which is outgoing data; every 3 minutes is plenty (shutdown still saves everything)
 async def flush_dirty_lobbies_loop(app):
-    """Background task: every 60s, save any lobby that has unsaved pixel changes.
-    Worst-case 60s of placements lost on a hard crash (rare), but in-memory state
+    """Background task: every few minutes, save any lobby that has unsaved pixel changes.
+    Worst-case a few minutes of placements lost on a hard crash (rare), but in-memory state
     is authoritative for live clients so nothing visible to users."""
     while True:
         try:
-            await asyncio.sleep(60)
+            await asyncio.sleep(LOBBY_SAVE_SECONDS)
             for lid in list(dirty_lobbies):
                 try:
                     await save_lobby(lid)
@@ -5936,8 +5938,10 @@ async def clan_remove_member_handler(request):
 
 _online_summary_cache = (0.0, None)
 async def online_summary_handler(request):
-    """Total online + per-lobby online + flat user list, for the homepage. Shared by every open menu, so it is built at most once every 2 seconds."""
+    """Total online + per-lobby online + flat user list, for the homepage. Shared by every open menu, so it is built at most once every 2 seconds.
+    `?lite=1` returns only the total (what the menu counter needs) - a few bytes instead of the whole player list."""
     global _online_summary_cache
+    if request.query.get("lite") == "1": return web.json_response({"total": _global_online_total()})
     if time.time() - _online_summary_cache[0] < 2.0 and _online_summary_cache[1] is not None:
         return web.json_response(_online_summary_cache[1])
     payload = _build_online_summary()
@@ -6385,7 +6389,7 @@ async def websocket_handler(request):
                                 except Exception: pass
                         can_place = not lobby["whitelist_enabled"] or username in lobby["whitelist"] or is_admin(username)
                         lobby_id = lid
-                        _clients_set(ws, {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch")), "bin": bool(data.get("bin"))})
+                        _clients_set(ws, {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch")), "bin": bool(data.get("bin")), "curs": bool(data.get("curs"))})
                         await track_ip(username, request)
                         grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                         if is_fake_admin(username): grid_msg["fake_admin"] = True
@@ -6407,7 +6411,7 @@ async def websocket_handler(request):
                         if not lobby or not lobby.get("public"):
                             await ws.send_json({"type": "error", "text": "Guests can only watch public lobbies"}); await ws.close(); break
                         username = ""; lobby_id = lid
-                        _clients_set(ws, {"username": "", "guest": True, "lobby_id": lobby_id, "ip": get_client_ip(request), "can_place": False, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch")), "bin": bool(data.get("bin"))})
+                        _clients_set(ws, {"username": "", "guest": True, "lobby_id": lobby_id, "ip": get_client_ip(request), "can_place": False, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch")), "bin": bool(data.get("bin")), "curs": bool(data.get("curs"))})
                         await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": False, "brush_perm": {"size": 1, "drag": False}}, lobby["grid"])
                         if lobby.get("pixel_counts"):
                             try: await ws.send_json({"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
@@ -6717,8 +6721,8 @@ async def websocket_handler(request):
 
                     elif data["type"] == "cursor" and username and lobby_id:
                         now_c = time.time()
-                        if now_c - last_cursor < 0.1:
-                            continue
+                        if (data.get("x") is not None and data.get("y") is not None) and now_c - last_cursor < 0.15:
+                            continue                                # moves are rate limited; "cursor left the canvas" is always delivered
                         last_cursor = now_c
                         lobby = lobbies.get(lobby_id)
                         if not lobby:
@@ -6728,11 +6732,12 @@ async def websocket_handler(request):
                         x = data.get("x")
                         y = data.get("y")
                         if x is None or y is None:
+                            (_cur_pending.get(lobby_id) or {}).pop(username, None); last_cursor_pos = None
                             await broadcast_to_lobby(lobby_id, {"type": "cursor_remove", "username": username}, exclude=ws)
                         elif isinstance(x, int) and isinstance(y, int) and 0 <= x < lw and 0 <= y < lh:
                             if (x, y) == last_cursor_pos: continue
                             last_cursor_pos = (x, y)
-                            await broadcast_to_lobby(lobby_id, {"type": "cursor", "username": username, "x": x, "y": y}, exclude=ws)
+                            queue_cursor(lobby_id, username, x, y)
 
                     elif data["type"] == "pixel_owner" and username and lobby_id and (is_admin(username) or is_moderator(username)):
                                                                                   
@@ -6961,12 +6966,17 @@ def _clients_drop(ws):
     _clients_forget(ws)
     clients.pop(ws, None)
 
-async def _send_many(pairs, timeout=5):
+bw_stats = {"ws": {}, "http": {}, "db": {}, "since": time.time()}
+def _bw_add(group, key, n, count=1):
+    e = bw_stats[group].setdefault(key, [0, 0]); e[0] += n; e[1] += count
+
+async def _send_many(pairs, timeout=5, kind="other"):
     """Send (ws, payload) pairs at the same time so one slow connection cannot hold up the rest; give up on stragglers after `timeout`."""
     async def one(ws, payload):
         try:
             if isinstance(payload, bytes): await ws.send_bytes(payload)
             else: await ws.send_str(payload)
+            _bw_add("ws", kind, len(payload))
         except Exception: pass
     if not pairs: return
     if len(pairs) == 1:
@@ -6974,11 +6984,42 @@ async def _send_many(pairs, timeout=5):
     try: await asyncio.wait_for(asyncio.gather(*(one(w, p) for w, p in pairs)), timeout)
     except Exception: pass
 
+CURSOR_BATCH_SECONDS = 0.4
+_cur_pending = {}
+def queue_cursor(lobby_id, username, x, y):
+    d = _cur_pending.get(lobby_id)
+    if d is None:
+        _cur_pending[lobby_id] = {username: (x, y)}
+        _n = len(lobby_members.get(lobby_id) or ())     # the more people in a lobby, the less often cursors go out (each batch goes to everyone)
+        _d = CURSOR_BATCH_SECONDS if _n <= 8 else (0.8 if _n <= 25 else 1.5)
+        asyncio.get_running_loop().call_later(_d, lambda: asyncio.ensure_future(flush_cursors(lobby_id)))
+    else:
+        d[username] = (x, y)                      # only the newest position of each player matters
+
+async def flush_cursors(lobby_id):
+    d = _cur_pending.pop(lobby_id, None)
+    members = lobby_members.get(lobby_id)
+    if not d or not members: return
+    everyone = [[u, x, y] for u, (x, y) in d.items()]
+    shared = json.dumps({"type": "cursors", "c": everyone})
+    pairs = []
+    for ws in list(members):
+        if ws.closed: continue
+        info = clients.get(ws) or {}
+        me = info.get("username")
+        mine = everyone if me not in d else [c for c in everyone if c[0] != me]
+        if not mine: continue
+        if info.get("curs"):
+            pairs.append((ws, shared if len(mine) == len(everyone) else json.dumps({"type": "cursors", "c": mine})))
+        else:                                     # older page: one message per cursor, as before
+            for u, x, y in mine: pairs.append((ws, json.dumps({"type": "cursor", "username": u, "x": x, "y": y})))
+    await _send_many(pairs, kind="cursors")
+
 async def broadcast_to_lobby(lobby_id, data, exclude=None):
     members = lobby_members.get(lobby_id)
     if not members: return
     msg = json.dumps(data)
-    await _send_many([(ws, msg) for ws in list(members) if ws is not exclude and not ws.closed])
+    await _send_many([(ws, msg) for ws in list(members) if ws is not exclude and not ws.closed], kind=str(data.get("type", "other")))
 
 # Pixels are collected for a few milliseconds and sent as one message per player, instead of one message per pixel per player.
 PIXEL_BATCH_SECONDS = 0.05
@@ -7020,7 +7061,7 @@ async def flush_pixels(lobby_id):
             pairs.append((ws, shared if len(mine) == len(lst) else json.dumps({"type": "pixels", "p": [[x, y, c] for x, y, c, _e in mine]})))
         else:                                   # older page without batch support: one message per pixel, as before
             for it in mine: pairs.append((ws, singles[lst.index(it)]))
-    await _send_many(pairs)
+    await _send_many(pairs, kind="pixels")
 
 _grid_zip_cache = {}
 def _compress_grid(grid_bytes):
@@ -7045,11 +7086,11 @@ async def send_grid_to_ws(ws, meta_dict, grid_bytes):
     if no_deflate:
         meta["compressed"] = "none"
         await ws.send_json(meta)
-        await ws.send_bytes(bytes(grid_bytes))
+        await ws.send_bytes(bytes(grid_bytes)); _bw_add("ws", "grid", len(grid_bytes))
     else:
         meta["compressed"] = "deflate"
         await ws.send_json(meta)
-        await ws.send_bytes(_compress_grid(grid_bytes))
+        _z = _compress_grid(grid_bytes); await ws.send_bytes(_z); _bw_add("ws", "grid", len(_z))
 
 async def broadcast_grid_to_lobby(lobby_id, meta_dict, grid_bytes, exclude=None):
     await flush_pixels(lobby_id)                # pixels queued before a full-canvas change must arrive before it, not after
@@ -7091,10 +7132,32 @@ async def broadcast_online_lobby(lobby_id):
             seen.add(n.lower()); users.append(n)
     await broadcast_to_lobby(lobby_id, {"type": "online", "count": count, "total": _global_online_total(), "users": users})
 
+def _bw_summary(reset=False):
+    parts = []
+    for group in ("ws", "http", "db"):
+        rows = sorted(bw_stats[group].items(), key=lambda kv: -kv[1][0])[:6]
+        if rows: parts.append(group + ": " + ", ".join(f"{k} {v[0] / 1e6:.2f}MB ({v[1]})" for k, v in rows))
+    out = " | ".join(parts) or "nothing sent yet"
+    if reset:
+        for g in ("ws", "http", "db"): bw_stats[g].clear()
+        bw_stats["since"] = time.time()
+    return out
+
+async def bandwidth_report_loop(app):
+    """Every 10 minutes: write one line to the log saying what used the most outgoing data (approximate: bytes before compression)."""
+    while True:
+        await asyncio.sleep(600)
+        try: print("[bandwidth 10min] " + _bw_summary(reset=True), flush=True)
+        except Exception as e: print("bandwidth report error:", e, flush=True)
+
+async def admin_bandwidth_handler(request):
+    if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
+    return web.json_response({"since_seconds": int(time.time() - bw_stats["since"]), "stats": {g: {k: {"bytes": v[0], "messages": v[1]} for k, v in bw_stats[g].items()} for g in ("ws", "http", "db")}})
+
 async def leaderboard_broadcast_loop(app):
     last_sent = {}
     while True:
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
         for lid in list(lobby_members):                       # only lobbies somebody is in
             lobby = lobbies.get(lid)
             if not lobby or not lobby.get("pixel_counts"): continue
@@ -7432,6 +7495,7 @@ async def on_startup(app):
     app["lb_task"] = asyncio.create_task(leaderboard_broadcast_loop(app))
     app["sessions_task"] = asyncio.create_task(sessions_save_loop(app))
     app["avatar_task"] = asyncio.create_task(avatar_migrate_loop(app))
+    app["bandwidth_task"] = asyncio.create_task(bandwidth_report_loop(app))
     app["batched_task"] = asyncio.create_task(batched_save_loop(app))
     app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
@@ -7470,6 +7534,9 @@ async def cors_middleware(request, handler):
     if (isinstance(resp, web.Response) and not resp.prepared and resp.body
             and 'Content-Encoding' not in resp.headers and len(resp.body) > 1024):
         resp.enable_compression()
+    try:
+        if isinstance(resp, web.Response) and resp.body is not None: _bw_add("http", request.path, len(resp.body))
+    except Exception: pass
     resp.headers['Access-Control-Allow-Origin'] = '*'
     resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
     resp.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
@@ -7483,6 +7550,11 @@ async def json_guard_middleware(request, handler):
     if request.path in ("/ws", "/ws/social"):
         return await handler(request)
     try:
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.can_read_body and "json" in (request.content_type or ""):
+            try: _body = json.loads(await request.read() or b"null")
+            except ValueError: _body = {}               # not valid JSON: let the handler's own parse raise the usual 400
+            if not isinstance(_body, dict):
+                return web.json_response({"error": "Body must be a JSON object"}, status=400)   # every handler does data.get(...), so a list/number would crash it
         return await handler(request)
     except web.HTTPException:
         raise
@@ -7660,7 +7732,7 @@ async def avatar_handler(request):
     if not data_url: return web.Response(status=404)
     if data_url.startswith("https://"):               # stored on Catbox: send the browser there (it keeps the redirect for 5 minutes)
         if not is_safe_image_url(data_url): return web.Response(status=404)
-        return web.Response(status=302, headers={"Location": data_url, "Cache-Control": "public, max-age=300"})
+        return web.Response(status=302, headers={"Location": data_url, "Cache-Control": "public, max-age=3600"})
     m = AVATAR_DATA_URL_RE.match(data_url)
     if not m: return web.Response(status=404)
     content_type = "image/" + m.group(1).replace("jpg", "jpeg")
@@ -7889,7 +7961,7 @@ def _fish_roll(map_id="pier"):
         if pick < w: rarity = name; break
         pick -= w
     return _fish_pick(m["id"], rarity)
-def _fish_state(user, now=None):
+def _fish_state(user, now=None, full=False):
     now = now or time.time()
     st = _fish_slot(user)
     inv = {k: int(v) for k, v in st.get("inv", {}).items() if k in FISH_BY_ID and int(v) > 0}
@@ -7902,7 +7974,7 @@ def _fish_state(user, now=None):
     used_today = len([t for t in _rate_limits.get(day_key, []) if t > now - 86400])
     _fish_ledger(st)
     bucket_cost = sum(float(st["basis"].get(k, 0)) for k in inv)
-    return {"catalog": FISH_CATALOG, "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
+    return {**({"catalog": FISH_CATALOG} if full else {}), "inv": inv, "seen": seen, "casts": int(st.get("casts", 0)),
             "rod": _fish_rod_info(st), "rods": [dict(r, owned=int((st.get("rods") or {}).get(r["id"], 0))) for r in FISH_ROD_CATALOG],
             "spent": int(st["spent"]), "earned": int(st["earned"]), "bucket_cost": int(round(bucket_cost)),
             "total_worth": sum(n * FISH_BY_ID[k]["value"] for k, n in caught.items()), "trade_net": int(st.get("trade_net", 0)), "sold": dict(_fish_sold(st)),
@@ -7917,7 +7989,7 @@ async def _fish_announce(text):
 async def fishing_state_handler(request):
     user = get_auth_user(request)
     if not user: return web.json_response({"error": "Not authenticated"}, status=401)
-    return web.json_response({"ok": True, "state": _fish_state(user)})
+    return web.json_response({"ok": True, "state": _fish_state(user, full=True)})
 
 async def fishing_cast_handler(request):
     user = get_auth_user(request)
@@ -8630,7 +8702,11 @@ async def cosmetics_equipped_handler(request):
     for u in cosmetics_data:
         e = equipped_cosmetic(u)
         if e: out[u] = e
-    return web.json_response({"equipped": out})
+    body = json.dumps({"equipped": out}, sort_keys=True)
+    etag = '"' + hashlib.md5(body.encode()).hexdigest()[:16] + '"'
+    if request.headers.get("If-None-Match") == etag:
+        return web.Response(status=304, headers={"ETag": etag, "Cache-Control": "no-cache"})     # nothing changed: headers only
+    return web.Response(text=body, content_type="application/json", headers={"ETag": etag, "Cache-Control": "no-cache"})
 
 COSMETIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cosmetics")
 async def cosmetic_image_handler(request):
@@ -8639,7 +8715,7 @@ async def cosmetic_image_handler(request):
     if not re.fullmatch(r"[a-z0-9_]{1,40}\.png", name) or name[:-4] not in COSMETIC_PACK: return web.Response(status=404)
     path = os.path.join(COSMETIC_DIR, name)
     if not os.path.isfile(path): return web.Response(status=404)
-    return web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+    return web.FileResponse(path, headers={"Cache-Control": "public, max-age=604800"})
 
 async def player_search_handler(request):
     user = get_auth_user(request)
@@ -8673,7 +8749,7 @@ for _path, _h in (
     ("/api/admin/richest", admin_richest_handler), ("/api/admin/device-bans", admin_device_bans_handler),
     ("/api/admin/mod-list", admin_mod_list_handler), ("/api/admin/mod-ban-log", admin_mod_ban_log_handler),
     ("/api/admin/ipbans", _admin_json_view("ip_bans", lambda: ip_bans)),
-    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler), ("/api/packs/state", packs_state_handler), ("/api/market/list", market_list_handler), ("/api/cosmetics/equipped", cosmetics_equipped_handler), ("/api/players/search", player_search_handler), ("/api/trade/state", trade_state_handler),
+    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler), ("/api/admin/bandwidth", admin_bandwidth_handler), ("/api/packs/state", packs_state_handler), ("/api/market/list", market_list_handler), ("/api/cosmetics/equipped", cosmetics_equipped_handler), ("/api/players/search", player_search_handler), ("/api/trade/state", trade_state_handler),
     ("/api/me", me_handler), ("/api/streak/progress", streak_progress_handler),
     ("/api/uno/list", uno_list_handler),
     ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
