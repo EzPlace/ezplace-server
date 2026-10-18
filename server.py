@@ -299,8 +299,20 @@ def clean_captchas():
     for k in [k for k, v in captchas.items() if v["expires"] < now]:
         del captchas[k]
 
+_last_saved_hash = {}
 async def db_save(collection, key, data):
+    """Every save sends the WHOLE store to the database (that is outgoing data), so skip it when nothing changed since the last write,
+    and count the bytes per store so the usage meter shows which ones cost the most."""
+    try:
+        blob = json.dumps(data, sort_keys=True, default=str)
+        h = hashlib.md5(blob.encode()).digest()
+        if _last_saved_hash.get((collection, key)) == h: return
+        n = len(blob)
+    except Exception:
+        h = None; n = 0
     await db[collection].update_one({"_id": key}, {"$set": {"data": data}}, upsert=True)
+    if h is not None: _last_saved_hash[(collection, key)] = h
+    _bw_add("db", f"save {key}", n)
 
 async def db_load(collection, key):
     doc = await db[collection].find_one({"_id": key})
@@ -7827,7 +7839,7 @@ async def save_fishing(): await db_save("store", "fishing", fishing)
 # These data sets change on almost every click and each save re-sends the whole data set to MongoDB, which was most of the
 # server's outgoing traffic. Calling the save now only marks it dirty; one background task writes each dirty set at most
 # once every few seconds (and everything is flushed on shutdown). A hard crash can lose at most a few seconds of changes.
-SAVE_BATCH_SECONDS = 5
+SAVE_BATCH_SECONDS = 30      # each flush rewrites whole stores to the database; 30s keeps that traffic low (shutdown still flushes everything)
 _dirty_saves = {}
 def _batched(real):
     async def save():
