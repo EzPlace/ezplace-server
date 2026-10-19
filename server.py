@@ -862,8 +862,10 @@ async def save_lobby(lid):
     grid_bytes = bytes(lobby["grid"])
     events_bytes = bytes(lobby.get("events", b""))
     pauthors_bytes = pack_pixel_authors(lobby.get("pixel_authors") or {})
-    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "grid": grid_bytes, "events": events_bytes, "pauthors": pauthors_bytes}}, upsert=True)
-    _bw_add("db", "lobby saves", len(grid_bytes) + len(events_bytes) + len(pauthors_bytes))
+    # A 2048x2048 canvas is 4 MB raw; stored compressed it is usually a few KB to a few hundred KB. (Old rows with raw "grid"/"events"/"pauthors" are still read.)
+    gz, ez, pz = (await asyncio.get_event_loop().run_in_executor(None, lambda: (zlib.compress(grid_bytes, 6), zlib.compress(events_bytes, 6), zlib.compress(pauthors_bytes, 6))))
+    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "gridz": gz, "eventsz": ez, "pauthorsz": pz}, "$unset": {"grid": "", "events": "", "pauthors": ""}}, upsert=True)
+    _bw_add("db", "lobby saves", len(gz) + len(ez) + len(pz))
     dirty_lobbies.discard(lid)
 
 async def save_all_lobbies():
@@ -871,7 +873,8 @@ async def save_all_lobbies():
         try: await save_lobby(lid)
         except Exception as e: print(f"[save_all_lobbies] {lid} failed: {type(e).__name__}: {e}", flush=True)
 
-LOBBY_SAVE_SECONDS = 180      # each save writes the whole canvas to the database, which is outgoing data; every 3 minutes is plenty (shutdown still saves everything)
+emergency_mode = False        # admin switch: no timed saves at all (only on shutdown, or the few immediate ones) to stop all background database traffic
+LOBBY_SAVE_SECONDS = 300      # each save writes the whole canvas to the database, which is outgoing data; every 3 minutes is plenty (shutdown still saves everything)
 async def flush_dirty_lobbies_loop(app):
     """Background task: every few minutes, save any lobby that has unsaved pixel changes.
     Worst-case a few minutes of placements lost on a hard crash (rare), but in-memory state
@@ -879,6 +882,7 @@ async def flush_dirty_lobbies_loop(app):
     while True:
         try:
             await asyncio.sleep(LOBBY_SAVE_SECONDS)
+            if emergency_mode: continue
             for lid in list(dirty_lobbies):
                 try:
                     await save_lobby(lid)
@@ -1144,11 +1148,16 @@ async def load_all_data():
     async for doc in db["lobbies"].find():
         lid = doc["_id"]
         meta = doc.get("meta", {})
-        grid_data = doc.get("grid")
-        events_data = doc.get("events")
+        def _unz(z, raw):
+            if z:
+                try: return zlib.decompress(bytes(z))
+                except Exception: return None
+            return raw
+        grid_data = _unz(doc.get("gridz"), doc.get("grid"))
+        events_data = _unz(doc.get("eventsz"), doc.get("events"))
         grid_ba = _to_bytearray(grid_data)
         events_ba = bytearray(events_data) if events_data else bytearray()
-        pauthors = unpack_pixel_authors(doc.get("pauthors"), int(meta.get("width", 256)) * int(meta.get("height", 256)))
+        pauthors = unpack_pixel_authors(_unz(doc.get("pauthorsz"), doc.get("pauthors")), int(meta.get("width", 256)) * int(meta.get("height", 256)))
         if lid.startswith("public_") and lid in lobbies:
             expected_size = lobbies[lid]["width"] * lobbies[lid]["height"]
             if "pixel_counts" in meta:
@@ -6980,7 +6989,9 @@ def _clients_drop(ws):
 
 bw_stats = {"ws": {}, "http": {}, "db": {}, "since": time.time()}
 def _bw_add(group, key, n, count=1):
-    e = bw_stats[group].setdefault(key, [0, 0]); e[0] += n; e[1] += count
+    g = bw_stats[group]
+    if key not in g and len(g) >= 150: key = "other (table full)"      # bots probing random URLs must not make this grow without limit
+    e = g.setdefault(key, [0, 0]); e[0] += n; e[1] += count
 
 async def _send_many(pairs, timeout=5, kind="other"):
     """Send (ws, payload) pairs at the same time so one slow connection cannot hold up the rest; give up on stragglers after `timeout`."""
@@ -7003,7 +7014,7 @@ def queue_cursor(lobby_id, username, x, y):
     if d is None:
         _cur_pending[lobby_id] = {username: (x, y)}
         _n = len(lobby_members.get(lobby_id) or ())     # the more people in a lobby, the less often cursors go out (each batch goes to everyone)
-        _d = CURSOR_BATCH_SECONDS if _n <= 8 else (0.8 if _n <= 25 else 1.5)
+        _d = 2.0 if emergency_mode else (CURSOR_BATCH_SECONDS if _n <= 8 else (0.8 if _n <= 25 else 1.5))
         asyncio.get_running_loop().call_later(_d, lambda: asyncio.ensure_future(flush_cursors(lobby_id)))
     else:
         d[username] = (x, y)                      # only the newest position of each player matters
@@ -7162,6 +7173,22 @@ async def bandwidth_report_loop(app):
         try: print("[bandwidth 10min] " + _bw_summary(reset=True), flush=True)
         except Exception as e: print("bandwidth report error:", e, flush=True)
 
+async def admin_emergency_handler(request):
+    """GET: current state + the usage summary. POST {"on": true|false}: switch emergency mode (no timed saves) on or off."""
+    global emergency_mode
+    user = get_auth_user(request)
+    if not is_admin(user): return web.json_response({"error": "Forbidden"}, status=403)
+    if request.method == "POST":
+        data = await request.json()
+        emergency_mode = bool(data.get("on"))
+        await db_save("store", "emergency_mode", emergency_mode)
+        if not emergency_mode:
+            try: await flush_dirty_saves()                      # catch up straight away when it is turned off
+            except Exception as e: print("emergency off: flush failed:", e)
+        print(f"[emergency] {'ON' if emergency_mode else 'OFF'} (set by {user})", flush=True)
+    return web.json_response({"ok": True, "on": emergency_mode, "unsaved_lobbies": len(dirty_lobbies), "unsaved_stores": len(_dirty_saves),
+                              "since_seconds": int(time.time() - bw_stats["since"]), "summary": _bw_summary()})
+
 async def admin_bandwidth_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"since_seconds": int(time.time() - bw_stats["since"]), "stats": {g: {k: {"bytes": v[0], "messages": v[1]} for k, v in bw_stats[g].items()} for g in ("ws", "http", "db")}})
@@ -7170,19 +7197,31 @@ async def leaderboard_broadcast_loop(app):
     last_sent = {}
     while True:
         await asyncio.sleep(10)
-        for lid in list(lobby_members):                       # only lobbies somebody is in
-            lobby = lobbies.get(lid)
-            if not lobby or not lobby.get("pixel_counts"): continue
-            board = get_leaderboard_top10(lobby)
-            key = json.dumps(board)
-            if last_sent.get(lid) == key: continue            # nothing changed since the last broadcast: send nothing
-            last_sent[lid] = key
-            await broadcast_to_lobby(lid, {"type": "leaderboard_update", "leaderboard": board})
-        for lid in [l for l in last_sent if l not in lobby_members]: last_sent.pop(lid, None)
+        try:
+            for lid in list(lobby_members):                       # only lobbies somebody is in
+                try:
+                    lobby = lobbies.get(lid)
+                    if not lobby or not lobby.get("pixel_counts"): continue
+                    board = get_leaderboard_top10(lobby)
+                    key = json.dumps(board)
+                    if last_sent.get(lid) == key: continue            # nothing changed since the last broadcast: send nothing
+                    last_sent[lid] = key
+                    await broadcast_to_lobby(lid, {"type": "leaderboard_update", "leaderboard": board})
+                except asyncio.CancelledError: raise
+                except Exception as e: print(f"leaderboard broadcast failed for {lid}: {e}", flush=True)
+            for lid in [l for l in last_sent if l not in lobby_members]: last_sent.pop(lid, None)
+        except asyncio.CancelledError: break
+        except Exception as e: print(f"leaderboard_broadcast_loop error: {e}", flush=True)
 
 async def cleanup_inactive_lobbies(app):
     while True:
         await asyncio.sleep(300)
+        try: await _cleanup_inactive_lobbies_once()
+        except asyncio.CancelledError: break
+        except Exception as e: print(f"cleanup_inactive_lobbies error: {e}", flush=True)
+
+async def _cleanup_inactive_lobbies_once():
+    if True:
         now = time.time()
         to_delete = []
         for lid, lobby in list(lobbies.items()):
@@ -7243,6 +7282,8 @@ async def on_startup(app):
                                                                                           
                                                                                      
     migrations_doc = await db_load("store", "migrations") or {}
+    global emergency_mode
+    emergency_mode = bool(await db_load("store", "emergency_mode"))
 
     if not migrations_doc.get("clan_rank_v2"):
         any_clan_change = False
@@ -7857,6 +7898,7 @@ async def flush_dirty_saves():
 async def batched_save_loop(app):
     while True:
         await asyncio.sleep(SAVE_BATCH_SECONDS)
+        if emergency_mode: continue
         try: await flush_dirty_saves()
         except asyncio.CancelledError: break
         except Exception as e: print("batched save loop:", e)
@@ -8746,6 +8788,7 @@ app.on_startup.append(discord_start)
 app.on_cleanup.append(discord_stop)
 _g, _p = app.router.add_get, app.router.add_post
 _g("/cosmetics/{name}", cosmetic_image_handler)
+_p("/api/admin/emergency", admin_emergency_handler)
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
     ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/version", version_handler),
@@ -8761,7 +8804,7 @@ for _path, _h in (
     ("/api/admin/richest", admin_richest_handler), ("/api/admin/device-bans", admin_device_bans_handler),
     ("/api/admin/mod-list", admin_mod_list_handler), ("/api/admin/mod-ban-log", admin_mod_ban_log_handler),
     ("/api/admin/ipbans", _admin_json_view("ip_bans", lambda: ip_bans)),
-    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler), ("/api/admin/bandwidth", admin_bandwidth_handler), ("/api/packs/state", packs_state_handler), ("/api/market/list", market_list_handler), ("/api/cosmetics/equipped", cosmetics_equipped_handler), ("/api/players/search", player_search_handler), ("/api/trade/state", trade_state_handler),
+    ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler), ("/api/admin/bandwidth", admin_bandwidth_handler), ("/api/admin/emergency", admin_emergency_handler), ("/api/packs/state", packs_state_handler), ("/api/market/list", market_list_handler), ("/api/cosmetics/equipped", cosmetics_equipped_handler), ("/api/players/search", player_search_handler), ("/api/trade/state", trade_state_handler),
     ("/api/me", me_handler), ("/api/streak/progress", streak_progress_handler),
     ("/api/uno/list", uno_list_handler),
     ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
