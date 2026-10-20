@@ -323,13 +323,36 @@ async def save_sessions():
     global _sessions_saved
     snap = {t: [u, session_born.get(t, time.time())] for t, u in list(sessions.items())}
     if snap == _sessions_saved: return
-    await db_save("store", "sessions", snap); _sessions_saved = snap
+    if _sessions_saved is None:
+        await db_save("store", "sessions", snap)          # first save after a start: write everything (this also drops tokens that expired while the server was off)
+    else:
+        # afterwards only what changed: a login or logout used to rewrite every session in the database
+        sets = {f"data.{t}": v for t, v in snap.items() if _sessions_saved.get(t) != v}
+        unsets = {f"data.{t}": "" for t in _sessions_saved if t not in snap}
+        upd = {}
+        if sets: upd["$set"] = sets
+        if unsets: upd["$unset"] = unsets
+        await db["store"].update_one({"_id": "sessions"}, upd, upsert=True)
+        _last_saved_hash.pop(("store", "sessions"), None)
+        _bw_add("db", "save sessions (changes only)", 60 * (len(sets) + len(unsets)))
+    _sessions_saved = snap
 async def sessions_save_loop(app):
     while True:
         await asyncio.sleep(15)
         try: await save_sessions()
         except Exception as e: print("session save failed:", e)
 async def save_accounts(): await db_save("store", "accounts", accounts)
+async def save_account_one(name):
+    """Write one account instead of the whole store (a registration used to rewrite every account). Usernames are letters and digits only, so they are safe as field names."""
+    acc = accounts.get(name)
+    if acc is None or not str(name).isalnum(): return await save_accounts()
+    await db["store"].update_one({"_id": "accounts"}, {"$set": {f"data.{name}": acc}}, upsert=True)
+    _last_saved_hash.pop(("store", "accounts"), None)
+    _bw_add("db", "save account (one)", 400)
+async def delete_account_one(name):
+    if not str(name).isalnum(): return await save_accounts()
+    await db["store"].update_one({"_id": "accounts"}, {"$unset": {f"data.{name}": ""}}, upsert=True)
+    _last_saved_hash.pop(("store", "accounts"), None)
 async def save_friends(): await db_save("store", "friends", friends_data)
 async def save_bans(): await db_save("store", "bans", bans)
 async def save_ip_bans(): await db_save("store", "ip_bans", ip_bans)
@@ -1296,7 +1319,7 @@ async def register_handler(request):
         return web.json_response({"error": "Username already taken"}, status=400)
     pw_hash, salt = await ahash_password(pwd)
     accounts[uname] = {"password_hash": pw_hash, "salt": salt, "algo": "pbkdf2", "created": time.time()}
-    await save_accounts()
+    await save_account_one(uname)
     token = new_session(uname)
     await track_ip(uname, request)
     return web.json_response({"ok": True, "token": token, "username": uname})
@@ -1330,7 +1353,7 @@ async def login_handler(request):
     if rehash:
         pw_hash, salt = await ahash_password(pwd)
         acc["password_hash"] = pw_hash; acc["salt"] = salt; acc["algo"] = "pbkdf2"
-        await save_accounts()
+        await save_account_one(found)
     token = new_session(found)
     await track_ip(found, request)
     return web.json_response({"ok": True, "token": token, "username": found})
@@ -2294,7 +2317,7 @@ async def admin_reset_password_handler(request):
     accounts[found]["password_hash"] = pw_hash
     accounts[found]["salt"] = salt
     accounts[found]["algo"] = "pbkdf2"
-    await save_accounts()
+    await save_account_one(found)
     tlow = found.lower()
     revoked = 0
     for tok in [t for t, u in sessions.items() if u.lower() == tlow]:
@@ -2332,7 +2355,7 @@ async def change_password_handler(request):
     accounts[user]["password_hash"] = pw_hash
     accounts[user]["salt"] = salt
     accounts[user]["algo"] = "pbkdf2"
-    await save_accounts()
+    await save_account_one(user)
     auth_hdr = request.headers.get("Authorization", "")
     keep_tok = auth_hdr if auth_hdr in sessions else None
     ulow = user.lower()
@@ -2364,7 +2387,7 @@ async def admin_delete_account_handler(request):
             except: pass
                           
     del accounts[found]
-    await save_accounts()
+    await delete_account_one(found)
                                                                    
     if found in friends_data:
         del friends_data[found]
@@ -7603,7 +7626,7 @@ async def json_guard_middleware(request, handler):
     if request.path in ("/ws", "/ws/social"):
         return await handler(request)
     try:
-        if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.can_read_body and "json" in (request.content_type or ""):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.can_read_body and "multipart" not in (request.content_type or ""):
             try: _body = json.loads(await request.read() or b"null")
             except ValueError: _body = {}               # not valid JSON: let the handler's own parse raise the usual 400
             if not isinstance(_body, dict):
