@@ -1241,7 +1241,7 @@
   <div id="admin-tab" class="tab-panel">
     <div id="admin-panel">
       <h4>Bandwidth / Emergency mode</h4>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Emergency mode stops all timed database saves (canvases and player data are saved only on shutdown). It cuts outgoing data to almost nothing, but a crash while it is on loses everything since it was switched on.</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Emergency mode slows database saves to every 5 minutes (player data) and 15 minutes (canvases) instead of every 30 seconds to 5 minutes. A crash loses at most that much.</div>
       <div class="admin-row"><button class="win-btn" id="btn-admin-emerg" style="background:#d32f2f;color:#fff;">Emergency mode: ...</button><button class="win-btn" id="btn-admin-bw-refresh">Refresh</button><span id="admin-emerg-meta" style="font-size:11px;color:var(--text-muted);align-self:center;"></span></div>
       <div id="admin-bw-summary" style="font-size:10px;font-family:'JetBrains Mono','Fira Code',monospace;white-space:pre-wrap;margin:4px 0 8px;color:var(--text-muted);"></div>
       <h4>Grant / Take PlaceBux</h4>

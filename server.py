@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import hashlib
+import copy
 import json
 import os
 import random
@@ -300,19 +301,49 @@ def clean_captchas():
         del captchas[k]
 
 _last_saved_hash = {}
+_last_saved_keys = {}         # (collection, key) -> {top-level key: serialized value} as last written, so only what changed is sent next time
+_save_locks = {}
+def _safe_field(k):
+    return isinstance(k, str) and bool(k) and "." not in k and not k.startswith("$") and chr(0) not in k
 async def db_save(collection, key, data):
-    """Every save sends the WHOLE store to the database (that is outgoing data), so skip it when nothing changed since the last write,
-    and count the bytes per store so the usage meter shows which ones cost the most."""
-    try:
-        blob = json.dumps(data, sort_keys=True, default=str)
-        h = hashlib.md5(blob.encode()).digest()
-        if _last_saved_hash.get((collection, key)) == h: return
-        n = len(blob)
-    except Exception:
-        h = None; n = 0
-    await db[collection].update_one({"_id": key}, {"$set": {"data": data}}, upsert=True)
-    if h is not None: _last_saved_hash[(collection, key)] = h
-    _bw_add("db", f"save {key}", n)
+    """Writes a store to the database. Every byte sent counts against the monthly bandwidth, so:
+    - a store that is a dict of players/items is sent as only the entries that changed since the last write (the first write after a start sends everything);
+    - anything else is sent whole, but skipped when it is identical to the last write;
+    - the bytes are counted per store so the usage meter shows which ones cost the most."""
+    lock = _save_locks.setdefault((collection, key), asyncio.Lock())
+    async with lock:
+        try:
+            if isinstance(data, dict) and all(_safe_field(k) for k in data):
+                ser = {k: json.dumps(v, sort_keys=True, default=str) for k, v in data.items()}
+                prev = _last_saved_keys.get((collection, key))
+                if prev is not None:
+                    changed = [k for k, v in ser.items() if prev.get(k) != v]
+                    gone = [k for k in prev if k not in ser]
+                    if not changed and not gone: return
+                    upd = {}
+                    if changed: upd["$set"] = {f"data.{k}": copy.deepcopy(data[k]) for k in changed}
+                    if gone: upd["$unset"] = {f"data.{k}": "" for k in gone}
+                    await db[collection].update_one({"_id": key}, upd, upsert=True)
+                    _last_saved_keys[(collection, key)] = ser
+                    _bw_add("db", f"save {key}", sum(len(ser[k]) + len(k) for k in changed) + 40 * len(gone))
+                    return
+                await db[collection].update_one({"_id": key}, {"$set": {"data": data}}, upsert=True)
+                _last_saved_keys[(collection, key)] = ser
+                _bw_add("db", f"save {key}", sum(len(v) + len(k) for k, v in ser.items()))
+                return
+        except Exception as e:
+            print(f"db_save delta path failed for {collection}/{key}: {type(e).__name__}: {e} - writing the whole store", flush=True)
+            _last_saved_keys.pop((collection, key), None)
+        try:
+            blob = json.dumps(data, sort_keys=True, default=str)
+            h = hashlib.md5(blob.encode()).digest()
+            if _last_saved_hash.get((collection, key)) == h: return
+            n = len(blob)
+        except Exception:
+            h = None; n = 0
+        await db[collection].update_one({"_id": key}, {"$set": {"data": data}}, upsert=True)
+        if h is not None: _last_saved_hash[(collection, key)] = h
+        _bw_add("db", f"save {key}", n)
 
 async def db_load(collection, key):
     doc = await db[collection].find_one({"_id": key})
@@ -333,7 +364,7 @@ async def save_sessions():
         if sets: upd["$set"] = sets
         if unsets: upd["$unset"] = unsets
         await db["store"].update_one({"_id": "sessions"}, upd, upsert=True)
-        _last_saved_hash.pop(("store", "sessions"), None)
+        _last_saved_hash.pop(("store", "sessions"), None); _last_saved_keys.pop(("store", "sessions"), None)
         _bw_add("db", "save sessions (changes only)", 60 * (len(sets) + len(unsets)))
     _sessions_saved = snap
 async def sessions_save_loop(app):
@@ -347,12 +378,12 @@ async def save_account_one(name):
     acc = accounts.get(name)
     if acc is None or not str(name).isalnum(): return await save_accounts()
     await db["store"].update_one({"_id": "accounts"}, {"$set": {f"data.{name}": acc}}, upsert=True)
-    _last_saved_hash.pop(("store", "accounts"), None)
+    _last_saved_hash.pop(("store", "accounts"), None); _last_saved_keys.pop(("store", "accounts"), None)
     _bw_add("db", "save account (one)", 400)
 async def delete_account_one(name):
     if not str(name).isalnum(): return await save_accounts()
     await db["store"].update_one({"_id": "accounts"}, {"$unset": {f"data.{name}": ""}}, upsert=True)
-    _last_saved_hash.pop(("store", "accounts"), None)
+    _last_saved_hash.pop(("store", "accounts"), None); _last_saved_keys.pop(("store", "accounts"), None)
 async def save_friends(): await db_save("store", "friends", friends_data)
 async def save_bans(): await db_save("store", "bans", bans)
 async def save_ip_bans(): await db_save("store", "ip_bans", ip_bans)
@@ -898,14 +929,18 @@ async def save_all_lobbies():
 
 emergency_mode = False        # admin switch: no timed saves at all (only on shutdown, or the few immediate ones) to stop all background database traffic
 LOBBY_SAVE_SECONDS = 300      # each save writes the whole canvas to the database, which is outgoing data; every 3 minutes is plenty (shutdown still saves everything)
+_last_lobby_flush = 0.0
 async def flush_dirty_lobbies_loop(app):
+    global _last_lobby_flush
+    _last_lobby_flush = time.time()
     """Background task: every few minutes, save any lobby that has unsaved pixel changes.
     Worst-case a few minutes of placements lost on a hard crash (rare), but in-memory state
     is authoritative for live clients so nothing visible to users."""
     while True:
         try:
             await asyncio.sleep(LOBBY_SAVE_SECONDS)
-            if emergency_mode: continue
+            if emergency_mode and time.time() - _last_lobby_flush < EMERGENCY_LOBBY_SECONDS: continue
+            _last_lobby_flush = time.time()
             for lid in list(dirty_lobbies):
                 try:
                     await save_lobby(lid)
@@ -7575,6 +7610,7 @@ async def on_startup(app):
     app["batched_task"] = asyncio.create_task(batched_save_loop(app))
     app["flush_task"] = asyncio.create_task(flush_dirty_lobbies_loop(app))
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
+    app["reassert_task"] = asyncio.create_task(reassert_after_start(app))
     app["idle_task"] = asyncio.create_task(idle_reward_loop(app))
     app["economy_task"] = asyncio.create_task(economy_snapshot_loop(app))
     app["night_event_task"] = asyncio.create_task(night_event_loop(app))
@@ -7592,6 +7628,8 @@ async def on_cleanup(app):
     app["lb_task"].cancel()
     app["flush_task"].cancel()
     app["rl_task"].cancel()
+    try: app["reassert_task"].cancel()
+    except Exception: pass
     app["idle_task"].cancel()
                                                                                   
     for lid in list(dirty_lobbies):
@@ -7905,7 +7943,9 @@ async def save_fishing(): await db_save("store", "fishing", fishing)
 # once every few seconds (and everything is flushed on shutdown). A hard crash can lose at most a few seconds of changes.
 SAVE_BATCH_SECONDS = 30      # each flush rewrites whole stores to the database; 30s keeps that traffic low (shutdown still flushes everything)
 _dirty_saves = {}
+_batched_registry = {}
 def _batched(real):
+    _batched_registry[real.__name__] = real
     async def save():
         _dirty_saves[real.__name__] = real
     save.__name__ = real.__name__
@@ -7918,13 +7958,31 @@ async def flush_dirty_saves():
         try: await real()
         except Exception as e:
             _dirty_saves.setdefault(name, real); print("batched save failed:", name, e)
+EMERGENCY_STORE_SECONDS = 300     # emergency mode still saves, just rarely: a deploy or crash then loses minutes, not days
+EMERGENCY_LOBBY_SECONDS = 900
+_last_store_flush = 0.0
 async def batched_save_loop(app):
+    global _last_store_flush
+    _last_store_flush = time.time()
     while True:
         await asyncio.sleep(SAVE_BATCH_SECONDS)
-        if emergency_mode: continue
+        if emergency_mode and time.time() - _last_store_flush < EMERGENCY_STORE_SECONDS: continue
+        _last_store_flush = time.time()
         try: await flush_dirty_saves()
         except asyncio.CancelledError: break
         except Exception as e: print("batched save loop:", e)
+async def reassert_after_start(app):
+    """Render starts the new version and loads the database BEFORE the old one has finished its shutdown save, so the old one's last write can land
+    after the new one loaded. A minute or two after a start, write everything the new version holds back, so the database ends up with its data."""
+    await asyncio.sleep(90)
+    try:
+        _last_saved_keys.clear(); _last_saved_hash.clear()          # forget what was "already written": send whole stores, not just changes
+        _dirty_saves.update(_batched_registry)
+        await flush_dirty_saves()
+        await save_all_lobbies()
+        print("[startup] re-saved all data after the old version finished shutting down", flush=True)
+    except asyncio.CancelledError: pass
+    except Exception as e: print("reassert_after_start failed:", e, flush=True)
 save_place_bucks = _batched(save_place_bucks)
 save_fishing = _batched(save_fishing)
 save_lifetime_pixels = _batched(save_lifetime_pixels)
