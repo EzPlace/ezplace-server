@@ -936,6 +936,7 @@ async def save_all_lobbies():
         try: await save_lobby(lid)
         except Exception as e: print(f"[save_all_lobbies] {lid} failed: {type(e).__name__}: {e}", flush=True)
 
+lite_mode = False             # admin switch, level 2: also stops cursor sharing and the menu background, slows leaderboard updates, sends a shorter economy graph
 emergency_mode = False        # admin switch: no timed saves at all (only on shutdown, or the few immediate ones) to stop all background database traffic
 LOBBY_SAVE_SECONDS = 300      # each save writes the whole canvas to the database, which is outgoing data; every 3 minutes is plenty (shutdown still saves everything)
 _last_lobby_flush = 0.0
@@ -978,7 +979,7 @@ async def economy_snapshot_loop(app):
             print(f"economy_snapshot_loop error: {e}")
 
 async def economy_stats_handler(request):
-    return web.json_response({"total": _total_economy_pb(), "history": economy_history[-ECONOMY_HISTORY_MAX:]})
+    return web.json_response({"total": _total_economy_pb(), "history": economy_history[-(288 if lite_mode else ECONOMY_HISTORY_MAX):]})
 
 async def idle_reward_loop(app):
     """Every minute, add 60 to each online user's stay_seconds. Credit 1 PB per
@@ -1462,6 +1463,8 @@ async def lobby_preview_handler(request):
     lobby = lobbies.get(lid)
     if not lobby or not _lobby_readable(request, lobby):
         return web.Response(status=404, text="Lobby not found")
+    if lite_mode:
+        return web.Response(status=503, text="Menu background is off to save bandwidth", headers={"Cache-Control": "public, max-age=600"})
     if lobby.get("public"):
         # The menu background only ever shows a small zoomed-in window, so send a 256x256 crop of a busy part of the canvas (compressed, built at most
         # once every 10 minutes) instead of the whole canvas: a 2048x2048 lobby is 4 MB raw.
@@ -7110,6 +7113,7 @@ async def _send_many(pairs, timeout=5, kind="other"):
 CURSOR_BATCH_SECONDS = 0.4
 _cur_pending = {}
 def queue_cursor(lobby_id, username, x, y):
+    if lite_mode: return                              # low-bandwidth mode: other players' cursors are not shared
     d = _cur_pending.get(lobby_id)
     if d is None:
         _cur_pending[lobby_id] = {username: (x, y)}
@@ -7290,6 +7294,11 @@ async def admin_emergency_handler(request):
             except Exception as e:
                 print("save-now failed:", e, flush=True); return web.json_response({"error": f"Save failed: {e}"}, status=500)
             print(f"[save-now] saved all data and {saved} canvases (by {user})", flush=True)
+        if "lite" in data:
+            global lite_mode
+            lite_mode = bool(data.get("lite"))
+            await db_save("store", "lite_mode", lite_mode)
+            print(f"[lite] {'ON' if lite_mode else 'OFF'} (set by {user})", flush=True)
         if "on" in data:
             emergency_mode = bool(data.get("on"))
             await db_save("store", "emergency_mode", emergency_mode)
@@ -7297,7 +7306,7 @@ async def admin_emergency_handler(request):
                 try: await flush_dirty_saves()                      # catch up straight away when it is turned off
                 except Exception as e: print("emergency off: flush failed:", e)
             print(f"[emergency] {'ON' if emergency_mode else 'OFF'} (set by {user})", flush=True)
-    return web.json_response({"ok": True, "on": emergency_mode, "unsaved_lobbies": len(dirty_lobbies), "unsaved_stores": len(_dirty_saves),
+    return web.json_response({"ok": True, "on": emergency_mode, "lite": lite_mode, "unsaved_lobbies": len(dirty_lobbies), "unsaved_stores": len(_dirty_saves),
                               "since_seconds": int(time.time() - bw_stats["since"]), "summary": _bw_summary()})
 
 async def admin_bandwidth_handler(request):
@@ -7307,7 +7316,7 @@ async def admin_bandwidth_handler(request):
 async def leaderboard_broadcast_loop(app):
     last_sent = {}
     while True:
-        await asyncio.sleep(10)
+        await asyncio.sleep(60 if lite_mode else 10)
         try:
             for lid in list(lobby_members):                       # only lobbies somebody is in
                 try:
@@ -7395,6 +7404,8 @@ async def on_startup(app):
     migrations_doc = await db_load("store", "migrations") or {}
     global emergency_mode
     emergency_mode = bool(await db_load("store", "emergency_mode"))
+    global lite_mode
+    lite_mode = bool(await db_load("store", "lite_mode"))
 
     if not migrations_doc.get("clan_rank_v2"):
         any_clan_change = False

@@ -1240,10 +1240,14 @@
 
   <div id="admin-tab" class="tab-panel">
     <div id="admin-panel">
+      <div class="admin-real-only">
       <h4>Bandwidth / Emergency mode</h4>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Emergency mode slows database saves to every 5 minutes (player data) and 15 minutes (canvases) instead of every 30 seconds to 5 minutes. A crash loses at most that much.</div>
-      <div class="admin-row"><button class="win-btn" id="btn-admin-emerg" style="background:#d32f2f;color:#fff;">Emergency mode: ...</button><button class="win-btn" id="btn-admin-bw-refresh">Refresh</button><button class="win-btn" id="btn-admin-savenow" style="background:var(--accent);color:#fff;">Save everything now</button><span id="admin-emerg-meta" style="font-size:11px;color:var(--text-muted);align-self:center;"></span></div>
+      <div class="admin-row"><button class="win-btn" id="btn-admin-emerg" style="background:#d32f2f;color:#fff;">Emergency mode: ...</button><button class="win-btn" id="btn-admin-bw-refresh">Refresh</button><button class="win-btn" id="btn-admin-savenow" style="background:var(--accent);color:#fff;">Save everything now</button>
+      </div>
+      <div class="admin-row"><button class="win-btn" id="btn-admin-lite" style="background:#d32f2f;color:#fff;">Low-bandwidth mode: ...</button><span style="font-size:11px;color:var(--text-muted);align-self:center;">Level 2: no shared cursors, no menu background, slower leaderboard, shorter economy graph.</span><span id="admin-emerg-meta" style="font-size:11px;color:var(--text-muted);align-self:center;"></span></div>
       <div id="admin-bw-summary" style="font-size:10px;font-family:'JetBrains Mono','Fira Code',monospace;white-space:pre-wrap;margin:4px 0 8px;color:var(--text-muted);"></div>
+      </div>
       <h4>Grant / Take PlaceBux</h4>
       <div class="admin-row">
         <input id="admin-pb-user" class="win-input" type="text" placeholder="Username">
@@ -10402,7 +10406,7 @@ document.getElementById('btn-admin-clear-history').onclick = async () => {
     if (d.error) alert(d.error); else alert('Cleared ' + d.cleared + ' history points. Reload to see the fresh graph.');
   } catch { alert('Server offline.'); }
 };
-let _emergOn = false;
+let _emergOn = false, _liteOn = false;
 async function adminSaveNow() {
   const meta = document.getElementById('admin-emerg-meta');
   meta.textContent = 'Saving...';
@@ -10414,14 +10418,26 @@ async function adminSaveNow() {
     meta.textContent = 'Saved at ' + new Date().toLocaleTimeString() + ' - nothing is waiting to be saved. Safe to deploy now.';
   } catch { meta.textContent = 'Could not reach the server'; }
 }
+async function adminLiteSet(on) {
+  const meta = document.getElementById('admin-emerg-meta');
+  try {
+    const r = await fetch(BACKEND + '/api/admin/emergency', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ lite: on }) });
+    const d = await r.json();
+    if (!d.ok) { meta.textContent = d.error || 'Failed'; return; }
+    await adminEmergLoad();
+  } catch { meta.textContent = 'Could not reach the server'; }
+}
 async function adminEmergLoad(setTo) {
+  if (isFakeAdmin) { document.querySelectorAll('.admin-real-only').forEach(e => { e.style.display = 'none'; }); return; }    // the pretend admin panel has no server controls
   const btn = document.getElementById('btn-admin-emerg'), meta = document.getElementById('admin-emerg-meta'), sum = document.getElementById('admin-bw-summary');
   if (!btn) return;
   try {
     const r = await fetch(BACKEND + '/api/admin/emergency', setTo === undefined ? { headers: { Authorization: authToken } } : { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ on: setTo }) });
     const d = await r.json();
     if (!d.ok) { meta.textContent = d.error || 'Failed'; return; }
-    _emergOn = d.on;
+    _emergOn = d.on; _liteOn = !!d.lite;
+    const lb = document.getElementById('btn-admin-lite');
+    if (lb) { lb.textContent = d.lite ? 'Low-bandwidth mode: ON (click to turn off)' : 'Low-bandwidth mode: OFF (click to turn on)'; lb.style.background = d.lite ? '#2e7d32' : '#d32f2f'; }
     btn.textContent = d.on ? 'Emergency mode: ON (click to turn off)' : 'Emergency mode: OFF (click to turn on)';
     btn.style.background = d.on ? '#2e7d32' : '#d32f2f';
     meta.textContent = d.on ? `ON - ${d.unsaved_lobbies} canvases and ${d.unsaved_stores} data stores waiting to be saved` : 'off - saving normally';
@@ -10431,6 +10447,7 @@ async function adminEmergLoad(setTo) {
 document.getElementById('btn-admin-emerg').onclick = () => adminEmergLoad(!_emergOn);
 document.getElementById('btn-admin-bw-refresh').onclick = () => adminEmergLoad();
 document.getElementById('btn-admin-savenow').onclick = () => adminSaveNow();
+document.getElementById('btn-admin-lite').onclick = () => adminLiteSet(!_liteOn);
 document.getElementById('admin-tab-btn').addEventListener('click', () => adminEmergLoad());
 document.getElementById('btn-admin-richest').onclick = async () => {
   const list = document.getElementById('admin-richest-list');
