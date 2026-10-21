@@ -526,6 +526,15 @@ async def save_lifetime_pixels(): await db_save("store", "lifetime_pixels", life
 async def save_purchases(): await db_save("store", "purchases", purchases)
 async def save_stay_seconds(): await db_save("store", "stay_seconds", stay_seconds)
 async def save_economy_history(): await db_save("store", "economy_history", economy_history)
+async def append_economy_point(pt):
+    """The history is 2016 points; rewriting all of them every 5 minutes cost ~22 MB a day. Add just the new one (and keep the newest 2016)."""
+    try:
+        await db["store"].update_one({"_id": "economy_history"}, {"$push": {"data": {"$each": [pt], "$slice": -ECONOMY_HISTORY_MAX}}}, upsert=True)
+        _last_saved_hash.pop(("store", "economy_history"), None); _last_saved_keys.pop(("store", "economy_history"), None)
+        _bw_add("db", "economy point", 80)
+    except Exception as e:
+        print("economy point append failed, writing the whole history:", e, flush=True)
+        await save_economy_history()
 
 PB_UNLIMITED = 10 ** 9                                                  
 
@@ -962,7 +971,7 @@ async def economy_snapshot_loop(app):
             economy_history.append({"ts": int(time.time()), "total": _total_economy_pb()})
             if len(economy_history) > ECONOMY_HISTORY_MAX:
                 del economy_history[:len(economy_history) - ECONOMY_HISTORY_MAX]
-            await save_economy_history()
+            await append_economy_point(economy_history[-1])
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -1419,6 +1428,29 @@ def _lobby_readable(request, lobby):
     if is_admin(u) or lobby["owner"].lower() == u.lower(): return True
     return (not lobby.get("whitelist_enabled")) or u in lobby.get("whitelist", [])
 
+_preview_cache = {}          # lobby id -> (built at, gzipped bytes, width, height)
+PREVIEW_SIDE = 256
+PREVIEW_TTL = 600
+def _build_preview(lobby):
+    w = int(lobby.get("width", 256)); h = int(lobby.get("height", 256)); grid = lobby["grid"]
+    side = PREVIEW_SIDE
+    out, ow, oh = None, w, h
+    if w > side and h > side:
+        bg = max(range(32), key=lambda c: grid.count(c))              # the most common colour is the empty background
+        tiles = []
+        for ty in range(0, h - side + 1, side):
+            for tx in range(0, w - side + 1, side):
+                n = 0
+                for y in range(ty, ty + side, 4):                      # every 4th row is plenty to find the busy parts
+                    n += side - grid[y * w + tx: y * w + tx + side].count(bg)
+                tiles.append((n, tx, ty))
+        if tiles:
+            tiles.sort(reverse=True)
+            _, tx, ty = random.choice(tiles[:3])
+            out = b"".join(bytes(grid[(ty + y) * w + tx: (ty + y) * w + tx + side]) for y in range(side)); ow = oh = side
+    if out is None: out = bytes(grid)
+    return gzip.compress(out, 6), ow, oh
+
 async def lobby_preview_handler(request):
     """Lightweight grid snapshot for the homepage's background canvas. Returns
     gzipped raw grid bytes (one palette index per pixel) for one of the public
@@ -1430,6 +1462,16 @@ async def lobby_preview_handler(request):
     lobby = lobbies.get(lid)
     if not lobby or not _lobby_readable(request, lobby):
         return web.Response(status=404, text="Lobby not found")
+    if lobby.get("public"):
+        # The menu background only ever shows a small zoomed-in window, so send a 256x256 crop of a busy part of the canvas (compressed, built at most
+        # once every 10 minutes) instead of the whole canvas: a 2048x2048 lobby is 4 MB raw.
+        now = time.time()
+        ent = _preview_cache.get(lid)
+        if not ent or now - ent[0] > PREVIEW_TTL:
+            gz, ow, oh = await asyncio.get_event_loop().run_in_executor(None, _build_preview, lobby)
+            ent = _preview_cache[lid] = (now, gz, ow, oh)
+        return web.Response(body=ent[1], headers={"Content-Type": "application/octet-stream", "Content-Encoding": "gzip",
+                                                  "X-Width": str(ent[2]), "X-Height": str(ent[3]), "Cache-Control": "public, max-age=300"})
     grid_bytes = bytes(lobby["grid"])
     return web.Response(
         body=grid_bytes,
@@ -1437,7 +1479,7 @@ async def lobby_preview_handler(request):
             "Content-Type": "application/octet-stream",
             "X-Width": str(lobby.get("width", 256)),
             "X-Height": str(lobby.get("height", 256)),
-            "Cache-Control": "public, max-age=60" if lobby.get("public") else "private, no-store",
+            "Cache-Control": "private, no-store",
         }
     )
 
@@ -7238,12 +7280,23 @@ async def admin_emergency_handler(request):
     if not is_admin(user): return web.json_response({"error": "Forbidden"}, status=403)
     if request.method == "POST":
         data = await request.json()
-        emergency_mode = bool(data.get("on"))
-        await db_save("store", "emergency_mode", emergency_mode)
-        if not emergency_mode:
-            try: await flush_dirty_saves()                      # catch up straight away when it is turned off
-            except Exception as e: print("emergency off: flush failed:", e)
-        print(f"[emergency] {'ON' if emergency_mode else 'OFF'} (set by {user})", flush=True)
+        if data.get("save"):
+            # "Save everything now": run this just before a deploy so the database matches the live game and the new version loses nothing
+            saved = 0
+            try:
+                await flush_dirty_saves()
+                for lid in list(dirty_lobbies):
+                    await save_lobby(lid); saved += 1
+            except Exception as e:
+                print("save-now failed:", e, flush=True); return web.json_response({"error": f"Save failed: {e}"}, status=500)
+            print(f"[save-now] saved all data and {saved} canvases (by {user})", flush=True)
+        if "on" in data:
+            emergency_mode = bool(data.get("on"))
+            await db_save("store", "emergency_mode", emergency_mode)
+            if not emergency_mode:
+                try: await flush_dirty_saves()                      # catch up straight away when it is turned off
+                except Exception as e: print("emergency off: flush failed:", e)
+            print(f"[emergency] {'ON' if emergency_mode else 'OFF'} (set by {user})", flush=True)
     return web.json_response({"ok": True, "on": emergency_mode, "unsaved_lobbies": len(dirty_lobbies), "unsaved_stores": len(_dirty_saves),
                               "since_seconds": int(time.time() - bw_stats["since"]), "summary": _bw_summary()})
 
@@ -7637,6 +7690,12 @@ async def on_cleanup(app):
         except: pass
     await save_all_lobbies()
 
+_VOLATILE_ACTIVITY = re.compile(rb'"last_activity": [0-9.eE+-]+,? ?')
+_VOLATILE_EXPIRES = re.compile(rb'"expires_in": ([0-9]+)(?:\.[0-9]+)?')
+def _etag_view(body):
+    """What the ETag is computed from: timers that tick every second (last_activity, the expires_in countdown) are ignored/rounded to 10 minutes, or the lobby list would never look unchanged."""
+    return _VOLATILE_EXPIRES.sub(lambda m: b'"expires_in": ' + str(int(m.group(1)) // 600).encode(), _VOLATILE_ACTIVITY.sub(b'', body))
+_ETAG_PATHS = {"/api/friends", "/api/groups/my", "/api/lobbies", "/api/economy/stats", "/api/global-leaderboard"}
 @web.middleware
 async def cors_middleware(request, handler):
 
@@ -7644,6 +7703,15 @@ async def cors_middleware(request, handler):
         resp = web.Response()
     else:
         resp = await handler(request)
+    # Lists that clients poll: tag them with an ETag, and answer "unchanged" with headers only when the browser already has the same version.
+    if (request.method == "GET" and request.path in _ETAG_PATHS and isinstance(resp, web.Response) and resp.status == 200
+            and resp.body and "ETag" not in resp.headers and "Content-Encoding" not in resp.headers):
+        et = '"' + hashlib.md5(_etag_view(resp.body)).hexdigest()[:16] + '"'
+        vary = {"ETag": et, "Cache-Control": "private, no-cache", "Vary": "Authorization"}
+        if request.headers.get("If-None-Match") == et:
+            resp = web.Response(status=304, headers=vary)
+        else:
+            resp.headers.update(vary)
     # Compress API/grid responses (big JSON lists, raw grid snapshots) to save bandwidth.
     if (isinstance(resp, web.Response) and not resp.prepared and resp.body
             and 'Content-Encoding' not in resp.headers and len(resp.body) > 1024):
