@@ -2141,7 +2141,7 @@ async function refreshMenuOnline() {
   else setTimeout(refreshMenuOnline, 3000);
 }
 let _onlineZeroTries = 0;
-function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen() && !document.hidden) refreshMenuOnline(); }, 15000); }
+function startMenuOnlinePoll() { refreshMenuOnline(); if (!_menuOnlineTimer) _menuOnlineTimer = setInterval(() => { if (menuIsOpen() && !document.hidden) refreshMenuOnline(); }, 60000); }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && menuIsOpen()) refreshMenuOnline(); });
 // ---- Rotating menu messages (kept right here so nothing has to be fetched; the same list is in randommsg.txt) ----
 const MENU_MESSAGES = [
@@ -10270,7 +10270,7 @@ function compressImageToBlob(file) {
     reader.onload = e => {
       const img = new Image();
       img.onload = () => {
-        const maxSide = 1600;
+        const maxSide = 1280;
         let { width, height } = img;
         if (width > maxSide || height > maxSide) {
           const scale = maxSide / Math.max(width, height);
@@ -10278,9 +10278,9 @@ function compressImageToBlob(file) {
         }
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
-        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Encode failed')), mime, 0.85);
+        const cx = canvas.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, width, height);     // JPEG has no transparency
+        cx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Encode failed')), 'image/jpeg', 0.75);       // every picture leaves as a small JPEG: each upload is sent on to Catbox, which counts against the bandwidth
       };
       img.onerror = () => reject(new Error('Failed to decode image'));
       img.src = e.target.result;

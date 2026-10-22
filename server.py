@@ -47,7 +47,7 @@ def lobby_timeout_for(lobby):
     return LOBBY_TIMEOUT_PUBLIC if lobby.get("public") else LOBBY_TIMEOUT_PRIVATE
 
 MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/ezplace")
-mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, compressors='zlib', zlibCompressionLevel=6)
+mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, compressors='zlib', zlibCompressionLevel=6, heartbeatFrequencyMS=60000)
 db = mongo_client.get_default_database() if "mongodb.net" in MONGO_URI else mongo_client["ezplace"]
 
 accounts = {}
@@ -949,7 +949,7 @@ async def flush_dirty_lobbies_loop(app):
     while True:
         try:
             await asyncio.sleep(LOBBY_SAVE_SECONDS)
-            if emergency_mode and time.time() - _last_lobby_flush < EMERGENCY_LOBBY_SECONDS: continue
+            if (lite_mode or emergency_mode) and time.time() - _last_lobby_flush < (3600 if lite_mode else EMERGENCY_LOBBY_SECONDS): continue
             _last_lobby_flush = time.time()
             for lid in list(dirty_lobbies):
                 try:
@@ -1821,7 +1821,7 @@ async def upload_image_handler(request):
     if field is None or field.name != "file":
         return web.json_response({"error": "Missing file field"}, status=400)
                                                                                           
-    MAX = 6 * 1024 * 1024
+    MAX = 2 * 1024 * 1024
     chunks = []
     total = 0
     while True:
@@ -1829,7 +1829,7 @@ async def upload_image_handler(request):
         if not chunk: break
         total += len(chunk)
         if total > MAX:
-            return web.json_response({"error": "File too large (max 6 MB)"}, status=413)
+            return web.json_response({"error": "File too large (max 2 MB)"}, status=413)
         chunks.append(chunk)
     data = b"".join(chunks)
     if not data:
@@ -3225,7 +3225,7 @@ async def _casino_open(request, rate_key):
         return None, web.json_response({"error": "Bet must be at least 1 $"}, status=400)
     if amount > MAX_CASINO_BET:
         return None, web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
-    if rate_key and not check_rate_limit(user, rate_key, 60, 60):
+    if rate_key and (not check_rate_limit(user, rate_key, 20, 60) or not check_rate_limit(user, "casino_all", 40, 60)):
         return None, web.json_response({"error": "Slow down - too many plays this minute."}, status=429)
     if not spend_pb(user, amount):
         return None, web.json_response({"error": "Not enough PlaceBux"}, status=400)
@@ -7090,11 +7090,14 @@ def _clients_drop(ws):
     _clients_forget(ws)
     clients.pop(ws, None)
 
-bw_stats = {"ws": {}, "http": {}, "db": {}, "since": time.time()}
+bw_stats = {"ws": {}, "http": {}, "db": {}, "since": time.time()}      # the last 10 minutes (written to the log, then reset)
+bw_total = {"ws": {}, "http": {}, "db": {}, "since": time.time()}      # everything since the server started (shown in the admin panel)
 def _bw_add(group, key, n, count=1):
-    g = bw_stats[group]
-    if key not in g and len(g) >= 150: key = "other (table full)"      # bots probing random URLs must not make this grow without limit
-    e = g.setdefault(key, [0, 0]); e[0] += n; e[1] += count
+    for table in (bw_stats, bw_total):
+        g = table[group]
+        k = key
+        if k not in g and len(g) >= 150: k = "other (table full)"      # bots probing random URLs must not make this grow without limit
+        e = g.setdefault(k, [0, 0]); e[0] += n; e[1] += count
 
 async def _send_many(pairs, timeout=5, kind="other"):
     """Send (ws, payload) pairs at the same time so one slow connection cannot hold up the rest; give up on stragglers after `timeout`."""
@@ -7259,10 +7262,11 @@ async def broadcast_online_lobby(lobby_id):
             seen.add(n.lower()); users.append(n)
     await broadcast_to_lobby(lobby_id, {"type": "online", "count": count, "total": _global_online_total(), "users": users})
 
-def _bw_summary(reset=False):
+def _bw_summary(reset=False, totals=False):
     parts = []
+    src = bw_total if totals else bw_stats
     for group in ("ws", "http", "db"):
-        rows = sorted(bw_stats[group].items(), key=lambda kv: -kv[1][0])[:6]
+        rows = sorted(src[group].items(), key=lambda kv: -kv[1][0])[:(10 if totals else 6)]
         if rows: parts.append(group + ": " + ", ".join(f"{k} {v[0] / 1e6:.2f}MB ({v[1]})" for k, v in rows))
     out = " | ".join(parts) or "nothing sent yet"
     if reset:
@@ -7307,11 +7311,11 @@ async def admin_emergency_handler(request):
                 except Exception as e: print("emergency off: flush failed:", e)
             print(f"[emergency] {'ON' if emergency_mode else 'OFF'} (set by {user})", flush=True)
     return web.json_response({"ok": True, "on": emergency_mode, "lite": lite_mode, "unsaved_lobbies": len(dirty_lobbies), "unsaved_stores": len(_dirty_saves),
-                              "since_seconds": int(time.time() - bw_stats["since"]), "summary": _bw_summary()})
+                              "since_seconds": int(time.time() - bw_total["since"]), "summary": _bw_summary(totals=True)})
 
 async def admin_bandwidth_handler(request):
     if not is_admin(get_auth_user(request)): return web.json_response({"error": "Forbidden"}, status=403)
-    return web.json_response({"since_seconds": int(time.time() - bw_stats["since"]), "stats": {g: {k: {"bytes": v[0], "messages": v[1]} for k, v in bw_stats[g].items()} for g in ("ws", "http", "db")}})
+    return web.json_response({"since_seconds": int(time.time() - bw_total["since"]), "stats": {g: {k: {"bytes": v[0], "messages": v[1]} for k, v in bw_total[g].items()} for g in ("ws", "http", "db")}})
 
 async def leaderboard_broadcast_loop(app):
     last_sent = {}
@@ -7728,7 +7732,7 @@ async def cors_middleware(request, handler):
             and 'Content-Encoding' not in resp.headers and len(resp.body) > 1024):
         resp.enable_compression()
     try:
-        if isinstance(resp, web.Response) and resp.body is not None: _bw_add("http", request.path, len(resp.body))
+        if isinstance(resp, web.Response) and resp.body is not None: _bw_add("http", request.path, len(resp.body) + 250)           # +~250 bytes of headers per reply
     except Exception: pass
     resp.headers['Access-Control-Allow-Origin'] = '*'
     resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
