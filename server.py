@@ -915,25 +915,51 @@ def unpack_pixel_authors(blob, size=0):
         pass
     return authors
 
-async def save_lobby(lid):
+_lobby_digest = {}            # lobby id -> fingerprint of what the database holds (canvas + history + settings)
+_pauthors_saved_at = {}       # lobby id -> when the "who placed each pixel" list was last written
+PAUTHORS_SAVE_SECONDS = 6 * 3600
+
+def _lobby_fingerprint(lobby, grid_bytes, events_bytes):
+    h = hashlib.md5(); h.update(grid_bytes); h.update(events_bytes)
+    meta = {k: v for k, v in lobby.items() if k not in ("grid", "events", "pixel_authors", "last_activity")}
+    h.update(json.dumps(meta, sort_keys=True, default=str).encode())
+    if not lobby.get("public"): h.update(str(int(lobby.get("last_activity", 0)) // 21600).encode())   # a private lobby's inactivity timer is kept to within 6 hours
+    return h.digest()
+
+def _seed_lobby_digests():
+    """Right after a start the database holds exactly what was just loaded, so the first save of an unchanged lobby writes nothing."""
+    for lid, lobby in lobbies.items():
+        try:
+            _lobby_digest[lid] = _lobby_fingerprint(lobby, bytes(lobby["grid"]), bytes(lobby.get("events", b"")))
+            _pauthors_saved_at[lid] = time.time()
+        except Exception: pass
+
+async def save_lobby(lid, force_authors=False):
     lobby = lobbies.get(lid)
     if not lobby:
         return
-
-                                                                 
     data = {k: v for k, v in lobby.items() if k not in ("grid", "events", "pixel_authors")}
     grid_bytes = bytes(lobby["grid"])
     events_bytes = bytes(lobby.get("events", b""))
-    pauthors_bytes = pack_pixel_authors(lobby.get("pixel_authors") or {})
-    # A 2048x2048 canvas is 4 MB raw; stored compressed it is usually a few KB to a few hundred KB. (Old rows with raw "grid"/"events"/"pauthors" are still read.)
-    gz, ez, pz = (await asyncio.get_event_loop().run_in_executor(None, lambda: (zlib.compress(grid_bytes, 6), zlib.compress(events_bytes, 6), zlib.compress(pauthors_bytes, 6))))
-    await db["lobbies"].update_one({"_id": lid}, {"$set": {"meta": data, "gridz": gz, "eventsz": ez, "pauthorsz": pz}, "$unset": {"grid": "", "events": "", "pauthors": ""}}, upsert=True)
-    _bw_add("db", "lobby saves", len(gz) + len(ez) + len(pz))
+    fp = _lobby_fingerprint(lobby, grid_bytes, events_bytes)
+    if _lobby_digest.get(lid) == fp:                      # nothing changed since the last write (or since it was loaded): send nothing
+        dirty_lobbies.discard(lid); return
+    # A 2048x2048 canvas is 4 MB raw; stored compressed it is far smaller. (Old rows with raw "grid"/"events"/"pauthors" are still read.)
+    send_authors = force_authors or time.time() - _pauthors_saved_at.get(lid, 0) > PAUTHORS_SAVE_SECONDS
+    pauthors_bytes = pack_pixel_authors(lobby.get("pixel_authors") or {}) if send_authors else b""
+    gz, ez, pz = (await asyncio.get_event_loop().run_in_executor(None, lambda: (zlib.compress(grid_bytes, 6), zlib.compress(events_bytes, 6), zlib.compress(pauthors_bytes, 6) if send_authors else None)))
+    sets = {"meta": data, "gridz": gz, "eventsz": ez}
+    if send_authors: sets["pauthorsz"] = pz                  # the author list is the largest part and only labels pixels, so it is written a few times a day (and at shutdown)
+    await db["lobbies"].update_one({"_id": lid}, {"$set": sets, "$unset": {"grid": "", "events": "", "pauthors": ""}}, upsert=True)
+    _lobby_digest[lid] = fp
+    if send_authors: _pauthors_saved_at[lid] = time.time()
+    _bw_add("db", "lobby canvas", len(gz)); _bw_add("db", "lobby history", len(ez))
+    if send_authors: _bw_add("db", "lobby authors", len(pz))
     dirty_lobbies.discard(lid)
 
 async def save_all_lobbies():
     for lid in list(lobbies.keys()):
-        try: await save_lobby(lid)
+        try: await save_lobby(lid, force_authors=True)
         except Exception as e: print(f"[save_all_lobbies] {lid} failed: {type(e).__name__}: {e}", flush=True)
 
 lite_mode = False             # admin switch, level 2: also stops cursor sharing and the menu background, slows leaderboard updates, sends a shorter economy graph
@@ -1251,6 +1277,7 @@ async def load_all_data():
     async for doc in db["dms"].find():
         dms[doc["_id"]] = doc.get("data", [])
 
+    _seed_lobby_digests()
     print(f"Loaded: {len(accounts)} accounts, {len(lobbies)} lobbies, {len(friends_data)} friend entries")
 
 def generate_captcha_svg(text):
@@ -1294,6 +1321,21 @@ try:
     _INDEX_GZ = gzip.compress(_INDEX_RAW, compresslevel=9)
 except:
     _INDEX_RAW = b""; _INDEX_GZ = b""; _INDEX_ETAG = ""
+# A minified, precompressed copy made by tools/build_index.js; used only when it was built from exactly this index.html.
+_MIN_RAW = _MIN_BR = _MIN_GZ = b""
+try:
+    with open("index.min.meta.json", "r", encoding="utf8") as _f: _meta = json.load(_f)
+    if _INDEX_RAW and _meta.get("source_md5") == hashlib.md5(_INDEX_RAW).hexdigest():
+        with open("index.min.html", "rb") as _f: _MIN_RAW = _f.read()
+        with open("index.min.html.br", "rb") as _f: _MIN_BR = _f.read()
+        with open("index.min.html.gz", "rb") as _f: _MIN_GZ = _f.read()
+        if len(_MIN_RAW) != _meta.get("min_bytes") or len(_MIN_BR) != _meta.get("br_bytes") or len(_MIN_GZ) != _meta.get("gz_bytes"): raise ValueError("size mismatch")
+        print(f"[index] serving the minified page: {len(_MIN_BR)//1024} KB brotli, {len(_MIN_GZ)//1024} KB gzip (source {len(_INDEX_RAW)//1024} KB)", flush=True)
+    else:
+        raise ValueError("built from a different index.html")
+except Exception as _e:
+    _MIN_RAW = _MIN_BR = _MIN_GZ = b""
+    print(f"[index] minified copy not used ({type(_e).__name__}: {_e}); serving index.html as is", flush=True)
 # "no-cache" (not "no-store") lets browsers keep a copy and revalidate with the ETag,
 # so repeat visits cost a 304 instead of the full ~700KB page.
 _INDEX_HEADERS = {
@@ -1307,10 +1349,13 @@ async def index_handler(request):
         return web.Response(status=304, headers=_INDEX_HEADERS)
     if not _INDEX_RAW:
         return web.FileResponse("index.html", headers=_INDEX_HEADERS)
-    if "gzip" in request.headers.get("Accept-Encoding", ""):
-        return web.Response(body=_INDEX_GZ, content_type="text/html", charset="utf-8",
+    ae = request.headers.get("Accept-Encoding", "")
+    if _MIN_BR and "br" in ae:
+        return web.Response(body=_MIN_BR, content_type="text/html", charset="utf-8", headers={**_INDEX_HEADERS, "Content-Encoding": "br"})
+    if "gzip" in ae:
+        return web.Response(body=_MIN_GZ or _INDEX_GZ, content_type="text/html", charset="utf-8",
                             headers={**_INDEX_HEADERS, "Content-Encoding": "gzip"})
-    return web.Response(body=_INDEX_RAW, content_type="text/html", charset="utf-8", headers=_INDEX_HEADERS)
+    return web.Response(body=_MIN_RAW or _INDEX_RAW, content_type="text/html", charset="utf-8", headers=_INDEX_HEADERS)
 
 async def version_handler(request):
     return web.json_response({"etag": _INDEX_ETAG}, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, private", "Pragma": "no-cache", "Expires": "0"})
@@ -7294,7 +7339,7 @@ async def admin_emergency_handler(request):
             try:
                 await flush_dirty_saves()
                 for lid in list(dirty_lobbies):
-                    await save_lobby(lid); saved += 1
+                    await save_lobby(lid, force_authors=True); saved += 1
             except Exception as e:
                 print("save-now failed:", e, flush=True); return web.json_response({"error": f"Save failed: {e}"}, status=500)
             print(f"[save-now] saved all data and {saved} canvases (by {user})", flush=True)
