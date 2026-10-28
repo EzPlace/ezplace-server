@@ -780,6 +780,37 @@
 </script>
 </head>
 <body>
+<div id="ez-down" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483647;background:#0b0b10;color:#eee;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;align-items:center;justify-content:center;text-align:center;padding:24px;box-sizing:border-box;">
+  <div style="max-width:560px;">
+    <div style="font-size:44px;font-weight:800;margin-bottom:14px;">EzPlace is down</div>
+    <div id="ez-down-msg" style="font-size:21px;line-height:1.5;margin-bottom:26px;">EzPlace is down until November 1st.</div>
+    <a href="https://discord.gg/6JUp66errp" target="_blank" rel="noopener" style="display:inline-block;background:#5865f2;color:#fff;text-decoration:none;font-weight:700;font-size:18px;padding:14px 28px;border-radius:10px;">Join our Discord</a>
+    <div style="font-size:14px;color:#8a8a99;margin-top:22px;">Your account and progress are safe. https://discord.gg/6JUp66errp</div>
+  </div>
+</div>
+<script>
+// Shows the "down" notice when the game server cannot be reached (this page is also served from other links, like the GitHub mirror).
+// When the server is fine nothing is shown and nothing more is checked. While the notice is up it re-checks every minute and reloads when the server is back.
+(function () {
+  var el = document.getElementById('ez-down'); if (!el) return;
+  var host = 'ezplace.onrender.com', base = location.hostname === host ? '' : 'https://' + host, shown = false;
+  function show() {
+    if (!shown) { shown = true; setInterval(check, 60000); }
+    var m = document.getElementById('ez-down-msg');
+    if (m) m.textContent = Date.now() < Date.UTC(2026, 10, 1, 12, 0, 0) ? 'EzPlace is down until November 1st.' : 'EzPlace is temporarily down.';
+    el.style.display = 'flex'; document.documentElement.style.overflow = 'hidden';
+  }
+  function check() {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctrl) ctrl.abort(); }, 8000);
+    fetch(base + '/api/health', { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('down')); })
+      .then(function (d) { clearTimeout(t); if (d && d.ok) { if (shown) location.reload(); } else show(); })
+      .catch(function () { clearTimeout(t); show(); });
+  }
+  check();
+})();
+</script>
 <div id="hw-deco" aria-hidden="true"><div class="hw-moon"><i style="left:22px;top:24px;width:16px;height:16px"></i><i style="left:54px;top:46px;width:22px;height:22px"></i><i style="left:34px;top:62px;width:10px;height:10px"></i></div><div class="hw-cloud"></div><svg class="hw-bat" style="top:11%;animation-duration:24s;animation-delay:-6s;width:34px" viewBox="0 0 34 18"><path d="M17 4c1-2 2-3 3-3l-1 4c3-3 8-4 15-3-3 2-4 4-5 6-1-1-3-1-4 1-1-1-3-1-4 1-1-2-2-3-4-3s-3 1-4 3c-1-2-3-2-4-1-1-2-3-2-4-1-1-2-2-4-5-6 7-1 12 0 15 3l-1-4c1 0 2 1 3 3z"/></svg><svg class="hw-bat" style="top:20%;animation-duration:33s;animation-delay:-17s;width:24px" viewBox="0 0 34 18"><path d="M17 4c1-2 2-3 3-3l-1 4c3-3 8-4 15-3-3 2-4 4-5 6-1-1-3-1-4 1-1-1-3-1-4 1-1-2-2-3-4-3s-3 1-4 3c-1-2-3-2-4-1-1-2-3-2-4-1-1-2-2-4-5-6 7-1 12 0 15 3l-1-4c1 0 2 1 3 3z"/></svg><svg class="hw-bat" style="top:7%;animation-duration:41s;animation-delay:-29s;width:40px" viewBox="0 0 34 18"><path d="M17 4c1-2 2-3 3-3l-1 4c3-3 8-4 15-3-3 2-4 4-5 6-1-1-3-1-4 1-1-1-3-1-4 1-1-2-2-3-4-3s-3 1-4 3c-1-2-3-2-4-1-1-2-3-2-4-1-1-2-2-4-5-6 7-1 12 0 15 3l-1-4c1 0 2 1 3 3z"/></svg><div class="hw-fog b"></div><svg class="hw-ground" viewBox="0 0 1200 240" preserveAspectRatio="xMidYMax slice" fill="#050305" aria-hidden="true">
 <path d="M0 240V170Q150 120 300 165T620 150T930 170T1200 140V240Z"/>
 <path d="M60 170c-2-40-6-70-14-100M46 70l-30-30M46 70l24-34M52 110l-34-14M54 130l30-22M46 70l-6-34M40 36l-14-14M70 36l8-16" stroke="#050305" stroke-width="5" stroke-linecap="round" fill="none"/>
