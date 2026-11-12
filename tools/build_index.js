@@ -27,5 +27,15 @@ const CleanCSS = require('clean-css');
   const gz = zlib.gzipSync(buf, { level: 9 });
   fs.writeFileSync('index.min.html', buf); fs.writeFileSync('index.min.html.br', br); fs.writeFileSync('index.min.html.gz', gz);
   fs.writeFileSync('index.min.meta.json', JSON.stringify({ source_md5: hash, min_bytes: buf.length, br_bytes: br.length, gz_bytes: gz.length }));
+  if (fs.existsSync('ezworld.js')) {
+    const ezSrc = fs.readFileSync('ezworld.js', 'utf8');
+    const r = await minify(ezSrc, { compress: { passes: 1 }, mangle: true, format: { comments: false } });
+    if (r.error || !r.code) throw new Error('terser failed on ezworld.js');
+    const ezBuf = Buffer.from(r.code, 'utf8');
+    const ezBr = zlib.brotliCompressSync(ezBuf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: ezBuf.length } });
+    fs.writeFileSync('ezworld.min.js', ezBuf); fs.writeFileSync('ezworld.min.js.br', ezBr);
+    fs.writeFileSync('ezworld.min.meta.json', JSON.stringify({ source_md5: crypto.createHash('md5').update(ezSrc).digest('hex'), min_bytes: ezBuf.length, br_bytes: ezBr.length }));
+    console.log('ezworld.js: ' + ezSrc.length + ' -> ' + ezBuf.length + ' min, ' + ezBr.length + ' brotli');
+  }
   console.log(JSON.stringify({ source: src.length, js: [jsBefore, jsAfter], css: [cssBefore, cssAfter], min: buf.length, gz: gz.length, br: br.length, original_gz: zlib.gzipSync(Buffer.from(src), { level: 9 }).length }));
 })().catch(e => { console.error('BUILD FAILED', e.message); process.exit(1); });

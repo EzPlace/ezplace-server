@@ -212,8 +212,82 @@
   #menu-user-info { font-size: 12px; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #menu-user-info b { color: var(--text-primary); font-weight: 600; }
   #menu-pb { margin-left: 10px; color: var(--gold); font-weight: 600; }
+  /* menu polish: depth, hover lift, accent glow, staggered entrance */
+  #menu-bubble { background: linear-gradient(180deg, rgba(44,41,37,0.97), rgba(30,28,25,0.97)); border-color: rgba(255,255,255,0.09); box-shadow: 0 28px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06); }
+  #menu-title { background: linear-gradient(180deg, #fff, rgba(255,255,255,0.72)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .menu-btn { transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease; }
+  .menu-btn:hover:not(.locked):not(.danger) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.28); border-color: var(--accent); background: linear-gradient(135deg, var(--accent-dim), rgba(255,255,255,0.03)); }
+  .menu-btn:active:not(.locked) { transform: translateY(0) scale(0.985); box-shadow: none; }
+  .menu-btn:focus-visible, .menu-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .menu-btn:not(.danger):not(.wide):not(.primary) .mi { padding: 6px; box-sizing: content-box; width: 18px; height: 18px; border-radius: 9px; background: rgba(255,255,255,0.05); }
+  .menu-btn:hover:not(.locked) .mi { background: var(--accent-dim); }
+  .menu-col-title { color: var(--text-secondary); }
+  #menu-user-row { background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); border-color: rgba(255,255,255,0.09); }
+  #menu-pb { background: rgba(255,200,60,0.10); border: 1px solid rgba(255,200,60,0.25); border-radius: 999px; padding: 1px 9px; }
+  @keyframes menuBtnIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .menu-view.active .menu-col .menu-btn { animation: menuBtnIn 0.28s ease both; }
+  .menu-view.active .menu-col .menu-btn:nth-child(2) { animation-delay: 0.04s; } .menu-view.active .menu-col .menu-btn:nth-child(3) { animation-delay: 0.08s; } .menu-view.active .menu-col .menu-btn:nth-child(4) { animation-delay: 0.12s; }
+  @media (prefers-reduced-motion: reduce) { .menu-view.active .menu-col .menu-btn { animation: none; } .menu-btn, .menu-btn:hover:not(.locked):not(.danger) { transition: none; transform: none; } }
   .menu-tabs { display: flex; background: rgba(0,0,0,0.25); border-radius: 10px; padding: 3px; gap: 3px; }
   .menu-tab { flex: 1; padding: 8px 0; font-size: 12px; font-weight: 500; border: none; border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; font-family: inherit; transition: background 0.15s ease, color 0.15s ease; }
+  .tab-dot { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: var(--red); vertical-align: middle; box-shadow: 0 0 0 2px rgba(0,0,0,0.25); }
+  .casino-sec { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  #casino-tabs { margin-bottom: 2px; }
+  #casino-tabs .menu-tab { padding: 8px 4px; font-size: 11.5px; }
+  .theme-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+  .theme-sw { display: flex; align-items: center; gap: 7px; padding: 6px 8px; font-size: 11.5px; font-family: inherit; color: var(--text-primary); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+  .theme-sw.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .theme-sw-dot { position: relative; width: 20px; height: 20px; border-radius: 50%; border: 2px solid; flex-shrink: 0; }
+  .theme-sw-dot i { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 50%; }
+  .theme-color { width: 32px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
+  .dc-on { color: var(--green); } .dc-off { color: var(--text-muted); }
+  /* EzWorld menu card: title on the left, Join button on the right */
+  .ezworld-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px 10px 16px; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 12px; }
+  .ezworld-card .ezw-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .ezworld-card .ezw-text b { font-size: 14px; font-weight: 600; }
+  .ezworld-card .ezw-text small { font-size: 11px; color: var(--text-secondary); font-weight: 400; }
+  .menu-btn.ezw-join { width: auto; height: 34px; padding: 0 22px; flex-shrink: 0; }
+  .menu-btn.ezw-join.loading { opacity: 0.6; cursor: progress; }
+  /* EzWorld screen: same bones as the 2D lobby (title bar, canvas, colour bar, chat sidebar) */
+  #ew-view { position: fixed; inset: 0; z-index: 80; display: none; flex-direction: row; background: var(--bg-primary); color: var(--text-primary); }
+  #ew-main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-secondary); }
+  #ew-header { padding: 8px 14px; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-tertiary); flex-shrink: 0; border-bottom: 1px solid var(--border); }
+  #ew-header h1 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  #ew-header h1 img { height: 22px; width: auto; display: block; }
+  #ew-header-right { display: flex; align-items: center; gap: 14px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+  #ew-coords { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+  #ew-stage { flex: 1; position: relative; overflow: hidden; background: var(--bg-primary); }
+  #ew-canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  #ew-tags { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .ew-tag { position: absolute; left: 0; top: 0; will-change: transform; }
+  .ew-tag-img { display: block; border-radius: 22%; border: 2px solid rgba(255,255,255,0.85); box-shadow: 0 2px 8px rgba(0,0,0,0.45); background: var(--bg-elevated); object-fit: cover; }
+  .ew-tag-name { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 5px; padding: 1px 7px; font-size: 12px; font-weight: 600; color: #fff; background: rgba(0,0,0,0.58); border-radius: 4px; white-space: nowrap; }
+  #ew-cross { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; mix-blend-mode: difference; }
+  #ew-cross::before, #ew-cross::after { content: ''; position: absolute; background: #fff; }
+  #ew-cross::before { left: 8px; top: 0; width: 2px; height: 18px; } #ew-cross::after { top: 8px; left: 0; height: 2px; width: 18px; }
+  #ew-hint, #ew-load { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; }
+  #ew-hint { background: rgba(8,8,12,0.42); cursor: pointer; }
+  #ew-load { display: flex; background: var(--bg-primary); font-size: 14px; color: var(--text-secondary); padding: 20px; }
+  .ew-card { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 22px; max-width: 460px; box-shadow: 0 12px 40px rgba(0,0,0,0.45); }
+  .ew-card-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+  .ew-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 14px; font-size: 11.5px; color: var(--text-secondary); text-align: left; }
+  .ew-keys b { display: block; color: var(--text-primary); font-weight: 600; font-size: 12px; }
+  #ew-bottom { display: flex; align-items: stretch; gap: 10px; padding: 6px 8px; background: var(--bg-secondary); border-top: 1px solid var(--border); flex-shrink: 0; }
+  #ew-sel { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0; width: 64px; }
+  #ew-sel-chip { width: 44px; height: 30px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.18); }
+  #ew-sel-hex { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 10px; color: var(--text-muted); }
+  #ew-palette { flex: 1; display: flex; flex-wrap: wrap; gap: 3px; max-height: 78px; overflow-y: auto; align-content: flex-start; padding: 3px; background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 8px; }
+  .ew-sw { width: 20px; height: 20px; padding: 0; border-radius: 4px; border: 1px solid rgba(255,255,255,0.18); cursor: pointer; }
+  .ew-sw:hover { transform: scale(1.12); border-color: #fff; }
+  .ew-sw.sel { outline: 2px solid #fff; outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0,0,0,0.5); }
+  #ew-side { width: 320px; background: var(--bg-secondary); display: flex; flex-direction: column; border-left: 1px solid var(--border); flex-shrink: 0; }
+  #ew-side-title { padding: 10px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-secondary); background: var(--bg-tertiary); border-bottom: 1px solid var(--border); }
+  #ew-messages { flex: 1; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 4px 6px; font-size: 12px; line-height: 1.5; }
+  #ew-messages .msg .name { color: var(--accent); font-weight: 500; }
+  #ew-messages .msg.ew-sys { color: var(--gold); font-style: italic; }
+  #ew-chat-bar { padding: 6px; display: flex; gap: 6px; border-top: 1px solid var(--border); }
+  #ew-chat-bar input { flex: 1; }
+  @media (max-width: 760px) { #ew-side { display: none; } .ew-keys { grid-template-columns: repeat(2, 1fr); } }
   .menu-tab:hover { color: var(--text-primary); }
   .menu-tab.active { background: rgba(255,255,255,0.08); color: var(--text-primary); }
   .ltab-panel { display: flex; flex-direction: column; gap: 8px; }
@@ -778,6 +852,61 @@
   document.addEventListener('DOMContentLoaded', function () { var d = document.getElementById('hw-deco'); if (d) d.remove(); });
 })();
 </script>
+<script>
+// User theme (Settings > Appearance). Saved in this browser only (localStorage); applied here, before first paint, so there is no flash.
+(function () {
+  var P = {
+    midnight: ['#0f1420','#151b2b','#1b2236','#222b44','#2a3554','#2f3a5c','#435083','#e4e9f7','#9eabcf','#6b789e','#5b8cff'],
+    forest:   ['#101712','#151f17','#1b281e','#223226','#2a3d2f','#2f4634','#44634a','#e2eee3','#a1b9a4','#6f8a73','#4cc26a'],
+    grape:    ['#17101f','#1e1528','#261b32','#2f2240','#3a2b4f','#46335f','#65488a','#efe6fa','#bba6d6','#86719f','#b36cff'],
+    ocean:    ['#0b1719','#102022','#152b2e','#1b3a3d','#234b4f','#28585c','#3a7a80','#def3f2','#9cc4c2','#67908e','#22d3c5'],
+    rose:     ['#1c1117','#26161e','#301c26','#3b2330','#4a2c3d','#5a3549','#7d4b66','#f8e6ee','#d1a5b9','#9a7186','#ff5c8a'],
+    amoled:   ['#000000','#080808','#101010','#171717','#1f1f1f','#262626','#3a3a3a','#f0f0f0','#a8a8a8','#707070','#ee5a52'],
+    light:    ['#f4f1ea','#ebe7de','#e2ddd1','#d9d3c5','#cfc8b8','#c4bcaa','#a79f8b','#24211b','#51493b','#7b7362','#d8403a']
+  };
+  var NAMES = { default: 'Default', midnight: 'Midnight', forest: 'Forest', grape: 'Grape', ocean: 'Ocean', rose: 'Rose', amoled: 'AMOLED', light: 'Light' };
+  function rgb(h) { h = String(h || '').replace('#', ''); if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; if (!/^[0-9a-f]{6}$/i.test(h)) return null; return [parseInt(h.substr(0,2),16), parseInt(h.substr(2,2),16), parseInt(h.substr(4,2),16)]; }
+  function hex(c) { return '#' + c.map(function (v) { v = Math.max(0, Math.min(255, Math.round(v))); return (v < 16 ? '0' : '') + v.toString(16); }).join(''); }
+  function shade(h, amt) { var c = rgb(h); if (!c) return h; var t = amt > 0 ? 255 : 0, a = Math.abs(amt); return hex(c.map(function (v) { return v + (t - v) * a; })); }
+  function lum(h) { var c = rgb(h) || [0,0,0]; return (0.299*c[0] + 0.587*c[1] + 0.114*c[2]) / 255; }
+  function build(cfg) {
+    var base = null;
+    if (cfg.preset && P[cfg.preset]) base = P[cfg.preset].slice();
+    var bg = rgb(cfg.bg) ? cfg.bg : null;
+    if (bg) {                                   // custom background: derive every surface/border/text tone from it
+      var lt = lum(bg) > 0.55, d = lt ? -1 : 1;
+      base = [bg, shade(bg, d*0.035), shade(bg, d*0.07), shade(bg, d*0.105), shade(bg, d*0.14), shade(bg, d*0.18), shade(bg, d*0.28),
+              lt ? '#1f1c17' : '#ece6d8', lt ? '#4d463a' : '#b3ad9e', lt ? '#7b7362' : '#7d7768', (base && base[10]) || '#ee5a52'];
+    }
+    var accent = rgb(cfg.accent) ? cfg.accent : (base ? base[10] : null);
+    var isLight = base ? lum(base[0]) > 0.55 : false;
+    var css = ':root{';
+    if (base) css += '--bg-primary:'+base[0]+';--bg-secondary:'+base[1]+';--bg-tertiary:'+base[2]+';--bg-elevated:'+base[3]+';--bg-hover:'+base[4]+';--border:'+base[5]+';--border-light:'+base[6]+';--text-primary:'+base[7]+';--text-secondary:'+base[8]+';--text-muted:'+base[9]+';--surface:'+base[1]+';--input-bg:'+shade(base[0], isLight ? 0.4 : -0.25)+';--scrollbar:'+base[5]+';--scrollbar-hover:'+base[6]+';color-scheme:'+(isLight ? 'light' : 'dark')+';';
+    if (accent) { var a = rgb(accent); css += '--accent:'+accent+';--accent-hover:'+shade(accent, 0.18)+';--accent-dim:rgba('+a[0]+','+a[1]+','+a[2]+',0.18);'; }
+    var r = { sharp: [2,4,6], round: [10,16,22] }[cfg.radius];
+    if (r) css += '--radius-sm:'+r[0]+'px;--radius-md:'+r[1]+'px;--radius-lg:'+r[2]+'px;';
+    css += '}';
+    if (base) {
+      css += 'body{background:var(--bg-primary)}#hw-deco{display:none!important}body.menu-open:not(.in-lobby) #menu{background:var(--bg-primary)}';
+      css += '#menu-bubble{background:var(--bg-secondary);border-color:var(--border);box-shadow:0 24px 64px rgba(0,0,0,'+(isLight ? '0.25' : '0.55')+')}';
+      css += '#menu-title{background:none;-webkit-text-fill-color:currentColor;color:var(--text-primary)}';
+    }
+    if (isLight) css += '.menu-btn,#menu-user-row,.menu-tabs{background:rgba(0,0,0,0.04)!important;border-color:rgba(0,0,0,0.1)!important}.menu-tab.active{background:rgba(0,0,0,0.1)!important}.menu-btn:hover,.menu-icon-btn:hover{background:rgba(0,0,0,0.08)!important}.menu-btn .mi{background:rgba(0,0,0,0.05)!important}';
+    if (r) css += '.menu-btn,#menu-user-row{border-radius:'+(r[1]+2)+'px}#menu-bubble{border-radius:'+(r[2]+8)+'px}';
+    return css;
+  }
+  function apply(cfg) {
+    var old = document.getElementById('ezp-user-theme'); if (old) old.remove();
+    if (!cfg) return;
+    var custom = (cfg.preset && cfg.preset !== 'default') || cfg.accent || cfg.bg || (cfg.radius && cfg.radius !== 'normal');
+    if (!custom) return;                        // untouched settings: leave the stock look (and the seasonal theme) alone
+    var st = document.createElement('style'); st.id = 'ezp-user-theme'; st.textContent = build(cfg);
+    document.head.appendChild(st);
+  }
+  window.ezpTheme = { presets: P, names: NAMES, apply: apply, load: function () { try { return JSON.parse(localStorage.getItem('ezp_theme') || 'null') || {}; } catch (e) { return {}; } }, save: function (c) { try { localStorage.setItem('ezp_theme', JSON.stringify(c)); } catch (e) {} } };
+  apply(window.ezpTheme.load());
+})();
+</script>
 </head>
 <body>
 <div id="ez-down" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483647;background:#0b0b10;color:#eee;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;align-items:center;justify-content:center;text-align:center;padding:24px;box-sizing:border-box;">
@@ -899,6 +1028,46 @@
 
 </div>
 
+<div id="ew-view">
+  <div id="ew-main">
+    <div id="ew-header">
+      <h1><img id="ew-logo" alt="EzPlace"><span>EzWorld</span></h1>
+      <div id="ew-header-right">
+        <div id="ew-coords"></div>
+        <div id="ew-online">1 here</div>
+        <button id="ew-leave" class="win-btn" title="Back to the menu">Leave EzWorld</button>
+      </div>
+    </div>
+    <div id="ew-stage">
+      <canvas id="ew-canvas"></canvas>
+      <div id="ew-tags"></div>
+      <div id="ew-cross"></div>
+      <div id="ew-hint">
+        <div class="ew-card">
+          <div class="ew-card-title">Click to play</div>
+          <div class="ew-keys">
+            <span><b>W A S D</b> move</span><span><b>W W</b> sprint</span><span><b>Space</b> jump</span>
+            <span><b>Left click</b> break</span><span><b>Right click</b> place</span><span><b>Wheel / Q E</b> colour</span>
+            <span><b>Middle click</b> pick colour</span><span><b>T / Enter</b> chat</span><span><b>Esc</b> release mouse</span>
+          </div>
+        </div>
+      </div>
+      <div id="ew-load">Connecting...</div>
+    </div>
+    <div id="ew-bottom">
+      <div id="ew-sel"><div id="ew-sel-chip"></div><div id="ew-sel-hex">#FFFFFF</div></div>
+      <div id="ew-palette"></div>
+    </div>
+  </div>
+  <div id="ew-side">
+    <div id="ew-side-title">EzWorld chat</div>
+    <div id="ew-messages"></div>
+    <div id="ew-chat-bar">
+      <input id="ew-chat-input" class="win-input" type="text" maxlength="200" placeholder="Chat or /command..." autocomplete="off">
+      <button id="ew-chat-send" class="win-btn">Send</button>
+    </div>
+  </div>
+</div>
 <div id="report-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:60;align-items:center;justify-content:center;padding:14px;">
   <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);width:420px;max-width:100%;display:flex;flex-direction:column;">
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
@@ -1013,6 +1182,53 @@
   </div>
 </div>
 
+<style>
+  #chess-board { display:grid; grid-template-columns:repeat(8,var(--cs)); grid-template-rows:repeat(8,var(--cs)); border:2px solid #000; user-select:none; touch-action:manipulation; }
+  #chess-modal { --cs:min(11vw,7vh,56px); }
+  .chess-sq { width:var(--cs); height:var(--cs); display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer; }
+  .chess-sq.light { background:#ead9b6; } .chess-sq.dark { background:#a97c50; }
+  .chess-sq.last { box-shadow:inset 0 0 0 100px rgba(255,214,0,0.35); }
+  .chess-sq.sel { box-shadow:inset 0 0 0 100px rgba(80,200,120,0.5); }
+  .chess-sq.chk { box-shadow:inset 0 0 0 100px rgba(230,57,70,0.6); }
+  .chess-sq.tgt::after { content:''; width:28%; height:28%; border-radius:50%; background:rgba(20,120,60,0.55); position:absolute; }
+  .chess-sq.cap::after { content:''; position:absolute; inset:0; border:4px solid rgba(20,120,60,0.6); border-radius:50%; box-sizing:border-box; }
+  .chess-pc { font-size:calc(var(--cs) * 0.82); line-height:1; pointer-events:none; }
+  .chess-pc.cw { color:#fff; text-shadow:0 0 2px #000,0 0 2px #000,0 0 1px #000; }
+  .chess-pc.cb { color:#111; text-shadow:0 0 1px rgba(255,255,255,0.5); }
+  .chess-clk { font-weight:700; font-size:16px; font-variant-numeric:tabular-nums; background:var(--bg-elevated); border-radius:4px; padding:2px 8px; min-width:52px; text-align:center; }
+</style>
+<div id="chess-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(4px);z-index:85;flex-direction:column;align-items:center;padding:10px;gap:6px;color:var(--text-primary);overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;width:100%;max-width:520px;">
+    <div style="font-weight:700;font-size:14px;">Chess <span id="chess-room-info" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></div>
+    <div style="display:flex;gap:6px;">
+      <button id="btn-chess-hide" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:4px 10px;display:none;">Hide</button>
+      <button id="btn-chess-leave" class="win-btn" style="background:var(--red);color:#fff;font-size:11px;padding:4px 10px;">Resign</button>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;width:calc(var(--cs) * 8 + 4px);gap:8px;">
+    <span id="chess-name-top" style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><span id="chess-clk-top" class="chess-clk">--</span>
+  </div>
+  <div style="position:relative;">
+    <div id="chess-board"></div>
+    <div id="chess-promo" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);gap:6px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;padding:8px;z-index:3;">
+      <button class="win-btn chess-promo-btn" data-p="q" style="font-size:24px;padding:2px 10px;">&#9819;</button>
+      <button class="win-btn chess-promo-btn" data-p="r" style="font-size:24px;padding:2px 10px;">&#9820;</button>
+      <button class="win-btn chess-promo-btn" data-p="b" style="font-size:24px;padding:2px 10px;">&#9821;</button>
+      <button class="win-btn chess-promo-btn" data-p="n" style="font-size:24px;padding:2px 10px;">&#9822;</button>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;width:calc(var(--cs) * 8 + 4px);gap:8px;">
+    <span id="chess-name-bot" style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><span id="chess-clk-bot" class="chess-clk">--</span>
+  </div>
+  <div id="chess-status" style="font-size:13px;font-weight:600;min-height:18px;text-align:center;"></div>
+  <div id="chess-status-err" style="font-size:11px;min-height:14px;text-align:center;"></div>
+  <div style="display:flex;gap:6px;">
+    <button id="btn-chess-draw" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:4px 10px;display:none;">Offer draw</button>
+    <button id="btn-chess-draw-yes" class="win-btn" style="background:var(--accent);color:#fff;font-size:11px;padding:4px 10px;display:none;">Accept draw</button>
+    <button id="btn-chess-draw-no" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);font-size:11px;padding:4px 10px;display:none;">Decline</button>
+  </div>
+  <div id="chess-moves" style="width:calc(var(--cs) * 8 + 4px);max-height:70px;overflow-y:auto;font-size:11px;line-height:1.5;background:var(--bg-secondary);border-radius:6px;padding:4px 8px;color:var(--text-muted);"></div>
+</div>
 <div id="uno-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(4px);z-index:85;flex-direction:column;padding:10px;gap:8px;color:var(--text-primary);">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
     <div style="font-weight:700;font-size:14px;">UNO <span id="uno-room-info" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></div>
@@ -1195,6 +1411,7 @@
       <option value="invite">Invite only (you pick who)</option>
       <option value="code">Private (join with the code above)</option>
     </select>
+    <label style="margin:0 12px 6px;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="manage-drag"> Allow drag clicking (hold and drag to paint)</label>
     <div id="manage-wl-section">
       <div style="margin:4px 12px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Invite a player</div>
       <div style="display:flex;gap:4px;margin:0 12px;">
@@ -1478,6 +1695,10 @@
             <div id="menu-user-info"><span id="menu-user-prefix">Logged in as </span><b id="menu-user-name"></b><span id="menu-pb"></span></div>
             <button class="menu-btn danger" id="btn-logout"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Logout</button>
           </div>
+          <div class="ezworld-card">
+            <span class="ezw-text"><b>EzWorld</b><small>Build together in 3D</small></span>
+            <button class="menu-btn primary ezw-join" id="btn-menu-ezworld" type="button">Join</button>
+          </div>
           <div id="menu-cols">
             <div class="menu-col"><div class="menu-col-title">Play</div><div class="menu-grid">
               <button class="menu-btn" id="btn-menu-lobbies"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="menu-label">Lobbies</span></button>
@@ -1578,6 +1799,7 @@
         <option value="2048x2048" data-w="2048" data-h="2048">2048x2048 (400 $)</option>
       </select>
       <label style="font-size:11px;color:var(--text-secondary);">CD: <input id="create-cooldown" class="win-input" type="number" min="0" max="60" step="0.5" value="0" style="width:50px;">s</label>
+      <label style="font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><input type="checkbox" id="create-drag"> Drag clicking</label>
       <button id="btn-create-lobby" class="win-btn">Create</button>
     </div>
         </div>
@@ -1588,7 +1810,7 @@
     <div id="msg-list-view">
       <div class="menu-tabs" id="friends-tabs">
         <button class="menu-tab active" data-frtab="friends">Friends</button>
-        <button class="menu-tab" data-frtab="groups">Group Chats</button>
+        <button class="menu-tab" data-frtab="groups">Group Chats<span id="group-tab-dot" class="tab-dot" style="display:none"></span></button>
         <button class="menu-tab" data-frtab="requests">Requests<span id="friend-req-badge" class="notif-badge" style="display:none"></span></button>
       </div>
       <div id="fr-friends" class="fr-panel">
@@ -1651,6 +1873,25 @@
               <button class="win-btn roulette-go" data-choice="green" style="background:#16a34a;color:#fff;flex:1;">Green</button>
             </div>
             <div id="roulette-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
+          </div>
+        </details>
+
+        <details class="game-acc" id="chess-acc"><summary>Chess <span class="game-hint">vs a player or the AI, bet PlaceBux or play for fun</span></summary>
+          <div class="game-body">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:11px;">Bet <input id="chess-bet" type="number" min="0" value="0" class="win-input" style="width:60px;font-size:12px;padding:2px 4px;"></label>
+              <label style="font-size:11px;">Opponent <select id="chess-opp" class="win-input" style="font-size:12px;padding:2px;"><option value="0">Another player</option><option value="1">AI - Easy</option><option value="2">AI - Medium</option><option value="3">AI - Hard</option></select></label>
+              <label style="font-size:11px;">I play <select id="chess-color" class="win-input" style="font-size:12px;padding:2px;"><option value="r">Random</option><option value="w">White</option><option value="b">Black</option></select></label>
+              <label style="font-size:11px;">Time <select id="chess-tc" class="win-input" style="font-size:12px;padding:2px;"><option value="3+2">3+2</option><option value="5+3">5+3</option><option value="10+5" selected>10+5</option><option value="15+10">15+10</option></select></label>
+            </div>
+            <div style="font-size:10px;color:var(--text-muted);">Vs a player: both stake the bet, winner takes both, draws refund. Vs the AI: max bet 500, a win pays x1.2 / x1.5 / x1.8 (Easy / Medium / Hard), a draw refunds. Bet 0 = just for fun.</div>
+            <div style="display:flex;gap:6px;">
+              <button id="btn-chess-create" class="win-btn" style="background:var(--accent);color:#fff;flex:1;">New Game</button>
+              <button id="btn-chess-list" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;">Find Game</button>
+              <button id="btn-chess-resume" class="win-btn" style="background:var(--bg-elevated);color:var(--text-primary);flex:1;">Resume</button>
+            </div>
+            <div id="chess-rooms" style="display:none;flex-direction:column;gap:4px;font-size:12px;"></div>
+            <div id="chess-msg" style="font-size:11px;min-height:14px;color:var(--text-muted);"></div>
           </div>
         </details>
 
@@ -1882,6 +2123,14 @@
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-gridlines"> Hide pixel grid lines when zoomed in</label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-hide-panorama"> Disable main menu panorama</label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pref-disable-anim"> Disable animations</label>
+      <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Appearance <span style="font-weight:400;color:var(--text-muted);font-size:10px;">(saved on this device)</span></div>
+      <div id="theme-presets" class="theme-presets"></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:12px;">
+        <label style="display:flex;align-items:center;gap:6px;">Accent <input type="color" id="theme-accent" class="theme-color"></label>
+        <label style="display:flex;align-items:center;gap:6px;">Background <input type="color" id="theme-bg" class="theme-color"></label>
+        <label style="display:flex;align-items:center;gap:6px;">Corners <select id="theme-radius" class="win-input" style="font-size:12px;padding:2px 4px;"><option value="sharp">Sharp</option><option value="normal">Normal</option><option value="round">Round</option></select></label>
+        <button id="btn-theme-reset" class="win-btn" style="background:var(--bg-elevated);font-size:11px;padding:4px 10px;">Reset</button>
+      </div>
       <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;">Change Password</div>
       <input id="account-old-pw" class="win-input" type="password" placeholder="Current password" autocomplete="current-password">
       <input id="account-new-pw" class="win-input" type="password" placeholder="New password (6+ chars)" autocomplete="new-password">
@@ -1973,7 +2222,7 @@
         <div class="earn-card"><div class="earn-title">Daily streak</div><div class="earn-desc">Spend 15 active minutes on the site each day to claim your daily bonus: 2 PlaceBux times your streak length, up to 50 a day. Miss a day and the streak resets. The shop sells a 48-hour window and Streak Passes that protect it.</div></div>
         <div class="earn-card"><div class="earn-title">Fishing</div><div class="earn-desc">Trade: swap fish and PlaceBux with another player from the Trade button on the Fishing screen. Maps: Sunny Pier is free; Maps unlock once for PlaceBux: Coral Reef 150, Midnight Abyss 500, Frostbite Lake 1000, Misty Bayou 2000, Magma Lagoon 4000. Every map has its own fish and casting costs 5 PlaceBux everywhere. Each map has its own scenery and catches, and each of the two new maps has 9 fish you cannot catch anywhere else. Rods wear out: the free thin wooden rod snaps after 55 casts, then you buy a new one (wooden 10, plastic 20, hollow steel 50, carbon fiber 100 PlaceBux, lasting 55 / 100 / 500 / 1000 casts). Casting costs 5 PlaceBux. Sell what you reel in from your bucket: common catches are worth 1 or 2, legendary ones hundreds, and the rarest items up to 2,500.</div></div>
         <div class="earn-card"><div class="earn-title">Flappy Bird</div><div class="earn-desc">1 PlaceBux per pipe you clear, no bet needed. Capped at 600 a day.</div></div>
-        <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Battle Mode and Fishing Timing in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
+        <div class="earn-card"><div class="earn-title">Casino games</div><div class="earn-desc">Bet PlaceBux on Slots, Roulette, Coin Flip, Blackjack, Plinko, Mines, GeoDash, UNO, Chess, Battle Mode and Fishing Timing in the Casino. Max bet is 5,000. Big wins and losses get announced in lobby chat.</div></div>
         <div class="earn-card"><div class="earn-title">Night Event</div><div class="earn-desc">Watch the Lobbies screen for the Night Event banner. Sign up when it opens; the winner takes 10,000 PlaceBux.</div></div>
         <div class="earn-card"><div class="earn-title">Gifts from friends</div><div class="earn-desc">Anyone can send you PlaceBux from the Transfer tab in the Shop.</div></div>
         <div class="menu-section">Spending</div>
@@ -2095,7 +2344,9 @@ const COLORS = [
   '#FFC0CB','#FFB6C1','#C71585','#FFA07A',
   '#CD853F','#DEB887','#FFE4C4','#FFFACD',
   '#00FA9A','#FFB347','#E6BE8A','#FFEFD5','#708090',
-  '#191970','#FDFD96','#F49AC2','#77DD77','#AEC6CF'
+  '#191970','#FDFD96','#F49AC2','#77DD77','#AEC6CF',
+  '#00CC78','#00CCC0','#493AC1','#94B3FF','#E4ABFF','#DE107F','#6D482F','#FFB470',
+  '#696969','#555555','#808080','#D3D3D3','#FF9999','#CC3333','#990000','#800000','#FF5700','#CCFF8C','#81DE76','#006F3C','#3A55B4','#6CADDF','#8CD9FF','#00FFFF','#B77DFF','#BE45FF','#FA3983','#FF9900','#FFE600','#573400'
 ];
 let COOLDOWN = 500;
 let userHasInteracted = false;
@@ -2579,7 +2830,7 @@ function fishTile(it, opts) {
   return `<div class="fish-item${known ? '' : ' undiscovered'}" style="--rc:${color}"><div class="fish-name">${name}${chip}</div><div class="fish-meta">${meta}</div>${actions}</div>`;
 }
 // ---- Fishing maps: pick where you fish; unlock new ones by paying with fish ----
-const FISH_MAP_NAMES = { reef: 'Coral Reef', abyss: 'Midnight Abyss', frozen: 'Frostbite Lake', bayou: 'Misty Bayou', volcano: 'Magma Lagoon' };
+const FISH_MAP_NAMES = { reef: 'Coral Reef', abyss: 'Midnight Abyss', frozen: 'Frostbite Lake', bayou: 'Misty Bayou', volcano: 'Magma Lagoon', crystal: 'Crystal Caverns', sky: 'Cloud Isles' };
 const MAP_SWATCH = {
   pier: 'linear-gradient(#5aa9e6, #bfe6ff 55%, #2f8fc4 56%, #14456f)',
   reef: 'linear-gradient(#5cc8ff, #dff8ff 55%, #35e0c9 56%, #0b6f86)',
@@ -2587,6 +2838,8 @@ const MAP_SWATCH = {
   frozen: 'linear-gradient(#0b1d3a, #2fd9b0 40%, #d8f1ff 55%, #9fd3ee 56%, #3f7fa8)',
   bayou: 'linear-gradient(#2a3a2a, #a9b98a 55%, #4f5f2a 56%, #1d2814)',
   volcano: 'linear-gradient(#2a0a08, #b8340f 50%, #5a1608 55%, #1a0a08 56%, #ff6a1a)',
+  crystal: 'linear-gradient(#0e0a24, #5b34b8 45%, #2a1a5c 55%, #12b5c9 56%, #0a2b45)',
+  sky: 'linear-gradient(#4aa8ff, #cfeaff 52%, #ffffff 55%, #86c5f0 56%, #3f86c8)',
 };
 function fishRenderMaps() {
   const panel = document.getElementById('fish-map-panel');
@@ -3036,6 +3289,24 @@ Object.assign(FISH_ART_MAP, {
   phoenix_fish: ['fish', '#f97316', '#fde047'], obsidian_blade: ['cutlass'], fire_opal: ['gem', '#ff7a45'], magma_shark: ['shark', '#7a2a12'],
   inferno_hammerhead: ['hammer', '#b4421a'], ruby: ['gem', '#e11d48'], molten_crown: ['crown', '#ff7a1a'], dragons_heart: ['gem', '#ef4444'],
   lava_leviathan: ['whale', '#9a2a10', true], ember_phoenix: ['serpent', '#f97316'],
+  // Crystal Caverns
+  glow_tetra: ['fish', '#7dd3fc', '#6366f1'], cave_shrimp: ['shrimp', '#e9d5ff'], blind_cavefish: ['fish', '#f1d9c8', '#c9a58e'],
+  crystal_snail: ['snail', '#a78bfa', '#c4b5fd'], cave_loach: ['long', '#9a8fb8'], amethyst_crab: ['crab', '#9333ea'],
+  glowworm_jelly: ['jelly', '#5eead4'], olm: ['long', '#f5d7c6'], geode_urchin: ['urchin', '#7c3aed'],
+  lumen_eel: ['long', '#22d3ee'], crystal_ray: ['ray', '#67e8f9', '#a78bfa'], moonstone: ['gem', '#c7d2fe'],
+  cave_angler: ['angler', '#4338ca'], prism_squid: ['squid', '#e879f9'], miners_lantern: ['lantern', '#fbbf24', '#92400e'],
+  geode_turtle: ['turtle', '#6d28d9', '#c084fc'], diamond_shark: ['shark', '#bae6fd'], heart_crystal: ['gem', '#f472b6'],
+  crystal_crown: ['crown', '#a5f3fc'], starlight_geode: ['pearl', '#818cf8', '#e0e7ff'], crystal_wyrm: ['serpent', '#8b5cf6'],
+  cavern_titan: ['whale', '#4c1d95', true],
+  // Cloud Isles
+  cloud_minnow: ['fish', '#e0f2fe', '#93c5fd'], wind_carp: ['fish', '#fda4af', '#fecdd3'], sky_shrimp: ['shrimp', '#bae6fd'],
+  mist_eel: ['long', '#cbd5e1'], dew_snail: ['snail', '#86efac', '#d9f99d'], storm_perch: ['fish', '#64748b', '#334155'],
+  cirrus_ray: ['ray', '#f1f5f9', '#bae6fd'], rain_jelly: ['jelly', '#7dd3fc'], thunder_puffer: ['puffer', '#fde047'],
+  kite_fish: ['tall', '#fb7185', '#fde68a'], gale_marlin: ['bill', '#38bdf8', '#e0f2fe'], lightning_eel: ['long', '#facc15'],
+  sun_turtle: ['turtle', '#f59e0b', '#fde68a'], nimbus_squid: ['squid', '#94a3b8'], sky_compass: ['coin', '#7dd3fc'],
+  tempest_shark: ['shark', '#475569'], rainbow_manta: ['ray', '#f472b6', '#38bdf8'], thunder_hammerhead: ['hammer', '#6366f1'],
+  cloud_crown: ['crown', '#f8fafc'], sun_pearl: ['pearl', '#fde68a', '#fbbf24'], sky_serpent: ['serpent', '#38bdf8'],
+  celestial_leviathan: ['whale', '#c7d2fe', true],
 });
 function fishArt(it) {
   const m = FISH_ART_MAP[it && it.id];
@@ -3177,6 +3448,42 @@ const FISH_BG = {
       <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#ff9a3a" stroke-opacity=".4" stroke-width="2"/></g>
       <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
       <rect x="0" y="100" width="130" height="8" fill="#4a2a20"/><rect x="0" y="107" width="130" height="3" fill="#2a1612"/>`,
+  crystal: (p) => `
+      <defs>
+        <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0620"/><stop offset=".7" stop-color="#2a1a66"/><stop offset="1" stop-color="#4b3aa8"/></linearGradient>
+        <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f7a94"/><stop offset="1" stop-color="#06182e"/></linearGradient>
+        <radialGradient id="${p}glow"><stop offset="0" stop-color="#9ff3ff" stop-opacity=".85"/><stop offset="1" stop-color="#9ff3ff" stop-opacity="0"/></radialGradient>
+      </defs>
+      <rect width="320" height="110" fill="url(#${p}sky)"/>
+      <g fill="#150d36"><path d="M0 0 H320 V12 L300 12 L292 34 L284 12 L240 12 L232 40 L224 12 L180 12 L172 28 L164 12 L120 12 L110 44 L100 12 L60 12 L52 30 L44 12 L0 12Z"/></g>
+      <g><path d="M214 104 L226 60 L238 104Z" fill="#a78bfa"/><path d="M226 60 L232 104 L238 104Z" fill="#7c3aed"/><path d="M250 104 L258 76 L266 104Z" fill="#67e8f9"/><path d="M284 104 L294 52 L304 104Z" fill="#c084fc"/><path d="M294 52 L300 104 L304 104Z" fill="#8b5cf6"/><path d="M170 104 L176 82 L182 104Z" fill="#5eead4"/></g>
+      <circle cx="226" cy="70" r="24" fill="url(#${p}glow)" opacity=".55"/><circle cx="294" cy="64" r="26" fill="url(#${p}glow)" opacity=".5"/><circle cx="258" cy="84" r="16" fill="url(#${p}glow)" opacity=".6"/>
+      <g fill="#e0f7ff" opacity=".9"><circle cx="150" cy="58" r="1.3"/><circle cx="200" cy="40" r="1.1"/><circle cx="272" cy="34" r="1.4"/><circle cx="128" cy="80" r="1.2"/></g>
+      <rect x="26" y="106" width="8" height="54" fill="#2a2150"/><rect x="104" y="106" width="8" height="54" fill="#2a2150"/>
+      <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".97"/>
+      <g opacity=".7"><path d="M200 146 L206 128 L212 146Z" fill="#a78bfa"/><path d="M262 152 L270 124 L278 152Z" fill="#67e8f9"/><path d="M150 150 L154 138 L158 150Z" fill="#5eead4"/></g>
+      <g fill="#c8f7ff" opacity=".8"><circle cx="176" cy="124" r="1.3"/><circle cx="236" cy="138" r="1.2"/><circle cx="298" cy="122" r="1.4"/><circle cx="140" cy="132" r="1.1"/></g>
+      <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#9ff3ff" stroke-opacity=".4" stroke-width="2"/></g>
+      <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
+      <rect x="0" y="100" width="130" height="8" fill="#3a2f6a"/><rect x="0" y="107" width="130" height="3" fill="#1c1640"/>`,
+  sky: (p) => `
+      <defs>
+        <linearGradient id="${p}sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f8fe8"/><stop offset="1" stop-color="#d8efff"/></linearGradient>
+        <linearGradient id="${p}sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9bd3f5"/><stop offset="1" stop-color="#2f78b8"/></linearGradient>
+      </defs>
+      <rect width="320" height="110" fill="url(#${p}sky)"/>
+      <circle cx="270" cy="26" r="14" fill="#fff6c2"/><circle cx="270" cy="26" r="26" fill="#fff6c2" opacity=".25"/>
+      <g fill="#fff" opacity=".9"><ellipse cx="60" cy="26" rx="26" ry="7"/><ellipse cx="78" cy="21" rx="16" ry="7"/><ellipse cx="190" cy="40" rx="30" ry="8"/><ellipse cx="210" cy="34" rx="18" ry="8"/></g>
+      <g><path d="M168 72 Q196 64 224 72 L212 84 Q196 90 180 84Z" fill="#7a5a3a"/><path d="M164 72 Q196 58 228 72 Q196 68 164 72Z" fill="#5fb04a"/><path d="M198 84 L196 104" stroke="#bfe6ff" stroke-width="3" opacity=".8"/>
+        <path d="M256 54 Q280 48 304 54 L296 64 Q280 68 264 64Z" fill="#7a5a3a"/><path d="M252 54 Q280 42 308 54 Q280 52 252 54Z" fill="#5fb04a"/><path d="M282 64 L281 86" stroke="#bfe6ff" stroke-width="2.5" opacity=".8"/></g>
+      <g fill="#4a8a3a"><path d="M190 66 l3 -8 l3 8z"/><path d="M280 48 l3 -9 l3 9z"/></g>
+      <rect x="26" y="106" width="8" height="54" fill="#8a6a3a"/><rect x="104" y="106" width="8" height="54" fill="#8a6a3a"/>
+      <rect y="104" width="320" height="56" fill="url(#${p}sea)" opacity=".96"/>
+      <g fill="#fff" opacity=".55"><ellipse cx="170" cy="128" rx="22" ry="4"/><ellipse cx="250" cy="142" rx="28" ry="4"/><ellipse cx="300" cy="116" rx="16" ry="3"/></g>
+      <g fill="#fff6c2" opacity=".9"><circle cx="150" cy="122" r="1.3"/><circle cx="214" cy="150" r="1.2"/><circle cx="288" cy="132" r="1.4"/></g>
+      <g class="fs-wave"><path id="${p}wave-path" fill="none" stroke="#ffffff" stroke-opacity=".45" stroke-width="2"/></g>
+      <rect x="38" y="76" width="30" height="24" rx="8" fill="#7c5cfc"/>
+      <rect x="0" y="100" width="130" height="8" fill="#a9814a"/><rect x="0" y="107" width="130" height="3" fill="#6a4f2a"/>`,
 };
 function buildFishScene(el, p, theme) {
   theme = FISH_BG[theme] ? theme : 'pier';
@@ -3554,7 +3861,8 @@ function updateSidebarTabs() {
 let canPlace = true;
 let brushPerm = { size: 1, drag: false };
 function effectiveMaxBrush() { return isAdminUser() ? 25 : (brushPerm.size || 1); }
-function canDragPaint() { return isAdminUser() || !!brushPerm.drag; }
+let lobbyDragClick = false;
+function canDragPaint() { return isAdminUser() || !!brushPerm.drag || lobbyDragClick; }
 let isFakeAdmin = false;
 let fakeBannedUsers = new Set();
 let remoteCursors = {};
@@ -4098,6 +4406,10 @@ function tryPlacePixel(gx, gy) {
   return true;
 }
 
+// what the browser says about the input behind each pixel: real (trusted) vs script-made, and its exact high-res time
+let lastInTrusted = true, lastInTs = 0;
+['mousedown', 'mouseup', 'click', 'touchstart', 'touchend'].forEach(n => cvs.addEventListener(n, e => { lastInTrusted = e.isTrusted; lastInTs = e.timeStamp; }, true));
+cvs.addEventListener('mousemove', e => { lastInTrusted = e.isTrusted; }, true);
 cvs.addEventListener('mousedown', e => {
   resetPixelOwnerLookup();
   const rect = cvs.getBoundingClientRect();
@@ -4353,7 +4665,7 @@ function paintBrush(cx, cy) {
     if (size > 1 && (isRealAdmin() || brushPerm.size > 1)) {
       ws.send(JSON.stringify({ type: 'admin_brush', pixels, color: selectedColor }));
     } else if (pixels.length === 1) {
-      ws.send(JSON.stringify({ type: 'pixel', x: cx, y: cy, color: selectedColor }));
+      ws.send(JSON.stringify({ type: 'pixel', x: cx, y: cy, color: selectedColor, tr: lastInTrusted, ct: Math.round(lastInTs * 100) / 100, d: (canDragPaint() && !isAdminUser()) ? 1 : 0 }));
       if (authToken) { myPixels += 1; updateLevelPill(); }
     }
   }
@@ -6409,6 +6721,285 @@ document.querySelectorAll('.uno-color-btn').forEach(b => b.onclick = async () =>
   unoPickingCardIdx = null;
 });
 
+// ---- Chess (display only: the server owns every rule, clock and payout) ----
+const CHESS_GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟︎' };
+let chessRoomId = null, chessState = null, chessMoves = [], chessSel = null, chessBusy = false;
+let chessClockAt = 0, chessClockTimer = null, chessResignArmed = 0, chessPromoMove = null;
+function chessMsg(t, color) {
+  ['chess-msg', 'chess-status-err'].forEach(id => { const m = document.getElementById(id); if (m) { m.textContent = t || ''; m.style.color = color || 'var(--text-muted)'; } });
+}
+function chessOpenModal() { document.getElementById('chess-modal').style.display = 'flex'; }
+function chessCloseModal(keepGame) {
+  document.getElementById('chess-modal').style.display = 'none';
+  if (chessClockTimer) { clearInterval(chessClockTimer); chessClockTimer = null; }
+  if (!keepGame) { chessRoomId = null; chessState = null; chessMoves = []; chessSel = null; }
+  const p = document.getElementById('chess-promo'); if (p) p.style.display = 'none';
+}
+async function chessCall(path, body) {
+  try {
+    const opts = body === undefined
+      ? { headers: { Authorization: authToken } }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) };
+    const r = await fetch(BACKEND + path, opts);
+    const d = await r.json();
+    if (d.error) { chessMsg(d.error, 'var(--red)'); return null; }
+    return d;
+  } catch { chessMsg('Server offline.', 'var(--red)'); return null; }
+}
+function chessApply(s) {
+  if (!s) return;
+  if (chessRoomId && s.room_id !== chessRoomId) return;
+  if (chessState && chessState.room_id === s.room_id && s.ply < chessState.ply) return;   // an older state arriving late
+  const first = !chessRoomId;
+  chessRoomId = s.room_id;
+  let resync = false;
+  if (s.moves) chessMoves = s.moves.slice();
+  else if (s.ply === chessMoves.length + 1 && s.san) chessMoves.push(s.san);
+  else if (s.ply !== chessMoves.length) resync = true;
+  chessState = s;
+  chessClockAt = Date.now();
+  chessSel = null; chessBusy = false;
+  if (first) chessOpenModal();
+  chessMsg('');
+  chessRender();
+  if (resync) chessCall('/api/chess/mine').then(d => { if (d && d.state) { chessState = null; chessApply(d.state); } });
+}
+function chessFmt(ms) { ms = Math.max(0, ms); const t = Math.ceil(ms / 1000); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); }
+function chessTickClocks() {
+  const s = chessState; if (!s) return;
+  const el = Date.now() - chessClockAt;
+  ['w', 'b'].forEach(c => {
+    let ms = s.phase === 'lobby' ? parseInt(s.tc) * 60000 : s.clock[c];
+    const name = c === 'w' ? s.white : s.black;
+    const isAi = s.ai_level && name && name.indexOf('Chess AI') === 0;
+    if (s.phase === 'playing' && s.turn === c && !isAi) ms -= el;
+    const node = document.getElementById(c === (s.me === 'b' ? 'w' : 'b') ? 'chess-clk-top' : 'chess-clk-bot');
+    if (node) { node.textContent = isAi ? '--' : chessFmt(ms); node.style.color = (s.phase === 'playing' && s.turn === c && ms < 20000 && !isAi) ? 'var(--red)' : ''; }
+  });
+}
+function chessParseFen(fen) {
+  return fen.split(' ')[0].split('/').map(row => { const out = []; for (const ch of row) { if (/\d/.test(ch)) for (let i = 0; i < +ch; i++) out.push(null); else out.push(ch); } return out; });
+}
+function chessResultText(s) {
+  const r = s.result; if (!r) return '';
+  if (r.reason === 'aborted') return 'Game aborted (nobody moved in time) - stakes refunded.';
+  if (!r.winner) return 'Draw by ' + r.reason + (s.bet ? ' - stakes refunded.' : '.');
+  const wn = r.winner === 'w' ? s.white : s.black;
+  const mine = s.me ? (s.me === r.winner ? ' You won!' : ' You lost.') : '';
+  return wn + ' wins by ' + r.reason + '.' + mine;
+}
+function chessRender() {
+  const s = chessState; if (!s) return;
+  const flip = s.me === 'b';
+  const names = { w: s.white || '...', b: s.black || '...' };
+  const top = flip ? 'w' : 'b', bot = flip ? 'b' : 'w';
+  const pot = s.bet ? (s.ai_level ? ' · bet ' + s.bet + ' $' : ' · pot ' + (s.bet * 2) + ' $') : ' · no bet';
+  document.getElementById('chess-room-info').textContent = '(' + s.tc + pot + ')';
+  document.getElementById('chess-name-top').textContent = (s.phase === 'lobby' ? s.humans[0] : names[top]) + (s.phase === 'lobby' ? '' : (top === 'w' ? ' (white)' : ' (black)'));
+  document.getElementById('chess-name-bot').textContent = s.phase === 'lobby' ? 'Waiting for an opponent...' : names[bot] + (bot === 'w' ? ' (white)' : ' (black)');
+  const grid = chessParseFen(s.fen);
+  const board = document.getElementById('chess-board'); board.innerHTML = '';
+  const legal = s.legal || {};
+  const targets = chessSel && legal[chessSel] ? legal[chessSel] : [];
+  let kingSq = null;
+  if (s.check) { const kch = s.turn === 'w' ? 'K' : 'k'; grid.forEach((row, r) => row.forEach((p, f) => { if (p === kch) kingSq = 'abcdefgh'[f] + (8 - r); })); }
+  for (let ri = 0; ri < 8; ri++) for (let fi = 0; fi < 8; fi++) {
+    const r = flip ? 7 - ri : ri, f = flip ? 7 - fi : fi;
+    const sq = 'abcdefgh'[f] + (8 - r), p = grid[r][f];
+    const d = document.createElement('div');
+    let cls = 'chess-sq ' + (((r + f) % 2) ? 'dark' : 'light');
+    if (s.last && (s.last[0] === sq || s.last[1] === sq)) cls += ' last';
+    if (chessSel === sq) cls += ' sel';
+    if (kingSq === sq) cls += ' chk';
+    if (targets.includes(sq)) cls += p ? ' cap' : ' tgt';
+    d.className = cls; d.dataset.sq = sq;
+    if (p) { const sp = document.createElement('span'); sp.className = 'chess-pc ' + (p === p.toUpperCase() ? 'cw' : 'cb'); sp.textContent = CHESS_GLYPH[p.toLowerCase()]; d.appendChild(sp); }
+    d.onclick = () => chessClick(sq);
+    board.appendChild(d);
+  }
+  // status line
+  let st = '';
+  if (s.phase === 'lobby') st = s.bet ? 'Your ' + s.bet + ' $ stake is held. Waiting for someone to join...' : 'Waiting for someone to join...';
+  else if (s.phase === 'playing') {
+    if (s.draw_offer && s.me && s.draw_offer !== s.me) st = 'Your opponent offers a draw.';
+    else st = (s.me ? (s.turn === s.me ? 'Your move' : 'Waiting for ' + names[s.turn] + '...') : names[s.turn] + ' to move') + (s.check ? ' - CHECK' : '');
+  } else st = chessResultText(s);
+  document.getElementById('chess-status').textContent = st;
+  // moves
+  const ml = document.getElementById('chess-moves'); let mt = '';
+  for (let i = 0; i < chessMoves.length; i += 2) mt += (i / 2 + 1) + '. ' + chessMoves[i] + (chessMoves[i + 1] ? ' ' + chessMoves[i + 1] : '') + '   ';
+  ml.textContent = mt; ml.scrollTop = ml.scrollHeight;
+  // buttons
+  const leave = document.getElementById('btn-chess-leave');
+  leave.textContent = s.phase === 'done' ? 'Close' : (s.phase === 'lobby' ? 'Cancel' : (chessResignArmed > Date.now() ? 'Sure? Resign' : 'Resign'));
+  const draw = document.getElementById('btn-chess-draw'), dacc = document.getElementById('btn-chess-draw-yes'), ddec = document.getElementById('btn-chess-draw-no');
+  const canDraw = s.phase === 'playing' && s.me && !s.ai_level;
+  draw.style.display = canDraw && !s.draw_offer ? '' : 'none';
+  const incoming = canDraw && s.draw_offer && s.draw_offer !== s.me;
+  dacc.style.display = incoming ? '' : 'none'; ddec.style.display = incoming ? '' : 'none';
+  document.getElementById('btn-chess-hide').style.display = s.phase === 'playing' ? '' : 'none';
+  if (!chessClockTimer && s.phase === 'playing') chessClockTimer = setInterval(chessTickClocks, 250);
+  if (s.phase !== 'playing' && chessClockTimer) { clearInterval(chessClockTimer); chessClockTimer = null; }
+  chessTickClocks();
+}
+function chessClick(sq) {
+  const s = chessState; if (!s || s.phase !== 'playing' || !s.legal || chessBusy) return;
+  if (chessSel && (s.legal[chessSel] || []).includes(sq)) { chessTryMove(chessSel, sq); return; }
+  chessSel = s.legal[sq] ? sq : null;
+  chessRender();
+}
+function chessTryMove(from, to) {
+  const grid = chessParseFen(chessState.fen);
+  const p = grid[8 - +from[1]]['abcdefgh'.indexOf(from[0])];
+  if (p && p.toLowerCase() === 'p' && (to[1] === '8' || to[1] === '1')) {
+    chessPromoMove = { from, to };
+    document.getElementById('chess-promo').style.display = 'flex';
+    return;
+  }
+  chessSend(from, to, '');
+}
+async function chessSend(from, to, promotion) {
+  chessBusy = true; chessSel = null;
+  const d = await chessCall('/api/chess/move', { room_id: chessRoomId, from, to, promotion });
+  if (d && d.state) chessApply(d.state);
+  else { chessBusy = false; chessRender(); }
+}
+document.querySelectorAll('.chess-promo-btn').forEach(b => b.onclick = () => {
+  document.getElementById('chess-promo').style.display = 'none';
+  if (chessPromoMove) { const m = chessPromoMove; chessPromoMove = null; chessSend(m.from, m.to, b.dataset.p); }
+});
+document.getElementById('btn-chess-leave').onclick = async () => {
+  const s = chessState;
+  if (!s || s.phase === 'done') { chessCloseModal(); return; }
+  if (s.phase === 'playing' && chessResignArmed < Date.now()) { chessResignArmed = Date.now() + 3000; chessRender(); setTimeout(() => { if (chessState) chessRender(); }, 3100); return; }
+  chessResignArmed = 0;
+  await chessCall('/api/chess/resign', { room_id: chessRoomId });
+  if (s.phase === 'lobby') chessCloseModal();   // a cancelled waiting room has no final state to show
+};
+document.getElementById('btn-chess-hide').onclick = () => chessCloseModal(true);
+document.getElementById('btn-chess-draw').onclick = async () => { const d = await chessCall('/api/chess/draw', { room_id: chessRoomId, action: 'offer' }); if (d && d.state) chessApply(d.state); else chessRender(); if (d) chessMsg('Draw offered.'); };
+document.getElementById('btn-chess-draw-yes').onclick = async () => { const d = await chessCall('/api/chess/draw', { room_id: chessRoomId, action: 'accept' }); if (d && d.state) chessApply(d.state); };
+document.getElementById('btn-chess-draw-no').onclick = async () => { const d = await chessCall('/api/chess/draw', { room_id: chessRoomId, action: 'decline' }); if (d && d.state) chessApply(d.state); };
+document.getElementById('btn-chess-create').onclick = async () => {
+  if (!authToken) { chessMsg('Log in first.', 'var(--red)'); return; }
+  const body = {
+    bet: parseInt(document.getElementById('chess-bet').value) || 0,
+    ai_level: parseInt(document.getElementById('chess-opp').value) || 0,
+    color: document.getElementById('chess-color').value,
+    tc: document.getElementById('chess-tc').value,
+  };
+  chessMsg('Creating game...');
+  const d = await chessCall('/api/chess/create', body);
+  if (d && d.state) { chessState = null; chessRoomId = null; chessMoves = []; chessApply(d.state); }
+};
+async function chessResume() {
+  const d = await chessCall('/api/chess/mine');
+  if (d && d.state) { chessState = null; chessRoomId = null; chessMoves = []; chessApply(d.state); chessOpenModal(); return true; }
+  return false;
+}
+document.getElementById('btn-chess-resume').onclick = async () => { if (chessRoomId && chessState) { chessOpenModal(); chessRender(); return; } if (!(await chessResume())) chessMsg('You have no game in progress.'); };
+document.getElementById('btn-chess-list').onclick = async () => {
+  const list = document.getElementById('chess-rooms');
+  list.style.display = 'flex'; list.innerHTML = 'Loading...';
+  const d = await chessCall('/api/chess/list');
+  if (!d) { list.innerHTML = '<div style="color:var(--red);">Failed to load.</div>'; return; }
+  list.innerHTML = '';
+  if (!d.rooms || !d.rooms.length) { list.innerHTML = '<div style="color:var(--text-muted);">No open games. Create one!</div>'; return; }
+  d.rooms.forEach(rm => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 8px;background:var(--bg-elevated);border-radius:4px;';
+    const theirs = rm.color === 'w' ? 'white' : (rm.color === 'b' ? 'black' : 'random colours');
+    row.innerHTML = '<span>' + esc(rm.creator) + ' · ' + esc(rm.tc) + ' · ' + (rm.bet ? rm.bet + ' $ each' : 'no bet') + ' · they play ' + theirs + '</span>';
+    const join = document.createElement('button'); join.className = 'win-btn'; join.style.cssText = 'background:var(--accent);color:#fff;font-size:11px;padding:3px 8px;'; join.textContent = 'Join';
+    join.onclick = async () => { const dd = await chessCall('/api/chess/join', { room_id: rm.room_id }); if (dd && dd.state) { chessState = null; chessRoomId = null; chessMoves = []; chessApply(dd.state); } };
+    row.appendChild(join); list.appendChild(row);
+  });
+};
+document.getElementById('chess-acc').addEventListener('toggle', e => { if (e.target.open && authToken && !chessRoomId) chessResume().then(r => { if (r) { chessMsg(''); } }); });
+
+// ---- Casino game selector: grouped into sections with filter tabs (moves the existing <details> blocks, nothing else changes) ----
+(function () {
+  const panel = document.getElementById('casino-panel'); if (!panel) return;
+  const CATS = [
+    { id: 'multi', label: 'Multiplayer', games: ['Chess', 'UNO', 'Battle Mode', 'Sketch & Guess'] },
+    { id: 'table', label: 'Casino Classics', games: ['Blackjack', 'Slots', 'Roulette', 'Coin Flip', 'Plinko', 'Mines'] },
+    { id: 'arcade', label: 'Arcade & Skill', games: ['GeoDash', 'Fishing Timing', 'Flappy Bird'] }
+  ];
+  const all = Array.from(panel.children).filter(el => el.tagName === 'DETAILS' && el.classList.contains('game-acc'));
+  const nameOf = el => { const s = el.querySelector('summary'); return s && s.firstChild ? s.firstChild.textContent.replace(/[^\w &()]/g, '').trim() : ''; };
+  const bar = document.createElement('div'); bar.className = 'menu-tabs'; bar.id = 'casino-tabs';
+  const sections = {};
+  const mkTab = (id, label) => { const b = document.createElement('button'); b.className = 'menu-tab'; b.dataset.cc = id; b.textContent = label; b.onclick = () => setCat(id); bar.appendChild(b); };
+  mkTab('all', 'All'); CATS.forEach(c => mkTab(c.id, c.label));
+  panel.insertBefore(bar, panel.firstChild);
+  const used = new Set();
+  const mkSec = (id, label) => { const sec = document.createElement('div'); sec.className = 'casino-sec'; const h = document.createElement('div'); h.className = 'menu-col-title'; h.textContent = label; sec.appendChild(h); sections[id] = sec; panel.appendChild(sec); return sec; };
+  CATS.forEach(c => {
+    const sec = mkSec(c.id, c.label);
+    c.games.forEach(g => { const el = all.find(e => nameOf(e).indexOf(g) === 0); if (el && !used.has(el)) { used.add(el); sec.appendChild(el); } });
+  });
+  const rest = all.filter(e => !used.has(e));       // any game not listed above still shows up
+  if (rest.length) { const sec = mkSec('other', 'More'); rest.forEach(e => sec.appendChild(e)); }
+  function setCat(id) {
+    bar.querySelectorAll('.menu-tab').forEach(t => t.classList.toggle('active', t.dataset.cc === id));
+    Object.keys(sections).forEach(k => { sections[k].style.display = (id === 'all' || id === k) ? '' : 'none'; });
+    try { localStorage.setItem('ezp_casino_cat', id); } catch (e) {}
+  }
+  let start = 'all'; try { start = localStorage.getItem('ezp_casino_cat') || 'all'; } catch (e) {}
+  setCat(start === 'all' || sections[start] ? start : 'all');
+})();
+// ---- Settings > Appearance ----
+(function () {
+  const T = window.ezpTheme, box = document.getElementById('theme-presets'); if (!T || !box) return;
+  let cfg = T.load();
+  const accIn = document.getElementById('theme-accent'), bgIn = document.getElementById('theme-bg'), radIn = document.getElementById('theme-radius');
+  function commit() { T.save(cfg); T.apply(cfg); sync(); }
+  function sync() {
+    const p = cfg.preset && T.presets[cfg.preset];
+    box.querySelectorAll('.theme-sw').forEach(b => b.classList.toggle('active', (cfg.preset || 'default') === b.dataset.p));
+    accIn.value = cfg.accent || (p ? p[10] : '#ee5a52');
+    bgIn.value = cfg.bg || (p ? p[0] : '#1a1916');
+    radIn.value = cfg.radius || 'normal';
+  }
+  Object.keys(T.names).forEach(k => {
+    const p = T.presets[k], b = document.createElement('button');
+    b.className = 'theme-sw'; b.dataset.p = k; b.title = T.names[k];
+    b.innerHTML = '<span class="theme-sw-dot" style="background:' + (p ? p[0] : '#1a1916') + ';border-color:' + (p ? p[10] : '#ee5a52') + '"><i style="background:' + (p ? p[10] : '#ee5a52') + '"></i></span><span>' + T.names[k] + '</span>';
+    b.onclick = () => { cfg.preset = k; cfg.accent = null; cfg.bg = null; commit(); };
+    box.appendChild(b);
+  });
+  accIn.oninput = () => { cfg.accent = accIn.value; T.apply(cfg); T.save(cfg); };
+  bgIn.oninput = () => { cfg.bg = bgIn.value; T.apply(cfg); T.save(cfg); };
+  radIn.onchange = () => { cfg.radius = radIn.value; commit(); };
+  document.getElementById('btn-theme-reset').onclick = () => { cfg = {}; T.save(cfg); T.apply(null); sync(); };
+  sync();
+})();
+// ---- EzWorld: the 3D engine (ezworld.js) is downloaded only when somebody opens it ----
+(function () {
+  const btn = document.getElementById('btn-menu-ezworld'); if (!btn) return;
+  let loading = false;
+  function start() {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsProto = BACKEND_HOST ? 'wss' : protocol;
+    window.EzWorld.open({
+      wsUrl: `${wsProto}://${WS_HOST}/ws/world`, token: authToken, username, colors: COLORS,
+      avatarUrl: avatarUrl, defaultAvatar: DEFAULT_AVATAR,
+      onClose: () => { try { sendPresence(true); } catch (e) {} }
+    });
+    try { sendPresence(true); } catch (e) {}
+  }
+  btn.onclick = () => {
+    if (!authToken) return;
+    if (window.EzWorld) { start(); return; }
+    if (loading) return;
+    loading = true; btn.classList.add('loading');
+    const s = document.createElement('script');
+    s.src = BACKEND + '/ezworld.js';
+    s.onload = () => { loading = false; btn.classList.remove('loading'); start(); };
+    s.onerror = () => { loading = false; btn.classList.remove('loading'); alert('Could not load EzWorld. Try again in a moment.'); };
+    document.head.appendChild(s);
+  };
+})();
 let battleState = null;
 let battleRoomId = null;
 let battleSelectedColor = 4;
@@ -8478,6 +9069,7 @@ function refreshAfk() {
 // What friends see next to your green dot. Only these exact labels are allowed; anything else (menu, leaderboard, clans...) is just the dot.
 function currentActivity() {
   if (!authToken) return '';
+  { const ew = document.getElementById('ew-view'); if (ew && ew.style.display === 'flex') return 'In EzWorld'; }
   const open = (id) => { const e = document.getElementById(id); return !!(e && e.style.display && e.style.display !== 'none'); };
   if (['flappy-modal', 'gd-modal', 'uno-modal', 'battle-modal'].some(open)) return 'Playing a minigame';
   if (menuIsOpen()) {
@@ -8926,7 +9518,7 @@ function lobbyCard(l, opts) {
   let online = typeof l.online === 'number' ? l.online : 0;
   // Just left this lobby: the server may still count us, so don't show ourselves.
   if (recentlyLeftLobby && recentlyLeftLobby.id === l.id && Date.now() - recentlyLeftLobby.ts < 4000) online = Math.max(0, online - 1);
-  card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${opts.meta} &middot; ${l.width}x${l.height} &middot; ${l.cooldown}s cd</div>${expiryLine}</div><div class="lobby-bottom"><span class="lobby-online${online ? '' : ' empty'}" title="People in this lobby right now">${online} online</span>${opts.actions || ''}</div>`;
+  card.innerHTML = `<div class="lobby-info"><div class="lobby-title">${esc(l.name)}</div><div class="lobby-meta">${opts.meta} &middot; ${l.width}x${l.height} &middot; ${l.cooldown}s cd &middot; Drag clicking <b class="${l.drag_click ? 'dc-on' : 'dc-off'}">${l.drag_click ? 'ON' : 'OFF'}</b></div>${expiryLine}</div><div class="lobby-bottom"><span class="lobby-online${online ? '' : ' empty'}" title="People in this lobby right now">${online} online</span>${opts.actions || ''}</div>`;
   if (currentLobbyId && currentLobbyId === l.id) {
     // the lobby you are already in: show it, but it cannot be clicked (use X / Escape to go back to it)
     card.classList.add('current'); card.title = 'You are already in this lobby';
@@ -9122,7 +9714,7 @@ document.getElementById('btn-create-lobby').onclick = async () => {
   const lw = parseInt(sizeVal[0]), lh = parseInt(sizeVal[1]);
   if (!name) { lobbyError.textContent = 'Enter a lobby name'; return; }
   try {
-    const res = await fetch('/api/lobbies/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, public: isPublic, whitelist_enabled: wl, cooldown: cd, width: lw, height: lh }) });
+    const res = await fetch('/api/lobbies/create', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify({ name, public: isPublic, whitelist_enabled: wl, cooldown: cd, width: lw, height: lh, drag_click: document.getElementById('create-drag').checked }) });
     const data = await res.json();
     if (data.error) { lobbyError.textContent = data.error; return; }
     lobbyError.innerHTML = '&nbsp;'; document.getElementById('create-name').value = '';
@@ -9149,6 +9741,7 @@ function openManage(lobby) {
   document.getElementById('manage-code').textContent = lobby.code || '(public)';
   document.getElementById('manage-access').value = lobby.public ? 'public' : (lobby.whitelist_enabled ? 'invite' : 'code');
   document.getElementById('manage-access').disabled = isOfficial;
+  document.getElementById('manage-drag').checked = !!lobby.drag_click; document.getElementById('manage-drag').disabled = isOfficial;
   document.getElementById('manage-wl-msg').textContent = '';
   loadManageFriends();
   document.getElementById('manage-save').style.display = isOfficial ? 'none' : '';
@@ -9243,7 +9836,7 @@ function renderManageBans() {
 document.getElementById('btn-manage-wl-add').onclick = () => manageInvite(document.getElementById('manage-wl-add').value);
 document.getElementById('manage-wl-add').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); manageInvite(e.target.value); } });
 document.getElementById('manage-save').onclick = async () => {
-  const body = { lobby_id: managingLobby.id, name: document.getElementById('manage-name').value, public: document.getElementById('manage-access').value === 'public', whitelist_enabled: document.getElementById('manage-access').value === 'invite' };
+  const body = { lobby_id: managingLobby.id, name: document.getElementById('manage-name').value, public: document.getElementById('manage-access').value === 'public', whitelist_enabled: document.getElementById('manage-access').value === 'invite', drag_click: document.getElementById('manage-drag').checked };
   try {
     const res = await fetch('/api/lobbies/update', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authToken }, body: JSON.stringify(body) });
     const data = await res.json();
@@ -9252,6 +9845,19 @@ document.getElementById('manage-save').onclick = async () => {
 };
 
 let intentionalClose = false;
+let autoclickKicked = false;
+function showAutoclickKick(msg) {
+  if (autoclickKicked) return; autoclickKicked = true; intentionalClose = true;
+  try { clearTimeout(_socialReconnectTimer); } catch (e) {}
+  try { if (ws) ws.close(); } catch (e) {} try { if (socialWs) socialWs.close(); } catch (e) {}
+  const end = Date.now() + (msg.seconds || 600) * 1000;
+  const o = document.createElement('div');
+  o.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:#0b0b10;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;font-family:system-ui,sans-serif;';
+  o.innerHTML = '<div style="font-size:34px;font-weight:800;">You were removed from EzPlace</div><div style="font-size:16px;max-width:460px;line-height:1.5;color:#b9b9c6;">An autoclicker was detected. If this was a mistake, wait out the timer and join again.</div><div id="ac-left" style="font-size:22px;font-weight:700;"></div>';
+  document.body.appendChild(o);
+  const tick = () => { const left = Math.max(0, Math.ceil((end - Date.now()) / 1000)); document.getElementById('ac-left').textContent = left > 0 ? 'You can come back in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : 'You can reload the page now.'; if (left > 0) setTimeout(tick, 1000); };
+  tick();
+}
 const EZP_BASE_TITLE = 'EzPlace';
 const EZP_NOTIF_TITLE = 'EzPlace (New Messages)';
 let ezpHasUnseenNotif = false;
@@ -9386,7 +9992,7 @@ function connectToLobby(lobbyId, lobbyName) {
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); } break;
       case 'perm': canPlace = !!msg.can_place; break;
-      case 'grid': GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = username && ['toothpaste','juicebox'].includes(username.toLowerCase()); document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
+      case 'grid': lobbyDragClick = !!msg.drag_click; GRID_W = msg.width || 256; GRID_H = msg.height || 256; grid = new Uint8Array(msg.data); resetOffscreen(); currentLobbyOwner = msg.owner || null; canPlace = msg.can_place !== false; brushPerm = msg.brush_perm || { size: 1, drag: false }; updateBrushSizeSelectVisibility(); updateModeBtnVisibility(); COOLDOWN = (msg.cooldown !== undefined ? msg.cooldown : 0.5) * 1000; userHasInteracted = false; resizeCanvas(); fitViewToGrid(); requestAnimationFrame(() => { resizeCanvas(); fitViewToGrid(); render(); }); if (!canPlace) addSystemMsg('You are spectating this whitelist lobby. You can chat but not place pixels.'); { isFakeAdmin = !!msg.fake_admin; fakeBannedUsers.clear(); if (isFakeAdmin) document.getElementById('admin-tab-btn').style.display = 'block'; const isOwn = (currentLobbyOwner && username && currentLobbyOwner.toLowerCase() === username.toLowerCase()); const isTPAdminUser = username && ['toothpaste','juicebox'].includes(username.toLowerCase()); document.getElementById('btn-import-grid').style.display = isOwn ? '' : 'none'; document.getElementById('btn-manage-current').style.display = (isOwn || isTPAdminUser) ? '' : 'none'; } remoteCursors = {}; typingUsers.clear(); renderTypingIndicator(); lobbyUsers = []; document.getElementById('mention-popup').style.display = 'none'; undoStack.length = 0; updateUndoButtonState(); updateTimelapseButton(); render(); break;
       case 'pixel_owner_result': {
         if (!canSeePixelOwner()) break;
         if (pixelOwnerCell !== msg.y * GRID_W + msg.x) break;
@@ -9397,6 +10003,8 @@ function connectToLobby(lobbyId, lobbyName) {
         break;
       }
       case 'error': addSystemMsg(msg.text); logout(); break;
+      case 'lobby_drag': lobbyDragClick = !!msg.drag_click; updateModeBtnVisibility(); addSystemMsg('Drag clicking was turned ' + (lobbyDragClick ? 'ON' : 'OFF') + ' for this lobby.'); break;
+      case 'autoclick_kick': showAutoclickKick(msg); break;
       case 'kicked': addSystemMsg(msg.text); intentionalClose = true; currentLobbyId = null; resetLobbyUi(); updateSidebarTabs(); showMenu('lobbies'); break;
       case 'client_alert': alert(msg.text); break;
       case 'client_redirect': if (typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; } break;
@@ -9489,6 +10097,8 @@ function totalUnread() {
 function updateDmTabBadge() {
   const badge = document.getElementById('dm-notif');
   const total = totalUnread();
+  let gUnread = 0; for (const k in unreadGroups) gUnread += unreadGroups[k] || 0;
+  const gDot = document.getElementById('group-tab-dot'); if (gDot) gDot.style.display = gUnread > 0 ? '' : 'none';
   const dot = document.getElementById('menu-open-dot'); if (dot) dot.style.display = total > 0 ? '' : 'none';
   if (total > 0) {
     badge.textContent = total;
@@ -9556,6 +10166,7 @@ function connectSocial() {
     if (msg.type === 'friend_request' || msg.type === 'friend_accepted') {
       pushLiveNotification(msg);
     }
+    if (msg.type === 'autoclick_kick') { showAutoclickKick(msg); return; }
     if (msg.type === 'client_alert') { alert(msg.text); return; }
     if (msg.type === 'client_redirect' && typeof msg.url === 'string' && (msg.url.startsWith('http://') || msg.url.startsWith('https://'))) { intentionalClose = true; location.href = msg.url; return; }
     if (msg.type === 'client_school_ban') {
@@ -9665,6 +10276,7 @@ function connectSocial() {
         unoRender(msg.state);
       }
     }
+    if (msg.type === 'chess_state' && msg.state) chessApply(msg.state);
     if (msg.type === 'clan_deleted' || msg.type === 'lobby_deleted') {
       pushLiveNotification(msg);
       showDmToast(msg.type === 'clan_deleted' ? 'Clan deleted' : 'Lobby deleted', msg.text || '', () => openMenuView('notifications'));
@@ -9784,7 +10396,7 @@ function connectSocial() {
     if (thisSocial !== socialWs) return;
     socialWs = null;
     clearTimeout(_socialReconnectTimer);
-    _socialReconnectTimer = setTimeout(() => { if (authToken) connectSocial(); }, 5000);
+    _socialReconnectTimer = setTimeout(() => { if (authToken && !autoclickKicked) connectSocial(); }, 5000);
   };
 }
 

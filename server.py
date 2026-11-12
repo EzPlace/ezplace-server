@@ -92,7 +92,7 @@ ECONOMY_HISTORY_MAX = 2016
 PB_PIXELS_PER_BUCK = 100
 SHOP_PRICES = {"vip": 45, "name_color": 30, "custom_rank": 70, "streak_48hr": 1200, "streak_pass": 800}
 SHOP_SELL_PRICES = {"streak_pass": 400}
-PALETTE_SIZE = 91
+PALETTE_SIZE = 121
 STACKABLE_ITEMS = {"streak_pass"}
 MAX_CASINO_BET = 5000
 PB_TRANSFER_AMOUNT_PER_MIN = 100000
@@ -224,7 +224,7 @@ def lobby_info(lobby, include_code=False):
         "id": lobby["id"], "name": lobby["name"], "owner": lobby["owner"],
         "public": lobby["public"], "whitelist_enabled": lobby["whitelist_enabled"],
         "online": sum(1 for w, c in clients.items() if not w.closed and c and c.get("username") and c.get("lobby_id") == lobby["id"]),
-        "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN),
+        "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "drag_click": lobby_drag_ok(lobby),
         "width": lobby.get("width", 256), "height": lobby.get("height", 256),
         "last_activity": lobby.get("last_activity", time.time()),
         "expires_in": max(0, lobby_timeout_for(lobby) - (time.time() - lobby.get("last_activity", time.time()))) if not lobby["id"].startswith("public_") else None,
@@ -480,7 +480,7 @@ async def save_reports(): await db_save("store", "reports", reports[-REPORTS_MAX
 async def save_profile_pictures(): await db_save("store", "profile_pictures", profile_pictures)
 def get_presence(username): return presence.get((username or "").lower()) or None
 
-PRESENCE_ACTIVITIES = {"", "Fishing", "In the casino", "In a lobby", "Playing a minigame"}   # fixed list: the client cannot show friends arbitrary text
+PRESENCE_ACTIVITIES = {"", "Fishing", "In the casino", "In a lobby", "Playing a minigame", "In EzWorld"}   # fixed list: the client cannot show friends arbitrary text
 
 async def push_friend_presence(user):
     """Push presence state to everyone who has this user as a friend."""
@@ -1605,7 +1605,7 @@ async def create_lobby_handler(request):
         "code": code, "whitelist_enabled": wl,
         "whitelist": [user] if wl else [],
         "grid": bytearray(lw * lh), "pixel_counts": {},
-        "cooldown": cooldown, "last_activity": time.time(),
+        "cooldown": cooldown, "drag_click": bool(data.get("drag_click", False)), "last_activity": time.time(),
         "width": lw, "height": lh
     }
     await save_lobby(lid)
@@ -1680,6 +1680,12 @@ async def update_lobby_handler(request):
         if n:
             lb = lobby.get("lobby_bans", [])
             lobby["lobby_bans"] = [b for b in lb if b.lower() != n.lower()]
+    if "drag_click" in data:
+        new_drag = bool(data["drag_click"])
+        if new_drag != bool(lobby.get("drag_click", False)):
+            lobby["drag_click"] = new_drag
+            try: await broadcast_to_lobby(lid, {"type": "lobby_drag", "drag_click": new_drag})
+            except Exception: pass
     if "name" in data: lobby["name"] = str(data.get("name") or "").strip()[:30] or lobby["name"]
     await save_lobby(lid)
     await enforce_lobby_access(lid, lobby)
@@ -3647,35 +3653,36 @@ async def snapshot_gd_levels_backup():
 # ============ Achievements + Notification Log ============
 
 ACHIEVEMENTS = {
-    "first_pixel": {"name": "First Pixel", "desc": "Place your first pixel", "reward": 10, "icon": "🎨", "category": "pixels"},
-    "pixels_100": {"name": "Getting Started", "desc": "Place 100 pixels", "reward": 25, "icon": "🖌️", "category": "pixels"},
-    "pixels_1k": {"name": "Level 1", "desc": "Place 1,000 pixels", "reward": 50, "icon": "🖼️", "category": "pixels"},
-    "pixels_10k": {"name": "Dedicated Artist", "desc": "Place 10,000 pixels", "reward": 100, "icon": "🎭", "category": "pixels"},
-    "pixels_50k": {"name": "Prolific", "desc": "Place 50,000 pixels", "reward": 250, "icon": "🖋️", "category": "pixels"},
-    "pixels_100k": {"name": "Six Figures", "desc": "Place 100,000 pixels", "reward": 500, "icon": "🏆", "category": "pixels"},
-    "pixels_500k": {"name": "Legend", "desc": "Place 500,000 pixels", "reward": 1000, "icon": "🌟", "category": "pixels"},
-    "pixels_1m": {"name": "One Million Pixels", "desc": "Place 1,000,000 pixels", "reward": 5000, "icon": "💎", "category": "pixels"},
-    "level_10": {"name": "Level 10", "desc": "Reach level 10", "reward": 100, "icon": "🔟", "category": "level"},
-    "level_50": {"name": "Level 50", "desc": "Reach level 50", "reward": 500, "icon": "🎖️", "category": "level"},
-    "level_100": {"name": "Level 100", "desc": "Reach level 100", "reward": 1000, "icon": "🏅", "category": "level"},
-    "first_friend": {"name": "New Friend", "desc": "Make your first friend", "reward": 25, "icon": "🤝", "category": "social"},
-    "five_friends": {"name": "Popular", "desc": "Have 5 friends", "reward": 100, "icon": "👥", "category": "social"},
-    "first_lobby": {"name": "Founder", "desc": "Create your first lobby", "reward": 25, "icon": "🏠", "category": "social"},
-    "first_dm": {"name": "First DM", "desc": "Send your first DM", "reward": 10, "icon": "💬", "category": "social"},
-    "vip": {"name": "VIP", "desc": "Become a VIP", "reward": 50, "icon": "⭐", "category": "shop"},
-    "custom_rank": {"name": "Ranked", "desc": "Purchase a custom rank", "reward": 50, "icon": "🎗️", "category": "shop"},
-    "clan_member": {"name": "Clan Member", "desc": "Join a clan", "reward": 25, "icon": "🛡️", "category": "social"},
-    "casino_first": {"name": "High Roller", "desc": "Play a casino game", "reward": 25, "icon": "🎰", "category": "games"},
-    "casino_bj_win": {"name": "Blackjack Winner", "desc": "Win a hand of blackjack", "reward": 25, "icon": "🃏", "category": "games"},
-    "casino_mines_win": {"name": "Cashed Out", "desc": "Cash out at mines", "reward": 25, "icon": "💣", "category": "games"},
-    "gd_clear": {"name": "GeoDash Champion", "desc": "Clear a GeoDash level", "reward": 100, "icon": "🚀", "category": "games"},
-    "gd_level_maker": {"name": "Level Designer", "desc": "Create a custom GeoDash level", "reward": 100, "icon": "🛠️", "category": "games"},
-    "streak_7": {"name": "Weekly Regular", "desc": "Reach a 7-day streak", "reward": 100, "icon": "🔥", "category": "special"},
-    "streak_30": {"name": "Monthly Regular", "desc": "Reach a 30-day streak", "reward": 500, "icon": "🌋", "category": "special"},
-    "avatar_set": {"name": "Show Your Face", "desc": "Upload a profile picture", "reward": 25, "icon": "🖼️", "category": "social"},
-    "fish_first": {"name": "Gone Fishing", "desc": "Reel in your first catch", "reward": 0, "icon": "🎣", "category": "games"},
-    "fish_legendary": {"name": "Big Catch", "desc": "Catch a legendary or mythic item", "reward": 0, "icon": "🐋", "category": "games"},
-    "fish_collector": {"name": "Collector", "desc": "Discover 40 different fishing items", "reward": 0, "icon": "📦", "category": "games"},
+    "first_pixel": {"name": "First Pixel", "desc": "Place your first pixel", "icon": "🎨", "category": "pixels"},
+    "pixels_100": {"name": "Getting Started", "desc": "Place 100 pixels", "icon": "🖌️", "category": "pixels"},
+    "pixels_1k": {"name": "Level 1", "desc": "Place 1,000 pixels", "icon": "🖼️", "category": "pixels"},
+    "pixels_10k": {"name": "Dedicated Artist", "desc": "Place 10,000 pixels", "icon": "🎭", "category": "pixels"},
+    "pixels_50k": {"name": "Prolific", "desc": "Place 50,000 pixels", "icon": "🖋️", "category": "pixels"},
+    "pixels_100k": {"name": "Six Figures", "desc": "Place 100,000 pixels", "icon": "🏆", "category": "pixels"},
+    "pixels_500k": {"name": "Legend", "desc": "Place 500,000 pixels", "icon": "🌟", "category": "pixels"},
+    "pixels_1m": {"name": "One Million Pixels", "desc": "Place 1,000,000 pixels", "icon": "💎", "category": "pixels"},
+    "level_10": {"name": "Level 10", "desc": "Reach level 10", "icon": "🔟", "category": "level"},
+    "level_50": {"name": "Level 50", "desc": "Reach level 50", "icon": "🎖️", "category": "level"},
+    "level_100": {"name": "Level 100", "desc": "Reach level 100", "icon": "🏅", "category": "level"},
+    "first_friend": {"name": "New Friend", "desc": "Make your first friend", "icon": "🤝", "category": "social"},
+    "five_friends": {"name": "Popular", "desc": "Have 5 friends", "icon": "👥", "category": "social"},
+    "first_lobby": {"name": "Founder", "desc": "Create your first lobby", "icon": "🏠", "category": "social"},
+    "first_dm": {"name": "First DM", "desc": "Send your first DM", "icon": "💬", "category": "social"},
+    "vip": {"name": "VIP", "desc": "Become a VIP", "icon": "⭐", "category": "shop"},
+    "custom_rank": {"name": "Ranked", "desc": "Purchase a custom rank", "icon": "🎗️", "category": "shop"},
+    "clan_member": {"name": "Clan Member", "desc": "Join a clan", "icon": "🛡️", "category": "social"},
+    "casino_first": {"name": "High Roller", "desc": "Play a casino game", "icon": "🎰", "category": "games"},
+    "casino_bj_win": {"name": "Blackjack Winner", "desc": "Win a hand of blackjack", "icon": "🃏", "category": "games"},
+    "casino_chess_win": {"name": "Checkmate", "desc": "Win a game of chess", "icon": "♟️", "category": "games"},
+    "casino_mines_win": {"name": "Cashed Out", "desc": "Cash out at mines", "icon": "💣", "category": "games"},
+    "gd_clear": {"name": "GeoDash Champion", "desc": "Clear a GeoDash level", "icon": "🚀", "category": "games"},
+    "gd_level_maker": {"name": "Level Designer", "desc": "Create a custom GeoDash level", "icon": "🛠️", "category": "games"},
+    "streak_7": {"name": "Weekly Regular", "desc": "Reach a 7-day streak", "icon": "🔥", "category": "special"},
+    "streak_30": {"name": "Monthly Regular", "desc": "Reach a 30-day streak", "icon": "🌋", "category": "special"},
+    "avatar_set": {"name": "Show Your Face", "desc": "Upload a profile picture", "icon": "🖼️", "category": "social"},
+    "fish_first": {"name": "Gone Fishing", "desc": "Reel in your first catch", "icon": "🎣", "category": "games"},
+    "fish_legendary": {"name": "Big Catch", "desc": "Catch a legendary or mythic item", "icon": "🐋", "category": "games"},
+    "fish_collector": {"name": "Collector", "desc": "Discover 40 different fishing items", "icon": "📦", "category": "games"},
 }
 
 user_achievements = {}   # {user_lower: {ach_id: unlock_ts}}
@@ -4918,6 +4925,550 @@ async def uno_state_handler(request):
     room = uno_rooms.get(rid)
     if not room: return web.json_response({"error": "Room not found"}, status=404)
     return web.json_response({"ok": True, "state": _uno_public_state(room, user)})
+
+# ---------------------------------------------------------------------------------------------------------
+# CHESS (casino). Every rule, move check, clock and payout lives here on the server. The client only sends
+# "from/to" squares and draws whatever state it is given; it never decides legality, results or money.
+# ---------------------------------------------------------------------------------------------------------
+try:
+    import chess
+except Exception as _e:          # a missing dependency must not take the whole server down
+    chess = None
+    print(f"chess disabled: python-chess not importable ({_e})")
+
+chess_rooms = {}
+CHESS_TIME_CONTROLS = {"3+2": (180, 2), "5+3": (300, 3), "10+5": (600, 5), "15+10": (900, 10)}   # seconds: base + increment
+CHESS_AI_MAX_BET = 500            # bets against the bot are capped lower: a strong player beats it for profit
+CHESS_AI_PAYOUT = {1: 1.2, 2: 1.5, 3: 1.8}   # total returned on a win vs AI level 1/2/3 (stake included). Draw refunds, loss forfeits.
+CHESS_AI_BETS_PER_HOUR = 6        # how many bet-carrying AI games one account may start per hour
+CHESS_AI_NAMES = {1: "Chess AI (Easy)", 2: "Chess AI (Medium)", 3: "Chess AI (Hard)"}
+CHESS_FIRST_MOVE_SECONDS = 90     # a side never made its first move: game is aborted and stakes refunded
+CHESS_ROOM_KEEP_SECONDS = 120
+CHESS_LOBBY_TTL = 30 * 60
+CHESS_MAX_ROOMS = 300
+_chess_engine_sem = None
+
+# ---- the AI (small alpha-beta engine on top of python-chess; wall-clock capped so it can't hog the server) ----
+_CE_VAL = {1: 100, 2: 320, 3: 330, 4: 500, 5: 900, 6: 0}   # pawn knight bishop rook queen king (python-chess piece type numbers)
+_CE_MATE = 100000
+
+class _ChessTimeout(Exception): pass
+
+def _ce_eval(b):
+    """Static score in centipawns from the point of view of the side to move."""
+    score = 0
+    non_pawn = 0
+    kings = {}
+    for sq, pc in b.piece_map().items():
+        f = chess.square_file(sq); r = chess.square_rank(sq)
+        if not pc.color: r = 7 - r                      # r = how far the piece has advanced for its own side
+        cen = 3 - int(max(abs(f - 3.5), abs(r - 3.5)))  # 0 (edge) .. 3 (middle)
+        t = pc.piece_type
+        v = _CE_VAL[t]
+        if t == 1: v += r * 8 + cen * 3
+        elif t == 2: v += cen * 12
+        elif t == 3: v += cen * 6
+        elif t == 4: v += (12 if r == 6 else 0)
+        elif t == 5: v += cen * 2
+        else: kings[pc.color] = sq
+        if t not in (1, 6): non_pawn += _CE_VAL[t]
+        score += v if pc.color else -v
+    endgame = non_pawn < 2600
+    for col, sq in kings.items():
+        f = chess.square_file(sq); r = chess.square_rank(sq)
+        cen = 3 - int(max(abs(f - 3.5), abs(r - 3.5)))
+        rr = r if col else 7 - r
+        k = (cen * 10) if endgame else (-rr * 12 - cen * 4)
+        score += k if col else -k
+    if endgame and len(kings) == 2 and abs(score) > 300:
+        # winning side: drive the enemy king to the edge and bring our king closer, otherwise mate never happens
+        win = chess.WHITE if score > 0 else chess.BLACK
+        lk, wk = kings[not win], kings[win]
+        edge = 3 - int(max(abs(chess.square_file(lk) - 3.5), abs(chess.square_rank(lk) - 3.5)))
+        dist = abs(chess.square_file(lk) - chess.square_file(wk)) + abs(chess.square_rank(lk) - chess.square_rank(wk))
+        bonus = (3 - edge) * 12 + (14 - dist) * 4
+        score += bonus if win else -bonus
+    return score if b.turn else -score
+
+def _ce_order(b, moves):
+    def key(m):
+        s = 0
+        if b.is_capture(m):
+            victim = b.piece_type_at(m.to_square) or 1   # en passant: the target square is empty, the victim is a pawn
+            attacker = b.piece_type_at(m.from_square) or 1
+            s = 10000 + 10 * _CE_VAL[victim] - _CE_VAL[attacker]
+        if m.promotion: s += 9000 + _CE_VAL[m.promotion]
+        return -s
+    moves.sort(key=key)
+
+def _ce_tick(st):
+    st["n"] += 1
+    if (st["n"] & 127) == 0 and time.monotonic() > st["deadline"]:
+        raise _ChessTimeout()
+
+def _ce_quiesce(b, alpha, beta, st, qd):
+    _ce_tick(st)
+    stand = _ce_eval(b)
+    if stand >= beta: return beta
+    if stand > alpha: alpha = stand
+    if qd >= 6: return alpha
+    moves = [m for m in b.legal_moves if b.is_capture(m) or m.promotion]
+    _ce_order(b, moves)
+    for m in moves:
+        b.push(m)
+        s = -_ce_quiesce(b, -beta, -alpha, st, qd + 1)
+        b.pop()
+        if s >= beta: return beta
+        if s > alpha: alpha = s
+    return alpha
+
+def _ce_negamax(b, depth, alpha, beta, ply, st):
+    _ce_tick(st)
+    moves = list(b.legal_moves)
+    if not moves:
+        return -(_CE_MATE - ply) if b.is_check() else 0
+    if depth <= 0:
+        return _ce_quiesce(b, alpha, beta, st, 0)
+    _ce_order(b, moves)
+    for m in moves:
+        b.push(m)
+        s = -_ce_negamax(b, depth - 1, -beta, -alpha, ply + 1, st)
+        b.pop()
+        if s >= beta: return beta
+        if s > alpha: alpha = s
+    return alpha
+
+# level -> (max depth, seconds budget, score noise in centipawns, chance of a plain random move)
+_CE_LEVELS = {1: (1, 0.4, 140, 0.12), 2: (2, 1.0, 25, 0.0), 3: (4, 2.2, 0, 0.0)}
+
+def _chess_pick_move(board, level):
+    """Runs in a worker thread. Returns a legal chess.Move (the board must have at least one)."""
+    depth_max, budget, noise, p_random = _CE_LEVELS.get(level, _CE_LEVELS[2])
+    legal = list(board.legal_moves)
+    if len(legal) == 1: return legal[0]
+    if p_random and random.random() < p_random: return random.choice(legal)
+    st = {"n": 0, "deadline": time.monotonic() + budget}
+    b = board.copy()
+    best = random.choice(legal)
+    ordered = legal[:]
+    random.shuffle(ordered)          # equal-scoring moves then come out in varying order, so games differ
+    _ce_order(b, ordered)
+    INF = _CE_MATE + 10
+    for depth in range(1, depth_max + 1):
+        scored = []
+        alpha = -INF
+        try:
+            for m in ordered:
+                b.push(m)
+                if b.is_repetition(2): s = 0
+                elif noise: s = -_ce_negamax(b, depth - 1, -INF, INF, 1, st)        # full window: every root move gets a true score
+                else: s = -_ce_negamax(b, depth - 1, -INF, -alpha, 1, st)
+                b.pop()
+                scored.append((s + (random.randint(-noise, noise) if noise else 0), m))   # no jitter without noise: narrowed-window ties must keep the true best first
+                if not noise and s > alpha: alpha = s
+        except _ChessTimeout:
+            break
+        if scored:
+            scored.sort(key=lambda x: -x[0])
+            best = scored[0][1]
+            ordered = [m for _, m in scored]       # best-first for the next, deeper pass
+            if scored[0][0] >= _CE_MATE - 50: break  # forced mate found
+    return best
+
+# ---- rooms ----
+def _chess_find(user):
+    """The open (lobby/playing) room this user is in, if any."""
+    ul = user.lower()
+    for r in chess_rooms.values():
+        if r["phase"] in ("lobby", "playing") and any(h.lower() == ul for h in r["humans"]):
+            return r
+    return None
+
+def _chess_color_of(room, user):
+    ul = user.lower()
+    for c in ("w", "b"):
+        s = room["players"].get(c)
+        if s and not s["ai"] and s["name"].lower() == ul: return c
+    return None
+
+def _chess_clocks(room):
+    c = {"w": int(room["clock"]["w"]), "b": int(room["clock"]["b"])}
+    if room["phase"] == "playing":
+        t = "w" if room["board"].turn else "b"
+        if not room["players"][t]["ai"]:
+            c[t] = max(0, int(c[t] - (time.monotonic() - room["turn_start"]) * 1000))
+    return c
+
+def _chess_view(room, user, full=False):
+    b = room["board"]
+    pl = room["players"]
+    me = _chess_color_of(room, user)
+    st = {
+        "room_id": room["id"], "phase": room["phase"], "creator": room["creator"], "bet": room["bet"],
+        "tc": room["tc"], "ai_level": room["ai_level"], "creator_color": room["creator_color"],
+        "humans": list(room["humans"]),
+        "white": pl["w"]["name"] if pl else None, "black": pl["b"]["name"] if pl else None,
+        "me": me, "ply": len(room["san"]), "san": room["san"][-1] if room["san"] else None, "last": room["last"],
+        "fen": b.fen(), "turn": "w" if b.turn else "b", "check": b.is_check(),
+        "clock": _chess_clocks(room), "result": room["result"], "draw_offer": room["draw_offer"],
+    }
+    if full: st["moves"] = list(room["san"])
+    if room["phase"] == "playing" and me and (b.turn == (me == "w")):
+        legal = {}
+        for m in b.legal_moves:
+            legal.setdefault(chess.square_name(m.from_square), set()).add(chess.square_name(m.to_square))
+        st["legal"] = {k: sorted(v) for k, v in legal.items()}
+    return st
+
+async def _chess_push(room, skip=None, full=False):
+    """Send the new state to the human players over their social socket (the mover already has it in the HTTP reply)."""
+    sk = skip.lower() if skip else None
+    for h in room["humans"]:
+        if sk and h.lower() == sk: continue
+        try: await notify_social(h, {"type": "chess_state", "state": _chess_view(room, h, full)})
+        except Exception: pass
+
+async def _chess_money_sync(names):
+    await save_place_bucks()
+    for n in set(names):
+        try: await push_pb_update(n)
+        except Exception: pass
+
+def _chess_drop_later(rid):
+    try: asyncio.get_event_loop().call_later(CHESS_ROOM_KEEP_SECONDS, lambda: chess_rooms.pop(rid, None))
+    except Exception: chess_rooms.pop(rid, None)
+
+async def _chess_finish(room, winner, reason):
+    """End the game exactly once. winner: 'w' | 'b' | None (draw). reason 'aborted' refunds everyone. The phase flips BEFORE
+    any await so two simultaneous endings (resign + flag, ...) can never both pay out."""
+    if room["phase"] != "playing": return
+    room["phase"] = "done"
+    h = room.get("timer")
+    if h:
+        try: h.cancel()
+        except Exception: pass
+        room["timer"] = None
+    pl = room["players"]
+    bet = room["bet"]
+    aborted = reason == "aborted"
+    room["result"] = {"winner": None if aborted else winner, "reason": reason}
+    room["draw_offer"] = None
+    touched = []
+    ai_pay = None
+    if bet > 0:
+        humans = [c for c in ("w", "b") if not pl[c]["ai"]]
+        if aborted or winner is None:
+            for c in humans: credit_pb(pl[c]["name"], bet); touched.append(pl[c]["name"])
+        elif len(humans) == 2:
+            credit_pb(pl[winner]["name"], bet * 2); touched.append(pl[winner]["name"])
+        elif not pl[winner]["ai"]:
+            ai_pay = int(bet * CHESS_AI_PAYOUT.get(room["ai_level"], 1.5))
+            credit_pb(pl[winner]["name"], ai_pay); touched.append(pl[winner]["name"])
+    try: await _chess_money_sync(touched)
+    except Exception as e: print(f"chess payout save failed: {e}")
+    room["last_action_at"] = time.time()
+    await _chess_push(room)
+    try:
+        for c in ("w", "b"):
+            if pl[c]["ai"] or aborted: continue
+            other = pl["b" if c == "w" else "w"]["name"]
+            nm = pl[c]["name"]
+            if bet > 0 and winner == c:
+                await broadcast_casino_result(nm, "Chess", bet, ai_pay if ai_pay is not None else bet * 2, f"{reason} vs {other}")
+            elif bet > 0 and winner is not None:
+                await broadcast_casino_result(nm, "Chess", bet, 0, f"{reason} vs {other}")
+            await unlock_achievement(nm, "casino_first")
+            if winner == c: await unlock_achievement(nm, "casino_chess_win")
+    except Exception as e: print(f"chess post-game hooks failed: {e}")
+    _chess_drop_later(room["id"])
+
+def _chess_arm_timer(room):
+    h = room.get("timer")
+    if h:
+        try: h.cancel()
+        except Exception: pass
+        room["timer"] = None
+    if room["phase"] != "playing": return
+    t = "w" if room["board"].turn else "b"
+    if room["players"][t]["ai"]: return
+    ply = len(room["san"])
+    delay = room["clock"][t] / 1000.0
+    if ply < 2: delay = min(delay, CHESS_FIRST_MOVE_SECONDS)
+    rid = room["id"]
+    room["timer"] = asyncio.get_event_loop().call_later(delay + 0.1, lambda: asyncio.ensure_future(_chess_timer_fire(rid, ply)))
+
+async def _chess_timer_fire(rid, ply):
+    room = chess_rooms.get(rid)
+    if not room or room["phase"] != "playing" or len(room["san"]) != ply: return
+    t = "w" if room["board"].turn else "b"
+    if room["players"][t]["ai"]: return
+    elapsed_ms = (time.monotonic() - room["turn_start"]) * 1000
+    if elapsed_ms >= room["clock"][t]:
+        room["clock"][t] = 0
+        await _chess_flag(room, t)
+    elif ply < 2:
+        await _chess_finish(room, None, "aborted")
+    else:
+        _chess_arm_timer(room)
+
+async def _chess_flag(room, loser):
+    """Loser ran out of time. If the other side could never mate, it is a draw."""
+    win = "b" if loser == "w" else "w"
+    if room["board"].has_insufficient_material(win == "w"):
+        await _chess_finish(room, None, "timeout vs insufficient material")
+    else:
+        await _chess_finish(room, win, "timeout")
+
+async def _chess_commit(room, move, color):
+    """Apply an already-validated legal move for `color`. Returns False if the mover's flag had already fallen."""
+    slot = room["players"][color]
+    inc = CHESS_TIME_CONTROLS[room["tc"]][1] * 1000
+    if not slot["ai"]:
+        el = (time.monotonic() - room["turn_start"]) * 1000
+        if el >= room["clock"][color]:
+            room["clock"][color] = 0
+            await _chess_flag(room, color)
+            return False
+        room["clock"][color] = room["clock"][color] - el + inc
+    b = room["board"]
+    san = b.san(move)
+    b.push(move)
+    room["san"].append(san)
+    room["last"] = [chess.square_name(move.from_square), chess.square_name(move.to_square)]
+    room["draw_offer"] = None
+    room["turn_start"] = time.monotonic()
+    room["last_action_at"] = time.time()
+    out = b.outcome(claim_draw=True)
+    if out is not None:
+        if out.termination == chess.Termination.CHECKMATE:
+            await _chess_finish(room, "w" if out.winner else "b", "checkmate")
+        else:
+            await _chess_finish(room, None, out.termination.name.lower().replace("_", " "))
+        return True
+    _chess_arm_timer(room)
+    if room["players"]["w" if b.turn else "b"]["ai"]:
+        asyncio.ensure_future(_chess_ai_turn(room["id"], len(room["san"])))
+    return True
+
+async def _chess_ai_turn(rid, ply):
+    global _chess_engine_sem
+    room = chess_rooms.get(rid)
+    if not room or room["phase"] != "playing" or len(room["san"]) != ply: return
+    if _chess_engine_sem is None: _chess_engine_sem = asyncio.Semaphore(2)
+    snap = room["board"].copy()
+    try:
+        async with _chess_engine_sem:
+            move = await asyncio.get_event_loop().run_in_executor(None, _chess_pick_move, snap, room["ai_level"])
+    except Exception as e:
+        print(f"chess engine failed: {type(e).__name__}: {e}")
+        move = next(iter(snap.legal_moves), None)
+    room = chess_rooms.get(rid)
+    if not room or room["phase"] != "playing" or len(room["san"]) != ply or move is None: return
+    color = "w" if room["board"].turn else "b"
+    if not room["players"][color]["ai"] or move not in room["board"].legal_moves: return
+    await _chess_commit(room, move, color)
+    if room["phase"] == "playing": await _chess_push(room)     # a finished game was already pushed by _chess_finish
+
+def _chess_start(room):
+    """Both seats are filled: assign colours and start the clocks."""
+    hs = room["humans"]
+    creator_white = {"w": True, "b": False}.get(room["creator_color"])
+    if creator_white is None: creator_white = secrets.randbelow(2) == 0
+    if room["ai_level"]:
+        me = {"name": hs[0], "ai": False}
+        bot = {"name": CHESS_AI_NAMES[room["ai_level"]], "ai": True}
+        room["players"] = {"w": me, "b": bot} if creator_white else {"w": bot, "b": me}
+    else:
+        a = {"name": hs[0], "ai": False}; o = {"name": hs[1], "ai": False}
+        room["players"] = {"w": a, "b": o} if creator_white else {"w": o, "b": a}
+    base = CHESS_TIME_CONTROLS[room["tc"]][0] * 1000
+    room["clock"] = {"w": base, "b": base}
+    room["phase"] = "playing"
+    room["turn_start"] = time.monotonic()
+    room["last_action_at"] = time.time()
+    _chess_arm_timer(room)
+    if room["players"]["w"]["ai"]:
+        asyncio.ensure_future(_chess_ai_turn(room["id"], 0))
+
+async def _chess_gc_lobbies():
+    now = time.time(); touched = []
+    for rid, r in list(chess_rooms.items()):
+        if r["phase"] == "lobby" and now - r["created_at"] > CHESS_LOBBY_TTL:
+            if r["bet"] > 0:
+                for h in r["humans"]: credit_pb(h, r["bet"]); touched.append(h)
+            chess_rooms.pop(rid, None)
+    if touched: await _chess_money_sync(touched)
+
+async def chess_refund_all():
+    """Server shutdown (e.g. a deploy): rooms live in memory, so hand every escrowed stake back first."""
+    touched = []
+    for r in list(chess_rooms.values()):
+        if r["phase"] in ("lobby", "playing") and r["bet"] > 0:
+            for h in r["humans"]: credit_pb(h, r["bet"]); touched.append(h)
+        r["phase"] = "done"
+        h = r.get("timer")
+        if h:
+            try: h.cancel()
+            except Exception: pass
+    chess_rooms.clear()
+    if touched:
+        try: await save_place_bucks()
+        except Exception as e: print(f"chess shutdown refund save failed: {e}")
+
+async def chess_on_disconnect(user):
+    """User went fully offline. A waiting room is cancelled and refunded; a running game just lets their clock run."""
+    r = _chess_find(user)
+    if r and r["phase"] == "lobby" and r["creator"].lower() == user.lower():
+        if r["bet"] > 0: credit_pb(user, r["bet"]); await _chess_money_sync([user])
+        chess_rooms.pop(r["id"], None)
+
+# ---- HTTP ----
+def _chess_unavailable():
+    return web.json_response({"error": "Chess is not available on this server right now."}, status=503)
+
+async def chess_create_handler(request):
+    if chess is None: return _chess_unavailable()
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "chess_create", 8, 60):
+        return web.json_response({"error": "Slow down - too many chess games created."}, status=429)
+    await _chess_gc_lobbies()
+    if _chess_find(user): return web.json_response({"error": "You already have a chess game open - finish or leave it first."}, status=400)
+    if len(chess_rooms) >= CHESS_MAX_ROOMS: return web.json_response({"error": "Too many chess games right now - try again shortly."}, status=503)
+    try:
+        bet = int(data.get("bet", 0))
+        ai_level = int(data.get("ai_level", 0))
+    except Exception: return web.json_response({"error": "Invalid settings"}, status=400)
+    tc = str(data.get("tc", "10+5"))
+    color = str(data.get("color", "r"))
+    if tc not in CHESS_TIME_CONTROLS: return web.json_response({"error": "Invalid time control"}, status=400)
+    if color not in ("w", "b", "r"): color = "r"
+    if ai_level not in (0, 1, 2, 3): return web.json_response({"error": "Invalid AI level"}, status=400)
+    if bet < 0: return web.json_response({"error": "Bet must be >= 0"}, status=400)
+    if bet > MAX_CASINO_BET: return web.json_response({"error": f"Max bet is {MAX_CASINO_BET} $"}, status=400)
+    if ai_level and bet > CHESS_AI_MAX_BET: return web.json_response({"error": f"Max bet against the AI is {CHESS_AI_MAX_BET} $"}, status=400)
+    if ai_level and bet > 0 and not check_rate_limit(user, "chess_ai_bet", CHESS_AI_BETS_PER_HOUR, 3600):
+        return web.json_response({"error": f"You can start {CHESS_AI_BETS_PER_HOUR} bet games against the AI per hour. Play for free or against a person."}, status=429)
+    if bet > 0 and not spend_pb(user, bet):
+        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
+    rid = secrets.token_hex(5)
+    room = {
+        "id": rid, "creator": user, "humans": [user], "phase": "lobby", "players": {}, "creator_color": color,
+        "bet": bet, "ai_level": ai_level, "tc": tc, "board": chess.Board(), "clock": {"w": 0, "b": 0},
+        "turn_start": 0.0, "san": [], "last": None, "result": None, "draw_offer": None, "draw_offers_made": {"w": 0, "b": 0},
+        "timer": None, "created_at": time.time(), "last_action_at": time.time(),
+    }
+    chess_rooms[rid] = room
+    if ai_level: _chess_start(room)
+    if bet > 0: await _chess_money_sync([user])
+    return web.json_response({"ok": True, "room_id": rid, "state": _chess_view(room, user, True)})
+
+async def chess_list_handler(request):
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    await _chess_gc_lobbies()
+    out = [{"room_id": r["id"], "creator": r["creator"], "bet": r["bet"], "tc": r["tc"], "color": r["creator_color"]}
+           for r in chess_rooms.values() if r["phase"] == "lobby" and not r["ai_level"]]
+    return web.json_response({"rooms": out[:50]})
+
+async def chess_mine_handler(request):
+    """Resume after a reload / reconnect: the caller's open game (full state), or null."""
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    r = _chess_find(user)
+    return web.json_response({"ok": True, "state": _chess_view(r, user, True) if r else None})
+
+async def chess_join_handler(request):
+    if chess is None: return _chess_unavailable()
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    room = chess_rooms.get(str(data.get("room_id", "")))
+    if not room: return web.json_response({"error": "Room not found"}, status=404)
+    if any(h.lower() == user.lower() for h in room["humans"]):
+        return web.json_response({"ok": True, "room_id": room["id"], "state": _chess_view(room, user, True)})
+    if room["phase"] != "lobby" or room["ai_level"]: return web.json_response({"error": "That game is not open"}, status=400)
+    if _chess_find(user): return web.json_response({"error": "You already have a chess game open - finish or leave it first."}, status=400)
+    if not check_rate_limit(user, "chess_join", 15, 60):
+        return web.json_response({"error": "Slow down."}, status=429)
+    if room["bet"] > 0 and not spend_pb(user, room["bet"]):
+        return web.json_response({"error": "Not enough PlaceBux"}, status=400)
+    room["humans"].append(user)
+    _chess_start(room)
+    if room["bet"] > 0: await _chess_money_sync([user])
+    await _chess_push(room, skip=user, full=True)
+    return web.json_response({"ok": True, "room_id": room["id"], "state": _chess_view(room, user, True)})
+
+async def chess_move_handler(request):
+    if chess is None: return _chess_unavailable()
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "chess_move", 90, 60):
+        return web.json_response({"error": "Slow down."}, status=429)
+    room = chess_rooms.get(str(data.get("room_id", "")))
+    if not room or room["phase"] != "playing": return web.json_response({"error": "No active game"}, status=400)
+    me = _chess_color_of(room, user)
+    if me is None: return web.json_response({"error": "You are not playing in this game"}, status=403)
+    b = room["board"]
+    if b.turn != (me == "w"): return web.json_response({"error": "Not your turn"}, status=400)
+    try:
+        f = chess.parse_square(str(data.get("from", "")).lower()[:2])
+        t = chess.parse_square(str(data.get("to", "")).lower()[:2])
+    except Exception: return web.json_response({"error": "Invalid square"}, status=400)
+    promo = None
+    pc = b.piece_at(f)
+    if pc is not None and pc.piece_type == chess.PAWN and chess.square_rank(t) in (0, 7):
+        promo = {"q": chess.QUEEN, "r": chess.ROOK, "b": chess.BISHOP, "n": chess.KNIGHT}.get(str(data.get("promotion", "q")).lower()[:1], chess.QUEEN)
+    move = chess.Move(f, t, promotion=promo)
+    if move not in b.legal_moves: return web.json_response({"error": "Illegal move"}, status=400)
+    await _chess_commit(room, move, me)
+    await _chess_push(room, skip=user)       # the opponent hears about it over the socket; the mover gets it in this reply
+    return web.json_response({"ok": True, "state": _chess_view(room, user)})
+
+async def chess_resign_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    room = chess_rooms.get(str(data.get("room_id", "")))
+    if not room or not any(h.lower() == user.lower() for h in room["humans"]): return web.json_response({"ok": True})
+    if room["phase"] == "lobby":
+        if room["bet"] > 0:
+            for h in room["humans"]: credit_pb(h, room["bet"])
+            await _chess_money_sync(room["humans"])
+        chess_rooms.pop(room["id"], None)
+    elif room["phase"] == "playing":
+        me = _chess_color_of(room, user)
+        if me: await _chess_finish(room, "b" if me == "w" else "w", "resignation")
+    return web.json_response({"ok": True})
+
+async def chess_draw_handler(request):
+    data = await request.json()
+    user = get_auth_user(request)
+    if not user: return web.json_response({"error": "Not authenticated"}, status=401)
+    if not check_rate_limit(user, "chess_draw", 10, 60): return web.json_response({"error": "Slow down."}, status=429)
+    room = chess_rooms.get(str(data.get("room_id", "")))
+    if not room or room["phase"] != "playing": return web.json_response({"error": "No active game"}, status=400)
+    me = _chess_color_of(room, user)
+    if me is None: return web.json_response({"error": "You are not playing in this game"}, status=403)
+    if room["ai_level"]: return web.json_response({"error": "The AI never accepts draws"}, status=400)
+    action = str(data.get("action", ""))
+    if action == "offer":
+        if room["draw_offer"]: return web.json_response({"error": "A draw offer is already pending"}, status=400)
+        if room["draw_offers_made"][me] >= 3: return web.json_response({"error": "No more draw offers this game"}, status=400)
+        room["draw_offers_made"][me] += 1
+        room["draw_offer"] = me
+    elif action == "accept":
+        if not room["draw_offer"] or room["draw_offer"] == me:
+            return web.json_response({"error": "No draw offer to accept"}, status=400)
+        await _chess_finish(room, None, "draw agreed")
+        return web.json_response({"ok": True, "state": _chess_view(room, user)})
+    elif action == "decline":
+        room["draw_offer"] = None
+    else: return web.json_response({"error": "Invalid action"}, status=400)
+    await _chess_push(room, skip=user)
+    return web.json_response({"ok": True, "state": _chess_view(room, user)})
 
 BATTLE_GRID = 64
 BATTLE_DRAW_SECONDS_DEFAULT = 90
@@ -6260,6 +6811,11 @@ async def social_ws_handler(request):
                                 try: await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"})
                                 except: pass
                                 await ws.close(); break
+                            _ac_left = autoclick_locked_seconds(username)
+                            if _ac_left:
+                                try: await ws.send_json({"type": "autoclick_kick", "seconds": _ac_left, "text": "You were removed from EzPlace: an autoclicker was detected."})
+                                except Exception: pass
+                                await ws.close(); break
                             if is_ip_banned(request): await ws.close(); break
                             if is_device_banned(device_id): await ws.close(); break
                             if not social_clients.get(ws): _online_inc(username)
@@ -6447,6 +7003,8 @@ async def social_ws_handler(request):
                 except Exception as e: print(f"[presence] push_friend_presence on disconnect failed: {e}", flush=True)
                 try: await uno_forfeit(disconnected_user)
                 except Exception as e: print(f"uno_forfeit on disconnect failed: {e}")
+                try: await chess_on_disconnect(disconnected_user)
+                except Exception as e: print(f"chess_on_disconnect failed: {e}")
                 try:
                     dlow = disconnected_user.lower()
                     for r in list(uno_rooms.values()):
@@ -6455,6 +7013,104 @@ async def social_ws_handler(request):
                             await _uno_push_state(r)
                 except Exception as e: print(f"uno spectator cleanup failed: {e}")
     return ws
+
+# ---------------------------------------------------------------------------------------------------------
+# Drag clicking (per lobby) + autoclicker detection. Detection runs for every non-admin pixel attempt in EVERY
+# lobby, including 0s-cooldown ones, and it is decided here on the server.
+# ---------------------------------------------------------------------------------------------------------
+AUTOCLICK_LOCKOUT_SECONDS = 600       # how long a detected autoclicker is kept off the site
+AUTOCLICK_SPEED_EVENTS = 40           # this many click-pixels inside AUTOCLICK_SPEED_WINDOW seconds (= 20+ clicks/s) is not a human
+AUTOCLICK_SPEED_WINDOW = 2.0
+AUTOCLICK_REG_EVENTS = 30             # this many clicks with near-identical spacing (see below) is a machine
+AUTOCLICK_REG_MAX_MEAN_MS = 260.0
+AUTOCLICK_REG_MAX_CV = 0.08           # std-dev / mean of the gaps; humans are far above this, OS autoclickers are near 0
+AUTOCLICK_SAME_CELL = 40              # this many consecutive attempts on one single cell inside AUTOCLICK_SAME_WINDOW seconds
+AUTOCLICK_SAME_WINDOW = 6.0
+autoclick_lockout = {}                # username(lower) -> unix time the lockout ends
+_ac_state = {}                        # username(lower) -> recent click history
+
+def lobby_drag_ok(lobby):
+    """Drag clicking (hold the mouse and paint) is a per-lobby setting. The official public lobbies never have it."""
+    if not lobby or str(lobby.get("id", "")).startswith("public_"): return False
+    return bool(lobby.get("drag_click", False))
+
+def autoclick_locked_seconds(user):
+    if not user: return 0
+    end = autoclick_lockout.get(user.lower(), 0)
+    left = end - time.time()
+    if left <= 0:
+        autoclick_lockout.pop(user.lower(), None)
+        return 0
+    return int(left) + 1
+
+def autoclick_observe(user, x, y, data, is_drag):
+    """Record one pixel attempt and return a reason string if it proves an autoclicker, else None."""
+    if is_admin(user): return None
+    ul = user.lower()
+    now = time.time()
+    st = _ac_state.get(ul)
+    if st is None:
+        if len(_ac_state) > 3000:                                   # keep memory bounded
+            for k in [k for k, v in _ac_state.items() if now - v["seen"] > 120]: _ac_state.pop(k, None)
+        st = _ac_state[ul] = {"arr": [], "ct": [], "cell": None, "same": 0, "same_t0": now, "seen": now}
+    st["seen"] = now
+    # 1. Synthetic input: a script or console-driven .click() produces events the browser marks as not trusted.
+    if data.get("tr") is False:
+        return "synthetic (script generated) clicks"
+    # 2. Stationary spam: the same cell hit again and again.
+    cell = (x, y)
+    if st["cell"] == cell:
+        st["same"] += 1
+    else:
+        st["cell"] = cell; st["same"] = 1; st["same_t0"] = now
+    if st["same"] >= AUTOCLICK_SAME_CELL:
+        if now - st["same_t0"] <= AUTOCLICK_SAME_WINDOW: return "repeated clicks on a single pixel"
+        st["same"] = 1; st["same_t0"] = now
+    if is_drag:
+        # Drag painting legitimately produces rapid, evenly spaced pixels as the cursor sweeps across cells, so only
+        # the cell-repeat rule above applies to it (the per-user pixel rate limit still caps it).
+        st["arr"].clear(); st["ct"].clear()
+        return None
+    # 3. Click speed measured by the server's own clock (cannot be faked by the client).
+    arr = st["arr"]
+    arr.append(now)
+    if len(arr) > AUTOCLICK_SPEED_EVENTS: del arr[:len(arr) - AUTOCLICK_SPEED_EVENTS]
+    if len(arr) >= AUTOCLICK_SPEED_EVENTS and arr[-1] - arr[0] <= AUTOCLICK_SPEED_WINDOW:
+        return "inhuman click speed"
+    # 4. Click spacing measured by the browser's own input timestamps (immune to network jitter): too perfectly even.
+    ct = data.get("ct")
+    if isinstance(ct, (int, float)) and not isinstance(ct, bool) and ct == ct:
+        cts = st["ct"]
+        if cts and ct <= cts[-1]: cts.clear()                       # page reloaded / clock reset: start over
+        cts.append(float(ct))
+        if len(cts) > AUTOCLICK_REG_EVENTS + 1: del cts[:len(cts) - (AUTOCLICK_REG_EVENTS + 1)]
+        if len(cts) >= AUTOCLICK_REG_EVENTS + 1:
+            gaps = [cts[i + 1] - cts[i] for i in range(len(cts) - 1)]
+            mean = sum(gaps) / len(gaps)
+            if 0 < mean <= AUTOCLICK_REG_MAX_MEAN_MS:
+                var = sum((g - mean) ** 2 for g in gaps) / len(gaps)
+                if (var ** 0.5) / mean <= AUTOCLICK_REG_MAX_CV: return "machine-regular click timing"
+    return None
+
+async def autoclick_kick(user, reason, lobby_id=None):
+    """Throw the player off the site: tell every one of their connections, close them, and keep them out for a while."""
+    ul = user.lower()
+    autoclick_lockout[ul] = time.time() + AUTOCLICK_LOCKOUT_SECONDS
+    _ac_state.pop(ul, None)
+    print(f"[autoclick] {user} removed ({reason})", flush=True)
+    payload = {"type": "autoclick_kick", "seconds": AUTOCLICK_LOCKOUT_SECONDS,
+               "text": "You were removed from EzPlace: an autoclicker was detected."}
+    for w, info in list(clients.items()):
+        if info and info.get("username", "").lower() == ul:
+            try: await w.send_json(payload); await w.close()
+            except Exception: pass
+    for w, uname in list(social_clients.items()):
+        if uname and uname.lower() == ul:
+            try: await w.send_json(payload); await w.close()
+            except Exception: pass
+    if lobby_id:
+        try: await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"{user} was removed for using an autoclicker."})
+        except Exception: pass
 
 async def notify_social(target_username, data):
     msg = json.dumps(data)
@@ -6534,6 +7190,9 @@ async def websocket_handler(request):
                         username = sessions[token]
                         if is_banned(username):
                             await ws.send_json({"type": "client_school_ban", "url": "https://www.pornhub.com"}); await ws.close(); break
+                        _ac_left = autoclick_locked_seconds(username)
+                        if _ac_left:
+                            await ws.send_json({"type": "autoclick_kick", "seconds": _ac_left, "text": "You were removed from EzPlace: an autoclicker was detected."}); await ws.close(); break
                         if is_ip_banned(request):
                             await ws.send_json({"type": "error", "text": "You are banned"}); await ws.close(); break
                         if is_device_banned(device_id):
@@ -6560,7 +7219,7 @@ async def websocket_handler(request):
                         lobby_id = lid
                         _clients_set(ws, {"username": username, "lobby_id": lobby_id, "ip": get_client_ip(request), "device_id": device_id, "can_place": can_place, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch")), "bin": bool(data.get("bin")), "curs": bool(data.get("curs"))})
                         await track_ip(username, request)
-                        grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
+                        grid_msg = {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "drag_click": lobby_drag_ok(lobby), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": can_place, "brush_perm": get_brush_perm(username)}
                         if is_fake_admin(username): grid_msg["fake_admin"] = True
                         await send_grid_to_ws(ws, grid_msg, lobby["grid"])
                         if lobby.get("pixel_counts"):
@@ -6581,7 +7240,7 @@ async def websocket_handler(request):
                             await ws.send_json({"type": "error", "text": "Guests can only watch public lobbies"}); await ws.close(); break
                         username = ""; lobby_id = lid
                         _clients_set(ws, {"username": "", "guest": True, "lobby_id": lobby_id, "ip": get_client_ip(request), "can_place": False, "no_deflate": bool(data.get("no_deflate")), "batch": bool(data.get("batch")), "bin": bool(data.get("bin")), "curs": bool(data.get("curs"))})
-                        await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": False, "brush_perm": {"size": 1, "drag": False}}, lobby["grid"])
+                        await send_grid_to_ws(ws, {"type": "grid", "owner": lobby["owner"], "guest": True, "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "drag_click": lobby_drag_ok(lobby), "width": lobby.get("width", 256), "height": lobby.get("height", 256), "can_place": False, "brush_perm": {"size": 1, "drag": False}}, lobby["grid"])
                         if lobby.get("pixel_counts"):
                             try: await ws.send_json({"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
                             except Exception: pass
@@ -6592,6 +7251,13 @@ async def websocket_handler(request):
                         x, y, color = data.get("x"), data.get("y"), data.get("color")
                         if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y, color)): continue
                         lobby = lobbies.get(lobby_id)
+                        is_drag_px = data.get("d") in (1, True)
+                        if is_drag_px and not (is_admin(username) or get_brush_perm(username).get("drag") or lobby_drag_ok(lobby)):
+                            continue                      # drag painting is off in this lobby: a client that still sends it is ignored
+                        _why = autoclick_observe(username, x, y, data, is_drag_px)
+                        if _why:
+                            await autoclick_kick(username, _why, lobby_id)
+                            break
                         now = time.time()
                         cd = lobby.get("cooldown", DEFAULT_COOLDOWN) if lobby else DEFAULT_COOLDOWN
                         if now - max(last_pixel, last_pixel_by_user.get(username.lower(), 0)) < cd:
@@ -6870,7 +7536,7 @@ async def websocket_handler(request):
                                 if isinstance(imported_owner, str) and imported_owner.strip():
                                     lobby["original_owner"] = imported_owner.strip()[:20]
                                 await save_lobby(lobby_id)
-                                await broadcast_grid_to_lobby(lobby_id, {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "width": lw, "height": lh}, lobby["grid"])
+                                await broadcast_grid_to_lobby(lobby_id, {"type": "grid", "owner": lobby["owner"], "cooldown": lobby.get("cooldown", DEFAULT_COOLDOWN), "drag_click": lobby_drag_ok(lobby), "width": lw, "height": lh}, lobby["grid"])
                                 await broadcast_to_lobby(lobby_id, {"type": "leaderboard_update", "leaderboard": get_leaderboard_top10(lobby)})
                                 await broadcast_to_lobby(lobby_id, {"type": "system", "text": f"Grid imported by {username}"})
                             else:
@@ -7208,7 +7874,7 @@ def queue_pixel(lobby_id, x, y, color, exclude=None):
     else:
         lst.append(item)
 
-PIXEL_FRAME_MAGIC = b"\xec"          # first byte of a binary pixel frame; grid frames never start with it (zlib starts 0x78, raw grids are colours < 91)
+PIXEL_FRAME_MAGIC = b"\xec"          # first byte of a binary pixel frame; grid frames never start with it (zlib starts 0x78, raw grids are colours < 121)
 def _pixel_frame(pixels):
     """Binary pixel batch: magic byte, then 5 bytes per pixel (x uint16, y uint16, colour uint8), little-endian. None if a value does not fit."""
     try: return PIXEL_FRAME_MAGIC + b"".join(struct.pack("<HHB", x, y, c) for x, y, c, _e in pixels)
@@ -7732,6 +8398,10 @@ async def on_startup(app):
         await save_economy_history()
 
 async def on_cleanup(app):
+    try: await world_flush()
+    except Exception: pass
+    try: await chess_refund_all()
+    except Exception: pass
     try: await flush_dirty_saves()
     except Exception: pass
     try: await save_sessions()
@@ -8052,12 +8722,18 @@ FISH_ITEMS = [
     ("mudskipper", "Mudskipper", "common", 2), ("crawdad", "Crawdad", "common", 3), ("mosquitofish", "Mosquitofish", "common", 2), ("swamp_snail", "Swamp Snail", "common", 2), ("stickleback", "Stickleback", "common", 2), ("bullfrog", "Bullfrog", "uncommon", 6), ("snapping_turtle", "Snapping Turtle", "uncommon", 8), ("bowfin", "Bowfin", "uncommon", 7), ("crappie", "Crappie", "uncommon", 6), ("water_moccasin", "Water Moccasin", "uncommon", 7), ("alligator_gar", "Alligator Gar", "rare", 24), ("blue_catfish", "Blue Catfish", "rare", 22), ("hellbender", "Hellbender", "rare", 21), ("wisp_jar", "Will-o-Wisp Jar", "rare", 20), ("gator_snapper", "Gator Snapper", "rare", 25), ("gator", "Gator", "epic", 85), ("giant_catfish", "Giant Catfish", "epic", 70), ("riverboat_bell", "Riverboat Bell", "epic", 70), ("swamp_queen_crown", "Swamp Queen's Crown", "legendary", 340), ("cypress_emerald", "Cypress Emerald", "legendary", 330), ("bayou_leviathan", "Bayou Leviathan", "mythic", 1400), ("swamp_hydra", "Swamp Hydra", "mythic", 1350),
     # ---- Magma Lagoon exclusives ----
     ("ember_minnow", "Ember Minnow", "common", 2), ("magma_crab", "Magma Crab", "common", 3), ("cinder_shrimp", "Cinder Shrimp", "common", 3), ("ash_eel", "Ash Eel", "common", 2), ("pumice_snail", "Pumice Snail", "common", 2), ("fire_eel", "Fire Eel", "uncommon", 7), ("obsidian_urchin", "Obsidian Urchin", "uncommon", 7), ("magma_squid", "Magma Squid", "uncommon", 8), ("ember_puffer", "Ember Puffer", "uncommon", 7), ("sulfur_jelly", "Sulfur Jelly", "uncommon", 6), ("magma_ray", "Magma Ray", "rare", 24), ("lava_lobster", "Lava Lobster", "rare", 23), ("phoenix_fish", "Phoenix Fish", "rare", 26), ("obsidian_blade", "Obsidian Blade", "rare", 20), ("fire_opal", "Fire Opal", "rare", 22), ("magma_shark", "Magma Shark", "epic", 90), ("inferno_hammerhead", "Inferno Hammerhead", "epic", 80), ("ruby", "Ruby", "epic", 75), ("molten_crown", "Molten Crown", "legendary", 360), ("dragons_heart", "Dragon's Heart", "legendary", 340), ("lava_leviathan", "Lava Leviathan", "mythic", 1500), ("ember_phoenix", "Ember Phoenix", "mythic", 1400),
+    # ---- Crystal Caverns exclusives ----
+    ("glow_tetra", "Glow Tetra", "common", 2), ("cave_shrimp", "Cave Shrimp", "common", 2), ("blind_cavefish", "Blind Cavefish", "common", 3), ("crystal_snail", "Crystal Snail", "common", 2), ("cave_loach", "Cave Loach", "common", 2), ("amethyst_crab", "Amethyst Crab", "uncommon", 7), ("glowworm_jelly", "Glowworm Jelly", "uncommon", 6), ("olm", "Olm", "uncommon", 7), ("geode_urchin", "Geode Urchin", "uncommon", 8), ("lumen_eel", "Lumen Eel", "uncommon", 7), ("crystal_ray", "Crystal Ray", "rare", 24), ("moonstone", "Moonstone", "rare", 22), ("cave_angler", "Cave Angler", "rare", 25), ("prism_squid", "Prism Squid", "rare", 23), ("miners_lantern", "Miner's Lantern", "rare", 20), ("geode_turtle", "Geode Turtle", "epic", 80), ("diamond_shark", "Diamond Shark", "epic", 90), ("heart_crystal", "Heart Crystal", "epic", 75), ("crystal_crown", "Crystal Crown", "legendary", 360), ("starlight_geode", "Starlight Geode", "legendary", 340), ("crystal_wyrm", "Crystal Wyrm", "mythic", 1450), ("cavern_titan", "Cavern Titan", "mythic", 1500),
+    # ---- Cloud Isles exclusives ----
+    ("cloud_minnow", "Cloud Minnow", "common", 2), ("wind_carp", "Wind Carp", "common", 3), ("sky_shrimp", "Sky Shrimp", "common", 2), ("mist_eel", "Mist Eel", "common", 2), ("dew_snail", "Dew Snail", "common", 2), ("storm_perch", "Storm Perch", "uncommon", 7), ("cirrus_ray", "Cirrus Ray", "uncommon", 7), ("rain_jelly", "Rain Jelly", "uncommon", 6), ("thunder_puffer", "Thunder Puffer", "uncommon", 8), ("kite_fish", "Kite Fish", "uncommon", 7), ("gale_marlin", "Gale Marlin", "rare", 25), ("lightning_eel", "Lightning Eel", "rare", 22), ("sun_turtle", "Sun Turtle", "rare", 24), ("nimbus_squid", "Nimbus Squid", "rare", 23), ("sky_compass", "Sky Compass", "rare", 20), ("tempest_shark", "Tempest Shark", "epic", 90), ("rainbow_manta", "Rainbow Manta", "epic", 80), ("thunder_hammerhead", "Thunder Hammerhead", "epic", 75), ("cloud_crown", "Cloud Crown", "legendary", 350), ("sun_pearl", "Sun Pearl", "legendary", 370), ("sky_serpent", "Sky Serpent", "mythic", 1400), ("celestial_leviathan", "Celestial Leviathan", "mythic", 1550),
 ]
 FISH_EXCLUSIVE = {i: "reef" for i in "clownfish blue_tang parrotfish butterflyfish sea_turtle mandarin_dragonet whale_shark giant_pearl rainbow_serpent damselfish hermit_crab cleaner_wrasse triggerfish cuttlefish nudibranch mantis_shrimp blue_ringed_octopus reef_shark tiger_shark giant_grouper coral_crown reef_guardian".split()}
 FISH_EXCLUSIVE.update({i: "abyss" for i in "lanternfish ghost_shrimp viperfish dumbo_octopus vampire_squid gulper_eel goblin_shark colossal_squid megalodon cusk_eel hatchetfish deepsea_isopod fangtooth barreleye sea_spider frilled_shark oarfish black_swallower giant_isopod sleeper_shark black_pearl abyssal_horror".split()})
 FISH_EXCLUSIVE.update({i: "frozen" for i in "ice_minnow frost_perch snow_crab krill glacier_loach arctic_char burbot walleye ice_jelly polar_cod narwhal sturgeon harp_seal beluga frozen_compass orca glacier_shark aurora_ray ice_crown aurora_pearl ice_titan aurora_serpent".split()})
 FISH_EXCLUSIVE.update({i: "bayou" for i in "mudskipper crawdad mosquitofish swamp_snail stickleback bullfrog snapping_turtle bowfin crappie water_moccasin alligator_gar blue_catfish hellbender wisp_jar gator_snapper gator giant_catfish riverboat_bell swamp_queen_crown cypress_emerald bayou_leviathan swamp_hydra".split()})
 FISH_EXCLUSIVE.update({i: "volcano" for i in "ember_minnow magma_crab cinder_shrimp ash_eel pumice_snail fire_eel obsidian_urchin magma_squid ember_puffer sulfur_jelly magma_ray lava_lobster phoenix_fish obsidian_blade fire_opal magma_shark inferno_hammerhead ruby molten_crown dragons_heart lava_leviathan ember_phoenix".split()})
+FISH_EXCLUSIVE.update({i: "crystal" for i in "glow_tetra cave_shrimp blind_cavefish crystal_snail cave_loach amethyst_crab glowworm_jelly olm geode_urchin lumen_eel crystal_ray moonstone cave_angler prism_squid miners_lantern geode_turtle diamond_shark heart_crystal crystal_crown starlight_geode crystal_wyrm cavern_titan".split()})
+FISH_EXCLUSIVE.update({i: "sky" for i in "cloud_minnow wind_carp sky_shrimp mist_eel dew_snail storm_perch cirrus_ray rain_jelly thunder_puffer kite_fish gale_marlin lightning_eel sun_turtle nimbus_squid sky_compass tempest_shark rainbow_manta thunder_hammerhead cloud_crown sun_pearl sky_serpent celestial_leviathan".split()})
 FISH_CATALOG = [{"id": i, "name": n, "rarity": ra, "value": v, "map": FISH_EXCLUSIVE.get(i)} for (i, n, ra, v) in FISH_ITEMS]
 FISH_BY_ID = {it["id"]: it for it in FISH_CATALOG}
 FISH_BY_RARITY = {}
@@ -8190,6 +8866,14 @@ FISH_MAPS = [
      "cast_cost": FISH_CAST_COST, "weights": [("common", 600), ("uncommon", 250), ("rare", 100), ("epic", 38), ("legendary", 10), ("mythic", 2)],
      "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "volcano"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
      "price": 4000},
+    {"id": "crystal", "name": "Crystal Caverns", "blurb": "A glittering underground lake lit by glowing crystals.",
+     "cast_cost": FISH_CAST_COST, "weights": [("common", 598), ("uncommon", 250), ("rare", 100), ("epic", 39), ("legendary", 11), ("mythic", 2)],
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "crystal"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
+     "price": 8000},
+    {"id": "sky", "name": "Cloud Isles", "blurb": "A calm lake high among floating islands and storm clouds.",
+     "cast_cost": FISH_CAST_COST, "weights": [("common", 596), ("uncommon", 250), ("rare", 100), ("epic", 40), ("legendary", 12), ("mythic", 2)],
+     "pool": {r: [i["id"] for i in FISH_BY_RARITY[r] if i.get("map") == "sky"] for r in ("common", "uncommon", "rare", "epic", "legendary", "mythic")},
+     "price": 16000},
 ]
 FISH_MAP_BY_ID = {m["id"]: m for m in FISH_MAPS}
 
@@ -8990,6 +9674,441 @@ async def player_search_handler(request):
     has = sorted((u for u in accounts if q in u.lower() and not u.lower().startswith(q)), key=str.lower)
     return web.json_response({"players": [{"name": n, "online": is_online(n), "level": get_user_level(n)} for n in (starts + has)[:10]]})
 
+# ---------------------------------------------------------------------------------------------------------
+# EZWORLD: one shared 3D voxel world. The server owns the blocks: every place/break is validated here (reach, range,
+# height limit, speed of clicking, what is actually there) and movement is checked for speed hacks and flying.
+# Only blocks that differ from the flat starting terrain are stored ("edits"), saved per 128x128 region.
+# ---------------------------------------------------------------------------------------------------------
+WORLD_MIN = -256                  # blocks span x,z in [WORLD_MIN, WORLD_MAX)
+WORLD_MAX = 256
+WORLD_HMAX = 400                  # build height limit: y in [0, 400)
+WORLD_GROUND_TOP = 40             # base terrain: bedrock at y=0, solid up to and including y=40
+WORLD_MAX_PLAYERS = 40
+WORLD_MAX_EDITS = 1500000         # stops the stored world growing without limit
+WORLD_REACH = 7.0                 # blocks (the client only lets you aim 6; the extra is lag tolerance)
+WORLD_EDIT_GAP = 0.09             # seconds between two block changes from one player: you cannot hold the button down
+WORLD_EYE = 1.62
+WORLD_SPAWN = (0.5, 41.0, 0.5)
+WORLD_MAX_HSPEED = 10.0           # sprinting is 7 b/s; the margin covers lag spikes
+WORLD_JUMP_BUDGET = 1.7           # how far up you may rise per jump (a jump is ~1.3 blocks)
+WORLD_TPA_SECONDS = 60
+WORLD_REGION = 128                # blocks per saved region side
+WORLD_SAVE_DELAY = 20
+
+world_edits = {}                  # (cx, cz) -> {key: colour}; key = y << 8 | lx << 4 | lz; colour 0 = air (a broken base block), 1..PALETTE_SIZE = placed colour
+world_edit_count = 0
+world_players = {}                # id -> player dict
+world_by_name = {}                # lowercase name -> id
+world_next_id = 1
+world_loaded = False
+world_dirty_regions = set()
+world_tick_task = None
+world_save_handle = None
+world_tpa = {}                    # target(lower) -> {"from": name, "t": time}
+_world_load_lock = None
+
+def _w_chunk_key(x, z): return (x >> 4, z >> 4)
+
+def world_in_bounds(x, z): return WORLD_MIN <= x < WORLD_MAX and WORLD_MIN <= z < WORLD_MAX
+
+def world_get(x, y, z):
+    """0 = air, otherwise the colour (placed) or a base marker (>200). Outside the world: solid below, air above."""
+    if y < 0: return 201
+    if y >= WORLD_HMAX: return 0
+    if not world_in_bounds(x, z): return 0
+    ch = world_edits.get((x >> 4, z >> 4))
+    if ch is not None:
+        v = ch.get((y << 8) | ((x & 15) << 4) | (z & 15))
+        if v is not None: return v
+    return 201 if y <= WORLD_GROUND_TOP else 0
+
+def world_set(x, y, z, c):
+    """Store a block (c = 0 for air). Returns False if this would exceed the world storage cap."""
+    global world_edit_count
+    ck = (x >> 4, z >> 4)
+    ch = world_edits.setdefault(ck, {})
+    k = (y << 8) | ((x & 15) << 4) | (z & 15)
+    base = 201 if y <= WORLD_GROUND_TOP else 0
+    if c == base:                                   # same as the untouched terrain: no need to remember it
+        if k in ch:
+            del ch[k]; world_edit_count -= 1
+    else:
+        if k not in ch:
+            if world_edit_count >= WORLD_MAX_EDITS: return False
+            world_edit_count += 1
+        ch[k] = c
+    world_dirty_regions.add(((x >> 4) // (WORLD_REGION // 16), (z >> 4) // (WORLD_REGION // 16)))
+    return True
+
+def _w_region_id(rx, rz): return f"{rx}_{rz}"
+
+async def world_load():
+    """Read every saved region once, the first time anyone enters."""
+    global world_loaded, world_edit_count, _world_load_lock
+    if world_loaded: return
+    if _world_load_lock is None: _world_load_lock = asyncio.Lock()
+    async with _world_load_lock:                    # two people joining at once must not see a half-loaded world
+        if world_loaded: return
+        await _world_load_inner()                   # if this raises, the world stays closed: saving now could overwrite what is stored
+        world_loaded = True
+
+async def _world_load_inner():
+    global world_edit_count
+    try:
+        async for doc in db["world"].find():
+            try:
+                raw = zlib.decompress(bytes(doc["z"]))
+                rpc = WORLD_REGION // 16
+                rx, rz = (int(v) for v in str(doc["_id"]).split("_"))
+                for i in range(0, len(raw) - 4, 5):
+                    lx, lz, y, c = struct.unpack_from("<BBHB", raw, i)
+                    x = rx * WORLD_REGION + lx; z = rz * WORLD_REGION + lz
+                    if not (world_in_bounds(x, z) and 0 <= y < WORLD_HMAX and 0 <= c <= PALETTE_SIZE): continue
+                    ch = world_edits.setdefault((x >> 4, z >> 4), {})
+                    k = (y << 8) | ((x & 15) << 4) | (z & 15)
+                    if k not in ch: world_edit_count += 1
+                    ch[k] = c
+            except Exception as e:
+                print(f"world region load failed ({doc.get('_id')}): {e}")
+        print(f"[world] loaded {world_edit_count} edited blocks", flush=True)
+    except Exception as e:
+        print(f"world load failed: {e}")
+        raise
+
+def _w_pack_region(rx, rz):
+    rpc = WORLD_REGION // 16
+    out = bytearray()
+    for cx in range(rx * rpc, rx * rpc + rpc):
+        for cz in range(rz * rpc, rz * rpc + rpc):
+            ch = world_edits.get((cx, cz))
+            if not ch: continue
+            for k, c in ch.items():
+                y = k >> 8; lx = (k >> 4) & 15; lz = k & 15
+                out += struct.pack("<BBHB", (cx - rx * rpc) * 16 + lx, (cz - rz * rpc) * 16 + lz, y, c)
+    return bytes(out)
+
+async def world_save_now():
+    global world_save_handle
+    world_save_handle = None
+    regions = list(world_dirty_regions); world_dirty_regions.clear()
+    for (rx, rz) in regions:
+        try:
+            packed = _w_pack_region(rx, rz)
+            z = zlib.compress(packed, 6) if packed else b""
+            if packed:
+                await db["world"].update_one({"_id": _w_region_id(rx, rz)}, {"$set": {"z": z}}, upsert=True)
+            else:
+                await db["world"].delete_one({"_id": _w_region_id(rx, rz)})
+            try: _bw_add("db", "world", len(z))
+            except Exception: pass
+        except Exception as e:
+            print(f"world save failed ({rx},{rz}): {e}")
+            world_dirty_regions.add((rx, rz))
+
+def world_schedule_save():
+    global world_save_handle
+    if world_save_handle is None:
+        world_save_handle = asyncio.get_event_loop().call_later(WORLD_SAVE_DELAY, lambda: asyncio.ensure_future(world_save_now()))
+
+def _w_chunk_frame(cx, cz):
+    ch = world_edits.get((cx, cz)) or {}
+    out = bytearray(struct.pack("<BhhH", 0x10, cx, cz, len(ch)))
+    for k, c in ch.items():
+        out += struct.pack("<BHB", k & 255, k >> 8, c)
+    return bytes(out)
+
+async def _w_send(p, data):
+    try:
+        if isinstance(data, (bytes, bytearray)): await p["ws"].send_bytes(bytes(data))
+        else: await p["ws"].send_json(data)
+    except Exception: pass
+
+async def _w_broadcast(data, near=None, exclude=None):
+    """near = (x, z): only players within ~11 chunks hear it (blocks); None: everyone."""
+    for pid, p in list(world_players.items()):
+        if exclude is not None and pid == exclude: continue
+        if near is not None and (abs((int(p["x"]) >> 4) - (near[0] >> 4)) > 11 or abs((int(p["z"]) >> 4) - (near[1] >> 4)) > 11): continue
+        await _w_send(p, data)
+
+async def _w_sys(p, text):
+    await _w_send(p, {"t": "sys", "text": text})
+
+def _w_free_y(x, y, z):
+    """Lift y until the player's feet and head cells are both empty (used for spawning and /goto)."""
+    bx, bz = int(x // 1), int(z // 1)
+    yy = int(max(1, y // 1))
+    while yy < WORLD_HMAX + 4 and (world_get(bx, yy, bz) or world_get(bx, yy + 1, bz)): yy += 1
+    return float(yy) if yy < WORLD_HMAX + 4 else None
+
+def _w_clamp_pos(x, y, z):
+    return (min(max(x, WORLD_MIN + 0.5), WORLD_MAX - 0.5), min(max(y, 1.0), WORLD_HMAX + 5.0), min(max(z, WORLD_MIN + 0.5), WORLD_MAX - 0.5))
+
+async def _w_teleport(p, x, y, z):
+    x, y, z = _w_clamp_pos(x, y, z)
+    p["x"], p["y"], p["z"] = x, y, z
+    p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["dirty"] = True
+    await _w_send(p, {"t": "tp", "x": x, "y": y, "z": z})
+
+def _w_hits_player(bx, by, bz):
+    """Would a block at this cell overlap anybody standing there? (players are 0.6 wide, 1.8 tall)"""
+    for q in world_players.values():
+        if bx < q["x"] + 0.3 and bx + 1 > q["x"] - 0.3 and bz < q["z"] + 0.3 and bz + 1 > q["z"] - 0.3 and by < q["y"] + 1.8 and by + 1 > q["y"]:
+            return True
+    return False
+
+def _w_edit_ok(p, x, y, z, c):
+    """Return None if this change is allowed, else the reason."""
+    if not world_in_bounds(x, z) or not (0 <= y < WORLD_HMAX): return "out of range"
+    if y == 0: return "bedrock cannot be changed"
+    dx = (x + 0.5) - p["x"]; dy = (y + 0.5) - (p["y"] + WORLD_EYE); dz = (z + 0.5) - p["z"]
+    if dx * dx + dy * dy + dz * dz > WORLD_REACH * WORLD_REACH: return "too far"
+    cur = world_get(x, y, z)
+    if c == 0:
+        return None if cur != 0 else "nothing there"
+    if cur != 0: return "occupied"
+    if not (1 <= c <= PALETTE_SIZE): return "bad colour"
+    if not (world_get(x + 1, y, z) or world_get(x - 1, y, z) or world_get(x, y + 1, z) or world_get(x, y - 1, z) or world_get(x, y, z + 1) or world_get(x, y, z - 1)):
+        return "must touch another block"
+    if _w_hits_player(x, y, z): return "someone is standing there"
+    return None
+
+def _w_supported(x, y, z):
+    """Standing on something? True when your feet are exactly at a block top and any part of your 0.6-wide body is over a solid block."""
+    if abs(y - round(y)) >= 0.02: return False
+    yb = int((y - 0.01) // 1)
+    for ox in (-0.32, 0.32):
+        for oz in (-0.32, 0.32):
+            if world_get(int((x + ox) // 1), yb, int((z + oz) // 1)) != 0: return True
+    return False
+
+def _w_move_check(p, x, y, z, now):
+    """Plausibility check for a position report: speed, flying and hovering. Returns True if accepted (and records it)."""
+    dt = min(max(now - p["last_t"], 0.03), 1.5)
+    if not world_in_bounds(int(x // 1), int(z // 1)) or y < 0 or y > WORLD_HMAX + 8: return False
+    dh = ((x - p["x"]) ** 2 + (z - p["z"]) ** 2) ** 0.5
+    if dh > WORLD_MAX_HSPEED * dt + 1.0: return False
+    if y > p["low"] + WORLD_JUMP_BUDGET: return False                       # higher than any jump from the last place you stood
+    grounded = _w_supported(x, y, z)
+    if not grounded and now - p["gt"] > 1.0 and y >= p["y"] - 0.01: return False   # a jump lasts well under a second; staying up longer is hovering
+    p["low"] = y if grounded else min(p["low"], y)
+    if grounded: p["gt"] = now
+    return True
+
+async def world_tick():
+    """10 times a second: send everybody the players that moved. Ends by itself when the world is empty."""
+    global world_tick_task
+    try:
+        while world_players:
+            await asyncio.sleep(0.1)
+            moved = [p for p in world_players.values() if p["dirty"]]
+            if not moved: continue
+            body = bytearray(struct.pack("<BH", 0x11, len(moved)))
+            for p in moved:
+                body += struct.pack("<Hhhh BB", p["id"], int(p["x"] * 16), int(p["y"] * 16), int(p["z"] * 16), p["yaw"], p["pitch"])
+                p["dirty"] = False
+            frame = bytes(body)
+            for p in list(world_players.values()): await _w_send(p, frame)
+    finally:
+        world_tick_task = None
+
+def _w_find(name):
+    pid = world_by_name.get(str(name).strip().lower())
+    return world_players.get(pid) if pid is not None else None
+
+async def _w_command(p, text):
+    parts = text[1:].split()
+    cmd = parts[0].lower() if parts else ""
+    args = parts[1:]
+    now = time.time()
+    if cmd == "tpa":
+        if not args: return await _w_sys(p, "Usage: /tpa [player name]")
+        t = _w_find(args[0])
+        if not t: return await _w_sys(p, f"{args[0]} is not in EzWorld right now.")
+        if t is p: return await _w_sys(p, "You cannot teleport to yourself.")
+        world_tpa[t["name"].lower()] = {"from": p["name"], "t": now}
+        await _w_sys(p, f"Teleport request sent to {t['name']}. It expires in {WORLD_TPA_SECONDS} seconds.")
+        await _w_sys(t, f"{p['name']} wants to teleport to you. Type /tpaccept to allow or /tpdeny to refuse.")
+    elif cmd in ("tpaccept", "tpdeny"):
+        req = world_tpa.get(p["name"].lower())
+        if not req or now - req["t"] > WORLD_TPA_SECONDS:
+            world_tpa.pop(p["name"].lower(), None)
+            return await _w_sys(p, "You have no teleport request.")
+        world_tpa.pop(p["name"].lower(), None)
+        src = _w_find(req["from"])
+        if not src: return await _w_sys(p, f"{req['from']} left EzWorld.")
+        if cmd == "tpdeny":
+            await _w_sys(p, f"Denied {src['name']}'s request.")
+            await _w_sys(src, f"{p['name']} denied your teleport request.")
+        else:
+            await _w_teleport(src, p["x"], p["y"], p["z"])
+            await _w_sys(p, f"{src['name']} teleported to you.")
+            await _w_sys(src, f"Teleported to {p['name']}.")
+    elif cmd == "goto":
+        try:
+            if len(args) != 3: raise ValueError
+            gx, gy, gz = (float(a) for a in args)
+            if not all(abs(v) < 1e6 for v in (gx, gy, gz)): raise ValueError
+        except ValueError:
+            return await _w_sys(p, "Usage: /goto [x] [y] [z]")
+        gx, gy, gz = _w_clamp_pos(gx, gy, gz)
+        fy = _w_free_y(gx, gy, gz)
+        if fy is None: return await _w_sys(p, "There is no free space at that spot.")
+        await _w_teleport(p, gx, fy, gz)
+        await _w_sys(p, f"Teleported to {gx:.1f} {fy:.1f} {gz:.1f}.")
+    elif cmd == "help":
+        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z]")
+    else:
+        await _w_sys(p, "Unknown command. Try /help.")
+
+async def world_ws_handler(request):
+    global world_next_id, world_tick_task
+    _ip = get_client_ip(request)
+    if not _ws_acquire(_ip): return web.Response(status=429, text="Too many connections")
+    ws = web.WebSocketResponse(max_msg_size=4096, heartbeat=25)
+    try: await ws.prepare(request)
+    except Exception:
+        _ws_release(_ip); raise
+    me = None
+
+    async def _deadline():
+        await asyncio.sleep(15)
+        if not ws.closed and me is None:
+            try: await ws.close()
+            except Exception: pass
+    asyncio.ensure_future(_deadline())
+    try:
+        async for msg in ws:
+            if msg.type == web.WSMsgType.BINARY:
+                d = msg.data
+                if me is not None and len(d) == 9 and d[0] == 1:
+                    _, qx, qy, qz, yaw, pitch = struct.unpack("<BhhhBB", d)
+                    now = time.monotonic()
+                    x, y, z = qx / 16.0, qy / 16.0, qz / 16.0
+                    if _w_move_check(me, x, y, z, now):
+                        if (x, y, z, yaw, pitch) != (me["x"], me["y"], me["z"], me["yaw"], me["pitch"]):
+                            me["x"], me["y"], me["z"], me["yaw"], me["pitch"] = x, y, z, yaw, pitch
+                            me["dirty"] = True
+                        me["last_t"] = now
+                    else:
+                        me["last_t"] = now
+                        await _w_send(me, {"t": "tp", "x": me["x"], "y": me["y"], "z": me["z"]})     # rubber-band back to the last good spot
+                continue
+            if msg.type != web.WSMsgType.TEXT: continue
+            try: data = json.loads(msg.data)
+            except Exception: continue
+            if not isinstance(data, dict): continue
+            t = data.get("t")
+            if me is None:
+                if t != "auth": continue
+                token = data.get("token", "")
+                if not _session_user(token):
+                    await ws.send_json({"t": "error", "text": "Invalid session"}); await ws.close(); break
+                name = sessions[token]
+                if is_banned(name) or is_ip_banned(request):
+                    await ws.send_json({"t": "error", "text": "You are banned"}); await ws.close(); break
+                if autoclick_locked_seconds(name):
+                    await ws.send_json({"t": "error", "text": "You were removed for using an autoclicker. Try again later."}); await ws.close(); break
+                if len(world_players) >= WORLD_MAX_PLAYERS and _w_find(name) is None:
+                    await ws.send_json({"t": "error", "text": "EzWorld is full right now."}); await ws.close(); break
+                try: await world_load()
+                except Exception:
+                    await ws.send_json({"t": "error", "text": "EzWorld could not load right now. Try again in a minute."}); await ws.close(); break
+                old = _w_find(name)
+                if old:                                         # one connection per player: the old one is dropped
+                    try: await old["ws"].send_json({"t": "error", "text": "You joined EzWorld from another tab."}); await old["ws"].close()
+                    except Exception: pass
+                    world_players.pop(old["id"], None); world_by_name.pop(name.lower(), None)
+                    await _w_broadcast({"t": "leave", "id": old["id"]})
+                sx, sy, sz = WORLD_SPAWN
+                sx += random.uniform(-3, 3); sz += random.uniform(-3, 3)
+                fy = _w_free_y(sx, sy, sz) or sy
+                pid = world_next_id; world_next_id = world_next_id % 60000 + 1
+                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "dirty": True,
+                      "last_t": time.monotonic(), "low": fy, "gt": time.monotonic(), "last_edit": 0.0, "chat_times": []}
+                world_players[pid] = me; world_by_name[name.lower()] = pid
+                await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX,
+                                    "players": [[q["id"], q["name"], q["x"], q["y"], q["z"]] for q in world_players.values() if q is not me]})
+                await _w_sys(me, "Welcome to EzWorld! This is a shared 3D world where everyone builds together. Left click breaks a block, right click places one, and you can use all the colors from the 2D canvas. Press W twice quickly to sprint. Type /help to see the chat commands. Anyone can change anything, so build nicely.")
+                await _w_broadcast({"t": "join", "id": pid, "name": name, "x": sx, "y": fy, "z": sz}, exclude=pid)
+                if world_tick_task is None: world_tick_task = asyncio.ensure_future(world_tick())
+                continue
+            if t == "chunks":
+                lst = data.get("list")
+                if not isinstance(lst, list) or not check_rate_limit(me["name"], "world_chunks", 60, 10): continue
+                for it in lst[:40]:
+                    if isinstance(it, list) and len(it) == 2 and all(isinstance(v, int) and not isinstance(v, bool) for v in it):
+                        cx, cz = it
+                        if WORLD_MIN // 16 <= cx < WORLD_MAX // 16 and WORLD_MIN // 16 <= cz < WORLD_MAX // 16:
+                            await ws.send_bytes(_w_chunk_frame(cx, cz))
+            elif t == "edit":
+                x, y, z, c = data.get("x"), data.get("y"), data.get("z"), data.get("c")
+                if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y, z, c)): continue
+                now = time.monotonic()
+                why = None
+                if now - me["last_edit"] < WORLD_EDIT_GAP: why = "too fast"
+                else:
+                    why = _w_edit_ok(me, x, y, z, c)
+                if why is None and not world_set(x, y, z, c): why = "the world is full"
+                if why is None:
+                    me["last_edit"] = now
+                    world_schedule_save()
+                    await _w_broadcast({"t": "b", "d": [x, y, z, c]}, near=(x, z))
+                else:
+                    if why == "the world is full": await _w_sys(me, "The world has reached its block limit.")
+                    cur = world_get(x, y, z) if (world_in_bounds(x, z) and 0 <= y < WORLD_HMAX) else 0
+                    await _w_send(me, {"t": "b", "d": [x, y, z, cur]})      # tell the client what is really there so it undoes its guess
+            elif t == "chat":
+                text = str(data.get("text") or "").strip()[:200]
+                if not text: continue
+                if not check_rate_limit(me["name"], "world_chat", 8, 6):
+                    await _w_sys(me, "Slow down!"); continue
+                if text.startswith("/"): await _w_command(me, text)
+                else:
+                    try: print(f"[chat ezworld] {me['name']}: {_logsafe(text)}", flush=True)
+                    except Exception: pass
+                    await _w_broadcast({"t": "chat", "from": me["name"], "text": text})
+    except Exception as e:
+        print(f"world ws error: {type(e).__name__}: {e}")
+    finally:
+        _ws_release(_ip)
+        if me is not None and world_players.get(me["id"]) is me:
+            world_players.pop(me["id"], None)
+            if world_by_name.get(me["name"].lower()) == me["id"]: world_by_name.pop(me["name"].lower(), None)
+            await _w_broadcast({"t": "leave", "id": me["id"]})
+        try: await ws.close()
+        except Exception: pass
+    return ws
+
+async def world_flush():
+    """Server shutdown: write out any unsaved blocks."""
+    if world_dirty_regions: await world_save_now()
+
+# ---- the page's 3D engine is a separate file so people who never open EzWorld never download it ----
+_EZW_RAW = _EZW_BR = _EZW_GZ = b""
+_EZW_ETAG = ""
+try:
+    with open("ezworld.js", "rb") as _f: _EZW_SRC = _f.read()
+    _EZW_ETAG = hashlib.md5(_EZW_SRC).hexdigest()
+    _EZW_RAW = _EZW_SRC; _EZW_GZ = gzip.compress(_EZW_SRC, compresslevel=9)
+    try:
+        with open("ezworld.min.meta.json", "r", encoding="utf8") as _f: _m = json.load(_f)
+        if _m.get("source_md5") == _EZW_ETAG:
+            with open("ezworld.min.js", "rb") as _f: _EZW_RAW = _f.read()
+            with open("ezworld.min.js.br", "rb") as _f: _EZW_BR = _f.read()
+            _EZW_GZ = gzip.compress(_EZW_RAW, compresslevel=9)
+    except Exception: pass
+except Exception as _e:
+    print(f"ezworld.js not found ({_e}); EzWorld disabled")
+
+async def ezworld_js_handler(request):
+    if not _EZW_RAW: return web.Response(status=404)
+    hdr = {"Cache-Control": "no-cache, must-revalidate", "ETag": '"' + _EZW_ETAG + '"', "Vary": "Accept-Encoding"}
+    if request.headers.get("If-None-Match", "") == hdr["ETag"]: return web.Response(status=304, headers=hdr)
+    ae = request.headers.get("Accept-Encoding", "")
+    if _EZW_BR and "br" in ae: return web.Response(body=_EZW_BR, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "br"})
+    if "gzip" in ae: return web.Response(body=_EZW_GZ, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "gzip"})
+    return web.Response(body=_EZW_RAW, content_type="application/javascript", charset="utf-8", headers=hdr)
+
 app = web.Application(middlewares=[cors_middleware, json_guard_middleware, ban_guard_middleware])
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
@@ -8997,6 +10116,8 @@ app.on_startup.append(discord_start)
 app.on_cleanup.append(discord_stop)
 _g, _p = app.router.add_get, app.router.add_post
 _g("/cosmetics/{name}", cosmetic_image_handler)
+_g("/ezworld.js", ezworld_js_handler)
+_g("/ws/world", world_ws_handler)
 _p("/api/admin/emergency", admin_emergency_handler)
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
@@ -9015,7 +10136,7 @@ for _path, _h in (
     ("/api/admin/ipbans", _admin_json_view("ip_bans", lambda: ip_bans)),
     ("/api/admin/ranks", admin_ranks_handler), ("/api/online-summary", online_summary_handler), ("/api/admin/bandwidth", admin_bandwidth_handler), ("/api/admin/emergency", admin_emergency_handler), ("/api/packs/state", packs_state_handler), ("/api/market/list", market_list_handler), ("/api/cosmetics/equipped", cosmetics_equipped_handler), ("/api/players/search", player_search_handler), ("/api/trade/state", trade_state_handler),
     ("/api/me", me_handler), ("/api/streak/progress", streak_progress_handler),
-    ("/api/uno/list", uno_list_handler),
+    ("/api/uno/list", uno_list_handler), ("/api/chess/list", chess_list_handler), ("/api/chess/mine", chess_mine_handler),
     ("/api/uno/peek", uno_peek_handler), ("/api/uno/state", uno_state_handler),
     ("/api/battle/list", battle_list_handler), ("/api/battle/state", battle_state_handler),
     ("/api/sketch/list", sketch_list_handler), ("/api/sketch/state", sketch_state_handler),
@@ -9069,6 +10190,7 @@ for _path, _h in (
     ("/api/uno/join", uno_join_handler), ("/api/uno/start", uno_start_handler),
     ("/api/uno/play", uno_play_handler), ("/api/uno/jump-in", uno_jump_in_handler),
     ("/api/uno/modify-hand", uno_modify_hand_handler), ("/api/uno/draw", uno_draw_handler),
+    ("/api/chess/create", chess_create_handler), ("/api/chess/join", chess_join_handler), ("/api/chess/move", chess_move_handler), ("/api/chess/resign", chess_resign_handler), ("/api/chess/draw", chess_draw_handler),
     ("/api/uno/leave", uno_leave_handler), ("/api/uno/spectate", uno_spectate_handler),
     ("/api/uno/unspectate", uno_unspectate_handler), ("/api/uno/say", uno_say_handler),
     ("/api/battle/create", battle_create_handler), ("/api/battle/join", battle_join_handler),
