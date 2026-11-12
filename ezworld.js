@@ -160,7 +160,21 @@
     }
     return false;
   }
+  // If a block ends up on top of you (another player placed it as you walked into it, or the server moved you into a spot that has
+  // since been built on) you are pushed out to the nearest free spot, the way Minecraft does, instead of being stuck inside it.
+  function escapeBlocks(pl) {
+    if (!collidesAt(pl.x, pl.y, pl.z)) return false;
+    for (var r = 0.1; r <= 4.01; r += 0.1) {
+      if (pl.y + r < HMAX + 6 && !collidesAt(pl.x, pl.y + r, pl.z)) { pl.y += r; return true; }
+      for (var a = 0; a < 16; a++) {
+        var nx = pl.x + r * Math.cos(a * Math.PI / 8), nz = pl.z + r * Math.sin(a * Math.PI / 8);
+        if (nx > WMIN + HALF && nx < WMAX - HALF && nz > WMIN + HALF && nz < WMAX - HALF && !collidesAt(nx, pl.y, nz)) { pl.x = nx; pl.z = nz; return true; }
+      }
+    }
+    return false;
+  }
   function stepPlayer(pl, inp, dt) {
+    if (collidesAt(pl.x, pl.y, pl.z)) { if (escapeBlocks(pl)) { pl.vy = 0; pl.stuck = 0; } else pl.stuck = (pl.stuck || 0) + dt; } else pl.stuck = 0;
     var speed = inp.sprint ? SPRINT : WALK;
     var fwd = (inp.f ? 1 : 0) - (inp.b ? 1 : 0), side = (inp.r ? 1 : 0) - (inp.l ? 1 : 0);
     var len = Math.sqrt(fwd * fwd + side * side);
@@ -223,7 +237,9 @@
   function windName(h) { return WIND[Math.round(h / 45) % 8]; }
   // Draws the scrolling strip (about 120 degrees visible, faded at both ends). cv/off are canvases, colours come from the page theme.
   function drawCompass(cv, off, heading, accent, text) {
-    var ctx = cv.getContext('2d'), W = cv.width, H = cv.height, k = W / 380, w = 380, h = 40, ppd = 3.4;
+    var ctx = cv.getContext('2d');
+    if (!ctx) return;                                  // no 2D canvas available: skip the compass, never break the 3D view
+    var W = cv.width, H = cv.height, k = W / 380, w = 380, h = 40, ppd = 3.4;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
     off.width = W; off.height = H;
     var o = off.getContext('2d'); o.setTransform(k, 0, 0, k, 0, 0); o.clearRect(0, 0, w, h);
@@ -269,10 +285,11 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
+    if (menuOpen() && window.hideMenu) window.hideMenu();           // the menu you pressed Join in must not stay on top of the world
     $('ew-leave').onclick = function () { close(false); };
     $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
     $('ew-me-name').textContent = opts.username || '';
@@ -333,7 +350,7 @@
     var canvas = G.canvas;
     on(window, 'resize', resize);
     on(canvas, 'contextmenu', function (e) { e.preventDefault(); });
-    on(canvas, 'webglcontextlost', function (e) { e.preventDefault(); if (G) { G.ready = false; $('ew-load').style.display = 'flex'; $('ew-load').textContent = 'Your graphics card reset EzWorld. Press Leave, then join again.'; } });
+    on(canvas, 'webglcontextlost', function (e) { e.preventDefault(); if (G) { G.ready = false; G.failed = true; $('ew-load').style.display = 'flex'; $('ew-load').textContent = 'Your graphics card reset EzWorld. Press Leave, then join again.'; } });
     on($('ew-hint'), 'click', function () { if (G.ready && !locked()) { try { canvas.requestPointerLock(); } catch (er) {} } });
     on(canvas, 'click', function () { if (!locked() && !chatFocused() && G.ready) canvas.requestPointerLock && canvas.requestPointerLock(); });
     on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
@@ -436,7 +453,7 @@
     var ws = new WebSocket(G.opts.wsUrl); ws.binaryType = 'arraybuffer'; G.ws = ws;
     ws.onopen = function () { ws.send(JSON.stringify({ t: 'auth', token: G.opts.token })); };
     ws.onmessage = function (ev) { if (G && G.ws === ws) onMessage(ev.data); };
-    ws.onclose = function () { if (G && G.ws === ws && !G.closed) { sys('Disconnected from EzWorld. Press Leave and join again.'); G.ready = false; if (document.exitPointerLock) document.exitPointerLock(); $('ew-load').style.display = 'flex'; $('ew-load').textContent = 'Disconnected.'; } };
+    ws.onclose = function () { if (G && G.ws === ws && !G.closed) { sys('Disconnected from EzWorld. Press Leave and join again.'); G.ready = false; G.failed = true; if (document.exitPointerLock) document.exitPointerLock(); $('ew-load').style.display = 'flex'; $('ew-load').textContent = 'Disconnected.'; } };
   }
   function onMessage(d) {
     if (d instanceof ArrayBuffer) {
@@ -476,7 +493,7 @@
         break;
       }
       case 'tp': if (G.me) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; sendPos(true); } break;
-      case 'error': sys(m.text || 'Error'); G.ready = false; $('ew-load').style.display = 'flex'; $('ew-load').textContent = m.text || 'Error'; break;
+      case 'error': sys(m.text || 'Error'); G.ready = false; G.failed = true; $('ew-load').style.display = 'flex'; $('ew-load').textContent = m.text || 'Error'; break;
     }
   }
   function addOther(id, name, x, y, z) {
@@ -633,8 +650,8 @@
       want.push([dx * dx + dz * dz, cx, cz]);
     }
     want.sort(function (a, b) { return a[0] - b[0]; });
-    var room = Math.max(0, 48 - pending), list = [];
-    for (var i = 0; i < want.length && list.length < Math.min(24, room); i++) {
+    var first = chunks.size < 30, room = Math.max(0, (first ? 64 : 48) - pending), list = [];
+    for (var i = 0; i < want.length && list.length < Math.min(first ? 40 : 24, room); i++) {
       var w = want[i], ch = chunks.get(ckey(w[1], w[2]));
       if (!ch) { ch = newChunk(w[1], w[2]); chunks.set(ckey(w[1], w[2]), ch); }
       ch.reqAt = now; list.push([w[1], w[2]]);
@@ -662,6 +679,7 @@
     if (!G || G.closed) return;
     G.raf = requestAnimationFrame(frame);
     var dt = Math.min(0.05, (now - G.last) / 1000); G.last = now;
+    if (!G.me && !G.failed) { var wsecs = (performance.now() - G.t0) / 1000; $('ew-load').textContent = wsecs > 6 ? 'Still connecting... the server may be waking up (' + Math.floor(wsecs) + 's)' : 'Connecting...'; }
     if (menuOpen() && locked() && document.exitPointerLock) document.exitPointerLock();
     if (G.me && G.ready) {
       var hd = headingOf(G.me.yaw);
@@ -669,7 +687,7 @@
         G.lastHeading = hd; G.compassDirty = false;
         if (!G.compassOff) G.compassOff = document.createElement('canvas');
         var cs = getComputedStyle(G.view);
-        drawCompass(G.compassCv, G.compassOff, hd, (cs.getPropertyValue('--accent') || '#ee5a52').trim(), (cs.getPropertyValue('--text-primary') || '#ece6d8').trim());
+        try { drawCompass(G.compassCv, G.compassOff, hd, (cs.getPropertyValue('--accent') || '#ee5a52').trim(), (cs.getPropertyValue('--text-primary') || '#ece6d8').trim()); } catch (e) {}
         $('ew-compass-text').textContent = windName(hd) + '  ' + Math.round(hd) % 360 + '°';
       }
     }
@@ -680,24 +698,28 @@
       var under = chunks.get(ckey(Math.floor(me.x) >> 4, Math.floor(me.z) >> 4));
       var near = 0, total = 0;
       chunks.forEach(function (c) { total++; if (c.loaded) near++; });
-      if (!G.ready && under && under.loaded && near >= Math.min(25, total)) {
+      var need = Math.min(9, total);                       // the 3 x 3 chunks around you are enough to start; the rest streams in as you play
+      if (!G.ready && !G.failed) $('ew-load').textContent = 'Loading the world... (' + near + ' of ' + need + ' chunks)';
+      if (!G.ready && under && under.loaded && near >= need) {
         G.ready = true; $('ew-load').style.display = 'none';
+        try { console.log('[EzWorld] ready after ' + Math.round(performance.now() - G.t0) + ' ms'); } catch (e) {}
         if (!locked() && !chatFocused()) $('ew-hint').style.display = 'flex';
       }
       if (G.ready) {
         var k = G.keys, inp = { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, jump: k.Space, sprint: G.sprint && (k.KeyW || k.ArrowUp) };
         var changed = stepPlayer(me, inp, dt);
+        if (me.stuck > 1.5) { me.stuck = -4; send({ t: 'chat', text: '/unstuck' }); }       // could not push out on our own: ask the server for the nearest free spot
         sendPos(changed);
         $('ew-coords').textContent = 'X ' + me.x.toFixed(1) + '  Y ' + me.y.toFixed(1) + '  Z ' + me.z.toFixed(1);
       }
     }
     // rebuild a few changed chunks per frame, nearest first
-    var budget = 3, t0 = performance.now();
+    var budget = G.ready ? 3 : 8, t0 = performance.now(), cap = G.ready ? 8 : 20;      // build faster while the loading screen is up
     if (me) {
       var pend = [];
       chunks.forEach(function (c) { if (c.dirty && c.loaded) pend.push(c); });
       pend.sort(function (a, b) { return Math.abs(a.cx * 16 + 8 - me.x) + Math.abs(a.cz * 16 + 8 - me.z) - Math.abs(b.cx * 16 + 8 - me.x) - Math.abs(b.cz * 16 + 8 - me.z); });
-      for (var i = 0; i < pend.length && budget > 0 && performance.now() - t0 < 8; i++, budget--) upload(pend[i]);
+      for (var i = 0; i < pend.length && budget > 0 && performance.now() - t0 < cap; i++, budget--) upload(pend[i]);
     }
     draw(dt);
   }
@@ -767,13 +789,14 @@
     try { var ext = g.gl && g.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
     g.view.style.display = 'none';
     document.body.classList.remove('ew-open');
+    if (!silent && window.showMenu) window.showMenu('home');       // leaving EzWorld returns to the main menu
     $('ew-leave').onclick = null;
     $('ew-tags').innerHTML = '';
     if (!silent && g.opts.onClose) g.opts.onClose();
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();

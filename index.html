@@ -7083,13 +7083,14 @@ document.getElementById('chess-acc').addEventListener('toggle', e => { if (e.tar
   }
   btn.onclick = () => {
     if (!authToken) return;
+    if (window.EzWorld && worldOpen()) { hideMenu(); return; }
     if (window.EzWorld) { start(); return; }
     if (loading) return;
-    loading = true; btn.classList.add('loading');
+    loading = true; btn.classList.add('loading'); btn.textContent = 'Loading...';
     const s = document.createElement('script');
     s.src = BACKEND + '/ezworld.js';
-    s.onload = () => { loading = false; btn.classList.remove('loading'); start(); };
-    s.onerror = () => { loading = false; btn.classList.remove('loading'); alert('Could not load EzWorld. Try again in a moment.'); };
+    s.onload = () => { loading = false; btn.classList.remove('loading'); btn.textContent = 'Join'; start(); };
+    s.onerror = () => { loading = false; btn.classList.remove('loading'); btn.textContent = 'Join'; alert('Could not load EzWorld. Try again in a moment.'); };
     document.head.appendChild(s);
   };
 })();

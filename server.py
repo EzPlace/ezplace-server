@@ -8444,6 +8444,7 @@ async def on_startup(app):
     app["rl_task"] = asyncio.create_task(rate_limit_cleanup_loop(app))
     app["reassert_task"] = asyncio.create_task(reassert_after_start(app))
     app["idle_task"] = asyncio.create_task(idle_reward_loop(app))
+    app["world_warm_task"] = asyncio.create_task(_world_warm())
     app["economy_task"] = asyncio.create_task(economy_snapshot_loop(app))
     app["night_event_task"] = asyncio.create_task(night_event_loop(app))
     if not economy_history:
@@ -9889,23 +9890,34 @@ def _w_pack_region(rx, rz):
                 out += struct.pack("<BBHB", (cx - rx * rpc) * 16 + lx, (cz - rz * rpc) * 16 + lz, y, c)
     return bytes(out)
 
+WORLD_SAVE_PARALLEL = 12          # saved pieces written to the database at the same time
+
+async def _world_save_one(rx, rz):
+    try:
+        packed = _w_pack_region(rx, rz)
+        z = zlib.compress(packed, 6) if packed else b""
+        if packed:
+            await db["world2"].update_one({"_id": _w_region_id(rx, rz)}, {"$set": {"z": z}}, upsert=True)
+        else:
+            await db["world2"].delete_one({"_id": _w_region_id(rx, rz)})
+        try: _bw_add("db", "world", len(z))
+        except Exception: pass
+    except Exception as e:
+        print(f"world save failed ({rx},{rz}): {e}")
+        world_dirty_regions.add((rx, rz))
+
 async def world_save_now():
     global world_save_handle
     world_save_handle = None
     regions = list(world_dirty_regions); world_dirty_regions.clear()
-    for (rx, rz) in regions:
-        try:
-            packed = _w_pack_region(rx, rz)
-            z = zlib.compress(packed, 6) if packed else b""
-            if packed:
-                await db["world2"].update_one({"_id": _w_region_id(rx, rz)}, {"$set": {"z": z}}, upsert=True)
-            else:
-                await db["world2"].delete_one({"_id": _w_region_id(rx, rz)})
-            try: _bw_add("db", "world", len(z))
-            except Exception: pass
-        except Exception as e:
-            print(f"world save failed ({rx},{rz}): {e}")
-            world_dirty_regions.add((rx, rz))
+    for i in range(0, len(regions), WORLD_SAVE_PARALLEL):
+        await asyncio.gather(*[_world_save_one(rx, rz) for (rx, rz) in regions[i:i + WORLD_SAVE_PARALLEL]])
+
+async def _world_warm():
+    """Load (and convert, if needed) the saved world a few seconds after the server starts, so the first person to join EzWorld does not wait for it."""
+    await asyncio.sleep(5)
+    try: await world_load()
+    except Exception as e: print(f"world warm-up failed (it will be tried again when someone joins): {e}")
 
 def world_schedule_save():
     global world_save_handle
@@ -9935,12 +9947,37 @@ async def _w_broadcast(data, near=None, exclude=None):
 async def _w_sys(p, text):
     await _w_send(p, {"t": "sys", "text": text})
 
+def _w_body_free(x, y, z):
+    """Is there room for a standing player (0.6 wide, 1.8 tall) with their feet at (x, y, z)? Looks at every block the body touches."""
+    y0, y1 = int(y // 1), int((y + 1.79) // 1)
+    for ox in (-0.31, 0.31):
+        for oz in (-0.31, 0.31):
+            bx, bz = int((x + ox) // 1), int((z + oz) // 1)
+            for yy in range(y0, y1 + 1):
+                if world_get(bx, yy, bz): return False
+    return True
+
 def _w_free_y(x, y, z):
-    """Lift y until the player's feet and head cells are both empty (used for spawning and /goto)."""
-    bx, bz = int(x // 1), int(z // 1)
-    yy = int(max(1, y // 1))
-    while yy < WORLD_HMAX + 4 and (world_get(bx, yy, bz) or world_get(bx, yy + 1, bz)): yy += 1
-    return float(yy) if yy < WORLD_HMAX + 4 else None
+    """Lift y until a whole body fits (used for /goto and spawning)."""
+    yy = max(1.0, float(int(y // 1)))
+    while yy < WORLD_HMAX + 4:
+        if _w_body_free(x, yy, z): return yy
+        yy += 1.0
+    return None
+
+def _w_find_spot(x, y, z):
+    """Closest place to (x, y, z) where a player fits: the same spot lifted up, or a little way sideways. Returns (x, y, z) or None."""
+    best = None
+    dirs = [(0, 0)] + [(dx, dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz]
+    for r in (0.0, 1.0, 2.0, 3.0, 5.0):
+        for dx, dz in (dirs if r else dirs[:1]):
+            cx, _, cz = _w_clamp_pos(x + dx * r, y, z + dz * r)
+            fy = _w_free_y(cx, y, cz)
+            if fy is None: continue
+            cost = r + abs(fy - y)
+            if best is None or cost < best[0]: best = (cost, cx, fy, cz)
+        if best is not None and best[0] <= r: break
+    return None if best is None else (best[1], best[2], best[3])
 
 def _w_clamp_pos(x, y, z):
     return (min(max(x, WORLD_MIN + 0.5), WORLD_MAX - 0.5), min(max(y, 1.0), WORLD_HMAX + 5.0), min(max(z, WORLD_MIN + 0.5), WORLD_MAX - 0.5))
@@ -9948,13 +9985,13 @@ def _w_clamp_pos(x, y, z):
 async def _w_teleport(p, x, y, z):
     x, y, z = _w_clamp_pos(x, y, z)
     p["x"], p["y"], p["z"] = x, y, z
-    p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["dirty"] = True
+    p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["hb"] = 6.0; p["dirty"] = True
     await _w_send(p, {"t": "tp", "x": x, "y": y, "z": z})
 
 def _w_hits_player(bx, by, bz):
     """Would a block at this cell overlap anybody standing there? (players are 0.6 wide, 1.8 tall)"""
     for q in world_players.values():
-        if bx < q["x"] + 0.3 and bx + 1 > q["x"] - 0.3 and bz < q["z"] + 0.3 and bz + 1 > q["z"] - 0.3 and by < q["y"] + 1.8 and by + 1 > q["y"]:
+        if bx < q["x"] + 0.4 and bx + 1 > q["x"] - 0.4 and bz < q["z"] + 0.4 and bz + 1 > q["z"] - 0.4 and by < q["y"] + 1.9 and by + 1 > q["y"] - 0.1:
             return True
     return False
 
@@ -9985,13 +10022,16 @@ def _w_supported(x, y, z):
 
 def _w_move_check(p, x, y, z, now):
     """Plausibility check for a position report: speed, flying and hovering. Returns True if accepted (and records it)."""
-    dt = min(max(now - p["last_t"], 0.03), 1.5)
+    # Distance allowance builds up with real time (up to 6 blocks) and is spent by movement, so a slow or bursty connection that
+    # delivers several reports at once is fine, while a speed hack drains the allowance and is refused.
+    p["hb"] = min(p["hb"] + WORLD_MAX_HSPEED * min(max(now - p["last_t"], 0.0), 3.0), 6.0)
     if not world_in_bounds(int(x // 1), int(z // 1)) or y < 0 or y > WORLD_HMAX + 8: return False
     dh = ((x - p["x"]) ** 2 + (z - p["z"]) ** 2) ** 0.5
-    if dh > WORLD_MAX_HSPEED * dt + 1.0: return False
+    if dh > p["hb"] + 0.5: return False
     if y > p["low"] + WORLD_JUMP_BUDGET: return False                       # higher than any jump from the last place you stood
     grounded = _w_supported(x, y, z)
-    if not grounded and now - p["gt"] > 1.0 and y >= p["y"] - 0.01: return False   # a jump lasts well under a second; staying up longer is hovering
+    if not grounded and now - p["gt"] > 2.0 and y >= p["y"] - 0.01: return False   # a jump lasts under a second; staying up for two is hovering
+    p["hb"] -= dh
     p["low"] = y if grounded else min(p["low"], y)
     if grounded: p["gt"] = now
     return True
@@ -10057,8 +10097,14 @@ async def _w_command(p, text):
         if fy is None: return await _w_sys(p, "There is no free space at that spot.")
         await _w_teleport(p, gx, fy, gz)
         await _w_sys(p, f"Teleported to {gx:.1f} {fy:.1f} {gz:.1f}.")
+    elif cmd == "unstuck":
+        if not check_rate_limit(p["name"], "world_unstuck", 3, 10): return await _w_sys(p, "Slow down.")
+        spot = _w_find_spot(p["x"], p["y"], p["z"])
+        if not spot: return await _w_sys(p, "Could not find free space nearby. Try /goto 0 41 0.")
+        await _w_teleport(p, spot[0], spot[1], spot[2])
+        await _w_sys(p, "Moved you to the nearest free spot.")
     elif cmd == "help":
-        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z]")
+        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z], /unstuck")
     else:
         await _w_sys(p, "Unknown command. Try /help.")
 
@@ -10123,14 +10169,16 @@ async def world_ws_handler(request):
                     await _w_broadcast({"t": "leave", "id": old["id"]})
                 sx, sy, sz = WORLD_SPAWN
                 sx += random.uniform(-3, 3); sz += random.uniform(-3, 3)
-                fy = _w_free_y(sx, sy, sz) or sy
+                spot = _w_find_spot(sx, sy, sz)
+                if spot: sx, fy, sz = spot
+                else: fy = sy
                 pid = world_next_id; world_next_id = world_next_id % 60000 + 1
                 me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "dirty": True,
-                      "last_t": time.monotonic(), "low": fy, "gt": time.monotonic(), "last_edit": 0.0, "chat_times": []}
+                      "last_t": time.monotonic(), "low": fy, "gt": time.monotonic(), "hb": 6.0, "last_edit": 0.0, "chat_times": []}
                 world_players[pid] = me; world_by_name[name.lower()] = pid
                 await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX,
                                     "players": [[q["id"], q["name"], q["x"], q["y"], q["z"]] for q in world_players.values() if q is not me]})
-                await _w_sys(me, "Welcome to EzWorld! This is a shared 3D world where everyone builds together. Left click breaks a block, right click places one, and you can use all the colors from the 2D canvas. Press W twice quickly to sprint. Type /help to see the chat commands. The world is 2000 by 2000 blocks, so /goto is handy for getting around. Anyone can change anything, so build nicely.")
+                await _w_sys(me, "Welcome to EzWorld! This is a shared 3D world where everyone builds together. Left click breaks a block, right click places one, and you can use all the colors from the 2D canvas. Press W twice quickly to sprint. Type /help to see the chat commands (/unstuck if you ever get stuck). The world is 2000 by 2000 blocks, so /goto is handy for getting around. Anyone can change anything, so build nicely.")
                 await _w_broadcast({"t": "join", "id": pid, "name": name, "x": sx, "y": fy, "z": sz}, exclude=pid)
                 discord_forward_event("world", name, "joined", "EzWorld")
                 if world_tick_task is None: world_tick_task = asyncio.ensure_future(world_tick())
