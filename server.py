@@ -7679,6 +7679,7 @@ async def enforce_lobby_access(lid, lobby):
 #   DISCORD_BOT_TOKEN   bot token from discord.com/developers (needs the Message Content intent)
 #   DISCORD_CHANNELS    "channel_id:size,..."  e.g. 111:256,222:512,333:1024,444:2048
 #   DISCORD_IGNORE_IDS  optional comma list of Discord user ids whose messages are never relayed
+#   DISCORD_WORLD_CHANNEL  optional: one Discord channel id that is linked to the EzWorld chat
 # ---------------------------------------------------------------------------
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_IGNORE_IDS = {x.strip() for x in os.environ.get("DISCORD_IGNORE_IDS", "").split(",") if x.strip()}
@@ -7696,6 +7697,9 @@ def _parse_discord_channels():
     return out
 
 DISCORD_CHANNEL_TO_LOBBY = _parse_discord_channels()
+try: _dwc = int(os.environ.get("DISCORD_WORLD_CHANNEL", "0").strip() or 0)
+except ValueError: _dwc = 0
+if _dwc: DISCORD_CHANNEL_TO_LOBBY[_dwc] = "world"           # the EzWorld chat uses the id "world" where lobbies use their lobby id
 DISCORD_LOBBY_TO_CHANNEL = {lid: cid for cid, lid in DISCORD_CHANNEL_TO_LOBBY.items()}
 discord_client = None
 discord_task = None
@@ -7732,13 +7736,20 @@ async def _discord_incoming(message):
     lobby_id = DISCORD_CHANNEL_TO_LOBBY.get(message.channel.id)
     if not lobby_id or message.author.bot or str(message.author.id) in DISCORD_IGNORE_IDS: return
     if message.type not in (_discord_mod.MessageType.default, _discord_mod.MessageType.reply): return
-    if lobby_id not in lobbies: return
+    if lobby_id != "world" and lobby_id not in lobbies: return
     if not check_rate_limit("discord:" + str(message.author.id), "discord_chat", 5, 10): return
     text = " ".join((message.clean_content or "").split())
     if message.attachments: text = (text + " [attachment]").strip()
     text = "".join(ch for ch in text if ch.isprintable())[:200]
     if not text: return
     name = clean_label(getattr(message.author, "display_name", "") or message.author.name)[:20] or "Discord user"
+    if lobby_id == "world":
+        wp = {"t": "chat", "from": name, "text": text, "is_vip": False, "rank": {"label": "DISCORD", "color": "#5865f2"}, "clan": None, "name_color": None, "discord": True, "mid": new_msg_id("world")}
+        wreply = await _discord_reply_info(message)
+        if wreply: wp["reply_to"] = wreply
+        world_recent.append((name.lower(), text)); del world_recent[:-100]
+        await _w_broadcast(wp)
+        return
     payload = {"type": "chat", "username": name, "text": text, "is_owner": False, "is_vip": False,
                "rank": {"label": "DISCORD", "color": "#5865f2"}, "clan": None, "name_color": None, "discord": True}
     reply = await _discord_reply_info(message)
@@ -7807,7 +7818,7 @@ def discord_forward(lobby_id, username, text, reply_to=None):
     _discord_queue(lobby_id, content)
 
 _discord_event_last = {}
-def discord_forward_event(lobby_id, username, kind):
+def discord_forward_event(lobby_id, username, kind, place="the lobby"):
     """Tell the Discord channel that a player joined/left the lobby (throttled so reconnect flapping stays quiet)."""
     if lobby_id not in DISCORD_LOBBY_TO_CHANNEL or discord_client is None or not username: return
     now = time.time(); key = (lobby_id, username.lower(), kind)
@@ -7815,7 +7826,7 @@ def discord_forward_event(lobby_id, username, kind):
     if len(_discord_event_last) > 2000:
         for k in [k for k, t in _discord_event_last.items() if now - t > 60]: _discord_event_last.pop(k, None)
     _discord_event_last[key] = now
-    _discord_queue(lobby_id, f"*{_discord_escape(username)} {kind} the lobby*")
+    _discord_queue(lobby_id, f"*{_discord_escape(username)} {kind} {place}*")
 
 # Which sockets are in which lobby, so a broadcast only touches that lobby's players instead of scanning every connection.
 lobby_members = {}
@@ -9751,12 +9762,12 @@ def react_toggle(store, emoji, user):
     users.append(user)
     return True
 
-WORLD_MIN = -256                  # blocks span x,z in [WORLD_MIN, WORLD_MAX)
-WORLD_MAX = 256
+WORLD_MIN = -1000                 # blocks span x,z in [WORLD_MIN, WORLD_MAX): a 2000 x 2000 world
+WORLD_MAX = 1000
 WORLD_HMAX = 400                  # build height limit: y in [0, 400)
 WORLD_GROUND_TOP = 40             # base terrain: bedrock at y=0, solid up to and including y=40
 WORLD_MAX_PLAYERS = 40
-WORLD_MAX_EDITS = 1500000         # stops the stored world growing without limit
+WORLD_MAX_EDITS = 1000000         # stops the stored world growing without limit (about 75 MB of memory when full)
 WORLD_REACH = 7.0                 # blocks (the client only lets you aim 6; the extra is lag tolerance)
 WORLD_EDIT_GAP = 0.09             # seconds between two block changes from one player: you cannot hold the button down
 WORLD_EYE = 1.62
@@ -9764,7 +9775,7 @@ WORLD_SPAWN = (0.5, 41.0, 0.5)
 WORLD_MAX_HSPEED = 10.0           # sprinting is 7 b/s; the margin covers lag spikes
 WORLD_JUMP_BUDGET = 1.7           # how far up you may rise per jump (a jump is ~1.3 blocks)
 WORLD_TPA_SECONDS = 60
-WORLD_REGION = 128                # blocks per saved region side
+WORLD_REGION = 32                 # blocks per saved region side: small pieces, so a busy builder only rewrites a small part of the database
 WORLD_SAVE_DELAY = 20
 
 world_edits = {}                  # (cx, cz) -> {key: colour}; key = y << 8 | lx << 4 | lz; colour 0 = air (a broken base block), 1..PALETTE_SIZE = placed colour
@@ -9825,28 +9836,46 @@ async def world_load():
         await _world_load_inner()                   # if this raises, the world stays closed: saving now could overwrite what is stored
         world_loaded = True
 
-async def _world_load_inner():
+def _world_absorb(raw, rx, rz, size):
+    """Put one saved region's blocks into memory. size = how many blocks wide that saved region is."""
     global world_edit_count
+    for i in range(0, len(raw) - 4, 5):
+        lx, lz, y, c = struct.unpack_from("<BBHB", raw, i)
+        x = rx * size + lx; z = rz * size + lz
+        if not (world_in_bounds(x, z) and 0 <= y < WORLD_HMAX and 0 <= c <= PALETTE_SIZE): continue
+        ch = world_edits.setdefault((x >> 4, z >> 4), {})
+        k = (y << 8) | ((x & 15) << 4) | (z & 15)
+        if k not in ch: world_edit_count += 1
+        ch[k] = c
+
+async def _world_load_inner():
+    legacy = 0
     try:
+        # The first version saved 128-block regions in the "world" collection; saves are now 32-block pieces in "world2".
         async for doc in db["world"].find():
             try:
-                raw = zlib.decompress(bytes(doc["z"]))
-                rpc = WORLD_REGION // 16
                 rx, rz = (int(v) for v in str(doc["_id"]).split("_"))
-                for i in range(0, len(raw) - 4, 5):
-                    lx, lz, y, c = struct.unpack_from("<BBHB", raw, i)
-                    x = rx * WORLD_REGION + lx; z = rz * WORLD_REGION + lz
-                    if not (world_in_bounds(x, z) and 0 <= y < WORLD_HMAX and 0 <= c <= PALETTE_SIZE): continue
-                    ch = world_edits.setdefault((x >> 4, z >> 4), {})
-                    k = (y << 8) | ((x & 15) << 4) | (z & 15)
-                    if k not in ch: world_edit_count += 1
-                    ch[k] = c
+                _world_absorb(zlib.decompress(bytes(doc["z"])), rx, rz, 128); legacy += 1
+            except Exception as e:
+                print(f"world legacy region load failed ({doc.get('_id')}): {e}")
+        async for doc in db["world2"].find():
+            try:
+                rx, rz = (int(v) for v in str(doc["_id"]).split("_"))
+                _world_absorb(zlib.decompress(bytes(doc["z"])), rx, rz, WORLD_REGION)
             except Exception as e:
                 print(f"world region load failed ({doc.get('_id')}): {e}")
-        print(f"[world] loaded {world_edit_count} edited blocks", flush=True)
+        print(f"[world] loaded {world_edit_count} edited blocks ({legacy} old-format regions)", flush=True)
     except Exception as e:
         print(f"world load failed: {e}")
         raise
+    if legacy:
+        # Write everything in the new layout first, and only then drop the old documents. If anything fails the old ones stay and the world stays closed.
+        rpc = WORLD_REGION // 16
+        for ck in world_edits: world_dirty_regions.add((ck[0] // rpc, ck[1] // rpc))
+        await world_save_now()
+        if world_dirty_regions: raise RuntimeError("world migration did not finish")
+        await db["world"].delete_many({})
+        print("[world] converted the saved world to the new layout", flush=True)
 
 def _w_pack_region(rx, rz):
     rpc = WORLD_REGION // 16
@@ -9869,9 +9898,9 @@ async def world_save_now():
             packed = _w_pack_region(rx, rz)
             z = zlib.compress(packed, 6) if packed else b""
             if packed:
-                await db["world"].update_one({"_id": _w_region_id(rx, rz)}, {"$set": {"z": z}}, upsert=True)
+                await db["world2"].update_one({"_id": _w_region_id(rx, rz)}, {"$set": {"z": z}}, upsert=True)
             else:
-                await db["world"].delete_one({"_id": _w_region_id(rx, rz)})
+                await db["world2"].delete_one({"_id": _w_region_id(rx, rz)})
             try: _bw_add("db", "world", len(z))
             except Exception: pass
         except Exception as e:
@@ -10101,8 +10130,9 @@ async def world_ws_handler(request):
                 world_players[pid] = me; world_by_name[name.lower()] = pid
                 await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX,
                                     "players": [[q["id"], q["name"], q["x"], q["y"], q["z"]] for q in world_players.values() if q is not me]})
-                await _w_sys(me, "Welcome to EzWorld! This is a shared 3D world where everyone builds together. Left click breaks a block, right click places one, and you can use all the colors from the 2D canvas. Press W twice quickly to sprint. Type /help to see the chat commands. Anyone can change anything, so build nicely.")
+                await _w_sys(me, "Welcome to EzWorld! This is a shared 3D world where everyone builds together. Left click breaks a block, right click places one, and you can use all the colors from the 2D canvas. Press W twice quickly to sprint. Type /help to see the chat commands. The world is 2000 by 2000 blocks, so /goto is handy for getting around. Anyone can change anything, so build nicely.")
                 await _w_broadcast({"t": "join", "id": pid, "name": name, "x": sx, "y": fy, "z": sz}, exclude=pid)
+                discord_forward_event("world", name, "joined", "EzWorld")
                 if world_tick_task is None: world_tick_task = asyncio.ensure_future(world_tick())
                 continue
             if t == "chunks":
@@ -10111,7 +10141,7 @@ async def world_ws_handler(request):
                 for it in lst[:40]:
                     if isinstance(it, list) and len(it) == 2 and all(isinstance(v, int) and not isinstance(v, bool) for v in it):
                         cx, cz = it
-                        if WORLD_MIN // 16 <= cx < WORLD_MAX // 16 and WORLD_MIN // 16 <= cz < WORLD_MAX // 16:
+                        if WORLD_MIN >> 4 <= cx <= (WORLD_MAX - 1) >> 4 and WORLD_MIN >> 4 <= cz <= (WORLD_MAX - 1) >> 4:
                             await ws.send_bytes(_w_chunk_frame(cx, cz))
             elif t == "edit":
                 x, y, z, c = data.get("x"), data.get("y"), data.get("z"), data.get("c")
@@ -10148,6 +10178,7 @@ async def world_ws_handler(request):
                     payload = {"t": "chat", "from": nm, "text": text, "is_vip": is_vip(nm), "rank": get_rank(nm), "clan": get_clan_tag(nm), "name_color": get_name_color(nm), "mid": new_msg_id("world")}
                     if reply: payload["reply_to"] = reply
                     await _w_broadcast(payload)
+                    discord_forward("world", nm, text, reply)
             elif t == "typing":
                 if check_rate_limit(me["name"], "world_typing", 20, 6):
                     await _w_broadcast({"t": "typing", "name": me["name"], "typing": bool(data.get("typing"))}, exclude=me["id"])
@@ -10167,6 +10198,7 @@ async def world_ws_handler(request):
             world_players.pop(me["id"], None)
             if world_by_name.get(me["name"].lower()) == me["id"]: world_by_name.pop(me["name"].lower(), None)
             await _w_broadcast({"t": "leave", "id": me["id"]})
+            discord_forward_event("world", me["name"], "left", "EzWorld")
         try: await ws.close()
         except Exception: pass
     return ws

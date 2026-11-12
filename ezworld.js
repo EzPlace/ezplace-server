@@ -3,7 +3,7 @@
    this file draws the world, moves your camera and sends clicks. */
 (function () {
   'use strict';
-  var HMAX = 400, WMIN = -256, WMAX = 256, GROUND = 40;
+  var HMAX = 400, WMIN = -1000, WMAX = 1000, GROUND = 40;
   var REACH = 6, HALF = 0.3, PH = 1.8, EYE = 1.62;
   var WALK = 4.4, SPRINT = 6.9, JUMP_V = 8.6, GRAV = 28, TERMINAL = 55;
   var RDIST = 7;                       // chunks drawn in every direction
@@ -11,7 +11,7 @@
 
   // ------------------------------------------------------------------ world data (blocks that differ from the flat ground)
   var chunks = new Map();              // key -> chunk
-  function ckey(cx, cz) { return (cx + 32) * 64 + (cz + 32); }
+  function ckey(cx, cz) { return (cx + 64) * 128 + (cz + 64); }       // chunk coordinates run from -63 to 62
   function newChunk(cx, cz) { return { cx: cx, cz: cz, edits: new Map(), loaded: false, reqAt: 0, minY: GROUND, maxY: GROUND, mesh: null, dirty: false }; }
   function getBlock(x, y, z) {
     if (y < 0) return 201;
@@ -455,6 +455,7 @@
     var m; try { m = JSON.parse(d); } catch (e) { return; }
     switch (m.t) {
       case 'hello':
+        if (m.min != null && m.max != null) { WMIN = m.min; WMAX = m.max; }       // the server says how big the world is
         G.myId = m.id;
         G.me = { x: m.x, y: m.y, z: m.z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, onGround: false };
         (m.players || []).forEach(function (p) { addOther(p[0], p[1], p[2], p[3], p[4]); });
@@ -513,7 +514,7 @@
   function chatLine(m) {
     var el;
     if (window.EzChat) {
-      el = window.EzChat.build(m.from, m.text, false, m.is_vip, m.rank, m.clan, m.reply_to, m.name_color, false, {
+      el = window.EzChat.build(m.from, m.text, false, m.is_vip, m.rank, m.clan, m.reply_to, m.name_color, !!m.discord, {
         noModerate: true, onReply: setReply,
         onReact: m.mid != null ? function (emoji) { send({ t: 'react', mid: m.mid, emoji: emoji }); } : null });
     } else { el = document.createElement('div'); el.className = 'msg'; el.textContent = m.from + ': ' + m.text; }
@@ -626,7 +627,7 @@
     });
     for (var dx = -RDIST; dx <= RDIST; dx++) for (var dz = -RDIST; dz <= RDIST; dz++) {
       var cx = pcx + dx, cz = pcz + dz;
-      if (cx < -16 || cx > 15 || cz < -16 || cz > 15) continue;
+      if (cx < (WMIN >> 4) || cx > ((WMAX - 1) >> 4) || cz < (WMIN >> 4) || cz > ((WMAX - 1) >> 4)) continue;
       var c = chunks.get(ckey(cx, cz));
       if (c && (c.loaded || now - c.reqAt < 6000)) continue;
       want.push([dx * dx + dz * dz, cx, cz]);
