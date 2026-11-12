@@ -230,17 +230,19 @@
 
   function open(opts) {
     if (G) close(true);
-    var view = $('ew-view'), canvas = $('ew-canvas');
+    var view = $('ew-view'), old = $('ew-canvas'), canvas = document.createElement('canvas');
+    canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
+    $('ew-leave').onclick = function () { close(false); };
     $('ew-messages').innerHTML = '';
     $('ew-tags').innerHTML = '';
     $('ew-load').style.display = 'flex'; $('ew-load').textContent = 'Connecting...';
     $('ew-hint').style.display = 'none';
     var logo = document.querySelector('#header h1 img'); if (logo && $('ew-logo')) $('ew-logo').src = logo.src;
-    if (!initGL()) { $('ew-load').textContent = 'Your browser does not support WebGL, which EzWorld needs.'; return; }
+    if (!initGL()) { $('ew-load').textContent = 'EzWorld could not start 3D graphics (WebGL). Turn on hardware acceleration in your browser settings, close other heavy tabs, then press Leave and try again.'; return; }
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(pointer: fine)').matches) {
       $('ew-load').textContent = 'EzWorld needs a keyboard and a mouse. Open it on a computer.'; return;
     }
@@ -252,11 +254,14 @@
   }
 
   function initGL() {
-    var gl = G.canvas.getContext('webgl', { antialias: true, alpha: false }) || G.canvas.getContext('experimental-webgl');
-    if (!gl) return false;
-    function sh(type, src) { var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; }
-    var p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(p);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return false;
+    var gl = null, tries = [{ antialias: true, alpha: false }, { alpha: false }, {}];
+    for (var i = 0; i < tries.length && !gl; i++) { try { gl = G.canvas.getContext('webgl', tries[i]) || G.canvas.getContext('experimental-webgl', tries[i]); } catch (e) { gl = null; } }
+    if (!gl || (gl.isContextLost && gl.isContextLost())) return false;
+    function sh(type, src) { var s = gl.createShader(type); if (!s) return null; gl.shaderSource(s, src); gl.compileShader(s); return s; }
+    var vs = sh(gl.VERTEX_SHADER, VS), fs = sh(gl.FRAGMENT_SHADER, FS), p = gl.createProgram();
+    if (!vs || !fs || !p) return false;
+    gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { try { console.warn('EzWorld shader link failed', gl.getProgramInfoLog(p)); } catch (e) {} return false; }
     G.gl = gl; G.prog = p;
     G.loc = { pos: gl.getAttribLocation(p, 'aPos'), col: gl.getAttribLocation(p, 'aCol'), vp: gl.getUniformLocation(p, 'uVP'), off: gl.getUniformLocation(p, 'uOff'),
               cam: gl.getUniformLocation(p, 'uCam'), fogCol: gl.getUniformLocation(p, 'uFogCol'), fog: gl.getUniformLocation(p, 'uFog') };
@@ -612,6 +617,7 @@
     chunks.clear();
     try { var ext = g.gl && g.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
     g.view.style.display = 'none';
+    $('ew-leave').onclick = null;
     $('ew-tags').innerHTML = '';
     if (!silent && g.opts.onClose) g.opts.onClose();
   }
