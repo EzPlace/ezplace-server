@@ -951,7 +951,7 @@
 // When the server is fine nothing is shown and nothing more is checked. While the notice is up it re-checks every minute and reloads when the server is back.
 (function () {
   var el = document.getElementById('ez-down'); if (!el) return;
-  var host = 'ezplace.onrender.com', base = location.hostname === host ? '' : 'https://' + host, shown = false;
+  var host = 'ezplace-server.onrender.com', base = location.hostname === host ? '' : 'https://' + host, shown = false;
   function show() {
     if (!shown) { shown = true; setInterval(check, 60000); }
     var m = document.getElementById('ez-down-msg');
@@ -2273,9 +2273,9 @@
 </div>
 
 <script>
-const RENDER_HOST = 'ezplace.onrender.com';
+const RENDER_HOST = 'ezplace-server.onrender.com';
 const BACKEND_CANDIDATES = [
-  'ezplace.onrender.com'
+  'ezplace-server.onrender.com'
 ];
 let BACKEND_HOST = location.hostname === RENDER_HOST ? '' : BACKEND_CANDIDATES[0];
 let BACKEND = BACKEND_HOST ? 'https://' + BACKEND_HOST : '';
