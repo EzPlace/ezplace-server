@@ -6844,6 +6844,37 @@ async def social_ws_handler(request):
                             await ws.close()
                     elif data.get("type") in ("presence", "group_seen", "dm_seen", "dm_typing", "viewing") and username and not check_rate_limit(username, "social_misc", 60, 10):
                         continue
+                    elif data.get("type") == "react" and username:
+                        emoji = data.get("emoji")
+                        if emoji not in REACT_EMOJIS or not check_rate_limit(username, "react", 15, 10): continue
+                        try: mt = float(data.get("time"))
+                        except Exception: continue
+                        mfrom = str(data.get("from", ""))[:32].lower()
+                        kind = data.get("kind")
+                        if kind == "dm":
+                            canon = next((u for u in accounts if u.lower() == str(data.get("peer", ""))[:32].lower()), None)
+                            if not canon or canon not in get_friend_data(username)["friends"]: continue
+                            key = dm_key(username, canon); lst = dms.get(key, [])
+                        elif kind == "group":
+                            gid = str(data.get("group_id", "")); g = groups.get(gid)
+                            if not g or username.lower() not in [m.lower() for m in g.get("members", [])]: continue
+                            lst = group_messages.get(gid, [])
+                        else: continue
+                        tm = next((x for x in reversed(lst) if x.get("time") == mt and str(x.get("from", "")).lower() == mfrom), None)
+                        if tm is None: continue
+                        store = tm.setdefault("react", {})
+                        on = react_toggle(store, emoji, username)
+                        if on is None: continue
+                        if not store: tm.pop("react", None)
+                        out = {"type": "reaction", "kind": kind, "from": tm["from"], "time": mt, "emoji": emoji, "user": username, "on": on}
+                        if kind == "dm":
+                            await save_dm(key)
+                            await notify_social(username, {**out, "with": canon})
+                            await notify_social(canon, {**out, "with": username})
+                        else:
+                            await save_group_messages(gid)
+                            for member in g.get("members", []): await notify_social(member, {**out, "group_id": gid})
+
                     elif data.get("type") == "presence" and username:
                         afk = bool(data.get("afk"))
                         act = data.get("activity", "")
@@ -7377,6 +7408,16 @@ async def websocket_handler(request):
                                     last_pixel = lobby["last_activity"]
                                     mark_lobby_dirty(lobby_id)
 
+                    elif data["type"] == "react" and username and lobby_id:
+                        emoji, mid = data.get("emoji"), data.get("mid")
+                        if emoji not in REACT_EMOJIS or not isinstance(mid, int) or isinstance(mid, bool): continue
+                        if not check_rate_limit(username, "react", 15, 10): continue
+                        store = _msg_react.get((lobby_id, mid))
+                        if store is None: continue
+                        on = react_toggle(store, emoji, username)
+                        if on is None: continue
+                        await broadcast_to_lobby(lobby_id, {"type": "reaction", "mid": mid, "emoji": emoji, "user": username, "on": on})
+
                     elif data["type"] == "chat" and username and lobby_id:
                         text = str(data.get("text") or "").strip()[:200]
                         if text:
@@ -7399,6 +7440,7 @@ async def websocket_handler(request):
                             if lobby: lobby["last_activity"] = now2
                             is_owner = lobby and lobby["owner"] and lobby["owner"].lower() == username.lower()
                             chat_payload = {"type": "chat", "username": username, "text": text, "is_owner": bool(is_owner), "is_vip": is_vip(username), "rank": get_rank(username), "clan": get_clan_tag(username), "name_color": get_name_color(username)}
+                            chat_payload["mid"] = new_msg_id(lobby_id)
                             rt = data.get("reply_to")
                             if isinstance(rt, dict):
                                 rfrom = str(rt.get("from", ""))[:30]
@@ -9679,6 +9721,36 @@ async def player_search_handler(request):
 # height limit, speed of clicking, what is actually there) and movement is checked for speed hacks and flying.
 # Only blocks that differ from the flat starting terrain are stored ("edits"), saved per 128x128 region.
 # ---------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------
+# Message reactions for every chat. Lobby and EzWorld chat are live-only: each message gets an id that is remembered for a
+# while. DM and group messages are stored, so their reactions are stored on the message itself (identified by sender + time).
+# ---------------------------------------------------------------------------------------------------------
+from collections import OrderedDict
+REACT_EMOJIS = ["\U0001F44D", "\u2764\ufe0f", "\U0001F602", "\U0001F62E", "\U0001F622", "\U0001F525", "\U0001F389", "\U0001F440"]
+_msg_react = OrderedDict()         # (scope, message id) -> {emoji: [users]}
+_msg_counter = 0
+
+def new_msg_id(scope):
+    global _msg_counter
+    _msg_counter += 1
+    _msg_react[(scope, _msg_counter)] = {}
+    while len(_msg_react) > 4000: _msg_react.popitem(last=False)
+    return _msg_counter
+
+def react_toggle(store, emoji, user):
+    """Add or remove this user's reaction. Returns True (added), False (removed) or None (refused)."""
+    users = store.setdefault(emoji, [])
+    ul = user.lower()
+    for u in users:
+        if u.lower() == ul:
+            users.remove(u)
+            if not users: store.pop(emoji, None)
+            return False
+    if len(users) >= 60:
+        return None
+    users.append(user)
+    return True
+
 WORLD_MIN = -256                  # blocks span x,z in [WORLD_MIN, WORLD_MAX)
 WORLD_MAX = 256
 WORLD_HMAX = 400                  # build height limit: y in [0, 400)
@@ -9705,6 +9777,7 @@ world_dirty_regions = set()
 world_tick_task = None
 world_save_handle = None
 world_tpa = {}                    # target(lower) -> {"from": name, "t": time}
+world_recent = []                 # last EzWorld chat lines (sender lower, text): only these can be quoted in a reply
 _world_load_lock = None
 
 def _w_chunk_key(x, z): return (x >> 4, z >> 4)
@@ -10066,7 +10139,26 @@ async def world_ws_handler(request):
                 else:
                     try: print(f"[chat ezworld] {me['name']}: {_logsafe(text)}", flush=True)
                     except Exception: pass
-                    await _w_broadcast({"t": "chat", "from": me["name"], "text": text})
+                    reply = None; rt = data.get("reply_to")
+                    if isinstance(rt, dict):
+                        rfrom, rtext = str(rt.get("from", ""))[:30], str(rt.get("text", ""))[:120]
+                        if rfrom and rtext and any(u == rfrom.lower() and tx[:120] == rtext for u, tx in world_recent): reply = {"from": rfrom, "text": rtext}
+                    world_recent.append((me["name"].lower(), text)); del world_recent[:-100]
+                    nm = me["name"]
+                    payload = {"t": "chat", "from": nm, "text": text, "is_vip": is_vip(nm), "rank": get_rank(nm), "clan": get_clan_tag(nm), "name_color": get_name_color(nm), "mid": new_msg_id("world")}
+                    if reply: payload["reply_to"] = reply
+                    await _w_broadcast(payload)
+            elif t == "typing":
+                if check_rate_limit(me["name"], "world_typing", 20, 6):
+                    await _w_broadcast({"t": "typing", "name": me["name"], "typing": bool(data.get("typing"))}, exclude=me["id"])
+            elif t == "react":
+                emoji, mid = data.get("emoji"), data.get("mid")
+                if emoji not in REACT_EMOJIS or not isinstance(mid, int) or isinstance(mid, bool) or not check_rate_limit(me["name"], "react", 15, 10): continue
+                store = _msg_react.get(("world", mid))
+                if store is None: continue
+                on = react_toggle(store, emoji, me["name"])
+                if on is None: continue
+                await _w_broadcast({"t": "reaction", "mid": mid, "emoji": emoji, "user": me["name"], "on": on})
     except Exception as e:
         print(f"world ws error: {type(e).__name__}: {e}")
     finally:

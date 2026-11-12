@@ -255,7 +255,7 @@
   #ew-header { padding: 8px 14px; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-tertiary); flex-shrink: 0; border-bottom: 1px solid var(--border); }
   #ew-header h1 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   #ew-header h1 img { height: 22px; width: auto; display: block; }
-  #ew-header-right { display: flex; align-items: center; gap: 14px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+  #ew-header-right { display: flex; align-items: center; gap: 12px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
   #ew-coords { font-variant-numeric: tabular-nums; color: var(--text-muted); }
   #ew-stage { flex: 1; position: relative; overflow: hidden; background: var(--bg-primary); }
   #ew-canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
@@ -263,6 +263,9 @@
   .ew-tag { position: absolute; left: 0; top: 0; will-change: transform; }
   .ew-tag-img { display: block; border-radius: 22%; border: 2px solid rgba(255,255,255,0.85); box-shadow: 0 2px 8px rgba(0,0,0,0.45); background: var(--bg-elevated); object-fit: cover; }
   .ew-tag-name { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 5px; padding: 1px 7px; font-size: 12px; font-weight: 600; color: #fff; background: rgba(0,0,0,0.58); border-radius: 4px; white-space: nowrap; }
+  #ew-compass { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 380px; max-width: calc(100% - 20px); pointer-events: none; display: none; text-align: center; }
+  #ew-compass-cv { display: block; width: 100%; height: auto; }
+  #ew-compass-text { display: inline-block; margin-top: 2px; padding: 1px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; color: #fff; background: rgba(0,0,0,0.5); border-radius: 999px; font-variant-numeric: tabular-nums; }
   #ew-cross { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; mix-blend-mode: difference; }
   #ew-cross::before, #ew-cross::after { content: ''; position: absolute; background: #fff; }
   #ew-cross::before { left: 8px; top: 0; width: 2px; height: 18px; } #ew-cross::after { top: 8px; left: 0; height: 2px; width: 18px; }
@@ -282,13 +285,38 @@
   .ew-sw:hover { transform: scale(1.12); border-color: #fff; }
   .ew-sw.sel { outline: 2px solid #fff; outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0,0,0,0.5); }
   #ew-side { width: 320px; background: var(--bg-secondary); display: flex; flex-direction: column; border-left: 1px solid var(--border); flex-shrink: 0; }
-  #ew-side-title { padding: 10px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-secondary); background: var(--bg-tertiary); border-bottom: 1px solid var(--border); }
+  #ew-side-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-secondary); background: var(--bg-tertiary); border-bottom: 1px solid var(--border); }
   #ew-messages { flex: 1; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 4px 6px; font-size: 12px; line-height: 1.5; }
   #ew-messages .msg .name { color: var(--accent); font-weight: 500; }
   #ew-messages .msg.ew-sys { color: var(--gold); font-style: italic; }
   #ew-chat-bar { padding: 6px; display: flex; gap: 6px; border-top: 1px solid var(--border); }
   #ew-chat-bar input { flex: 1; }
   @media (max-width: 760px) { #ew-side { display: none; } .ew-keys { grid-template-columns: repeat(2, 1fr); } }
+  /* reactions */
+  .react-btn { cursor: pointer; color: var(--text-muted); font-size: 12px; margin-left: 4px; opacity: 0; transition: opacity 0.15s; user-select: none; }
+  .msg:hover .react-btn, .dm-msg:hover .react-btn, .react-btn:focus { opacity: 1; }
+  @media (hover: none) { .react-btn { opacity: 0.7; } }
+  .react-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+  .react-chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); cursor: pointer; font-family: inherit; }
+  .react-chip.mine { border-color: var(--accent); background: var(--accent-dim); }
+  .react-pop { position: fixed; z-index: 100; display: flex; gap: 2px; padding: 4px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  .react-pop button { font-size: 18px; line-height: 1; background: none; border: none; cursor: pointer; padding: 4px 5px; border-radius: 6px; }
+  .react-pop button:hover { background: var(--bg-hover); }
+  /* the menu opens on top of EzWorld, like on top of a 2D lobby */
+  body.ew-open #menu { z-index: 90; }
+  #ew-menu { position: relative; font-size: 13px; font-weight: 700; padding: 8px 14px; }
+  #ew-menu-dot { position: absolute; top: -4px; right: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--red); border: 2px solid var(--bg-primary); }
+  #ew-leave { font-size: 13px; font-weight: 700; padding: 8px 18px; background: var(--red); color: #fff; border: 2px solid #ff6b6b; box-shadow: 0 2px 8px rgba(240,71,71,0.4); }
+  #ew-leave:hover { background: #ff2a2a; box-shadow: 0 4px 16px rgba(240,71,71,0.6); }
+  #ew-online { font-size: 12px; color: var(--text-secondary); }
+  #ew-online span { color: var(--green); font-weight: 600; }
+  #ew-filter-wrap { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; cursor: pointer; }
+  #ew-userbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+  #ew-userbar img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+  #ew-me-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #ew-me-level { margin-left: auto; font-size: 10px; font-weight: 700; color: #22d3ee; background: rgba(34,211,238,0.12); border: 1px solid #22d3ee; padding: 1px 6px; border-radius: 10px; white-space: nowrap; }
+  #ew-me-pb { font-size: 10px; font-weight: 700; color: var(--gold); background: rgba(240,178,50,0.12); border: 1px solid var(--gold); padding: 1px 6px; border-radius: 10px; white-space: nowrap; }
+  #ew-messages .msg { margin-bottom: 1px; }
   .menu-tab:hover { color: var(--text-primary); }
   .menu-tab.active { background: rgba(255,255,255,0.08); color: var(--text-primary); }
   .ltab-panel { display: flex; flex-direction: column; gap: 8px; }
@@ -1035,14 +1063,16 @@
       <h1><img id="ew-logo" alt="EzPlace"><span>EzWorld</span></h1>
       <div id="ew-header-right">
         <div id="ew-coords"></div>
-        <div id="ew-online">1 here</div>
-        <button id="ew-leave" class="win-btn" title="Back to the menu">Leave EzWorld</button>
+        <div id="ew-online"><span id="ew-online-n">1</span> here</div>
+        <button id="ew-menu" class="win-btn" title="Open the menu without leaving EzWorld">Menu<span id="ew-menu-dot" style="display:none"></span></button>
+        <button id="ew-leave" class="win-btn" title="Leave EzWorld">Leave EzWorld</button>
       </div>
     </div>
     <div id="ew-stage">
       <canvas id="ew-canvas"></canvas>
       <div id="ew-tags"></div>
       <div id="ew-cross"></div>
+      <div id="ew-compass"><canvas id="ew-compass-cv" width="760" height="80"></canvas><div id="ew-compass-text"></div></div>
       <div id="ew-hint">
         <div class="ew-card">
           <div class="ew-card-title">Click to play</div>
@@ -1061,9 +1091,13 @@
     </div>
   </div>
   <div id="ew-side">
-    <div id="ew-side-title">EzWorld chat</div>
+    <div id="ew-userbar"><img id="ew-me-img" class="ez-avatar" alt=""><span id="ew-me-name"></span><span id="ew-me-level"></span><span id="ew-me-pb"></span></div>
+    <div id="ew-side-title"><span>EzWorld chat</span><label id="ew-filter-wrap" title="Hides slurs in chat. Reply to a hidden message to see what it said."><input type="checkbox" id="ew-filter" checked> Chat filter</label></div>
     <div id="ew-messages"></div>
-    <div id="ew-chat-bar">
+    <div id="ew-typing" style="display:none;font-size:12px;color:var(--accent);font-weight:600;padding:6px 12px;background:var(--accent-dim);border-left:3px solid var(--accent);margin:4px 6px 0;border-radius:var(--radius-sm);"><span id="ew-typing-text"></span></div>
+    <div id="ew-reply-bar" style="display:none;align-items:center;gap:6px;padding:4px 8px;margin:4px 6px 0;background:var(--accent-dim);border-left:3px solid var(--accent);border-radius:var(--radius-sm);font-size:11px;color:var(--text-secondary);"><span id="ew-reply-text" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><span id="ew-reply-cancel" style="cursor:pointer;font-weight:700;">&#x2715;</span></div>
+    <div id="ew-chat-bar" style="position:relative;">
+      <div id="ew-mention" style="display:none;position:absolute;bottom:calc(100% + 4px);left:6px;right:6px;max-height:160px;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:30;"></div>
       <input id="ew-chat-input" class="win-input" type="text" maxlength="200" placeholder="Chat or /command..." autocomplete="off">
       <button id="ew-chat-send" class="win-btn">Send</button>
     </div>
@@ -2371,6 +2405,7 @@ let isGuest = false;
 const GUEST_VIEWS = new Set(['home', 'auth', 'lobbies', 'leaderboard', 'economy', 'earn']);
 const GUEST_BUTTONS = new Set(['btn-menu-earn2', 'btn-menu-lobbies', 'btn-menu-leaderboard', 'btn-menu-economy']);
 function menuIsOpen() { return document.body.classList.contains('menu-open'); }
+function worldOpen() { const e = document.getElementById('ew-view'); return !!(e && e.style.display === 'flex'); }
 function friendsViewOpen() { return menuIsOpen() && menuView === 'friends'; }
 function renderMenuHome() {
   updateMenuOnlineVisibility();
@@ -2543,11 +2578,11 @@ const MENU_MESSAGES = [
 function openMenuView(name, resetHistory) {
   updateMenuOnlineVisibility();
   startMenuOnlinePoll();
-  document.body.classList.toggle('in-lobby', !!currentLobbyId);
+  document.body.classList.toggle('in-lobby', !!currentLobbyId || worldOpen());
   if (!document.getElementById('menu-view-' + name)) name = 'home';
   if (isGuest && !authToken && !GUEST_VIEWS.has(name)) name = 'home';
   if (!menuIsOpen()) { document.body.classList.add('menu-open'); if (!currentLobbyId) lobbyBgStart(); }
-  document.getElementById('menu-close').style.display = currentLobbyId ? '' : 'none';
+  document.getElementById('menu-close').style.display = (currentLobbyId || worldOpen()) ? '' : 'none';
   if (menuView !== name) leaveMenuView();
   menuView = name;
   document.querySelectorAll('.menu-view').forEach(v => v.classList.toggle('active', v.id === 'menu-view-' + name));
@@ -2563,8 +2598,8 @@ function openMenuView(name, resetHistory) {
 function showMenu(view) { openMenuView(view || 'home', true); }
 function menuBack() { openMenuView('home', true); }
 function hideMenu() {
-  document.body.classList.toggle('in-lobby', !!currentLobbyId);
-  if (!currentLobbyId) return;
+  document.body.classList.toggle('in-lobby', !!currentLobbyId || worldOpen());
+  if (!currentLobbyId && !worldOpen()) return;
   leaveMenuView();
   menuView = 'home';
   document.body.classList.remove('menu-open');
@@ -5077,7 +5112,54 @@ function showMobileChatBubble(name, text, isOwner) {
   }, MOBILE_BUBBLE_DURATION);
 }
 
-function addMsg(name, text, isOwner, isMsgVip, rank, clan, replyTo, nameColor, isDiscord) {
+// ---- Message reactions: one small set of emoji, shown as chips under a message. The server decides who reacted. ----
+const REACT_EMOJIS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F525}', '\u{1F389}', '\u{1F440}'];
+function reactRender(el) {
+  const map = el._react || {}, keys = Object.keys(map);
+  let row = el._reactRow;
+  if (!keys.length) { if (row) row.style.display = 'none'; return; }
+  if (!row) { row = document.createElement('div'); row.className = 'react-row'; el.appendChild(row); el._reactRow = row; }
+  row.style.display = ''; row.innerHTML = '';
+  const me = (username || '').toLowerCase();
+  keys.forEach(e => {
+    const users = map[e], chip = document.createElement('button');
+    chip.type = 'button'; chip.className = 'react-chip' + (users.some(u => u.toLowerCase() === me) ? ' mine' : '');
+    chip.textContent = e + ' ' + users.length; chip.title = users.join(', ');
+    chip.onclick = ev => { ev.stopPropagation(); el._onReact(e); };
+    row.appendChild(chip);
+  });
+}
+function reactApply(el, emoji, user, on) {
+  if (!el) return;
+  const map = el._react || (el._react = {}), ul = String(user).toLowerCase();
+  let users = (map[emoji] || []).filter(u => u.toLowerCase() !== ul);
+  if (on) users.push(user);
+  if (users.length) map[emoji] = users; else delete map[emoji];
+  reactRender(el);
+}
+let _reactPop = null;
+function reactClosePicker() { if (_reactPop) { _reactPop.remove(); _reactPop = null; } }
+function reactPicker(anchor, onReact) {
+  reactClosePicker();
+  const pop = document.createElement('div'); pop.className = 'react-pop';
+  REACT_EMOJIS.forEach(e => { const b = document.createElement('button'); b.type = 'button'; b.textContent = e; b.onclick = ev => { ev.stopPropagation(); reactClosePicker(); onReact(e); }; pop.appendChild(b); });
+  document.body.appendChild(pop); _reactPop = pop;
+  const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = Math.max(6, Math.min(window.innerWidth - w - 6, r.left - w / 2 + r.width / 2)) + 'px';
+  pop.style.top = (r.top - h - 6 > 6 ? r.top - h - 6 : r.bottom + 6) + 'px';
+}
+document.addEventListener('mousedown', e => { if (_reactPop && !_reactPop.contains(e.target)) reactClosePicker(); }, true);
+function reactAttach(el, onReact, initial, afterSel) {
+  el._react = {}; if (initial) for (const k in initial) el._react[k] = initial[k].slice();
+  el._onReact = onReact;
+  const btn = document.createElement('span'); btn.className = 'react-btn'; btn.title = 'Add reaction'; btn.textContent = '\u263A';
+  const anchor = afterSel && el.querySelector(afterSel);
+  if (anchor) anchor.after(btn); else el.appendChild(btn);
+  btn.onclick = e => { e.stopPropagation(); reactPicker(btn, onReact); };
+  reactRender(el);
+}
+function buildMsgEl(name, text, isOwner, isMsgVip, rank, clan, replyTo, nameColor, isDiscord, o) {
+  o = o || {};
   const d = document.createElement('div'); d.className = 'msg';
   const isTP = name.toLowerCase() === 'toothpaste';
   const crown = isOwner ? '<span class="crown">&#x1F451;</span>' : '';
@@ -5119,7 +5201,7 @@ function addMsg(name, text, isOwner, isMsgVip, rank, clan, replyTo, nameColor, i
     styleParts.push(`color:${nameColor}`, 'font-weight:700');
     if (nameClass === 'name owner' || nameClass === 'name vip') nameClass = 'name';
   }
-  const canModerate = username && name.toLowerCase() !== username.toLowerCase() && (
+  const canModerate = !o.noModerate && username && name.toLowerCase() !== username.toLowerCase() && (
     (currentLobbyOwner && currentLobbyOwner.toLowerCase() === username.toLowerCase()) ||
     ['toothpaste','juicebox'].includes(username.toLowerCase())
   );
@@ -5156,9 +5238,19 @@ function addMsg(name, text, isOwner, isMsgVip, rank, clan, replyTo, nameColor, i
   if (canModerate) {
     d.querySelector('.name').addEventListener('click', e => showLobbyUserMenu(e, name));
   }
-  d.querySelector('.reply-btn').addEventListener('click', () => setChatReply(name, text));
+  d.querySelector('.reply-btn').addEventListener('click', () => (o.onReply || setChatReply)(name, text));
+  if (o.onReact) reactAttach(d, o.onReact, o.reactions, '.reply-btn');
+  return d;
+}
+const lobbyMsgEls = new Map();      // message id -> element, so a reaction that arrives later can find its message
+function addMsg(name, text, isOwner, isMsgVip, rank, clan, replyTo, nameColor, isDiscord, mid) {
+  const d = buildMsgEl(name, text, isOwner, isMsgVip, rank, clan, replyTo, nameColor, isDiscord, mid != null ? { onReact: emoji => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'react', mid, emoji })); } } : {});
+  if (mid != null) { lobbyMsgEls.set(mid, d); if (lobbyMsgEls.size > 200) lobbyMsgEls.delete(lobbyMsgEls.keys().next().value); }
   messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
+window.EzChat = { build: buildMsgEl, apply: (el, e, u, on) => reactApply(el, e, u, on), emojis: () => REACT_EMOJIS,
+  getFilter: () => chatFilterEnabled,
+  setFilter: on => { chatFilterEnabled = !!on; const c = document.getElementById('chat-filter-toggle'); if (c) c.checked = chatFilterEnabled; } };
 function addSystemMsg(text) { const d = document.createElement('div'); d.className = 'msg system'; d.innerHTML = `<span class="timestamp">${timeStr()}</span>${esc(text)}`; messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight; }
 function safeColor(c, fallback) { return (typeof c === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c)) ? c : (fallback || 'var(--accent)'); }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/`/g, '&#96;'); }
@@ -9605,7 +9697,7 @@ function leaveLobby() {
 document.getElementById('btn-leave-lobby').onclick = leaveLobby;
 // Open the whole menu (casino, fishing, friends, shop...) on top of the lobby. The lobby stays connected underneath; the X returns to it.
 document.getElementById('btn-open-menu').onclick = () => openMenuView('home');
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && currentLobbyId && menuIsOpen()) hideMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && (currentLobbyId || worldOpen()) && menuIsOpen()) hideMenu(); });
 
 document.getElementById('btn-manage-current').onclick = async () => {
   if (!currentLobbyId || !authToken) return;
@@ -9984,12 +10076,13 @@ function connectToLobby(lobbyId, lobbyName) {
       }
       case 'leaderboard_update': if (document.querySelector('[data-tab="lb-tab"]').classList.contains('active')) renderLeaderboard(msg.leaderboard); break;
       case 'pong': { const ping = Date.now() - msg.time; const el = document.getElementById('ping-ms'); el.textContent = ping; el.style.color = ping < 100 ? '#0f0' : ping < 250 ? '#ff0' : '#f00'; } break;
-      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_vip, msg.rank, msg.clan, msg.reply_to, msg.name_color, !!msg.discord); showMobileChatBubble(msg.username, msg.text, msg.is_owner); if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) ezpMarkUnseen(); break;
+      case 'chat': if (isFakeAdmin && fakeBannedUsers.has(msg.username.toLowerCase())) break; addMsg(msg.username, msg.text, msg.is_owner, msg.is_vip, msg.rank, msg.clan, msg.reply_to, msg.name_color, !!msg.discord, msg.mid); showMobileChatBubble(msg.username, msg.text, msg.is_owner); if (msg.username && msg.username.toLowerCase() !== (username || '').toLowerCase()) ezpMarkUnseen(); break;
       case 'system': if (msg.text && /\breeled in an? (epic|legendary|mythic|rare)\b.* while fishing!$/.test(msg.text)) break; if (msg.text && msg.text.indexOf(' joined') !== -1) ezpMarkUnseen(); addSystemMsg(msg.text); break;
       case 'rate_warn': showCooldownWarn ? (cooldownWarn.textContent = msg.text, cooldownWarnTimer && clearTimeout(cooldownWarnTimer), cooldownWarnTimer = setTimeout(() => { cooldownWarn.innerHTML = '&nbsp;'; }, 2500)) : null; break;
       case 'night_event_state': if (msg.state) { nightEventState = msg.state; nightEventServerOffset = (msg.state.server_now_ts || 0) - Math.floor(Date.now() / 1000); renderNightEvent(); } break;
       case 'pb_update': { const wasBal = myBalance; myBalance = msg.balance || 0; myPurchases = msg.purchases || myPurchases; if (msg.streak && typeof msg.streak.count === 'number') myStreak = msg.streak.count; applyPbState(); if (myBalance > wasBal && !myUnlimited) showDmToast('PlaceBux', '+' + (myBalance - wasBal) + ' $ earned!', () => {}); break; }
       case 'streak_bonus': { myStreak = msg.count || myStreak; myStreakProgress = { seconds: myStreakProgress.required || 900, required: myStreakProgress.required || 900, earned_today: true }; if (msg.used_pass && myPurchases) myPurchases.streak_pass = msg.passes_left; applyPbState(); showDmToast('🔥 Daily Streak', (msg.used_pass ? '🛡 Streak Pass used! ' : '') + 'Day ' + msg.count + ' - +' + msg.reward + ' $', () => {}); break; }
+      case 'reaction': { const rel = lobbyMsgEls.get(msg.mid); if (rel) reactApply(rel, msg.emoji, msg.user, msg.on); break; }
       case 'typing_spy': if (isRealAdmin()) showTypingSpy(msg.username, msg.draft); break;
       case 'online': document.getElementById('online-count').textContent = msg.count; if (msg.total !== undefined) document.getElementById('total-online').textContent = msg.total; if (Array.isArray(msg.users)) { lobbyUsers = msg.users.slice(); } break;
       case 'perm': canPlace = !!msg.can_place; break;
@@ -10101,6 +10194,7 @@ function updateDmTabBadge() {
   let gUnread = 0; for (const k in unreadGroups) gUnread += unreadGroups[k] || 0;
   const gDot = document.getElementById('group-tab-dot'); if (gDot) gDot.style.display = gUnread > 0 ? '' : 'none';
   const dot = document.getElementById('menu-open-dot'); if (dot) dot.style.display = total > 0 ? '' : 'none';
+  const ewDot = document.getElementById('ew-menu-dot'); if (ewDot) ewDot.style.display = total > 0 ? '' : 'none';
   if (total > 0) {
     badge.textContent = total;
     badge.style.display = '';
@@ -10303,6 +10397,13 @@ function connectSocial() {
     if (msg.type === 'group_renamed') {
       if (currentGroupId === msg.group_id && groupInfo) { groupInfo.name = msg.name; renderGroupHeader(); appendChatSystem((msg.by || 'Someone') + ' renamed the group to "' + msg.name + '"'); }
       else if (friendsViewOpen() && document.getElementById('msg-list-view').style.display !== 'none') loadMsgList();
+    }
+    if (msg.type === 'reaction') {
+      const here = msg.kind === 'group' ? (currentGroupId && currentGroupId === msg.group_id) : (!currentGroupId && currentDmWith && currentDmWith.toLowerCase() === String(msg.with || '').toLowerCase());
+      if (here) {
+        const rel = Array.from(document.querySelectorAll('#msg-view-msgs .dm-msg')).find(e => e.dataset.ts === String(msg.time) && (e.dataset.from || '').toLowerCase() === String(msg.from).toLowerCase());
+        if (rel && rel._onReact) reactApply(rel, msg.emoji, msg.user, msg.on);
+      }
     }
     if (msg.type === 'dm_typing') {
       const ind = document.getElementById('dm-typing-ind');
@@ -10572,6 +10673,11 @@ function appendChatSystem(text) {
   const el = document.getElementById('msg-view-msgs');
   const d = document.createElement('div'); d.className = 'dm-system'; d.textContent = text; el.appendChild(d); el.scrollTop = el.scrollHeight;
 }
+function sendChatReact(from, time, emoji) {
+  if (!socialWs || socialWs.readyState !== WebSocket.OPEN) return;
+  if (currentGroupId) socialWs.send(JSON.stringify({ type: 'react', kind: 'group', group_id: currentGroupId, from, time, emoji }));
+  else if (currentDmWith) socialWs.send(JSON.stringify({ type: 'react', kind: 'dm', peer: currentDmWith, from, time, emoji }));
+}
 function appendChatMsg(m, o) {
   o = o || {};
   const el = document.getElementById('msg-view-msgs');
@@ -10614,6 +10720,8 @@ function appendChatMsg(m, o) {
     d.appendChild(img);
   }
   d.querySelector('.dm-reply-btn').addEventListener('click', () => setDmReply(from, text || '[image]'));
+  d.dataset.from = from;
+  if (t) reactAttach(d, emoji => sendChatReact(from, t, emoji), m.react, '.dm-reply-btn');
   d.dataset.ts = String(t || 0);
   el.appendChild(d);
   el.scrollTop = el.scrollHeight;

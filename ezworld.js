@@ -217,6 +217,41 @@
     return { x: (cx / cw * 0.5 + 0.5) * w, y: (1 - (cy / cw * 0.5 + 0.5)) * h, w: cw };
   }
 
+  // ------------------------------------------------------------------ compass
+  var WIND = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  function headingOf(yaw) { return (((-yaw * 180 / Math.PI) % 360) + 360) % 360; }   // 0 = north (-Z), 90 = east (+X), 180 = south, 270 = west
+  function windName(h) { return WIND[Math.round(h / 45) % 8]; }
+  // Draws the scrolling strip (about 120 degrees visible, faded at both ends). cv/off are canvases, colours come from the page theme.
+  function drawCompass(cv, off, heading, accent, text) {
+    var ctx = cv.getContext('2d'), W = cv.width, H = cv.height, k = W / 380, w = 380, h = 40, ppd = 3.4;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+    off.width = W; off.height = H;
+    var o = off.getContext('2d'); o.setTransform(k, 0, 0, k, 0, 0); o.clearRect(0, 0, w, h);
+    o.textAlign = 'center'; o.textBaseline = 'middle';
+    var first = Math.floor((heading - 70) / 5) * 5;
+    for (var deg = first; deg <= heading + 70; deg += 5) {
+      var x = w / 2 + (deg - heading) * ppd, n = ((deg % 360) + 360) % 360;
+      if (n % 45 === 0) {
+        o.fillStyle = n === 0 ? accent : text; o.font = (n % 90 === 0 ? '700 16px' : '600 12px') + ' Inter, system-ui, sans-serif';
+        o.fillText(WIND[n / 45], x, 15);
+        o.fillRect(x - 0.75, 28, 1.5, 9);
+      } else if (n % 15 === 0) {
+        o.fillStyle = text; o.globalAlpha = 0.55; o.font = '600 9px Inter, system-ui, sans-serif'; o.fillText(String(n), x, 14); o.globalAlpha = 1;
+        o.fillRect(x - 0.5, 30, 1, 7);
+      } else { o.fillStyle = text; o.globalAlpha = 0.4; o.fillRect(x - 0.5, 33, 1, 4); o.globalAlpha = 1; }
+    }
+    var g = o.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.18, 'rgba(0,0,0,1)'); g.addColorStop(0.82, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    o.globalCompositeOperation = 'destination-in'; o.fillStyle = g; o.fillRect(0, 0, w, h); o.globalCompositeOperation = 'source-over';
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    ctx.fillStyle = 'rgba(10,10,14,0.55)'; ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(0, 0, w, h, 10); else ctx.rect(0, 0, w, h);
+    ctx.fill();
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(off, 0, 0);
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(w / 2 - 5, 0); ctx.lineTo(w / 2 + 5, 0); ctx.lineTo(w / 2, 7); ctx.closePath(); ctx.fill();
+  }
+
   // ------------------------------------------------------------------ the running game
   var G = null;
   var VS = 'attribute vec3 aPos;attribute vec4 aCol;uniform mat4 uVP;uniform vec3 uOff;uniform vec3 uCam;varying vec3 vCol;varying float vDist;' +
@@ -233,10 +268,17 @@
     var view = $('ew-view'), old = $('ew-canvas'), canvas = document.createElement('canvas');
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
-          raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1 };
+          raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
+    document.body.classList.add('ew-open');
     $('ew-leave').onclick = function () { close(false); };
+    $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
+    $('ew-me-name').textContent = opts.username || '';
+    var me = $('ew-me-img'); me.onerror = function () { me.onerror = null; me.src = opts.defaultAvatar; }; me.src = opts.avatarUrl(opts.username || '');
+    syncUserBar();
+    $('ew-filter').checked = window.EzChat ? window.EzChat.getFilter() : true;
     $('ew-messages').innerHTML = '';
     $('ew-tags').innerHTML = '';
     $('ew-load').style.display = 'flex'; $('ew-load').textContent = 'Connecting...';
@@ -291,9 +333,10 @@
     var canvas = G.canvas;
     on(window, 'resize', resize);
     on(canvas, 'contextmenu', function (e) { e.preventDefault(); });
+    on(canvas, 'webglcontextlost', function (e) { e.preventDefault(); if (G) { G.ready = false; $('ew-load').style.display = 'flex'; $('ew-load').textContent = 'Your graphics card reset EzWorld. Press Leave, then join again.'; } });
     on($('ew-hint'), 'click', function () { if (G.ready && !locked()) { try { canvas.requestPointerLock(); } catch (er) {} } });
     on(canvas, 'click', function () { if (!locked() && !chatFocused() && G.ready) canvas.requestPointerLock && canvas.requestPointerLock(); });
-    on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
+    on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
     on(document, 'mousemove', function (e) {
       if (!locked() || !G.me) return;
       G.me.yaw -= (e.movementX || 0) * 0.0023;
@@ -306,7 +349,7 @@
     });
     on(canvas, 'wheel', function (e) { e.preventDefault(); selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
     on(window, 'keydown', function (e) {
-      if (!G) return;
+      if (!G || menuOpen() || typingElsewhere()) return;
       if (chatFocused()) {
         if (e.code === 'Escape') { $('ew-chat-input').blur(); e.preventDefault(); }
         return;
@@ -333,20 +376,38 @@
       if (e.code === 'KeyW') G.sprint = false;
     });
     on(window, 'blur', function () { if (G) { G.keys = {}; G.sprint = false; } });
-    on($('ew-chat-input'), 'keydown', function (e) {
+    var inp = $('ew-chat-input');
+    on(inp, 'keydown', function (e) {
+      if (G.mention) {
+        var mn = G.mention;
+        if (e.key === 'ArrowDown') { e.preventDefault(); mn.i = (mn.i + 1) % mn.names.length; updateMention(); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); mn.i = (mn.i - 1 + mn.names.length) % mn.names.length; updateMention(); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mn.names[mn.i]); return; }
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideMention(); return; }
+      }
       if (e.code === 'Enter') {
-        var t = this.value.trim(); this.value = '';
-        if (t && G.ws && G.ws.readyState === 1) G.ws.send(JSON.stringify({ t: 'chat', text: t }));
-        this.blur();
+        sendChat(); this.blur();
         try { G.canvas.requestPointerLock(); } catch (er) {}
         e.preventDefault();
       }
     });
-    on($('ew-chat-input'), 'focus', function () { $('ew-hint').style.display = 'none'; });
-    on($('ew-chat-input'), 'blur', function () { if (G && G.ready && !locked()) $('ew-hint').style.display = 'flex'; });
-    on($('ew-chat-send'), 'click', function () { var i = $('ew-chat-input'); var t = i.value.trim(); i.value = ''; if (t && G.ws && G.ws.readyState === 1) G.ws.send(JSON.stringify({ t: 'chat', text: t })); });
+    on(inp, 'input', function () { notifyTyping(); updateMention(); });
+    on(inp, 'focus', function () { $('ew-hint').style.display = 'none'; });
+    on(inp, 'blur', function () { stopTyping(); hideMention(); if (G && G.ready && !locked() && !menuOpen()) $('ew-hint').style.display = 'flex'; });
+    on($('ew-chat-send'), 'click', function () { sendChat(); });
+    on($('ew-reply-cancel'), 'click', clearReply);
+    on($('ew-filter'), 'change', function () { if (window.EzChat) window.EzChat.setFilter(this.checked); });
+    on($('ew-menu'), 'click', openMenu);
+    G.timers.push(setInterval(function () { renderTyping(); syncUserBar(); }, 1000));
     on($('ew-leave'), 'click', function () { close(false); });
     G.timers.push(setInterval(ensureChunks, 200));
+  }
+  function menuOpen() { return document.body.classList.contains('menu-open'); }
+  function typingElsewhere() { var a = document.activeElement, t = a && a.tagName; return !!a && a !== $('ew-chat-input') && (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || a.isContentEditable); }
+  function openMenu() { if (document.exitPointerLock) document.exitPointerLock(); if (window.openMenuView) window.openMenuView('home'); }
+  function syncUserBar() {
+    var lv = document.getElementById('level-text'), pb = document.getElementById('pb-balance');
+    $('ew-me-level').textContent = lv ? lv.textContent : ''; $('ew-me-pb').textContent = pb ? pb.textContent : '';
   }
   function locked() { return document.pointerLockElement === G.canvas; }
   function chatFocused() { return document.activeElement === $('ew-chat-input'); }
@@ -402,9 +463,11 @@
         ensureChunks();
         break;
       case 'sys': sys(m.text); break;
-      case 'chat': chatLine(m.from, m.text); break;
+      case 'chat': chatLine(m); break;
+      case 'typing': { var k = String(m.name).toLowerCase(); if (m.typing) G.typers.set(k, { name: m.name, exp: Date.now() + 7000 }); else G.typers.delete(k); renderTyping(); break; }
+      case 'reaction': { var rel = G.msgEls.get(m.mid); if (rel && window.EzChat) window.EzChat.apply(rel, m.emoji, m.user, m.on); break; }
       case 'join': addOther(m.id, m.name, m.x, m.y, m.z); sys(m.name + ' joined EzWorld.'); updateOnline(); break;
-      case 'leave': { var o2 = G.others.get(m.id); if (o2) { sys(o2.name + ' left EzWorld.'); o2.el.remove(); G.others.delete(m.id); updateOnline(); } break; }
+      case 'leave': { var o2 = G.others.get(m.id); if (o2) { sys(o2.name + ' left EzWorld.'); o2.el.remove(); G.others.delete(m.id); G.typers.delete(o2.name.toLowerCase()); renderTyping(); updateOnline(); } break; }
       case 'b': {
         var x = m.d[0], y = m.d[1], z = m.d[2], c = m.d[3];
         var ch = setBlock(x, y, z, c);
@@ -425,7 +488,7 @@
     el.appendChild(nm); el.appendChild(img); $('ew-tags').appendChild(el);
     G.others.set(id, { id: id, name: name, x: x, y: y, z: z, tx: x, ty: y, tz: z, el: el, img: img });
   }
-  function updateOnline() { $('ew-online').textContent = (G.others.size + 1) + ' here'; }
+  function updateOnline() { $('ew-online-n').textContent = String(G.others.size + 1); }
   function sendPos(force) {
     if (!G.me || !G.ws || G.ws.readyState !== 1) return;
     var now = performance.now();
@@ -441,16 +504,89 @@
     G.ws.send(b);
   }
 
-  // ---- chat box (same look as the 2D lobby chat)
-  function addMsg(html, cls) {
-    var box = $('ew-messages'), div = document.createElement('div'); div.className = 'msg' + (cls ? ' ' + cls : ''); div.innerHTML = html;
-    box.appendChild(div);
-    while (box.children.length > 200) box.removeChild(box.firstChild);
-    box.scrollTop = box.scrollHeight;
+  // ---- chat box: messages are drawn by the same code as the 2D lobby chat (rank, VIP, clan tag, name colour, links, @mentions,
+  // reply quotes), plus replies, reactions, a typing indicator and @name suggestions
+  function sysLine(text) { var d = document.createElement('div'); d.className = 'msg ew-sys'; d.textContent = text; $('ew-messages').appendChild(d); trimScroll(); }
+  function sys(text) { sysLine(text); }
+  function trimScroll() { var box = $('ew-messages'); while (box.children.length > 200) box.removeChild(box.firstChild); box.scrollTop = box.scrollHeight; }
+  function send(o) { if (G && G.ws && G.ws.readyState === 1) G.ws.send(JSON.stringify(o)); }
+  function chatLine(m) {
+    var el;
+    if (window.EzChat) {
+      el = window.EzChat.build(m.from, m.text, false, m.is_vip, m.rank, m.clan, m.reply_to, m.name_color, false, {
+        noModerate: true, onReply: setReply,
+        onReact: m.mid != null ? function (emoji) { send({ t: 'react', mid: m.mid, emoji: emoji }); } : null });
+    } else { el = document.createElement('div'); el.className = 'msg'; el.textContent = m.from + ': ' + m.text; }
+    if (m.mid != null) { G.msgEls.set(m.mid, el); if (G.msgEls.size > 200) G.msgEls.delete(G.msgEls.keys().next().value); }
+    $('ew-messages').appendChild(el); trimScroll();
+    if (String(m.from).toLowerCase() !== String(G.opts.username || '').toLowerCase()) {
+      G.typers.delete(String(m.from).toLowerCase()); renderTyping();
+      if (el.classList && el.classList.contains('mention-self')) { try { if (window.playNotifSound) window.playNotifSound(); } catch (e) {} }
+      try { if (window.ezpMarkUnseen) window.ezpMarkUnseen(); } catch (e) {}
+    }
   }
-  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-  function chatLine(from, text) { addMsg('<span class="name">' + esc(from) + '</span>: ' + esc(text)); }
-  function sys(text) { addMsg(esc(text), 'ew-sys'); }
+  function setReply(from, text) {
+    G.replyTo = { from: from, text: text };
+    $('ew-reply-text').textContent = 'Replying to ' + from + ': ' + String(text).slice(0, 80);
+    $('ew-reply-bar').style.display = 'flex';
+    if (document.exitPointerLock) document.exitPointerLock();
+    $('ew-chat-input').focus();
+  }
+  function clearReply() { G.replyTo = null; $('ew-reply-bar').style.display = 'none'; }
+  function sendChat() {
+    var inp = $('ew-chat-input'), t = inp.value.trim(); inp.value = '';
+    hideMention(); stopTyping();
+    if (!t) return;
+    var p = { t: 'chat', text: t };
+    if (G.replyTo && t.charAt(0) !== '/') p.reply_to = { from: G.replyTo.from, text: G.replyTo.text.slice(0, 120) };
+    send(p); clearReply();
+  }
+  // typing indicator
+  function sendTyping(state) { if (state === G.myTyping) return; G.myTyping = state; send({ t: 'typing', typing: state }); }
+  function stopTyping() { if (!G) return; clearTimeout(G.typeTimer); sendTyping(false); }
+  function notifyTyping() {
+    var v = $('ew-chat-input').value;
+    if (!v.trim() || v.charAt(0) === '/') { stopTyping(); return; }
+    sendTyping(true); clearTimeout(G.typeTimer); G.typeTimer = setTimeout(stopTyping, 4000);
+  }
+  function renderTyping() {
+    if (!G) return;
+    var now = Date.now(), names = [];
+    G.typers.forEach(function (v, k) { if (v.exp < now) G.typers.delete(k); else names.push(v.name); });
+    var el = $('ew-typing');
+    if (!names.length) { el.style.display = 'none'; return; }
+    $('ew-typing-text').textContent = names.length === 1 ? names[0] + ' is typing...' : names.length === 2 ? names[0] + ' and ' + names[1] + ' are typing...' : 'Several people are typing...';
+    el.style.display = '';
+  }
+  // @name suggestions, same look as the lobby chat
+  function updateMention() {
+    var inp = $('ew-chat-input'), v = inp.value, caret = inp.selectionStart == null ? v.length : inp.selectionStart;
+    var mm = /@([A-Za-z0-9]{0,20})$/.exec(v.slice(0, caret));
+    if (!mm) { hideMention(); return; }
+    var q = mm[1].toLowerCase(), names = [];
+    G.others.forEach(function (p) { if (p.name.toLowerCase().indexOf(q) === 0) names.push(p.name); });
+    names.sort(); names = names.slice(0, 8);
+    if (!names.length) { hideMention(); return; }
+    var keep = G.mention && G.mention.names.join() === names.join() ? G.mention.i : 0;
+    G.mention = { start: caret - mm[0].length, names: names, i: Math.min(keep, names.length - 1) };
+    var box = $('ew-mention'); box.innerHTML = '';
+    names.forEach(function (n, k) {
+      var it = document.createElement('div'); it.className = 'mention-item' + (k === G.mention.i ? ' active' : '');
+      var at = document.createElement('span'); at.className = 'at'; at.textContent = '@'; it.appendChild(at); it.appendChild(document.createTextNode(n));
+      it.onmousedown = function (e) { e.preventDefault(); insertMention(n); };
+      box.appendChild(it);
+    });
+    box.style.display = 'block';
+  }
+  function hideMention() { if (!G) return; G.mention = null; $('ew-mention').style.display = 'none'; }
+  function insertMention(name) {
+    if (!G.mention) return;
+    var inp = $('ew-chat-input'), v = inp.value, caret = inp.selectionStart == null ? v.length : inp.selectionStart;
+    var before = v.slice(0, G.mention.start), after = v.slice(caret), ins = '@' + name + ' ';
+    inp.value = before + ins + after;
+    var pos = (before + ins).length; inp.setSelectionRange(pos, pos);
+    hideMention(); inp.focus();
+  }
 
   // ---- placing and breaking
   function targetNow() {
@@ -525,6 +661,18 @@
     if (!G || G.closed) return;
     G.raf = requestAnimationFrame(frame);
     var dt = Math.min(0.05, (now - G.last) / 1000); G.last = now;
+    if (menuOpen() && locked() && document.exitPointerLock) document.exitPointerLock();
+    if (G.me && G.ready) {
+      var hd = headingOf(G.me.yaw);
+      if (Math.abs(hd - G.lastHeading) > 0.2 || G.compassDirty) {
+        G.lastHeading = hd; G.compassDirty = false;
+        if (!G.compassOff) G.compassOff = document.createElement('canvas');
+        var cs = getComputedStyle(G.view);
+        drawCompass(G.compassCv, G.compassOff, hd, (cs.getPropertyValue('--accent') || '#ee5a52').trim(), (cs.getPropertyValue('--text-primary') || '#ece6d8').trim());
+        $('ew-compass-text').textContent = windName(hd) + '  ' + Math.round(hd) % 360 + '°';
+      }
+    }
+    if (now - G.hintAt > 250) { G.hintAt = now; if (G.ready) $('ew-hint').style.display = (!locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; $('ew-compass').style.display = G.ready ? 'block' : 'none'; }
     var me = G.me;
     if (me) {
       // wait until the ground under you has arrived before letting physics run
@@ -617,13 +765,14 @@
     chunks.clear();
     try { var ext = g.gl && g.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
     g.view.style.display = 'none';
+    document.body.classList.remove('ew-open');
     $('ew-leave').onclick = null;
     $('ew-tags').innerHTML = '';
     if (!silent && g.opts.onClose) g.opts.onClose();
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();
