@@ -245,6 +245,7 @@
   .ezworld-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px 10px 16px; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 12px; }
   .ezworld-card .ezw-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .ezworld-card .ezw-text b { font-size: 14px; font-weight: 600; }
+  .ezworld-card .ezw-beta { font-size: 11px; font-weight: 500; color: var(--text-muted); margin-left: 2px; }
   .ezworld-card .ezw-text small { font-size: 11px; color: var(--text-secondary); font-weight: 400; }
   .menu-btn.ezw-join { width: auto; height: 34px; padding: 0 22px; flex-shrink: 0; }
   .menu-btn.ezw-join.loading { opacity: 0.6; cursor: progress; }
@@ -1696,7 +1697,7 @@
             <button class="menu-btn danger" id="btn-logout"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Logout</button>
           </div>
           <div class="ezworld-card">
-            <span class="ezw-text"><b>EzWorld</b><small>Build together in 3D</small></span>
+            <span class="ezw-text"><b>EzWorld <span class="ezw-beta">(beta)</span></b><small>Build together in 3D</small></span>
             <button class="menu-btn primary ezw-join" id="btn-menu-ezworld" type="button">Join</button>
           </div>
           <div id="menu-cols">
