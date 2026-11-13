@@ -363,6 +363,75 @@
     return rows;
   }
 
+  // ------------------------------------------------------------------ the FPV drone: pixel art and flight physics
+  var ART_DRONE = [[
+    "....................................",
+    "....................................",
+    ".kkkkkkkkk...............kkkkkkkkkk.",
+    "kSwwwwwwwSk.............krSwwwwwwwSk",
+    "kSSSSSSSSSk..............kSSSSSSSSSk",
+    ".kkkkkkkkk...............kkkkkkkkkk.",
+    "..ksssssk...kkkkkkkkkkkk.k.ksssssk..",
+    "..ktttttkkkkoOOOOOOOOOOokkkktttttk..",
+    "..ktttttssssoooooooooooosssstttttk..",
+    "..ktttttttttdddttttttdddtttttttttk..",
+    "..ktrtttkkkkdddtkccktdddkkkktttgtk..",
+    "...kkkkk...kyyyyyyyyyyyyk...kkkkk...",
+    "...........kdddtkkkktdddk...........",
+    "...........kdddttttttdddk...........",
+    "...........kttttttttttttk...........",
+    "............kttkkkkkkttk............",
+    "...........kkttkk..kkttkk...........",
+    "..........ksssssskkssssssk.........."
+  ], [
+    "....................................",
+    "....................................",
+    ".........................k..........",
+    "..kkkkkkk...............krkkkkkkkk..",
+    ".kSwwwwwSk...............kkSwwwwwSk.",
+    ".kSSSSSSSk...............kkSSSSSSSk.",
+    "..ksssssk...kkkkkkkkkkkk.k.ksssssk..",
+    "..ktttttkkkkoOOOOOOOOOOokkkktttttk..",
+    "..ktttttssssoooooooooooosssstttttk..",
+    "..ktttttttttdddttttttdddtttttttttk..",
+    "..ktrtttkkkkdddtkccktdddkkkktttgtk..",
+    "...kkkkk...kyyyyyyyyyyyyk...kkkkk...",
+    "...........kdddtkkkktdddk...........",
+    "...........kdddttttttdddk...........",
+    "...........kttttttttttttk...........",
+    "............kttkkkkkkttk............",
+    "...........kkttkk..kkttkk...........",
+    "..........ksssssskkssssssk.........."
+  ]];
+  PIXC.c = '#4fc3f7'; PIXC.g = '#42d36a';
+  var DR_ACCEL = 75, DR_DRAG = 1.65, DR_HALF = 0.22, DR_CRASH = 3, DR_MAXY = 430;       // top speed is accel / drag, about 45 blocks a second
+  function droneHits(x, y, z) {
+    for (var a = -1; a <= 1; a += 2) for (var b = -1; b <= 1; b += 2) for (var c = -1; c <= 1; c += 2)
+      if (getBlock(Math.floor(x + a * DR_HALF), Math.floor(y + b * DR_HALF), Math.floor(z + c * DR_HALF)) !== 0) return true;
+    return false;
+  }
+  // One physics step. The drone flies where you look (W/S), strafes (A/D) and climbs (Space) or dives (Shift). Returns 'ok', 'bump' (touched something
+  // slowly) or 'crash' (hit something at speed; the server decides what breaks).
+  function stepDrone(d, inp, dt) {
+    var cp = Math.cos(d.pitch), fx = -Math.sin(d.yaw) * cp, fy = Math.sin(d.pitch), fz = -Math.cos(d.yaw) * cp, rx = Math.cos(d.yaw), rz = -Math.sin(d.yaw);
+    var f = (inp.f ? 1 : 0) - (inp.b ? 1 : 0), s = (inp.r ? 1 : 0) - (inp.l ? 1 : 0), u = (inp.up ? 1 : 0) - (inp.down ? 1 : 0);
+    var wx = fx * f + rx * s, wy = fy * f + u, wz = fz * f + rz * s, wl = Math.sqrt(wx * wx + wy * wy + wz * wz);
+    if (wl > 1) { wx /= wl; wy /= wl; wz /= wl; }
+    d.vx += (wx * DR_ACCEL - d.vx * DR_DRAG) * dt; d.vy += (wy * DR_ACCEL - d.vy * DR_DRAG) * dt; d.vz += (wz * DR_ACCEL - d.vz * DR_DRAG) * dt;
+    var speed = Math.sqrt(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz), steps = Math.max(1, Math.ceil(speed * dt / 0.3)), res = 'ok';
+    for (var i = 0; i < steps; i++) {
+      var sx = d.vx * dt / steps, sy = d.vy * dt / steps, sz = d.vz * dt / steps;
+      if (!droneHits(d.x + sx, d.y, d.z)) d.x += sx; else { res = speed >= DR_CRASH ? 'crash' : 'bump'; d.vx = 0; }
+      if (!droneHits(d.x, d.y + sy, d.z)) d.y += sy; else { res = speed >= DR_CRASH ? 'crash' : 'bump'; d.vy = 0; }
+      if (!droneHits(d.x, d.y, d.z + sz)) d.z += sz; else { res = speed >= DR_CRASH ? 'crash' : 'bump'; d.vz = 0; }
+      if (res === 'crash') break;
+    }
+    d.x = Math.min(Math.max(d.x, WMIN + 0.5), WMAX - 0.5); d.z = Math.min(Math.max(d.z, WMIN + 0.5), WMAX - 0.5);
+    if (d.y > DR_MAXY) { d.y = DR_MAXY; if (d.vy > 0) d.vy = 0; }
+    if (d.y < 1) { d.y = 1; if (d.vy < 0) d.vy = 0; }
+    return res;
+  }
+
   // ------------------------------------------------------------------ compass
   var WIND = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function headingOf(yaw) { return (((-yaw * 180 / Math.PI) % 360) + 360) % 360; }   // 0 = north (-Z), 90 = east (+X), 180 = south, 270 = west
@@ -417,15 +486,15 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50 }, rks: [], booms: [], lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false }, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
     if (menuOpen() && window.hideMenu) window.hideMenu();           // the menu you pressed Join in must not stay on top of the world
     $('ew-leave').onclick = function () { close(false); };
     $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
-    view.style.setProperty('--ew-launcher', pixUrl(ART_LAUNCHER)); view.style.setProperty('--ew-rocket', pixUrl(ART_ROCKET)); view.style.setProperty('--ew-boom', pixUrl(boomSheet()));
-    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
+    view.style.setProperty('--ew-launcher', pixUrl(ART_LAUNCHER)); view.style.setProperty('--ew-rocket', pixUrl(ART_ROCKET)); view.style.setProperty('--ew-boom', pixUrl(boomSheet())); view.style.setProperty('--ew-drone0', pixUrl(ART_DRONE[0])); view.style.setProperty('--ew-drone1', pixUrl(ART_DRONE[1]));
+    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
     $('ew-me-name').textContent = opts.username || '';
     var me = $('ew-me-img'); me.onerror = function () { me.onerror = null; me.src = opts.defaultAvatar; }; me.src = opts.avatarUrl(opts.username || '');
     syncUserBar();
@@ -490,12 +559,14 @@
     on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
     on(document, 'mousemove', function (e) {
       if (!locked() || !G.me) return;
-      G.me.yaw -= (e.movementX || 0) * 0.0023;
-      G.me.pitch = Math.max(-1.55, Math.min(1.55, G.me.pitch - (e.movementY || 0) * 0.0023));
+      var who = G.drone || G.me;
+      who.yaw -= (e.movementX || 0) * 0.0023;
+      who.pitch = Math.max(-1.55, Math.min(1.55, who.pitch - (e.movementY || 0) * 0.0023));
     });
     on(canvas, 'mousedown', function (e) {            // one action per click: holding the button does nothing
       if (!locked() || !G.ready) return;
       e.preventDefault();
+      if (G.drone) return;                                   // no placing, breaking or rockets while flying
       if (e.button === 0) { if (G.inv.armed) fireRocket(); else doBreak(); } else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
     });
     on(canvas, 'wheel', function (e) { e.preventDefault(); selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
@@ -517,7 +588,8 @@
         if (now - G.lastTap < 320) G.sprint = true;
         G.lastTap = now;
       }
-      if (e.code === 'Digit1') setArmed(!G.inv.armed);
+      if (e.code === 'Digit1' && !G.drone) setArmed(!G.inv.armed);
+      if (e.code === 'Digit2') toggleDrone();
       if (e.code === 'KeyB') { openShop(); return; }
       if (e.code === 'KeyQ') selectColor(G.sel - 1);
       if (e.code === 'KeyE') selectColor(G.sel + 1);
@@ -556,6 +628,8 @@
     on($('ew-shop-close'), 'click', closeShop);
     on($('ew-shop-buy'), 'click', shopBuy);
     on($('ew-shop-equip'), 'click', function () { setArmed(!G.inv.armed); });
+    on($('ew-shop-dbuy'), 'click', shopBuyDrone);
+    on($('ew-shop-dlaunch'), 'click', function () { closeShop(); toggleDrone(); });
     G.timers.push(setInterval(function () { renderTyping(); syncUserBar(); }, 1000));
     on($('ew-leave'), 'click', function () { close(false); });
     G.timers.push(setInterval(ensureChunks, 200));
@@ -600,6 +674,15 @@
     if (d instanceof ArrayBuffer) {
       var dv = new DataView(d), t = dv.getUint8(0);
       if (t === 0x10) { loadChunkFrame(dv); }
+      else if (t === 0x12) {                                 // positions of flying drones
+        var dn = dv.getUint16(1, true), dop = 3;
+        for (var di = 0; di < dn; di++, dop += 10) {
+          var did = dv.getUint16(dop, true), dd = G.drones.get(did);
+          if (!dd) { var pl = G.others.get(did); dd = { id: did, name: pl ? pl.name : '', x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: 0, el: null, fresh: true }; G.drones.set(did, dd); }
+          dd.tx = dv.getInt16(dop + 2, true) / 16; dd.ty = dv.getInt16(dop + 4, true) / 16; dd.tz = dv.getInt16(dop + 6, true) / 16;
+          if (dd.fresh) { dd.x = dd.tx; dd.y = dd.ty; dd.z = dd.tz; dd.fresh = false; }
+        }
+      }
       else if (t === 0x11) {
         var n = dv.getUint16(1, true), o = 3;
         for (var i = 0; i < n; i++, o += 10) {
@@ -622,16 +705,20 @@
         $('ew-load').textContent = 'Loading the world...';
         ensureChunks();
         break;
+      case 'dstart': startDrone(m); break;
+      case 'dend': endDrone(m); break;
+      case 'dtp': if (G.drone) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; } break;
+      case 'dr': if (m.on) { G.drones.set(m.id, { id: m.id, name: m.name || '', x: m.x, y: m.y, z: m.z, tx: m.x, ty: m.y, tz: m.z, el: null, fresh: false }); } else removeDrone(m.id); break;
       case 'inv': applyInv(m); break;
       case 'rk': addRocket(m); break;
-      case 'bs': { (m.d || []).forEach(function (b) { setBlock(b[0], b[1], b[2], b[3]); }); if (m.e) addBoom(m.e); break; }
+      case 'bs': { (m.d || []).forEach(function (b) { setBlock(b[0], b[1], b[2], b[3]); }); if (m.e) addBoom(m.e, m.s); break; }
       case 'online': setTotal(m.total); break;
       case 'sys': sys(m.text); break;
       case 'chat': chatLine(m); break;
       case 'typing': { var k = String(m.name).toLowerCase(); if (m.typing) G.typers.set(k, { name: m.name, exp: Date.now() + 7000 }); else G.typers.delete(k); renderTyping(); break; }
       case 'reaction': { var rel = G.msgEls.get(m.mid); if (rel && window.EzChat) window.EzChat.apply(rel, m.emoji, m.user, m.on); break; }
       case 'join': addOther(m.id, m.name, m.x, m.y, m.z); sys(m.name + ' joined EzWorld.'); updateOnline(); break;
-      case 'leave': { var o2 = G.others.get(m.id); if (o2) { sys(o2.name + ' left EzWorld.'); o2.el.remove(); G.others.delete(m.id); G.typers.delete(o2.name.toLowerCase()); renderTyping(); updateOnline(); } break; }
+      case 'leave': { var o2 = G.others.get(m.id); if (o2) { sys(o2.name + ' left EzWorld.'); o2.el.remove(); G.others.delete(m.id); removeDrone(m.id); G.typers.delete(o2.name.toLowerCase()); renderTyping(); updateOnline(); } break; }
       case 'b': {
         var x = m.d[0], y = m.d[1], z = m.d[2], c = m.d[3];
         var ch = setBlock(x, y, z, c);
@@ -756,8 +843,9 @@
   function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function setTotal(n) { $('ew-online-total').textContent = String(n); }
   function applyInv(m) {
-    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0;
+    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0 && !G.drone;
     if (m.price) i.price = m.price; if (m.per) i.per = m.per; if (m.max) i.max = m.max;
+    i.drone = !!m.drone; if (m.dprice) i.dprice = m.dprice; i.flying = !!m.flying;
     renderInv();
   }
   function renderInv() {
@@ -765,25 +853,40 @@
     $('ew-hotbar').style.display = i.rockets > 0 ? 'flex' : 'none';
     $('ew-hotbar').classList.toggle('sel', i.armed);
     $('ew-hotbar-count').textContent = String(i.rockets);
-    $('ew-held').style.display = i.armed ? 'block' : 'none';
+    $('ew-hotbar2').style.display = i.drone ? 'flex' : 'none';
+    $('ew-hotbar2').classList.toggle('sel', !!G.drone);
+    $('ew-held').style.display = i.armed && !G.drone ? 'block' : 'none';
     $('ew-shop-price').textContent = fmt(i.price) + ' PlaceBux';
     $('ew-shop-have').textContent = i.rockets > 0 ? 'You have ' + i.rockets + ' rocket' + (i.rockets === 1 ? '' : 's') + '.' : 'You have no rockets yet.';
     var eq = $('ew-shop-equip'); eq.textContent = i.armed ? 'Put away' : 'Equip'; eq.disabled = i.rockets <= 0;
     var buy = $('ew-shop-buy'); buy.disabled = i.rockets + i.per > i.max;
     if (!G.buyArm) buy.textContent = buy.disabled ? 'Carrying the most' : 'Buy';
+    $('ew-shop-dprice').textContent = fmt(i.dprice) + ' PlaceBux';
+    $('ew-shop-dhave').textContent = i.drone ? 'You own one. Press 2 to launch it.' : '';
+    var db = $('ew-shop-dbuy'); db.disabled = i.drone;
+    if (!G.dbuyArm) db.textContent = i.drone ? 'Owned' : 'Buy';
+    var dl = $('ew-shop-dlaunch'); dl.disabled = !i.drone; dl.textContent = G.drone ? 'Land' : 'Launch';
   }
   function balance() { try { return typeof myBalance !== 'undefined' ? myBalance : 0; } catch (e) { return 0; } }
   function shopOpen() { return $('ew-shop').style.display === 'flex'; }
   function refreshShop() {
     $('ew-shop-bal').textContent = 'PlaceBux: ' + fmt(balance());
     if (G.buyArm && performance.now() > G.buyArm) { G.buyArm = 0; renderInv(); }
+    if (G.dbuyArm && performance.now() > G.dbuyArm) { G.dbuyArm = 0; renderInv(); }
+  }
+  function shopBuyDrone() {                                      // two clicks here too
+    var i = G.inv, now = performance.now();
+    if (i.drone) return;
+    if (G.dbuyArm && now < G.dbuyArm) { G.dbuyArm = 0; send({ t: 'buy', item: 'drone' }); renderInv(); return; }
+    if (balance() < i.dprice) { $('ew-shop-note').textContent = 'You need ' + fmt(i.dprice) + ' PlaceBux (you have ' + fmt(balance()) + ').'; return; }
+    $('ew-shop-note').textContent = ''; G.dbuyArm = now + 3000; $('ew-shop-dbuy').textContent = 'Click again to confirm';
   }
   function openShop() {
     if (document.exitPointerLock) document.exitPointerLock();
     $('ew-shop').style.display = 'flex'; $('ew-shop-note').textContent = '';
     renderInv(); refreshShop(); clearInterval(G.shopTimer); G.shopTimer = setInterval(refreshShop, 500);
   }
-  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; renderInv(); }
+  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; G.dbuyArm = 0; renderInv(); }
   function shopBuy() {                                           // two clicks, so 5,000 PlaceBux can't go on one slip
     var i = G.inv, now = performance.now();
     if (i.rockets + i.per > i.max) return;
@@ -806,8 +909,8 @@
     var h = $('ew-held'); h.classList.add('fire'); setTimeout(function () { h.classList.remove('fire'); }, 130);
   }
   function addRocket(m) { G.rks.push({ o: m.o, e: m.e, s: m.s || 45, t0: performance.now(), el: null }); }
-  function addBoom(e) {
-    G.booms.push({ p: e, t0: performance.now(), el: null });
+  function addBoom(e, scale) {
+    G.booms.push({ p: e, t0: performance.now(), el: null, s: scale || 1 });
     if (G.me) { var dx = e[0] - G.me.x, dz = e[2] - G.me.z; if (dx * dx + dz * dz < 900) G.shake = performance.now() + 350; }
   }
   function drawFx(vp, focal) {
@@ -832,11 +935,73 @@
       sp = project(vp, b.p[0], b.p[1], b.p[2], G.cw, G.ch);
       if (!sp) { if (b.el) b.el.style.display = 'none'; continue; }
       if (!b.el) { b.el = document.createElement('div'); b.el.className = 'ew-boom'; layer.appendChild(b.el); }
-      var bs = Math.max(40, Math.min(900, focal * 7.5 / sp.w)), frame = Math.min(3, Math.floor(bf * 4));
+      var bsc = b.s || 1, bs = Math.max(40 * bsc, Math.min(900, focal * 7.5 * bsc / sp.w)), frame = Math.min(3, Math.floor(bf * 4));
       b.el.style.display = 'block'; b.el.style.width = b.el.style.height = bs.toFixed(0) + 'px';
       b.el.style.setProperty('--f', String(frame)); b.el.style.opacity = bf > 0.75 ? String(1 - (bf - 0.75) / 0.25) : '1';
       b.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-50%)';
     }
+  }
+
+  // ---- flying the drone
+  function toggleDrone() {
+    if (G.drone) { send({ t: 'drone', on: false }); return; }
+    if (!G.inv.drone) { sys('You do not own an FPV drone. Buy one in the shop (B).'); return; }
+    if (!G.me || !G.me.onGround) { sys('Stand on the ground to launch the drone.'); return; }
+    send({ t: 'drone', on: true });
+  }
+  function startDrone(m) {
+    G.drone = { x: m.x, y: m.y, z: m.z, vx: 0, vy: 0, vz: 0, yaw: G.me.yaw, pitch: 0, crashAt: 0 };
+    G.inv.armed = false; G.dlast = ''; G.dsent = 0;
+    G.view.classList.add('fpv'); $('ew-osd').style.display = 'flex'; $('ew-cross').style.display = 'block';
+    renderInv();
+  }
+  function endDrone(m) {
+    G.drone = null; G.bodyWait = true;                             // back in your body; wait for the ground under it to be loaded before it moves
+    G.view.classList.remove('fpv'); $('ew-osd').style.display = 'none';
+    if (m && m.crash) { sys('Signal lost: your drone crashed.'); G.shake = performance.now() + 250; }
+    renderInv();
+  }
+  function removeDrone(id) { var d = G.drones.get(id); if (d && d.el) d.el.remove(); G.drones.delete(id); }
+  function sendDronePos(force) {
+    var d = G.drone; if (!d || !G.ws || G.ws.readyState !== 1) return;
+    var qx = Math.round(d.x * 16), qy = Math.round(d.y * 16), qz = Math.round(d.z * 16);
+    var yaw = Math.floor(((d.yaw % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * 256) & 255;
+    var pit = Math.max(0, Math.min(255, Math.round((d.pitch + Math.PI / 2) / Math.PI * 255)));
+    var key = qx + ',' + qy + ',' + qz + ',' + yaw + ',' + pit;
+    if (key === G.dlast && !force) return;
+    G.dlast = key; G.dsent = performance.now();
+    var b = new ArrayBuffer(9), dv = new DataView(b);
+    dv.setUint8(0, 2); dv.setInt16(1, qx, true); dv.setInt16(3, qy, true); dv.setInt16(5, qz, true); dv.setUint8(7, yaw); dv.setUint8(8, pit);
+    G.ws.send(b);
+  }
+  function flyDrone(dt) {
+    var d = G.drone, k = G.keys, now = performance.now();
+    if (d.crashAt && now - d.crashAt > 1200) d.crashAt = 0;       // the server did not agree it was a crash: carry on flying
+    var inp = (d.crashAt || !locked()) ? {} : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
+    var res = stepDrone(d, inp, dt);
+    if (res === 'crash' && !d.crashAt) { d.crashAt = now; d.vx = d.vy = d.vz = 0; sendDronePos(true); send({ t: 'dcrash' }); }
+    else if (now - G.dsent >= 50) sendDronePos();
+    var me = G.me, sp = Math.sqrt(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz);
+    $('ew-osd-spd').textContent = sp.toFixed(1); $('ew-osd-alt').textContent = String(Math.round(d.y));
+    $('ew-osd-dist').textContent = String(Math.round(Math.hypot(d.x - me.x, d.y - me.y, d.z - me.z)));
+  }
+  function drawDrones(vp, focal, ex, ey, ez, dt, now) {
+    var layer = $('ew-fx'), f1 = Math.floor(now / 90) % 2 === 1;
+    G.drones.forEach(function (dr) {
+      var k = Math.min(1, dt * 14);
+      dr.x += (dr.tx - dr.x) * k; dr.y += (dr.ty - dr.y) * k; dr.z += (dr.tz - dr.z) * k;
+      var sp = project(vp, dr.x, dr.y, dr.z, G.cw, G.ch);
+      if (!sp || sp.w > 170 || lineBlocked(ex, ey, ez, dr.x, dr.y, dr.z)) { if (dr.el) dr.el.style.display = 'none'; return; }
+      if (!dr.el) {
+        dr.el = document.createElement('div'); dr.el.className = 'ew-drone';
+        var nm = document.createElement('span'); nm.className = 'ew-drone-name'; dr.nm = nm; dr.el.appendChild(nm); layer.appendChild(dr.el);
+      }
+      if (dr.nm.textContent !== dr.name) dr.nm.textContent = dr.name;
+      var w = Math.max(22, Math.min(260, focal * 1.1 / sp.w));
+      dr.el.style.display = 'block'; dr.el.style.width = w.toFixed(1) + 'px'; dr.el.style.height = (w / 2).toFixed(1) + 'px';
+      dr.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-50%)';
+      dr.el.classList.toggle('f1', f1);
+    });
   }
 
   // ---- placing and breaking
@@ -870,7 +1035,8 @@
   // ---- chunk streaming and mesh upload
   function ensureChunks() {
     if (!G || !G.me || !G.ws || G.ws.readyState !== 1) return;
-    var pcx = Math.floor(G.me.x / 16), pcz = Math.floor(G.me.z / 16), now = performance.now(), want = [], pending = 0;
+    var cv = G.drone || G.me;                                       // load the world around the camera, which is the drone while you fly
+    var pcx = Math.floor(cv.x / 16), pcz = Math.floor(cv.z / 16), now = performance.now(), want = [], pending = 0;
     chunks.forEach(function (c, k) {
       if (Math.max(Math.abs(c.cx - pcx), Math.abs(c.cz - pcz)) > RDIST + 2) { freeMesh(c); chunks.delete(k); }
       else if (!c.loaded && now - c.reqAt < 6000) pending++;
@@ -916,7 +1082,7 @@
     if (menuOpen() && locked() && document.exitPointerLock) document.exitPointerLock();
     if (G.shake > now) { G.canvas.style.transform = 'translate(' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px,' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px)'; G.shaking = true; } else if (G.shaking) { G.canvas.style.transform = ''; G.shaking = false; }
     if (G.me && G.ready) {
-      var hd = headingOf(G.me.yaw);
+      var hd = headingOf((G.drone || G.me).yaw);
       if (Math.abs(hd - G.lastHeading) > 0.2 || G.compassDirty) {
         G.lastHeading = hd; G.compassDirty = false;
         if (!G.compassOff) G.compassOff = document.createElement('canvas');
@@ -941,7 +1107,10 @@
       }
       if (G.ready) {
         var k = G.keys, inp = { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, jump: k.Space, sprint: G.sprint && (k.KeyW || k.ArrowUp) };
-        var changed = stepPlayer(me, inp, dt);
+        var changed = false;
+        if (G.drone) flyDrone(dt);                                    // the body stands still while the drone flies
+        else if (G.bodyWait) { var bu = chunks.get(ckey(Math.floor(me.x) >> 4, Math.floor(me.z) >> 4)); if (bu && bu.loaded) G.bodyWait = false; }
+        else changed = stepPlayer(me, inp, dt);
         if (me.stuck > 1.5) { me.stuck = -4; send({ t: 'chat', text: '/unstuck' }); }       // could not push out on our own: ask the server for the nearest free spot
         sendPos(changed);
         $('ew-coords').textContent = 'X ' + me.x.toFixed(1) + '  Y ' + me.y.toFixed(1) + '  Z ' + me.z.toFixed(1);
@@ -962,9 +1131,9 @@
     var gl = G.gl, me = G.me;
     gl.clearColor(SKY[0], SKY[1], SKY[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (!me) return;
-    var fovNow = FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);
-    var ex = me.x, ey = me.y + EYE, ez = me.z;
-    var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), viewMatrix(ex, ey, ez, me.yaw, me.pitch));
+    var cam = G.drone, fovNow = cam ? FOV + 0.45 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
+    var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
+    var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch));
     G.vp = vp;
     gl.useProgram(G.prog);
     gl.uniformMatrix4fv(G.loc.vp, false, vp);
@@ -984,7 +1153,7 @@
       gl.drawArrays(gl.TRIANGLES, 0, c.mesh.count);
     });
     // outline of what you are aiming at
-    if (G.ready) {
+    if (G.ready && !G.drone) {
       var h = targetNow();
       if (h) {
         gl.bindBuffer(gl.ARRAY_BUFFER, G.lineBuf);
@@ -998,6 +1167,7 @@
     // other players: profile picture + name, as page elements so any picture works
     var focal = (G.ch / 2) / Math.tan(fovNow / 2);
     drawFx(vp, focal);
+    drawDrones(vp, focal, ex, ey, ez, dt, performance.now());
     G.others.forEach(function (p) {
       var k = Math.min(1, dt * 12);
       p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; p.z += (p.tz - p.z) * k;
@@ -1032,7 +1202,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();

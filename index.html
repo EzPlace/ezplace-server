@@ -272,7 +272,20 @@
   .ew-boom { position: absolute; left: 0; top: 0; background: var(--ew-boom) calc(var(--f, 0) * 33.3333%) 0 / 400% 100% no-repeat; image-rendering: pixelated; }
   #ew-held { display: none; position: absolute; right: 3%; bottom: -14px; width: 340px; height: 170px; background: var(--ew-launcher) center / contain no-repeat; image-rendering: pixelated; pointer-events: none; transform: rotate(7deg); transform-origin: 80% 100%; transition: transform 0.09s ease-out; }
   #ew-held.fire { transform: translate(12px, 16px) rotate(11deg); }
-  #ew-hotbar { display: none; position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); align-items: center; gap: 8px; padding: 6px 12px; background: rgba(12,12,16,0.62); border: 2px solid rgba(255,255,255,0.18); border-radius: 10px; color: #fff; font-weight: 700; font-size: 14px; pointer-events: none; }
+  #ew-bars { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: none; }
+  #ew-hotbar, #ew-hotbar2 { display: none; align-items: center; gap: 8px; padding: 6px 12px; background: rgba(12,12,16,0.62); border: 2px solid rgba(255,255,255,0.18); border-radius: 10px; color: #fff; font-weight: 700; font-size: 14px; }
+  #ew-hotbar2.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+  #ew-hotbar2 .key { font-size: 11px; opacity: 0.7; }
+  #ew-hotbar2 .ico { width: 44px; height: 22px; background: var(--ew-drone0) center / contain no-repeat; image-rendering: pixelated; }
+  .ew-shop-ico.drone { background: var(--bg-secondary) var(--ew-drone0) center / 70% no-repeat; }
+  .ew-drone { position: absolute; left: 0; top: 0; background: var(--ew-drone0) center / 100% 100% no-repeat; image-rendering: pixelated; }
+  .ew-drone.f1 { background-image: var(--ew-drone1); }
+  .ew-drone-name { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 2px; padding: 0 6px; font-size: 11px; font-weight: 600; color: #fff; background: rgba(0,0,0,0.58); border-radius: 4px; white-space: nowrap; }
+  #ew-osd { display: none; position: absolute; left: 50%; top: 64px; transform: translateX(-50%); gap: 16px; padding: 4px 14px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #7dff9a; text-shadow: 0 0 6px rgba(0,0,0,0.9); background: rgba(0,0,0,0.35); border: 1px solid rgba(125,255,154,0.45); border-radius: 6px; pointer-events: none; }
+  #ew-osd b { color: #fff; font-weight: 700; }
+  #ew-osd .osd-hint { opacity: 0.6; }
+  #ew-view.fpv #ew-stage::after { content: ''; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 140px 30px rgba(0,0,0,0.55); }
+  #ew-hotbar { position: static; }
   #ew-hotbar.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
   #ew-hotbar .key { font-size: 11px; opacity: 0.7; }
   #ew-hotbar .ico { width: 54px; height: 26px; background: var(--ew-launcher) center / contain no-repeat; image-rendering: pixelated; }
@@ -1099,7 +1112,11 @@
       <div id="ew-tags"></div>
       <div id="ew-fx"></div>
       <div id="ew-held"></div>
-      <div id="ew-hotbar" title="Rocket launcher: press 1 to equip"><span class="key">1</span><span class="ico"></span><span id="ew-hotbar-count">0</span></div>
+      <div id="ew-bars">
+        <div id="ew-hotbar" title="Rocket launcher: press 1 to equip"><span class="key">1</span><span class="ico"></span><span id="ew-hotbar-count">0</span></div>
+        <div id="ew-hotbar2" title="FPV drone: press 2 to launch or land"><span class="key">2</span><span class="ico"></span></div>
+      </div>
+      <div id="ew-osd"><span>FPV</span><span>SPD <b id="ew-osd-spd">0</b> b/s</span><span>ALT <b id="ew-osd-alt">0</b></span><span>HOME <b id="ew-osd-dist">0</b></span><span class="osd-hint">2 land</span></div>
       <div id="ew-cross"></div>
       <div id="ew-compass"><canvas id="ew-compass-cv" width="760" height="80"></canvas><div id="ew-compass-text"></div></div>
       <div id="ew-hint">
@@ -1108,7 +1125,7 @@
           <div class="ew-keys">
             <span><b>W A S D</b> move</span><span><b>W W</b> sprint</span><span><b>Space</b> jump</span>
             <span><b>Left click</b> break</span><span><b>Right click</b> place</span><span><b>Wheel / Q E</b> colour</span>
-            <span><b>1</b> rocket launcher</span><span><b>B</b> shop</span>
+            <span><b>1</b> rocket launcher</span><span><b>2</b> FPV drone</span><span><b>B</b> shop</span>
             <span><b>Middle click</b> pick colour</span><span><b>T / Enter</b> chat</span><span><b>Esc</b> release mouse</span>
           </div>
         </div>
@@ -1128,6 +1145,19 @@
               <span id="ew-shop-price"></span>
               <button id="ew-shop-buy" class="win-btn">Buy</button>
               <button id="ew-shop-equip" class="win-btn">Equip</button>
+            </div>
+          </div>
+          <div class="ew-shop-item">
+            <div class="ew-shop-ico drone"></div>
+            <div class="ew-shop-info">
+              <b>FPV Drone</b>
+              <small>Fly a camera drone at up to 45 blocks a second and see through its lens. Other players see it too. You can't place or break blocks while you fly. A crash breaks up to 3 blocks, and you keep the drone.</small>
+              <span id="ew-shop-dhave"></span>
+            </div>
+            <div class="ew-shop-act">
+              <span id="ew-shop-dprice"></span>
+              <button id="ew-shop-dbuy" class="win-btn">Buy</button>
+              <button id="ew-shop-dlaunch" class="win-btn">Launch</button>
             </div>
           </div>
           <div id="ew-shop-note"></div>

@@ -9785,6 +9785,14 @@ ROCKET_RANGE = 120.0              # blocks a rocket can fly
 ROCKET_SPEED = 45.0               # blocks per second
 ROCKET_RADIUS = 3.2               # blocks removed around the point of impact
 ROCKET_COOLDOWN = 1.2             # seconds between two shots
+DRONE_PRICE = 300                 # PlaceBux for an FPV drone (bought once and kept)
+DRONE_MAX_SPEED = 55.0            # blocks per second a drone may move (it flies at about 45)
+DRONE_BURST = 14.0                # distance a laggy connection may "catch up" at once
+DRONE_MAX_Y = 430.0               # highest a drone may fly
+DRONE_CRASH_SPEED = 3.0           # hitting something slower than this is only a bump
+DRONE_CRASH_BLOCKS = 3            # a crash breaks at most this many blocks
+DRONE_COOLDOWN = 3.0              # seconds before the drone can be launched again
+DRONE_NEAR = 96.0                 # drones are refreshed 10 times a second within this distance of the viewer
 ROCKET_PROTECT = 0.0              # rockets break blocks everywhere; set this to a number of blocks to protect that radius around the spawn centre again
 WORLD_MAX_HSPEED = 10.0           # sprinting is 7 b/s; the margin covers lag spikes
 WORLD_JUMP_BUDGET = 1.7           # how far up you may rise per jump (a jump is ~1.3 blocks)
@@ -9956,10 +9964,14 @@ async def _w_send(p, data):
     except Exception: pass
 
 async def _w_broadcast(data, near=None, exclude=None):
-    """near = (x, z): only players within ~11 chunks hear it (blocks); None: everyone."""
+    """near = (x, z): only players within ~11 chunks hear it (blocks). A player counts as being where their body is and where their drone is. None: everyone."""
     for pid, p in list(world_players.items()):
         if exclude is not None and pid == exclude: continue
-        if near is not None and (abs((int(p["x"]) >> 4) - (near[0] >> 4)) > 11 or abs((int(p["z"]) >> 4) - (near[1] >> 4)) > 11): continue
+        if near is not None:
+            spots = [(p["x"], p["z"])]
+            dr = p.get("drone")
+            if dr: spots.append((dr["x"], dr["z"]))
+            if not any(abs((int(sx) >> 4) - (near[0] >> 4)) <= 11 and abs((int(sz) >> 4) - (near[1] >> 4)) <= 11 for sx, sz in spots): continue
         await _w_send(p, data)
 
 async def _w_sys(p, text):
@@ -10001,6 +10013,7 @@ def _w_clamp_pos(x, y, z):
     return (min(max(x, WORLD_MIN + 0.5), WORLD_MAX - 0.5), min(max(y, 1.0), WORLD_HMAX + 5.0), min(max(z, WORLD_MIN + 0.5), WORLD_MAX - 0.5))
 
 async def _w_teleport(p, x, y, z):
+    if p.get("drone"): await _w_drone_end(p, False)
     x, y, z = _w_clamp_pos(x, y, z)
     p["x"], p["y"], p["z"] = x, y, z
     p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["hb"] = 6.0; p["q"] = (int(x * 16), int(y * 16), int(z * 16)); p["ver"] += 1
@@ -10055,20 +10068,22 @@ def _w_move_check(p, x, y, z, now):
     return True
 
 def _w_tick_frames():
-    """One tick: for each player, a frame with the players who moved since that viewer last heard about them, who are within
-    sight range; players beyond NEAR are only refreshed every WORLD_MID_EVERY ticks. Returns [(viewer, frame bytes)]."""
+    """One tick: for each viewer, a frame with the players who moved since that viewer last heard about them and a frame with flying drones,
+    both only within sight range; far ones are only refreshed every WORLD_MID_EVERY ticks. Returns [(viewer, frame bytes)]."""
     global world_tick_n
     world_tick_n += 1
     out = []
     plist = list(world_players.values())
     for r in plist:
+        rd = r.get("drone")
+        vx, vz = (rd["x"], rd["z"]) if rd else (r["x"], r["z"])             # a pilot sees the world from the drone, not from their body
         seen = r["seen"]
         entries = []
         for p in plist:
             if p is r: continue
             ent = seen.get(p["id"])
             if ent is not None and ent[0] == p["ver"]: continue            # nothing new about this player
-            d = ((p["x"] - r["x"]) ** 2 + (p["z"] - r["z"]) ** 2) ** 0.5
+            d = ((p["x"] - vx) ** 2 + (p["z"] - vz) ** 2) ** 0.5
             if d > WORLD_FAR: continue                                      # too far to be seen
             if d > WORLD_NEAR and ent is not None and world_tick_n - ent[1] < WORLD_MID_EVERY: continue
             seen[p["id"]] = (p["ver"], world_tick_n)
@@ -10077,6 +10092,23 @@ def _w_tick_frames():
             body = bytearray(struct.pack("<BH", 0x11, len(entries)))
             for p in entries:
                 body += struct.pack("<Hhhh BB", p["id"], int(p["x"] * 16), int(p["y"] * 16), int(p["z"] * 16), p["yaw"], p["pitch"])
+            out.append((r, bytes(body)))
+        dseen = r.setdefault("dseen", {})
+        dent = []
+        for p in plist:
+            dr = p.get("drone")
+            if p is r or not dr: continue
+            ent = dseen.get(p["id"])
+            if ent is not None and ent[0] == dr["ver"]: continue
+            d = ((dr["x"] - vx) ** 2 + (dr["z"] - vz) ** 2) ** 0.5
+            if d > WORLD_FAR: continue
+            if d > DRONE_NEAR and ent is not None and world_tick_n - ent[1] < WORLD_MID_EVERY: continue
+            dseen[p["id"]] = (dr["ver"], world_tick_n)
+            dent.append((p["id"], dr))
+        if dent:
+            body = bytearray(struct.pack("<BH", 0x12, len(dent)))
+            for pid, dr in dent:
+                body += struct.pack("<Hhhh BB", pid, int(dr["x"] * 16), int(dr["y"] * 16), int(dr["z"] * 16), dr["yaw"], dr["pitch"])
             out.append((r, bytes(body)))
     return out
 
@@ -10110,6 +10142,7 @@ def _w_ray(ox, oy, oz, dx, dy, dz, maxd):
     return None
 
 def _inv_rockets(name): return int((world_inv.get(name.lower()) or {}).get("rockets", 0))
+def _inv_drone(name): return bool((world_inv.get(name.lower()) or {}).get("drone"))
 
 async def _inv_save():
     global _inv_dirty, _inv_handle
@@ -10127,7 +10160,8 @@ def _inv_touch():
     if _inv_handle is None: _inv_handle = asyncio.get_event_loop().call_later(15, lambda: asyncio.ensure_future(_inv_save()))
 
 async def _w_send_inv(p):
-    await _w_send(p, {"t": "inv", "rockets": _inv_rockets(p["name"]), "armed": bool(p.get("armed")), "price": ROCKET_PRICE, "per": ROCKETS_PER_LAUNCHER, "max": ROCKET_MAX_HELD})
+    await _w_send(p, {"t": "inv", "rockets": _inv_rockets(p["name"]), "armed": bool(p.get("armed")), "price": ROCKET_PRICE, "per": ROCKETS_PER_LAUNCHER, "max": ROCKET_MAX_HELD,
+                      "drone": _inv_drone(p["name"]), "dprice": DRONE_PRICE, "flying": bool(p.get("drone"))})
 
 async def _w_explode(cell, ex, ey, ez, by=None):
     """A rocket arrived: remove the blocks in a ball around it (never bedrock, never near spawn) and tell everybody nearby."""
@@ -10147,6 +10181,60 @@ async def _w_explode(cell, ex, ey, ez, by=None):
         shooter = _w_find(by)
         if shooter: await _w_sys(shooter, "Rockets do not break blocks near the spawn area.")
     await _w_broadcast({"t": "bs", "e": [round(ex, 2), round(ey, 2), round(ez, 2)], "d": changed}, near=(cx, cz))
+
+def _w_drone_move(p, x, y, z, yaw, pitch, now):
+    """Check one position report from a flying drone. Returns ("ok", None), ("reject", None) or ("crash", (x, y, z))."""
+    dr = p["drone"]
+    dt = min(max(now - dr["t"], 0.0), 2.0)
+    dr["hb"] = min(dr["hb"] + DRONE_MAX_SPEED * dt, DRONE_BURST)
+    fx, fy, fz = int(math.floor(x)), int(math.floor(y)), int(math.floor(z))
+    if not world_in_bounds(fx, fz) or y < 0.5 or y > DRONE_MAX_Y: return ("reject", None)
+    dx, dy, dz = x - dr["x"], y - dr["y"], z - dr["z"]
+    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if dist > dr["hb"] + 1.0: return ("reject", None)                     # faster than any drone can fly
+    dr["hb"] = max(0.0, dr["hb"] - dist)
+    speed = dist / max(dt, 0.03)
+    dr["t"] = now
+    hit = None
+    if dist > 1e-6: hit = _w_ray(dr["x"], dr["y"], dr["z"], dx / dist, dy / dist, dz / dist, dist)     # walk the whole path: no flying through walls
+    if hit is None and world_get(fx, fy, fz): hit = ((fx, fy, fz), dist)
+    if hit is not None:
+        if speed >= DRONE_CRASH_SPEED:
+            t = max(0.0, hit[1] - 0.01)
+            if dist > 1e-6: return ("crash", (dr["x"] + dx / dist * t, dr["y"] + dy / dist * t, dr["z"] + dz / dist * t))
+            return ("crash", (dr["x"], dr["y"], dr["z"]))
+        return ("reject", None)                                           # a gentle touch: it simply stays where it was
+    dr["x"], dr["y"], dr["z"], dr["yaw"], dr["pitch"] = x, y, z, yaw, pitch
+    dr["v"] = max(speed, dr.get("v", 0.0) * 0.5)                      # remembers how fast it was going a moment ago, for judging a crash
+    if dist > 1e-4: dr["ver"] += 1
+    return ("ok", None)
+
+async def _w_drone_end(p, crashed):
+    if not p.get("drone"): return
+    p["drone"] = None
+    p["drone_ready"] = time.monotonic() + DRONE_COOLDOWN
+    await _w_send(p, {"t": "dend", "crash": bool(crashed)})
+    await _w_send_inv(p)
+    await _w_broadcast({"t": "dr", "id": p["id"], "on": False}, exclude=p["id"])
+
+async def _w_drone_crash(p, pt):
+    """The drone hit something at speed: a tiny explosion that breaks the (up to) three closest solid blocks, and the drone is gone for now."""
+    px, py, pz = pt
+    cx, cy, cz = int(math.floor(px)), int(math.floor(py)), int(math.floor(pz))
+    cands = []
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                x, y, z = cx + dx, cy + dy, cz + dz
+                if y <= 0 or y >= WORLD_HMAX or not world_in_bounds(x, z) or world_get(x, y, z) == 0: continue
+                cands.append(((x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2 + (z + 0.5 - pz) ** 2, x, y, z))
+    cands.sort()
+    changed = []
+    for _, x, y, z in cands[:DRONE_CRASH_BLOCKS]:
+        if world_set(x, y, z, 0): changed.append([x, y, z, 0])
+    if changed: world_schedule_save()
+    await _w_broadcast({"t": "bs", "e": [round(px, 2), round(py, 2), round(pz, 2)], "d": changed, "s": 0.35}, near=(cx, cz))
+    await _w_drone_end(p, True)
 
 def _w_find(name):
     pid = world_by_name.get(str(name).strip().lower())
@@ -10235,6 +10323,13 @@ async def world_ws_handler(request):
         async for msg in ws:
             if msg.type == web.WSMsgType.BINARY:
                 d = msg.data
+                if me is not None and len(d) == 9 and d[0] == 2:
+                    if me.get("drone"):
+                        _, qx, qy, qz, yaw, pitch = struct.unpack("<BhhhBB", d)
+                        verdict, pt = _w_drone_move(me, qx / 16.0, qy / 16.0, qz / 16.0, yaw, pitch, time.monotonic())
+                        if verdict == "crash": await _w_drone_crash(me, pt)
+                        elif verdict == "reject":
+                            dr = me["drone"]; await _w_send(me, {"t": "dtp", "x": dr["x"], "y": dr["y"], "z": dr["z"]})    # put the camera back where the drone really is
                 if me is not None and len(d) == 9 and d[0] == 1:
                     _, qx, qy, qz, yaw, pitch = struct.unpack("<BhhhBB", d)
                     now = time.monotonic()
@@ -10273,11 +10368,11 @@ async def world_ws_handler(request):
                     try: await old["ws"].send_json({"t": "error", "text": "You joined EzWorld from another tab."}); await old["ws"].close()
                     except Exception: pass
                     world_players.pop(old["id"], None); world_by_name.pop(name.lower(), None)
-                    for q in world_players.values(): q["seen"].pop(old["id"], None)
+                    for q in world_players.values(): q["seen"].pop(old["id"], None); q.get("dseen", {}).pop(old["id"], None)
                     await _w_broadcast({"t": "leave", "id": old["id"]})
                 sx, fy, sz = _w_pick_spawn()
                 pid = world_next_id; world_next_id = world_next_id % 60000 + 1
-                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0, "armed": False, "last_fire": 0.0,
+                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0, "armed": False, "last_fire": 0.0, "drone": None, "drone_ready": 0.0, "dseen": {},
                       "last_t": time.monotonic(), "low": fy, "gt": time.monotonic(), "hb": 6.0, "last_edit": 0.0, "chat_times": []}
                 world_players[pid] = me; world_by_name[name.lower()] = pid
                 await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX, "total": _global_online_total(),
@@ -10297,6 +10392,7 @@ async def world_ws_handler(request):
                         if WORLD_MIN >> 4 <= cx <= (WORLD_MAX - 1) >> 4 and WORLD_MIN >> 4 <= cz <= (WORLD_MAX - 1) >> 4:
                             await ws.send_bytes(_w_chunk_frame(cx, cz))
             elif t == "edit":
+                if me.get("drone"): continue
                 x, y, z, c = data.get("x"), data.get("y"), data.get("z"), data.get("c")
                 if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y, z, c)): continue
                 now = time.monotonic()
@@ -10334,7 +10430,19 @@ async def world_ws_handler(request):
                     discord_forward("world", nm, text, reply)
             elif t == "buy":
                 ul = me["name"].lower()
-                if data.get("item") != "launcher" or not check_rate_limit(me["name"], "world_buy", 6, 60): continue
+                item = data.get("item")
+                if item not in ("launcher", "drone") or not check_rate_limit(me["name"], "world_buy", 6, 60): continue
+                if item == "drone":
+                    if _inv_drone(me["name"]):
+                        await _w_sys(me, "You already own an FPV drone."); continue
+                    if not spend_pb(me["name"], DRONE_PRICE):
+                        await _w_sys(me, f"An FPV drone costs {DRONE_PRICE:,} PlaceBux."); continue
+                    world_inv.setdefault(ul, {})["drone"] = True                  # no await between paying and receiving
+                    await save_place_bucks(); await push_pb_update(me["name"])
+                    _inv_touch(); await _inv_save()
+                    await _w_send_inv(me)
+                    await _w_sys(me, "Bought an FPV drone. Press 2 to launch it; W A S D fly, Space goes up, Shift goes down. A crash breaks up to 3 blocks.")
+                    continue
                 have = _inv_rockets(me["name"])
                 if have + ROCKETS_PER_LAUNCHER > ROCKET_MAX_HELD:
                     await _w_sys(me, f"You can carry at most {ROCKET_MAX_HELD} rockets."); continue
@@ -10346,6 +10454,8 @@ async def world_ws_handler(request):
                 await _w_send_inv(me)
                 await _w_sys(me, f"Bought a rocket launcher with {ROCKETS_PER_LAUNCHER} rockets. Press 1 to equip it.")
             elif t == "equip":
+                if me.get("drone"):
+                    await _w_send_inv(me); continue
                 if bool(data.get("on")) and _inv_rockets(me["name"]) <= 0:
                     me["armed"] = False; await _w_sys(me, "You have no rockets. Buy a rocket launcher in the shop.")
                 else: me["armed"] = bool(data.get("on"))
@@ -10353,7 +10463,7 @@ async def world_ws_handler(request):
             elif t == "fire":
                 now = time.monotonic()
                 d = data.get("d")
-                if not me.get("armed") or now - me["last_fire"] < ROCKET_COOLDOWN: continue
+                if not me.get("armed") or me.get("drone") or now - me["last_fire"] < ROCKET_COOLDOWN: continue
                 if _inv_rockets(me["name"]) <= 0:
                     me["armed"] = False; await _w_send_inv(me); continue
                 if not (isinstance(d, list) and len(d) == 3 and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in d)): continue
@@ -10372,6 +10482,33 @@ async def world_ws_handler(request):
                 if hit:
                     asyncio.get_event_loop().call_later(dist / ROCKET_SPEED, lambda c=hit[0], a=ex, b=ey, e=ez, who=me["name"]: asyncio.ensure_future(_w_explode(c, a, b, e, who)))
                 await _w_send_inv(me)
+            elif t == "drone":
+                now = time.monotonic()
+                if bool(data.get("on")):
+                    if not _inv_drone(me["name"]):
+                        await _w_sys(me, "You do not own an FPV drone. Buy one in the shop (B)."); continue
+                    if me.get("drone"): continue
+                    if now < me.get("drone_ready", 0.0):
+                        await _w_sys(me, "The drone is recharging."); continue
+                    if not _w_supported(me["x"], me["y"], me["z"]):
+                        await _w_sys(me, "Stand on the ground to launch the drone."); continue
+                    sx, sy, sz = me["x"], me["y"] + 2.3, me["z"]
+                    if world_get(int(math.floor(sx)), int(math.floor(sy)), int(math.floor(sz))) or world_get(int(math.floor(sx)), int(math.floor(sy)) + 1, int(math.floor(sz))):
+                        await _w_sys(me, "There is no room above you to launch the drone."); continue
+                    me["armed"] = False
+                    me["drone"] = {"x": sx, "y": sy, "z": sz, "yaw": me["yaw"], "pitch": 128, "t": now, "hb": DRONE_BURST, "v": 0.0, "ver": 1}
+                    await _w_send(me, {"t": "dstart", "x": sx, "y": sy, "z": sz})
+                    await _w_send_inv(me)
+                    await _w_broadcast({"t": "dr", "id": me["id"], "on": True, "x": sx, "y": sy, "z": sz, "name": me["name"]}, exclude=me["id"])
+                elif me.get("drone"):
+                    await _w_drone_end(me, False)
+            elif t == "dcrash":
+                dr = me.get("drone")
+                if not dr or dr.get("v", 0.0) < DRONE_CRASH_SPEED: continue
+                px, py, pz = dr["x"], dr["y"], dr["z"]
+                fx, fy, fz = int(math.floor(px)), int(math.floor(py)), int(math.floor(pz))
+                if not any(world_get(fx + a, fy + b, fz + c) for a in (-1, 0, 1) for b in (-1, 0, 1) for c in (-1, 0, 1)): continue     # nothing there to crash into
+                await _w_drone_crash(me, (px, py, pz))
             elif t == "typing":
                 if check_rate_limit(me["name"], "world_typing", 20, 6):
                     await _w_broadcast({"t": "typing", "name": me["name"], "typing": bool(data.get("typing"))}, exclude=me["id"])
@@ -10389,7 +10526,7 @@ async def world_ws_handler(request):
         _ws_release(_ip)
         if me is not None and world_players.get(me["id"]) is me:
             world_players.pop(me["id"], None)
-            for q in world_players.values(): q["seen"].pop(me["id"], None)
+            for q in world_players.values(): q["seen"].pop(me["id"], None); q.get("dseen", {}).pop(me["id"], None)
             if world_by_name.get(me["name"].lower()) == me["id"]: world_by_name.pop(me["name"].lower(), None)
             await _w_broadcast({"t": "leave", "id": me["id"]})
             discord_forward_event("world", me["name"], "left", "EzWorld")
