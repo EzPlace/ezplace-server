@@ -3,6 +3,7 @@ import base64
 import hashlib
 import copy
 import json
+import math
 import os
 import random
 import re
@@ -9773,6 +9774,10 @@ WORLD_REACH = 7.0                 # blocks (the client only lets you aim 6; the 
 WORLD_EDIT_GAP = 0.09             # seconds between two block changes from one player: you cannot hold the button down
 WORLD_EYE = 1.62
 WORLD_SPAWN = (0.5, 41.0, 0.5)
+WORLD_SPAWN_RADIUS = 30           # new players appear at a random spot within this many blocks of the spawn point
+WORLD_NEAR = 48.0                 # players closer than this are updated every tick (10 times a second)
+WORLD_FAR = 160.0                 # farther than this nobody can see anybody (pictures and names are hidden past about 150 blocks), so nothing is sent
+WORLD_MID_EVERY = 3               # between NEAR and FAR a player is updated every 3rd tick (about 3 times a second)
 WORLD_MAX_HSPEED = 10.0           # sprinting is 7 b/s; the margin covers lag spikes
 WORLD_JUMP_BUDGET = 1.7           # how far up you may rise per jump (a jump is ~1.3 blocks)
 WORLD_TPA_SECONDS = 60
@@ -9789,6 +9794,7 @@ world_dirty_regions = set()
 world_tick_task = None
 world_save_handle = None
 world_tpa = {}                    # target(lower) -> {"from": name, "t": time}
+world_tick_n = 0
 world_recent = []                 # last EzWorld chat lines (sender lower, text): only these can be quoted in a reply
 _world_load_lock = None
 
@@ -9985,7 +9991,7 @@ def _w_clamp_pos(x, y, z):
 async def _w_teleport(p, x, y, z):
     x, y, z = _w_clamp_pos(x, y, z)
     p["x"], p["y"], p["z"] = x, y, z
-    p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["hb"] = 6.0; p["dirty"] = True
+    p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["hb"] = 6.0; p["q"] = (int(x * 16), int(y * 16), int(z * 16)); p["ver"] += 1
     await _w_send(p, {"t": "tp", "x": x, "y": y, "z": z})
 
 def _w_hits_player(bx, by, bz):
@@ -10036,26 +10042,57 @@ def _w_move_check(p, x, y, z, now):
     if grounded: p["gt"] = now
     return True
 
+def _w_tick_frames():
+    """One tick: for each player, a frame with the players who moved since that viewer last heard about them, who are within
+    sight range; players beyond NEAR are only refreshed every WORLD_MID_EVERY ticks. Returns [(viewer, frame bytes)]."""
+    global world_tick_n
+    world_tick_n += 1
+    out = []
+    plist = list(world_players.values())
+    for r in plist:
+        seen = r["seen"]
+        entries = []
+        for p in plist:
+            if p is r: continue
+            ent = seen.get(p["id"])
+            if ent is not None and ent[0] == p["ver"]: continue            # nothing new about this player
+            d = ((p["x"] - r["x"]) ** 2 + (p["z"] - r["z"]) ** 2) ** 0.5
+            if d > WORLD_FAR: continue                                      # too far to be seen
+            if d > WORLD_NEAR and ent is not None and world_tick_n - ent[1] < WORLD_MID_EVERY: continue
+            seen[p["id"]] = (p["ver"], world_tick_n)
+            entries.append(p)
+        if entries:
+            body = bytearray(struct.pack("<BH", 0x11, len(entries)))
+            for p in entries:
+                body += struct.pack("<Hhhh BB", p["id"], int(p["x"] * 16), int(p["y"] * 16), int(p["z"] * 16), p["yaw"], p["pitch"])
+            out.append((r, bytes(body)))
+    return out
+
 async def world_tick():
-    """10 times a second: send everybody the players that moved. Ends by itself when the world is empty."""
+    """10 times a second. Ends by itself when the world is empty."""
     global world_tick_task
     try:
         while world_players:
             await asyncio.sleep(0.1)
-            moved = [p for p in world_players.values() if p["dirty"]]
-            if not moved: continue
-            body = bytearray(struct.pack("<BH", 0x11, len(moved)))
-            for p in moved:
-                body += struct.pack("<Hhhh BB", p["id"], int(p["x"] * 16), int(p["y"] * 16), int(p["z"] * 16), p["yaw"], p["pitch"])
-                p["dirty"] = False
-            frame = bytes(body)
-            for p in list(world_players.values()): await _w_send(p, frame)
+            for r, frame in _w_tick_frames(): await _w_send(r, frame)
     finally:
         world_tick_task = None
 
 def _w_find(name):
     pid = world_by_name.get(str(name).strip().lower())
     return world_players.get(pid) if pid is not None else None
+
+def _w_pick_spawn():
+    """A random point within WORLD_SPAWN_RADIUS blocks of the spawn centre where the whole body fits, preferring one that stands on something."""
+    cx, cy, cz = WORLD_SPAWN
+    best = None
+    for _ in range(12):
+        ang = random.uniform(0, 2 * math.pi); rad = WORLD_SPAWN_RADIUS * math.sqrt(random.random())      # sqrt: even spread over the disc
+        spot = _w_find_spot(cx + rad * math.cos(ang), cy, cz + rad * math.sin(ang))
+        if spot is None: continue
+        best = spot
+        if _w_supported(*spot): break
+    return best if best is not None else (cx, cy, cz)
 
 async def _w_command(p, text):
     parts = text[1:].split()
@@ -10133,9 +10170,9 @@ async def world_ws_handler(request):
                     now = time.monotonic()
                     x, y, z = qx / 16.0, qy / 16.0, qz / 16.0
                     if _w_move_check(me, x, y, z, now):
-                        if (x, y, z, yaw, pitch) != (me["x"], me["y"], me["z"], me["yaw"], me["pitch"]):
-                            me["x"], me["y"], me["z"], me["yaw"], me["pitch"] = x, y, z, yaw, pitch
-                            me["dirty"] = True
+                        me["x"], me["y"], me["z"], me["yaw"], me["pitch"] = x, y, z, yaw, pitch
+                        if (qx, qy, qz) != me["q"]:                     # turning your head sends nothing to anyone: only real movement does
+                            me["q"] = (qx, qy, qz); me["ver"] += 1
                         me["last_t"] = now
                     else:
                         me["last_t"] = now
@@ -10166,14 +10203,11 @@ async def world_ws_handler(request):
                     try: await old["ws"].send_json({"t": "error", "text": "You joined EzWorld from another tab."}); await old["ws"].close()
                     except Exception: pass
                     world_players.pop(old["id"], None); world_by_name.pop(name.lower(), None)
+                    for q in world_players.values(): q["seen"].pop(old["id"], None)
                     await _w_broadcast({"t": "leave", "id": old["id"]})
-                sx, sy, sz = WORLD_SPAWN
-                sx += random.uniform(-3, 3); sz += random.uniform(-3, 3)
-                spot = _w_find_spot(sx, sy, sz)
-                if spot: sx, fy, sz = spot
-                else: fy = sy
+                sx, fy, sz = _w_pick_spawn()
                 pid = world_next_id; world_next_id = world_next_id % 60000 + 1
-                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "dirty": True,
+                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0,
                       "last_t": time.monotonic(), "low": fy, "gt": time.monotonic(), "hb": 6.0, "last_edit": 0.0, "chat_times": []}
                 world_players[pid] = me; world_by_name[name.lower()] = pid
                 await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX,
@@ -10244,6 +10278,7 @@ async def world_ws_handler(request):
         _ws_release(_ip)
         if me is not None and world_players.get(me["id"]) is me:
             world_players.pop(me["id"], None)
+            for q in world_players.values(): q["seen"].pop(me["id"], None)
             if world_by_name.get(me["name"].lower()) == me["id"]: world_by_name.pop(me["name"].lower(), None)
             await _w_broadcast({"t": "leave", "id": me["id"]})
             discord_forward_event("world", me["name"], "left", "EzWorld")
