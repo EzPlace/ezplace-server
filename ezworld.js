@@ -285,13 +285,14 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50 }, rks: [], booms: [], lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
     if (menuOpen() && window.hideMenu) window.hideMenu();           // the menu you pressed Join in must not stay on top of the world
     $('ew-leave').onclick = function () { close(false); };
     $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
+    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
     $('ew-me-name').textContent = opts.username || '';
     var me = $('ew-me-img'); me.onerror = function () { me.onerror = null; me.src = opts.defaultAvatar; }; me.src = opts.avatarUrl(opts.username || '');
     syncUserBar();
@@ -362,11 +363,12 @@
     on(canvas, 'mousedown', function (e) {            // one action per click: holding the button does nothing
       if (!locked() || !G.ready) return;
       e.preventDefault();
-      if (e.button === 0) doBreak(); else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
+      if (e.button === 0) { if (G.inv.armed) fireRocket(); else doBreak(); } else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
     });
     on(canvas, 'wheel', function (e) { e.preventDefault(); selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
     on(window, 'keydown', function (e) {
       if (!G || menuOpen() || typingElsewhere()) return;
+      if (shopOpen()) { if (e.code === 'Escape' || e.code === 'KeyB') { closeShop(); e.preventDefault(); } return; }
       if (chatFocused()) {
         if (e.code === 'Escape') { $('ew-chat-input').blur(); e.preventDefault(); }
         return;
@@ -382,6 +384,8 @@
         if (now - G.lastTap < 320) G.sprint = true;
         G.lastTap = now;
       }
+      if (e.code === 'Digit1') setArmed(!G.inv.armed);
+      if (e.code === 'KeyB') { openShop(); return; }
       if (e.code === 'KeyQ') selectColor(G.sel - 1);
       if (e.code === 'KeyE') selectColor(G.sel + 1);
       G.keys[e.code] = true;
@@ -415,6 +419,10 @@
     on($('ew-reply-cancel'), 'click', clearReply);
     on($('ew-filter'), 'change', function () { if (window.EzChat) window.EzChat.setFilter(this.checked); });
     on($('ew-menu'), 'click', openMenu);
+    on($('ew-shop-btn'), 'click', openShop);
+    on($('ew-shop-close'), 'click', closeShop);
+    on($('ew-shop-buy'), 'click', shopBuy);
+    on($('ew-shop-equip'), 'click', function () { setArmed(!G.inv.armed); });
     G.timers.push(setInterval(function () { renderTyping(); syncUserBar(); }, 1000));
     on($('ew-leave'), 'click', function () { close(false); });
     G.timers.push(setInterval(ensureChunks, 200));
@@ -474,12 +482,17 @@
       case 'hello':
         if (m.min != null && m.max != null) { WMIN = m.min; WMAX = m.max; }       // the server says how big the world is
         G.myId = m.id;
+        if (m.total != null) setTotal(m.total);
         G.me = { x: m.x, y: m.y, z: m.z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, onGround: false };
         (m.players || []).forEach(function (p) { addOther(p[0], p[1], p[2], p[3], p[4]); });
         updateOnline();
         $('ew-load').textContent = 'Loading the world...';
         ensureChunks();
         break;
+      case 'inv': applyInv(m); break;
+      case 'rk': addRocket(m); break;
+      case 'bs': { (m.d || []).forEach(function (b) { setBlock(b[0], b[1], b[2], b[3]); }); if (m.e) addBoom(m.e); break; }
+      case 'online': setTotal(m.total); break;
       case 'sys': sys(m.text); break;
       case 'chat': chatLine(m); break;
       case 'typing': { var k = String(m.name).toLowerCase(); if (m.typing) G.typers.set(k, { name: m.name, exp: Date.now() + 7000 }); else G.typers.delete(k); renderTyping(); break; }
@@ -606,6 +619,90 @@
     hideMention(); inp.focus();
   }
 
+  // ---- rocket launcher: the shop, equipping, firing, and drawing rockets and explosions. The server owns the money, the ammo and the damage.
+  function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function setTotal(n) { $('ew-online-total').textContent = String(n); }
+  function applyInv(m) {
+    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0;
+    if (m.price) i.price = m.price; if (m.per) i.per = m.per; if (m.max) i.max = m.max;
+    renderInv();
+  }
+  function renderInv() {
+    var i = G.inv;
+    $('ew-hotbar').style.display = i.rockets > 0 ? 'flex' : 'none';
+    $('ew-hotbar').classList.toggle('sel', i.armed);
+    $('ew-hotbar-count').textContent = String(i.rockets);
+    $('ew-held').style.display = i.armed ? 'block' : 'none';
+    $('ew-shop-price').textContent = fmt(i.price) + ' PlaceBux';
+    $('ew-shop-have').textContent = i.rockets > 0 ? 'You have ' + i.rockets + ' rocket' + (i.rockets === 1 ? '' : 's') + '.' : 'You have no rockets yet.';
+    var eq = $('ew-shop-equip'); eq.textContent = i.armed ? 'Put away' : 'Equip'; eq.disabled = i.rockets <= 0;
+    var buy = $('ew-shop-buy'); buy.disabled = i.rockets + i.per > i.max;
+    if (!G.buyArm) buy.textContent = buy.disabled ? 'Carrying the most' : 'Buy';
+  }
+  function balance() { try { return typeof myBalance !== 'undefined' ? myBalance : 0; } catch (e) { return 0; } }
+  function shopOpen() { return $('ew-shop').style.display === 'flex'; }
+  function refreshShop() {
+    $('ew-shop-bal').textContent = 'PlaceBux: ' + fmt(balance());
+    if (G.buyArm && performance.now() > G.buyArm) { G.buyArm = 0; renderInv(); }
+  }
+  function openShop() {
+    if (document.exitPointerLock) document.exitPointerLock();
+    $('ew-shop').style.display = 'flex'; $('ew-shop-note').textContent = '';
+    renderInv(); refreshShop(); clearInterval(G.shopTimer); G.shopTimer = setInterval(refreshShop, 500);
+  }
+  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; renderInv(); }
+  function shopBuy() {                                           // two clicks, so 5,000 PlaceBux can't go on one slip
+    var i = G.inv, now = performance.now();
+    if (i.rockets + i.per > i.max) return;
+    if (G.buyArm && now < G.buyArm) { G.buyArm = 0; send({ t: 'buy', item: 'launcher' }); renderInv(); return; }
+    if (balance() < i.price) { $('ew-shop-note').textContent = 'You need ' + fmt(i.price) + ' PlaceBux (you have ' + fmt(balance()) + ').'; return; }
+    $('ew-shop-note').textContent = ''; G.buyArm = now + 3000; $('ew-shop-buy').textContent = 'Click again to confirm';
+  }
+  function setArmed(on) {
+    if (on && G.inv.rockets <= 0) { sys('You have no rockets. Buy a rocket launcher in the shop (B).'); return; }
+    G.inv.armed = !!on; renderInv(); send({ t: 'equip', on: !!on });
+  }
+  function fireRocket() {
+    var m = G.me, now = performance.now(), i = G.inv;
+    if (!i.armed || i.rockets <= 0 || now - G.lastFire < 1200) return;
+    G.lastFire = now;
+    var cp = Math.cos(m.pitch);
+    send({ t: 'fire', d: [-Math.sin(m.yaw) * cp, Math.sin(m.pitch), -Math.cos(m.yaw) * cp] });
+    i.rockets -= 1; if (i.rockets <= 0) i.armed = false;          // the server confirms with the real numbers right after
+    renderInv();
+    var h = $('ew-held'); h.classList.add('fire'); setTimeout(function () { h.classList.remove('fire'); }, 130);
+  }
+  function addRocket(m) { G.rks.push({ o: m.o, e: m.e, s: m.s || 45, t0: performance.now(), el: null }); }
+  function addBoom(e) {
+    G.booms.push({ p: e, t0: performance.now(), el: null });
+    if (G.me) { var dx = e[0] - G.me.x, dz = e[2] - G.me.z; if (dx * dx + dz * dz < 900) G.shake = performance.now() + 350; }
+  }
+  function drawFx(vp, focal) {
+    var now = performance.now(), layer = $('ew-fx'), i, sp;
+    for (i = G.rks.length - 1; i >= 0; i--) {
+      var r = G.rks[i], dx = r.e[0] - r.o[0], dy = r.e[1] - r.o[1], dz = r.e[2] - r.o[2], len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      var f = (now - r.t0) / (len / r.s * 1000);
+      if (f >= 1) { if (r.el) r.el.remove(); G.rks.splice(i, 1); continue; }
+      var off = Math.min(0.8 / len, 0.5), g = off + f * (1 - off);   // starts a little in front of the shooter, so it is seen leaving the launcher
+      sp = project(vp, r.o[0] + dx * g, r.o[1] + dy * g - (1 - g) * 0.25, r.o[2] + dz * g, G.cw, G.ch);
+      if (!sp) { if (r.el) r.el.style.display = 'none'; continue; }
+      if (!r.el) { r.el = document.createElement('div'); r.el.className = 'ew-rocket'; layer.appendChild(r.el); }
+      var rs = Math.max(5, Math.min(34, focal * 0.35 / sp.w));
+      r.el.style.display = 'block'; r.el.style.width = r.el.style.height = rs.toFixed(1) + 'px';
+      r.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-50%)';
+    }
+    for (i = G.booms.length - 1; i >= 0; i--) {
+      var b = G.booms[i], bf = (now - b.t0) / 700;
+      if (bf >= 1) { if (b.el) b.el.remove(); G.booms.splice(i, 1); continue; }
+      sp = project(vp, b.p[0], b.p[1], b.p[2], G.cw, G.ch);
+      if (!sp) { if (b.el) b.el.style.display = 'none'; continue; }
+      if (!b.el) { b.el = document.createElement('div'); b.el.className = 'ew-boom'; layer.appendChild(b.el); }
+      var bs = Math.max(30, Math.min(900, focal * 7 / sp.w)) * (0.3 + 0.7 * Math.min(1, bf * 2.4));
+      b.el.style.display = 'block'; b.el.style.width = b.el.style.height = bs.toFixed(0) + 'px'; b.el.style.opacity = String(1 - bf * bf);
+      b.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-50%)';
+    }
+  }
+
   // ---- placing and breaking
   function targetNow() {
     var m = G.me, cp = Math.cos(m.pitch);
@@ -681,6 +778,7 @@
     var dt = Math.min(0.05, (now - G.last) / 1000); G.last = now;
     if (!G.me && !G.failed) { var wsecs = (performance.now() - G.t0) / 1000; $('ew-load').textContent = wsecs > 6 ? 'Still connecting... the server may be waking up (' + Math.floor(wsecs) + 's)' : 'Connecting...'; }
     if (menuOpen() && locked() && document.exitPointerLock) document.exitPointerLock();
+    if (G.shake > now) { G.canvas.style.transform = 'translate(' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px,' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px)'; G.shaking = true; } else if (G.shaking) { G.canvas.style.transform = ''; G.shaking = false; }
     if (G.me && G.ready) {
       var hd = headingOf(G.me.yaw);
       if (Math.abs(hd - G.lastHeading) > 0.2 || G.compassDirty) {
@@ -691,7 +789,7 @@
         $('ew-compass-text').textContent = windName(hd) + '  ' + Math.round(hd) % 360 + '°';
       }
     }
-    if (now - G.hintAt > 250) { G.hintAt = now; if (G.ready) $('ew-hint').style.display = (!locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; $('ew-compass').style.display = G.ready ? 'block' : 'none'; }
+    if (now - G.hintAt > 250) { G.hintAt = now; if (G.ready) $('ew-hint').style.display = (!locked() && !chatFocused() && !menuOpen() && !shopOpen()) ? 'flex' : 'none'; $('ew-compass').style.display = G.ready ? 'block' : 'none'; }
     var me = G.me;
     if (me) {
       // wait until the ground under you has arrived before letting physics run
@@ -763,6 +861,7 @@
     }
     // other players: profile picture + name, as page elements so any picture works
     var focal = (G.ch / 2) / Math.tan(fovNow / 2);
+    drawFx(vp, focal);
     G.others.forEach(function (p) {
       var k = Math.min(1, dt * 12);
       p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; p.z += (p.tz - p.z) * k;
@@ -780,7 +879,7 @@
     if (!G) return;
     var g = G; g.closed = true; G = null;
     cancelAnimationFrame(g.raf);
-    g.timers.forEach(clearInterval);
+    g.timers.forEach(clearInterval); clearInterval(g.shopTimer);
     g.handlers.forEach(function (h) { h[0].removeEventListener(h[1], h[2], h[3]); });
     try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (e) {}
     try { if (g.ws) { g.ws.onclose = null; g.ws.close(); } } catch (e) {}
@@ -788,6 +887,7 @@
     chunks.clear();
     try { var ext = g.gl && g.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
     g.view.style.display = 'none';
+    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = '';
     document.body.classList.remove('ew-open');
     if (!silent && window.showMenu) window.showMenu('home');       // leaving EzWorld returns to the main menu
     $('ew-leave').onclick = null;

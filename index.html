@@ -266,6 +266,37 @@
   #ew-compass { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 380px; max-width: calc(100% - 20px); pointer-events: none; display: none; text-align: center; }
   #ew-compass-cv { display: block; width: 100%; height: auto; }
   #ew-compass-text { display: inline-block; margin-top: 2px; padding: 1px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; color: #fff; background: rgba(0,0,0,0.5); border-radius: 999px; font-variant-numeric: tabular-nums; }
+  /* rocket launcher: shop, hotbar slot, the launcher in your hands, rockets and explosions */
+  #ew-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .ew-rocket { position: absolute; left: 0; top: 0; border-radius: 50%; background: radial-gradient(circle, #fff 0%, #ffd27a 35%, #ff7a1a 70%, rgba(255,90,20,0) 100%); box-shadow: 0 0 14px 6px rgba(255,140,40,0.75), 0 0 36px 14px rgba(255,90,20,0.35); }
+  .ew-boom { position: absolute; left: 0; top: 0; border-radius: 50%; background: radial-gradient(circle, #fff7d6 0%, #ffd27a 22%, #ff8a2a 50%, rgba(220,60,20,0.65) 72%, rgba(60,30,20,0) 100%); }
+  #ew-held { display: none; position: absolute; right: 7%; bottom: -8px; width: 190px; height: 120px; pointer-events: none; transform-origin: 85% 100%; transition: transform 0.09s ease-out; }
+  #ew-held.fire { transform: translate(10px, 14px) rotate(4deg); }
+  #ew-held .tube, .ew-shop-ico .tube { position: absolute; right: 8px; bottom: 18px; width: 150px; height: 46px; background: linear-gradient(#6b7078, #3b3e44 60%, #2b2d31); border-radius: 8px 4px 4px 8px; border: 2px solid #1b1c1f; transform: rotate(-9deg); transform-origin: 100% 100%; }
+  #ew-held .tip, .ew-shop-ico .tip { position: absolute; right: 150px; bottom: 36px; width: 26px; height: 52px; background: linear-gradient(#e8742a, #a8481a); border-radius: 6px; border: 2px solid #1b1c1f; transform: rotate(-9deg); }
+  #ew-held .grip, .ew-shop-ico .grip { position: absolute; right: 56px; bottom: -4px; width: 26px; height: 40px; background: linear-gradient(#5a3a22, #3a2414); border-radius: 4px; border: 2px solid #1b1c1f; transform: rotate(8deg); }
+  #ew-hotbar { display: none; position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); align-items: center; gap: 8px; padding: 6px 12px; background: rgba(12,12,16,0.62); border: 2px solid rgba(255,255,255,0.18); border-radius: 10px; color: #fff; font-weight: 700; font-size: 14px; pointer-events: none; }
+  #ew-hotbar.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+  #ew-hotbar .key { font-size: 11px; opacity: 0.7; }
+  #ew-hotbar .ico { width: 26px; height: 12px; background: linear-gradient(#6b7078, #3b3e44); border-radius: 3px; border-left: 6px solid #e8742a; }
+  #ew-shop { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; background: rgba(8,8,12,0.55); z-index: 5; padding: 14px; }
+  .ew-shop-card { width: 640px; max-width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+  .ew-shop-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 15px; }
+  .ew-shop-head b { flex: 1; }
+  #ew-shop-bal { font-size: 12px; font-weight: 700; color: var(--gold); background: rgba(240,178,50,0.12); border: 1px solid var(--gold); padding: 2px 8px; border-radius: 10px; }
+  .ew-shop-item { display: flex; align-items: center; gap: 16px; padding: 16px; flex-wrap: wrap; }
+  .ew-shop-ico { position: relative; width: 190px; height: 100px; flex-shrink: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .ew-shop-ico .tube { right: 14px; bottom: 26px; width: 120px; height: 38px; }
+  .ew-shop-ico .tip { right: 118px; bottom: 40px; width: 22px; height: 44px; }
+  .ew-shop-ico .grip { right: 50px; bottom: 8px; width: 22px; height: 32px; }
+  .ew-shop-info { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; }
+  .ew-shop-info b { font-size: 15px; }
+  .ew-shop-info small { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
+  .ew-shop-info span { font-size: 12px; color: var(--gold); font-weight: 600; }
+  .ew-shop-act { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 150px; text-align: center; }
+  #ew-shop-price { font-size: 14px; font-weight: 700; color: var(--gold); }
+  .ew-shop-act .win-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  #ew-shop-note { padding: 0 16px 14px; min-height: 18px; font-size: 12px; color: var(--red); }
   #ew-cross { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; mix-blend-mode: difference; }
   #ew-cross::before, #ew-cross::after { content: ''; position: absolute; background: #fff; }
   #ew-cross::before { left: 8px; top: 0; width: 2px; height: 18px; } #ew-cross::after { top: 8px; left: 0; height: 2px; width: 18px; }
@@ -1063,7 +1094,8 @@
       <h1><img id="ew-logo" alt="EzPlace"><span>EzWorld</span></h1>
       <div id="ew-header-right">
         <div id="ew-coords"></div>
-        <div id="ew-online"><span id="ew-online-n">1</span> here</div>
+        <div id="ew-online"><span id="ew-online-n">1</span> here &middot; <span id="ew-online-total">0</span> online</div>
+        <button id="ew-shop-btn" class="win-btn" title="Buy a rocket launcher (B)">Shop</button>
         <button id="ew-menu" class="win-btn" title="Open the menu without leaving EzWorld">Menu<span id="ew-menu-dot" style="display:none"></span></button>
         <button id="ew-leave" class="win-btn" title="Leave EzWorld">Leave EzWorld</button>
       </div>
@@ -1071,6 +1103,9 @@
     <div id="ew-stage">
       <canvas id="ew-canvas"></canvas>
       <div id="ew-tags"></div>
+      <div id="ew-fx"></div>
+      <div id="ew-held"><div class="tube"></div><div class="tip"></div><div class="grip"></div></div>
+      <div id="ew-hotbar" title="Rocket launcher: press 1 to equip"><span class="key">1</span><span class="ico"></span><span id="ew-hotbar-count">0</span></div>
       <div id="ew-cross"></div>
       <div id="ew-compass"><canvas id="ew-compass-cv" width="760" height="80"></canvas><div id="ew-compass-text"></div></div>
       <div id="ew-hint">
@@ -1079,11 +1114,31 @@
           <div class="ew-keys">
             <span><b>W A S D</b> move</span><span><b>W W</b> sprint</span><span><b>Space</b> jump</span>
             <span><b>Left click</b> break</span><span><b>Right click</b> place</span><span><b>Wheel / Q E</b> colour</span>
+            <span><b>1</b> rocket launcher</span><span><b>B</b> shop</span>
             <span><b>Middle click</b> pick colour</span><span><b>T / Enter</b> chat</span><span><b>Esc</b> release mouse</span>
           </div>
         </div>
       </div>
       <div id="ew-load">Connecting...</div>
+      <div id="ew-shop">
+        <div class="ew-shop-card">
+          <div class="ew-shop-head"><b>EzWorld Shop</b><span id="ew-shop-bal"></span><button id="ew-shop-close" class="win-btn">Close</button></div>
+          <div class="ew-shop-item">
+            <div class="ew-shop-ico"><div class="tube"></div><div class="tip"></div><div class="grip"></div></div>
+            <div class="ew-shop-info">
+              <b>Rocket Launcher</b>
+              <small>Comes loaded with 5 rockets. Each one blows a hole about 6 blocks wide where it lands, but never through bedrock or near the spawn area.</small>
+              <span id="ew-shop-have"></span>
+            </div>
+            <div class="ew-shop-act">
+              <span id="ew-shop-price"></span>
+              <button id="ew-shop-buy" class="win-btn">Buy</button>
+              <button id="ew-shop-equip" class="win-btn">Equip</button>
+            </div>
+          </div>
+          <div id="ew-shop-note"></div>
+        </div>
+      </div>
     </div>
     <div id="ew-bottom">
       <div id="ew-sel"><div id="ew-sel-chip"></div><div id="ew-sel-hex">#FFFFFF</div></div>

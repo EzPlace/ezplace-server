@@ -9778,6 +9778,14 @@ WORLD_SPAWN_RADIUS = 30           # new players appear at a random spot within t
 WORLD_NEAR = 48.0                 # players closer than this are updated every tick (10 times a second)
 WORLD_FAR = 160.0                 # farther than this nobody can see anybody (pictures and names are hidden past about 150 blocks), so nothing is sent
 WORLD_MID_EVERY = 3               # between NEAR and FAR a player is updated every 3rd tick (about 3 times a second)
+ROCKET_PRICE = 5000               # PlaceBux for one rocket launcher
+ROCKETS_PER_LAUNCHER = 5          # each launcher is bought loaded with this many rockets
+ROCKET_MAX_HELD = 50              # most rockets one player can carry
+ROCKET_RANGE = 120.0              # blocks a rocket can fly
+ROCKET_SPEED = 45.0               # blocks per second
+ROCKET_RADIUS = 3.2               # blocks removed around the point of impact
+ROCKET_COOLDOWN = 1.2             # seconds between two shots
+ROCKET_PROTECT = 40.0             # no block is ever destroyed within this many blocks of the spawn centre
 WORLD_MAX_HSPEED = 10.0           # sprinting is 7 b/s; the margin covers lag spikes
 WORLD_JUMP_BUDGET = 1.7           # how far up you may rise per jump (a jump is ~1.3 blocks)
 WORLD_TPA_SECONDS = 60
@@ -9795,6 +9803,9 @@ world_tick_task = None
 world_save_handle = None
 world_tpa = {}                    # target(lower) -> {"from": name, "t": time}
 world_tick_n = 0
+world_inv = {}                    # player (lowercase) -> {"rockets": n}: what people bought in the EzWorld shop
+_inv_dirty = False
+_inv_handle = None
 world_recent = []                 # last EzWorld chat lines (sender lower, text): only these can be quoted in a reply
 _world_load_lock = None
 
@@ -9841,6 +9852,7 @@ async def world_load():
     async with _world_load_lock:                    # two people joining at once must not see a half-loaded world
         if world_loaded: return
         await _world_load_inner()                   # if this raises, the world stays closed: saving now could overwrite what is stored
+        world_inv.update(await db_load("store", "world_inv") or {})
         world_loaded = True
 
 def _world_absorb(raw, rx, rz, size):
@@ -10075,8 +10087,66 @@ async def world_tick():
         while world_players:
             await asyncio.sleep(0.1)
             for r, frame in _w_tick_frames(): await _w_send(r, frame)
+            if world_tick_n % 300 == 0: await _w_broadcast({"t": "online", "total": _global_online_total()})
     finally:
         world_tick_task = None
+
+def _w_ray(ox, oy, oz, dx, dy, dz, maxd):
+    """First solid block along a ray, walking block by block exactly like the page does for aiming. Returns ((x, y, z), distance) or None."""
+    x, y, z = int(math.floor(ox)), int(math.floor(oy)), int(math.floor(oz))
+    inf = float("inf")
+    sx, sy, sz = (1 if dx > 0 else -1), (1 if dy > 0 else -1), (1 if dz > 0 else -1)
+    tdx, tdy, tdz = (abs(1 / dx) if dx else inf), (abs(1 / dy) if dy else inf), (abs(1 / dz) if dz else inf)
+    tmx = (x + 1 - ox) / dx if dx > 0 else ((ox - x) / -dx if dx < 0 else inf)
+    tmy = (y + 1 - oy) / dy if dy > 0 else ((oy - y) / -dy if dy < 0 else inf)
+    tmz = (z + 1 - oz) / dz if dz > 0 else ((oz - z) / -dz if dz < 0 else inf)
+    t = 0.0
+    for _ in range(int(maxd * 3) + 10):
+        if world_get(x, y, z): return (x, y, z), t
+        if tmx < tmy and tmx < tmz: x += sx; t = tmx; tmx += tdx
+        elif tmy < tmz: y += sy; t = tmy; tmy += tdy
+        else: z += sz; t = tmz; tmz += tdz
+        if t > maxd: return None
+    return None
+
+def _inv_rockets(name): return int((world_inv.get(name.lower()) or {}).get("rockets", 0))
+
+async def _inv_save():
+    global _inv_dirty, _inv_handle
+    _inv_handle = None
+    if not _inv_dirty: return
+    _inv_dirty = False
+    try: await db_save("store", "world_inv", world_inv)
+    except Exception as e:
+        print(f"world inventory save failed: {e}"); _inv_dirty = True
+
+def _inv_touch():
+    """Something in the inventories changed: save soon (shots are batched, purchases save at once)."""
+    global _inv_dirty, _inv_handle
+    _inv_dirty = True
+    if _inv_handle is None: _inv_handle = asyncio.get_event_loop().call_later(15, lambda: asyncio.ensure_future(_inv_save()))
+
+async def _w_send_inv(p):
+    await _w_send(p, {"t": "inv", "rockets": _inv_rockets(p["name"]), "armed": bool(p.get("armed")), "price": ROCKET_PRICE, "per": ROCKETS_PER_LAUNCHER, "max": ROCKET_MAX_HELD})
+
+async def _w_explode(cell, ex, ey, ez, by=None):
+    """A rocket arrived: remove the blocks in a ball around it (never bedrock, never near spawn) and tell everybody nearby."""
+    cx, cy, cz = cell
+    R = ROCKET_RADIUS; r = int(math.ceil(R)); changed = []
+    for dx in range(-r, r + 1):
+        for dy in range(-r, r + 1):
+            for dz in range(-r, r + 1):
+                if dx * dx + dy * dy + dz * dz > R * R: continue
+                x, y, z = cx + dx, cy + dy, cz + dz
+                if y <= 0 or y >= WORLD_HMAX or not world_in_bounds(x, z): continue
+                if math.hypot(x + 0.5 - WORLD_SPAWN[0], z + 0.5 - WORLD_SPAWN[2]) < ROCKET_PROTECT: continue
+                if world_get(x, y, z) == 0: continue
+                if world_set(x, y, z, 0): changed.append([x, y, z, 0])
+    if changed: world_schedule_save()
+    elif by and math.hypot(cx + 0.5 - WORLD_SPAWN[0], cz + 0.5 - WORLD_SPAWN[2]) < ROCKET_PROTECT:
+        shooter = _w_find(by)
+        if shooter: await _w_sys(shooter, "Rockets do not break blocks near the spawn area.")
+    await _w_broadcast({"t": "bs", "e": [round(ex, 2), round(ey, 2), round(ez, 2)], "d": changed}, near=(cx, cz))
 
 def _w_find(name):
     pid = world_by_name.get(str(name).strip().lower())
@@ -10207,12 +10277,13 @@ async def world_ws_handler(request):
                     await _w_broadcast({"t": "leave", "id": old["id"]})
                 sx, fy, sz = _w_pick_spawn()
                 pid = world_next_id; world_next_id = world_next_id % 60000 + 1
-                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0,
+                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0, "armed": False, "last_fire": 0.0,
                       "last_t": time.monotonic(), "low": fy, "gt": time.monotonic(), "hb": 6.0, "last_edit": 0.0, "chat_times": []}
                 world_players[pid] = me; world_by_name[name.lower()] = pid
-                await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX,
+                await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX, "total": _global_online_total(),
                                     "players": [[q["id"], q["name"], q["x"], q["y"], q["z"]] for q in world_players.values() if q is not me]})
                 await _w_sys(me, "Welcome to EzWorld! This is a shared 3D world where everyone builds together. Left click breaks a block, right click places one, and you can use all the colors from the 2D canvas. Press W twice quickly to sprint. Type /help to see the chat commands (/unstuck if you ever get stuck). The world is 2000 by 2000 blocks, so /goto is handy for getting around. Anyone can change anything, so build nicely.")
+                await _w_send_inv(me)
                 await _w_broadcast({"t": "join", "id": pid, "name": name, "x": sx, "y": fy, "z": sz}, exclude=pid)
                 discord_forward_event("world", name, "joined", "EzWorld")
                 if world_tick_task is None: world_tick_task = asyncio.ensure_future(world_tick())
@@ -10261,6 +10332,46 @@ async def world_ws_handler(request):
                     if reply: payload["reply_to"] = reply
                     await _w_broadcast(payload)
                     discord_forward("world", nm, text, reply)
+            elif t == "buy":
+                ul = me["name"].lower()
+                if data.get("item") != "launcher" or not check_rate_limit(me["name"], "world_buy", 6, 60): continue
+                have = _inv_rockets(me["name"])
+                if have + ROCKETS_PER_LAUNCHER > ROCKET_MAX_HELD:
+                    await _w_sys(me, f"You can carry at most {ROCKET_MAX_HELD} rockets."); continue
+                if not spend_pb(me["name"], ROCKET_PRICE):
+                    await _w_sys(me, f"A rocket launcher costs {ROCKET_PRICE:,} PlaceBux."); continue
+                world_inv.setdefault(ul, {})["rockets"] = have + ROCKETS_PER_LAUNCHER      # no await between paying and receiving
+                await save_place_bucks(); await push_pb_update(me["name"])
+                _inv_touch(); await _inv_save()
+                await _w_send_inv(me)
+                await _w_sys(me, f"Bought a rocket launcher with {ROCKETS_PER_LAUNCHER} rockets. Press 1 to equip it.")
+            elif t == "equip":
+                if bool(data.get("on")) and _inv_rockets(me["name"]) <= 0:
+                    me["armed"] = False; await _w_sys(me, "You have no rockets. Buy a rocket launcher in the shop.")
+                else: me["armed"] = bool(data.get("on"))
+                await _w_send_inv(me)
+            elif t == "fire":
+                now = time.monotonic()
+                d = data.get("d")
+                if not me.get("armed") or now - me["last_fire"] < ROCKET_COOLDOWN: continue
+                if _inv_rockets(me["name"]) <= 0:
+                    me["armed"] = False; await _w_send_inv(me); continue
+                if not (isinstance(d, list) and len(d) == 3 and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in d)): continue
+                ln = math.sqrt(d[0] ** 2 + d[1] ** 2 + d[2] ** 2)
+                if ln < 1e-6: continue
+                dx, dy, dz = d[0] / ln, d[1] / ln, d[2] / ln
+                ox, oy, oz = me["x"], me["y"] + WORLD_EYE, me["z"]
+                me["last_fire"] = now
+                world_inv[me["name"].lower()]["rockets"] = _inv_rockets(me["name"]) - 1
+                if _inv_rockets(me["name"]) <= 0: me["armed"] = False
+                _inv_touch()
+                hit = _w_ray(ox, oy, oz, dx, dy, dz, ROCKET_RANGE)
+                dist = hit[1] if hit else ROCKET_RANGE
+                ex, ey, ez = ox + dx * dist, oy + dy * dist, oz + dz * dist
+                await _w_broadcast({"t": "rk", "o": [round(ox, 2), round(oy, 2), round(oz, 2)], "e": [round(ex, 2), round(ey, 2), round(ez, 2)], "s": ROCKET_SPEED, "by": me["name"]}, near=(int(ox), int(oz)))
+                if hit:
+                    asyncio.get_event_loop().call_later(dist / ROCKET_SPEED, lambda c=hit[0], a=ex, b=ey, e=ez, who=me["name"]: asyncio.ensure_future(_w_explode(c, a, b, e, who)))
+                await _w_send_inv(me)
             elif t == "typing":
                 if check_rate_limit(me["name"], "world_typing", 20, 6):
                     await _w_broadcast({"t": "typing", "name": me["name"], "typing": bool(data.get("typing"))}, exclude=me["id"])
@@ -10289,6 +10400,7 @@ async def world_ws_handler(request):
 async def world_flush():
     """Server shutdown: write out any unsaved blocks."""
     if world_dirty_regions: await world_save_now()
+    if _inv_dirty: await _inv_save()
 
 # ---- the page's 3D engine is a separate file so people who never open EzWorld never download it ----
 _EZW_RAW = _EZW_BR = _EZW_GZ = b""
