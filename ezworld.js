@@ -231,6 +231,138 @@
     return { x: (cx / cw * 0.5 + 0.5) * w, y: (1 - (cy / cw * 0.5 + 0.5)) * h, w: cw };
   }
 
+  // ------------------------------------------------------------------ pixel art for the rocket launcher, the rocket and the explosion
+  // (each letter is one pixel; the pictures are turned into small crisp images when EzWorld opens)
+  var PIXC = { k: '#14161a', o: '#55683f', O: '#7b9159', d: '#3a4a2b', s: '#6b7280', S: '#a3acb9', t: '#3f444d', r: '#d9381e', R: '#ff6a3d', q: '#a8281a',
+               y: '#f0a020', Y: '#ffe06b', w: '#fff7e0', b: '#6b4423', B: '#45290f', z: '#6e4a40' };
+  var ART_LAUNCHER = [
+    "....................................................",
+    "....................................................",
+    "...................kkkkkkk..........................",
+    "..................kSSSSSSSk.................kkkk....",
+    ".......kkkkk......ktttktttk..............kkkssssk...",
+    "......kSSSSSkkkkkkktttttttkkkkkkkkkkkkkkkSSSttttk...",
+    "...kkkksssttOOOOYYOOOOOOOOOOOOOOYYOOOOOOOssstkkk....",
+    "..kRRRRsssttooooyyooooooooooooooyyooooooossstkkk....",
+    ".kRRRrrsssttooooyyooooooooooooooyyooooooossstkkk....",
+    ".kRrrrrsssttooooyyoooSoooSoooSooyyooooooossstkkk....",
+    ".kRrrrrsssttooooyyooodrrwwwwwdooyyooooooossstkkk....",
+    ".kRrrrrsssttooooyyooodddddddddooyyooooooossstkkk....",
+    "..krrqqsssttddddyyddddddddddddddyydddddddssstkkk....",
+    "...kkkksssttddddyyddddddddddddddyydddddddssstkkk....",
+    "......ktttttkkkkkkkkkkkkkkkkkkkkkkkkkkkkktttttttk...",
+    ".......kkkkk.kbbbbk...kttttbbbBk.........kkkttttk...",
+    ".............kbbbBk...ktkkkbbbBk............kkkk....",
+    ".............kbbbBk...ktkkkbbbBk....................",
+    ".............kbbbBk...kttttkbbbBk...................",
+    ".............kbbbBk....kkkkkbbbBk...................",
+    "..............kkkk.........kbbbBk...................",
+    "............................kbbbBk..................",
+    "............................kbbbBk..................",
+    ".............................kkkk...................",
+    "....................................................",
+    "...................................................."
+  ];
+  var ART_ROCKET = [
+    "....kkkk..............",
+    "...kttttk.............",
+    ".kkkstttkkkkkkkkkkk...",
+    "kryyySSSSrrSSSSRRRrk..",
+    "kYwYyssssrrssssrrrRRk.",
+    "kryyyttttrrttttrrrrk..",
+    ".kkkstttkkkkkkkkkkk...",
+    "...kttttk.............",
+    "....kkkk.............."
+  ];
+  var ART_BOOM_FRAMES = [[
+    "................",
+    "................",
+    "................",
+    "................",
+    ".....yyyyYY.....",
+    "....yyYYYYY.....",
+    ".....YYwwYY.....",
+    "....yyYwwYYy....",
+    "....YYwwwwYy....",
+    "....YYYwwYYYy...",
+    ".......YYYyy....",
+    ".......yY.......",
+    ".......yyy......",
+    "................",
+    "................",
+    "................"
+  ], [
+    "........rr......",
+    ".......rrrr.....",
+    "...rr.rryryrr...",
+    "...rrryyyyrr....",
+    ".rryyyryYYyrr...",
+    "..ryYYYYYYyr....",
+    "..yyYYYwwYyyyrrr",
+    "...yYYwwwwYYyyrr",
+    "...ryYwwwwYYyyyr",
+    "..ryyYwwwYyYyrr.",
+    "..yyyYYYYYyrr...",
+    ".rryyyyyyYyy....",
+    "...ryr.ryyyr....",
+    "....r.rryyyr....",
+    ".........rrr....",
+    "........r.r....."
+  ], [
+    "......zzzzz.....",
+    ".....zzrrzz.....",
+    ".....zzrrr......",
+    ".....zrryrzzz...",
+    "z.zzrzryyyzrrrz.",
+    "zzrrrryyyyyrrrz.",
+    "zrrryyyYYyyyrrrz",
+    ".rrryyYYYYyyrzzz",
+    "..rrryyYYyyyrrz.",
+    "...rryYYYyyyrzz.",
+    ".zzzryyyyyyrr...",
+    "..zrryyyrrrrzz..",
+    "...rrrrrrrrrzzz.",
+    "...zrrz.zzrrzzz.",
+    "...zzzzz..zzz...",
+    "....zz.z..z.zz.."
+  ], [
+    "....St.S........",
+    "..S...ttS..SSSS.",
+    "...Stt.t.tttSSS.",
+    "..S..z.zzttttttS",
+    "..Sttzzzzz.zztt.",
+    "..tttzzzzzzzt.t.",
+    ".t.zzzzrrrzz....",
+    "tt..zzrrrrzzttS.",
+    "tttzzrrrrrzzt.t.",
+    "Sttzz.rrrrzzz.tS",
+    "SSt...zrzzzzzt.S",
+    ".Stttz.zztz....S",
+    "...Stzzzztt.t.t.",
+    "....Stz.ttSt.S..",
+    "...SS...tt......",
+    "...S.Sttt......."
+  ]];
+  function pixUrl(rows) {
+    var out = '', w = rows[0].length;
+    for (var y = 0; y < rows.length; y++) {
+      var x = 0;
+      while (x < w) {
+        var c = rows[y].charAt(x);
+        if (c === '.' || c === ' ') { x++; continue; }
+        var x2 = x; while (x2 < w && rows[y].charAt(x2) === c) x2++;
+        out += '<rect x="' + x + '" y="' + y + '" width="' + (x2 - x) + '" height="1" fill="' + (PIXC[c] || '#f0f') + '"/>'; x = x2;
+      }
+    }
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + rows.length + '" shape-rendering="crispEdges">' + out + '</svg>';
+    return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
+  }
+  function boomSheet() {                       // the four explosion frames side by side
+    var rows = [];
+    for (var y = 0; y < ART_BOOM_FRAMES[0].length; y++) rows.push(ART_BOOM_FRAMES.map(function (f) { return f[y]; }).join(''));
+    return rows;
+  }
+
   // ------------------------------------------------------------------ compass
   var WIND = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function headingOf(yaw) { return (((-yaw * 180 / Math.PI) % 360) + 360) % 360; }   // 0 = north (-Z), 90 = east (+X), 180 = south, 270 = west
@@ -292,6 +424,7 @@
     if (menuOpen() && window.hideMenu) window.hideMenu();           // the menu you pressed Join in must not stay on top of the world
     $('ew-leave').onclick = function () { close(false); };
     $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
+    view.style.setProperty('--ew-launcher', pixUrl(ART_LAUNCHER)); view.style.setProperty('--ew-rocket', pixUrl(ART_ROCKET)); view.style.setProperty('--ew-boom', pixUrl(boomSheet()));
     $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
     $('ew-me-name').textContent = opts.username || '';
     var me = $('ew-me-img'); me.onerror = function () { me.onerror = null; me.src = opts.defaultAvatar; }; me.src = opts.avatarUrl(opts.username || '');
@@ -687,9 +820,11 @@
       sp = project(vp, r.o[0] + dx * g, r.o[1] + dy * g - (1 - g) * 0.25, r.o[2] + dz * g, G.cw, G.ch);
       if (!sp) { if (r.el) r.el.style.display = 'none'; continue; }
       if (!r.el) { r.el = document.createElement('div'); r.el.className = 'ew-rocket'; layer.appendChild(r.el); }
-      var rs = Math.max(5, Math.min(34, focal * 0.35 / sp.w));
-      r.el.style.display = 'block'; r.el.style.width = r.el.style.height = rs.toFixed(1) + 'px';
-      r.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-50%)';
+      var g2 = Math.min(1, g + 0.02), sp2 = project(vp, r.o[0] + dx * g2, r.o[1] + dy * g2 - (1 - g2) * 0.25, r.o[2] + dz * g2, G.cw, G.ch);
+      if (sp2 && Math.hypot(sp2.x - sp.x, sp2.y - sp.y) > 0.4) r.ang = Math.atan2(sp2.y - sp.y, sp2.x - sp.x);
+      var rw = Math.max(16, Math.min(150, focal * 1.7 / sp.w));
+      r.el.style.display = 'block'; r.el.style.width = rw.toFixed(1) + 'px'; r.el.style.height = (rw * 9 / 22).toFixed(1) + 'px';
+      r.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-50%) rotate(' + (r.ang || 0).toFixed(3) + 'rad)';
     }
     for (i = G.booms.length - 1; i >= 0; i--) {
       var b = G.booms[i], bf = (now - b.t0) / 700;
@@ -697,8 +832,9 @@
       sp = project(vp, b.p[0], b.p[1], b.p[2], G.cw, G.ch);
       if (!sp) { if (b.el) b.el.style.display = 'none'; continue; }
       if (!b.el) { b.el = document.createElement('div'); b.el.className = 'ew-boom'; layer.appendChild(b.el); }
-      var bs = Math.max(30, Math.min(900, focal * 7 / sp.w)) * (0.3 + 0.7 * Math.min(1, bf * 2.4));
-      b.el.style.display = 'block'; b.el.style.width = b.el.style.height = bs.toFixed(0) + 'px'; b.el.style.opacity = String(1 - bf * bf);
+      var bs = Math.max(40, Math.min(900, focal * 7.5 / sp.w)), frame = Math.min(3, Math.floor(bf * 4));
+      b.el.style.display = 'block'; b.el.style.width = b.el.style.height = bs.toFixed(0) + 'px';
+      b.el.style.setProperty('--f', String(frame)); b.el.style.opacity = bf > 0.75 ? String(1 - (bf - 0.75) / 0.25) : '1';
       b.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-50%)';
     }
   }
