@@ -449,7 +449,7 @@
             facts: 'Twin-rotor heavy lifter that carries 33 troops. Two 18.3 m rotors, 30 m long in flight. Huge, steady and slow to turn: it needs a big clearing.' }
   };
   var HELI_IDS = ['r22', 'b206', 'uh1', 'uh60', 'ch47'];
-  var HELI_REPAIR = 0.10, HELI_MAXY = 430, HELI_SPOOL = 4.0, HELI_READY = 0.92, HELI_TILT = 0.36;
+  var HELI_MAXY = 430, HELI_SPOOL = 4.0, HELI_READY = 0.92, HELI_TILT = 0.36;
   function hspec(id) {
     var s = HELIS[id], g = typeof window !== 'undefined' && window.HeliGL && window.HeliGL.SPECS && window.HeliGL.SPECS[id];
     if (g && g.eye && !s._g) { s._g = 1; if (g.chaseDist) s.chase = g.chaseDist; s.eye = g.eye; }
@@ -982,7 +982,7 @@
     var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0 && !G.drone && !G.heli;
     if (m.price) i.price = m.price; if (m.per) i.per = m.per; if (m.max) i.max = m.max;
     i.drone = !!m.drone; if (m.dprice) i.dprice = m.dprice; i.flying = !!m.flying;
-    i.heli = m.heli || {}; if (m.hp) i.hp = m.hp; if (m.hrep) i.hrep = m.hrep; i.hfly = m.hfly || null;
+    i.heli = m.heli || {}; if (m.hp) i.hp = m.hp; i.hfly = m.hfly || null;
     renderInv();
   }
   function renderInv() {
@@ -1007,7 +1007,7 @@
     if (hb3) {
       var hid = G.hsel && (i.heli || {})[G.hsel] ? G.hsel : (HELI_IDS.filter(function (k) { return (i.heli || {})[k]; }).pop() || '');
       hb3.style.display = hid ? 'flex' : 'none'; hb3.classList.toggle('sel', !!G.heli);
-      $('ew-hotbar3-name').textContent = hid ? HELIS[hid].name + ((i.heli || {})[hid] === 2 ? ' (wrecked)' : '') : '';
+      $('ew-hotbar3-name').textContent = hid ? HELIS[hid].name : '';
     }
     if (shopOpen()) renderHeliShop();
   }
@@ -1133,7 +1133,7 @@
     if (G.heli) { if (!G.heli.onGround) { sys('Land the helicopter first, then press 3 to get out.'); return; } send({ t: 'heli', on: false }); return; }
     if (G.drone) return;
     var own = G.inv.heli || {}, id = G.hsel && own[G.hsel] === 1 ? G.hsel : myHeliBest();
-    if (!id) { var anyW = HELI_IDS.some(function (k) { return own[k] === 2; }); sys('You do not own a helicopter. Buy one in the shop (B).'); return; }
+    if (!id) { sys('You do not own a helicopter. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to start a helicopter.'); return; }
     G.hsel = id; send({ t: 'heli', on: true, m: id });
   }
@@ -1305,11 +1305,10 @@
     heliCss();
     var own = G.inv.heli || {}, prices = G.inv.hp || {}, html = '<h4>Helicopters</h4>';
     HELI_IDS.forEach(function (id) {
-      var sp = HELIS[id], price = prices[id] || sp.price, st = own[id], rep = Math.max(1, Math.floor(price * (G.inv.hrep || HELI_REPAIR))), img = heliThumb(id);
+      var sp = HELIS[id], price = prices[id] || sp.price, st = own[id], img = heliThumb(id);
       var btn1 = st === 1 ? '<button class="win-btn" data-h="launch" data-id="' + id + '"' + (G.heli ? ' disabled' : '') + '>' + (G.heli && G.heli.m === id ? 'Flying' : 'Launch') + '</button>'
-        : st === 2 ? '<button class="win-btn" data-h="repair" data-id="' + id + '">' + (G.hArm === 'repair_' + id ? 'Click again to confirm' : 'Repair ' + fmt(rep)) + '</button>'
         : '<button class="win-btn" data-h="buy" data-id="' + id + '">' + (G.hArm === id ? 'Click again to confirm' : 'Buy') + '</button>';
-      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st === 1 ? ' · owned' : st === 2 ? ' · wrecked' : '') + ' · top speed ' + sp.vmax + ' b/s</span></div><div class="act">' + btn1 + '</div></div>';
+      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st === 1 ? ' · owned' : '') + ' · top speed ' + sp.vmax + ' b/s</span></div><div class="act">' + btn1 + '</div></div>';
     });
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
   }
@@ -1317,7 +1316,7 @@
     var t = e.target; if (!t || !t.getAttribute || !t.getAttribute('data-h')) return;
     var id = t.getAttribute('data-id'), kind = t.getAttribute('data-h'), prices = G.inv.hp || {}, price = prices[id] || HELIS[id].price, now = performance.now();
     if (kind === 'launch') { closeShop(); G.hsel = id; toggleHeli(); return; }
-    var item = kind === 'repair' ? 'repair_' + id : id, cost = kind === 'repair' ? Math.max(1, Math.floor(price * (G.inv.hrep || HELI_REPAIR))) : price;
+    var item = id, cost = price;
     if (G.hArm === item && now < G.hArmT) { G.hArm = ''; send({ t: 'buy', item: item }); renderInv(); return; }
     if (balance() < cost) { $('ew-shop-note').textContent = 'You need ' + fmt(cost) + ' PlaceBux (you have ' + fmt(balance()) + ').'; return; }
     $('ew-shop-note').textContent = ''; G.hArm = item; G.hArmT = now + 3000; renderInv();

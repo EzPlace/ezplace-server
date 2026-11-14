@@ -9800,7 +9800,6 @@ HELIS = {"r22": ("Robinson R22", 2500, 36.0, 8.0, 4.7, 3.84, 2.7), "b206": ("Bel
          "uh1": ("Bell UH-1H Huey", 12000, 46.0, 11.0, 8.6, 7.3, 4.4), "uh60": ("Sikorsky UH-60 Black Hawk", 25000, 56.0, 13.0, 10.0, 8.18, 5.1),
          "ch47": ("Boeing CH-47 Chinook", 40000, 50.0, 12.0, 8.4, 9.1, 5.7)}
 HELI_IDS = list(HELIS)                # the index in this list is the model number in the binary frames
-HELI_REPAIR = 0.10                    # a wrecked helicopter is rebuilt for this share of its price
 HELI_BURST = 18.0                     # distance a laggy connection may "catch up" at once
 HELI_CRASH_SPEED = 4.0                # hitting something slower than this is only a bump
 HELI_MAX_Y = 430.0
@@ -10177,7 +10176,7 @@ def _w_ray(ox, oy, oz, dx, dy, dz, maxd):
 
 def _inv_rockets(name): return int((world_inv.get(name.lower()) or {}).get("rockets", 0))
 def _inv_drone(name): return bool((world_inv.get(name.lower()) or {}).get("drone"))
-def _inv_heli(name): return dict((world_inv.get(name.lower()) or {}).get("heli") or {})     # model -> 1 (ready) or 2 (wrecked)
+def _inv_heli(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}).get("heli") or {}).items() if v == 1 and k in HELIS}     # model -> 1 (owned); crashed ones are deleted
 
 async def _inv_save():
     global _inv_dirty, _inv_handle
@@ -10197,7 +10196,7 @@ def _inv_touch():
 async def _w_send_inv(p):
     await _w_send(p, {"t": "inv", "rockets": _inv_rockets(p["name"]), "armed": bool(p.get("armed")), "price": ROCKET_PRICE, "per": ROCKETS_PER_LAUNCHER, "max": ROCKET_MAX_HELD,
                       "drone": _inv_drone(p["name"]), "dprice": DRONE_PRICE, "flying": bool(p.get("drone")),
-                      "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hrep": HELI_REPAIR, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
+                      "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
 
 async def _w_explode(cell, ex, ey, ez, by=None, radius=None, scale=None):
     """A rocket arrived: remove the blocks in a ball around it (never bedrock, never near spawn) and tell everybody nearby."""
@@ -10334,7 +10333,7 @@ def _w_heli_move(p, x, y, z, yaw, pitch, roll, now):
     return ("ok", None)
 
 async def _w_heli_end(p, crashed, wreck_at=None):
-    """The flight is over. A crash wrecks the helicopter (repair it in the shop); a normal landing keeps it."""
+    """The flight is over. A crash destroys the helicopter for good (it is deleted from the inventory); a normal landing keeps it."""
     h = p.get("heli")
     if not h: return
     p["heli"] = None
@@ -10574,18 +10573,9 @@ async def world_ws_handler(request):
                 ul = me["name"].lower()
                 item = data.get("item")
                 if not isinstance(item, str) or not check_rate_limit(me["name"], "world_buy", 8, 60): continue
-                if item in HELIS or (item.startswith("repair_") and item[7:] in HELIS):
-                    mid = item[7:] if item.startswith("repair_") else item
+                if item in HELIS:
+                    mid = item
                     spec = HELIS[mid]; mine = world_inv.setdefault(ul, {}).setdefault("heli", {})
-                    if item.startswith("repair_"):
-                        if mine.get(mid) != 2: await _w_sys(me, f"Your {spec[0]} is not damaged."); continue
-                        fee = max(1, int(spec[1] * HELI_REPAIR))
-                        if not spend_pb(me["name"], fee):
-                            await _w_sys(me, f"Repairing the {spec[0]} costs {fee:,} PlaceBux."); continue
-                        mine[mid] = 1
-                        await save_place_bucks(); await push_pb_update(me["name"])
-                        _inv_touch(); await _inv_save(); await _w_send_inv(me)
-                        await _w_sys(me, f"The {spec[0]} was rebuilt for {fee:,} PlaceBux."); continue
                     if mid in mine:
                         await _w_sys(me, f"You already own a {spec[0]}."); continue
                     if not spend_pb(me["name"], spec[1]):
@@ -10673,7 +10663,6 @@ async def world_ws_handler(request):
                     st = _inv_heli(me["name"]).get(mid)
                     spec = HELIS[mid]
                     if not st: await _w_sys(me, f"You do not own a {spec[0]}. Buy one in the shop (B)."); continue
-                    if st == 2: await _w_sys(me, f"Your {spec[0]} is wrecked. Repair it in the shop (B)."); continue
                     if now < me.get("heli_ready", 0.0): await _w_sys(me, "The helicopter is being refuelled."); continue
                     if not _w_supported(me["x"], me["y"], me["z"]):
                         await _w_sys(me, "Stand on the ground to start a helicopter."); continue
