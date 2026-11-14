@@ -9805,6 +9805,7 @@ HELI_BURST = 18.0                     # distance a laggy connection may "catch u
 HELI_CRASH_SPEED = 4.0                # hitting something slower than this is only a bump
 HELI_MAX_Y = 430.0
 HELI_COOLDOWN = 4.0
+HELI_CRASH_RADIUS = 3.0               # a crash blows away the blocks within this (plus a quarter of the rotor radius) of the wreck
 HELI_NEAR = 112.0
 ROCKET_PROTECT = 0.0              # rockets break blocks everywhere; set this to a number of blocks to protect that radius around the spawn centre again
 WORLD_MAX_HSPEED = 10.0           # sprinting is 7 b/s; the margin covers lag spikes
@@ -10198,10 +10199,10 @@ async def _w_send_inv(p):
                       "drone": _inv_drone(p["name"]), "dprice": DRONE_PRICE, "flying": bool(p.get("drone")),
                       "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hrep": HELI_REPAIR, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
 
-async def _w_explode(cell, ex, ey, ez, by=None):
+async def _w_explode(cell, ex, ey, ez, by=None, radius=None, scale=None):
     """A rocket arrived: remove the blocks in a ball around it (never bedrock, never near spawn) and tell everybody nearby."""
     cx, cy, cz = cell
-    R = ROCKET_RADIUS; r = int(math.ceil(R)); changed = []
+    R = radius or ROCKET_RADIUS; r = int(math.ceil(R)); changed = []
     for dx in range(-r, r + 1):
         for dy in range(-r, r + 1):
             for dz in range(-r, r + 1):
@@ -10215,7 +10216,9 @@ async def _w_explode(cell, ex, ey, ez, by=None):
     elif by and math.hypot(cx + 0.5 - WORLD_SPAWN[0], cz + 0.5 - WORLD_SPAWN[2]) < ROCKET_PROTECT:
         shooter = _w_find(by)
         if shooter: await _w_sys(shooter, "Rockets do not break blocks near the spawn area.")
-    await _w_broadcast({"t": "bs", "e": [round(ex, 2), round(ey, 2), round(ez, 2)], "d": changed}, near=(cx, cz))
+    msg = {"t": "bs", "e": [round(ex, 2), round(ey, 2), round(ez, 2)], "d": changed}
+    if scale: msg["s"] = scale
+    await _w_broadcast(msg, near=(cx, cz))
 
 def _w_drone_move(p, x, y, z, yaw, pitch, now):
     """Check one position report from a flying drone. Returns ("ok", None), ("reject", None) or ("crash", (x, y, z))."""
@@ -10233,6 +10236,15 @@ def _w_drone_move(p, x, y, z, yaw, pitch, now):
     hit = None
     if dist > 1e-6: hit = _w_ray(dr["x"], dr["y"], dr["z"], dx / dist, dy / dist, dz / dist, dist)     # walk the whole path: no flying through walls
     if hit is None and world_get(fx, fy, fz): hit = ((fx, fy, fz), dist)
+    if hit is None:
+        for q in world_players.values():
+            if q is p: continue
+            for f in (0.5, 1.0):
+                mx, my, mz = dr["x"] + dx * f, dr["y"] + dy * f, dr["z"] + dz * f
+                if abs(mx - q["x"]) < 0.62 and abs(mz - q["z"]) < 0.62 and q["y"] - 0.32 < my < q["y"] + 2.12:        # a player's body plus the drone's own size
+                    ax, ay, az = dr["x"] - q["x"], dr["y"] - (q["y"] + 0.9), dr["z"] - q["z"]
+                    ln = math.sqrt(ax * ax + ay * ay + az * az) or 1.0
+                    return ("bounce", (ax / ln * 9.0, ay / ln * 9.0, az / ln * 9.0))
     if hit is not None:
         if speed >= DRONE_CRASH_SPEED:
             t = max(0.0, hit[1] - 0.01)
@@ -10330,11 +10342,12 @@ async def _w_heli_end(p, crashed, wreck_at=None):
     p["heli_ready"] = now + HELI_COOLDOWN
     px, py, pz = (wreck_at if wreck_at else (h["x"], h["y"], h["z"]))
     if crashed:
-        world_inv.setdefault(p["name"].lower(), {}).setdefault("heli", {})[h["m"]] = 2; _inv_touch()
+        world_inv.setdefault(p["name"].lower(), {}).setdefault("heli", {}).pop(h["m"], None); _inv_touch(); await _inv_save()      # destroyed: gone from the inventory
         spot = _w_find_spot(px, py, pz) or _w_pick_spawn()
         await _w_teleport(p, spot[0], spot[1], spot[2])
         await _w_broadcast({"t": "hx", "id": p["id"], "m": h["m"], "x": round(px, 2), "y": round(py, 2), "z": round(pz, 2)}, near=(int(px), int(pz)))
-        await _w_broadcast({"t": "bs", "e": [round(px, 2), round(py, 2), round(pz, 2)], "d": [], "s": 1.0}, near=(int(px), int(pz)))
+        spec = HELIS[h["m"]]
+        await _w_explode((int(math.floor(px)), int(math.floor(py + 1)), int(math.floor(pz))), px, py + 1, pz, radius=HELI_CRASH_RADIUS + spec[5] * 0.25, scale=1.0)
     else:
         p["x"], p["y"], p["z"] = px, py, pz
         p["low"] = py; p["gt"] = now; p["hb"] = 6.0; p["last_t"] = now; p["q"] = (int(px * 16), int(py * 16), int(pz * 16)); p["ver"] += 1
@@ -10434,8 +10447,18 @@ async def world_ws_handler(request):
                         _, qx, qy, qz, yaw, pitch = struct.unpack("<BhhhBB", d)
                         verdict, pt = _w_drone_move(me, qx / 16.0, qy / 16.0, qz / 16.0, yaw, pitch, time.monotonic())
                         if verdict == "crash": await _w_drone_crash(me, pt)
+                        elif verdict == "bounce":
+                            dr = me["drone"]; await _w_send(me, {"t": "dtp", "x": dr["x"], "y": dr["y"], "z": dr["z"], "v": [round(c, 2) for c in pt]})     # knocked back off the player
                         elif verdict == "reject":
                             dr = me["drone"]; await _w_send(me, {"t": "dtp", "x": dr["x"], "y": dr["y"], "z": dr["z"]})    # put the camera back where the drone really is
+                        elif verdict == "ok":
+                            for q in list(world_players.values()):                  # two drones that meet both break
+                                qd = q.get("drone")
+                                if q is not me and qd and me.get("drone") and (qd["x"] - me["drone"]["x"]) ** 2 + (qd["y"] - me["drone"]["y"]) ** 2 + (qd["z"] - me["drone"]["z"]) ** 2 < 1.0:
+                                    a, b2 = me["drone"], qd
+                                    await _w_drone_crash(q, (b2["x"], b2["y"], b2["z"]))
+                                    await _w_drone_crash(me, (a["x"], a["y"], a["z"]))
+                                    break
                 if me is not None and len(d) == 10 and d[0] == 3:
                     if me.get("heli"):
                         _, qx, qy, qz, yaw, pitch, roll = struct.unpack("<BhhhBBB", d)
@@ -10697,7 +10720,7 @@ async def world_ws_handler(request):
         if me is not None and me.get("heli"):
             hh = me["heli"]; me["heli"] = None
             if not _w_supported(hh["x"], hh["y"], hh["z"]):                 # leaving mid-flight is a crash
-                world_inv.setdefault(me["name"].lower(), {}).setdefault("heli", {})[hh["m"]] = 2; _inv_touch()
+                world_inv.setdefault(me["name"].lower(), {}).setdefault("heli", {}).pop(hh["m"], None); _inv_touch()
         if me is not None and world_players.get(me["id"]) is me:
             world_players.pop(me["id"], None)
             for q in world_players.values(): q["seen"].pop(me["id"], None); q.get("dseen", {}).pop(me["id"], None); q.get("hseen", {}).pop(me["id"], None)

@@ -837,7 +837,7 @@
         break;
       case 'dstart': startDrone(m); break;
       case 'dend': endDrone(m); break;
-      case 'dtp': if (G.drone) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; } break;
+      case 'dtp': if (G.drone) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; if (m.v) { G.drone.vx = m.v[0]; G.drone.vy = m.v[1]; G.drone.vz = m.v[2]; } } break;
       case 'dr': if (m.on) { G.drones.set(m.id, { id: m.id, name: m.name || '', x: m.x, y: m.y, z: m.z, tx: m.x, ty: m.y, tz: m.z, el: null, fresh: false }); } else removeDrone(m.id); break;
       case 'hstart': startHeli(m); break;
       case 'hend': endHeli(m); break;
@@ -1132,7 +1132,7 @@
     if (G.heli) { if (!G.heli.onGround) { sys('Land the helicopter first, then press 3 to get out.'); return; } send({ t: 'heli', on: false }); return; }
     if (G.drone) return;
     var own = G.inv.heli || {}, id = G.hsel && own[G.hsel] === 1 ? G.hsel : myHeliBest();
-    if (!id) { var anyW = HELI_IDS.some(function (k) { return own[k] === 2; }); sys(anyW ? 'Your helicopter is wrecked. Repair it in the shop (B).' : 'You do not own a helicopter. Buy one in the shop (B).'); return; }
+    if (!id) { var anyW = HELI_IDS.some(function (k) { return own[k] === 2; }); sys('You do not own a helicopter. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to start a helicopter.'); return; }
     G.hsel = id; send({ t: 'heli', on: true, m: id });
   }
@@ -1152,7 +1152,7 @@
     heliHud(false); $('ew-cross').style.display = '';
     if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
     G.bodyWait = true;
-    if (m && m.crash) { sys('You crashed the ' + (HELIS[m.m] ? HELIS[m.m].name : 'helicopter') + (h && h.why ? ' (' + h.why.replace(/\.$/, '').toLowerCase() + ')' : '') + '. It is wrecked: repair it in the shop for ' + Math.round(HELI_REPAIR * 100) + '% of its price.'); G.shake = performance.now() + 450; }
+    if (m && m.crash) { sys('You crashed the ' + (HELIS[m.m] ? HELIS[m.m].name : 'helicopter') + (h && h.why ? ' (' + h.why.replace(/\.$/, '').toLowerCase() + ')' : '') + '. It is destroyed and gone from your inventory.'); G.shake = performance.now() + 450; }
     renderInv();
   }
   function heliHud(on) {
