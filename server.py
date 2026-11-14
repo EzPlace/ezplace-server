@@ -10355,6 +10355,11 @@ async def _w_heli_end(p, crashed, wreck_at=None):
     await _w_send_inv(p)
     await _w_broadcast({"t": "hr", "id": p["id"], "on": False}, exclude=p["id"])
 
+def _w_heli_landed(x, gy, z):
+    """Resting on the ground? Any solid block under the skids counts (they can be wide, and the middle may overhang an edge)."""
+    cx, cz = int(math.floor(x)), int(math.floor(z))
+    return any(world_get(cx + a, int(gy) - 1, cz + c) for a in range(-2, 3) for c in range(-2, 3))
+
 def _w_find(name):
     pid = world_by_name.get(str(name).strip().lower())
     return world_players.get(pid) if pid is not None else None
@@ -10684,7 +10689,7 @@ async def world_ws_handler(request):
                     hh = me["heli"]
                     gy = round(hh["y"])
                     veff = hh.get("v", 0.0) if now - hh["t"] < 0.4 else 0.0                # it has been sitting still since the last report
-                    if not _w_supported(hh["x"], gy, hh["z"]) or abs(hh["y"] - gy) > 0.3 or veff > 3.0:
+                    if not _w_heli_landed(hh["x"], gy, hh["z"]) or abs(hh["y"] - gy) > 0.3 or veff > 3.0:
                         await _w_sys(me, "Land the helicopter before you get out."); await _w_send(me, {"t": "hno"}); continue
                     await _w_heli_end(me, False, (hh["x"], float(gy), hh["z"]))
             elif t == "hcrash":
@@ -10692,8 +10697,8 @@ async def world_ws_handler(request):
                 if not hh: continue
                 px, py, pz = hh["x"], hh["y"], hh["z"]
                 fx, fy, fz = int(math.floor(px)), int(math.floor(py)), int(math.floor(pz))
-                if not any(world_get(fx + a, fy + b, fz + c) for a in range(-3, 4) for b in range(-1, 4) for c in range(-3, 4)): continue    # nothing near to crash into
-                if (hh.get("v", 0.0) < 1.0 or time.monotonic() - hh["t"] > 0.4) and _w_supported(px, py, pz): continue                           # parked on the ground is not a crash
+                sp = HELIS[hh["m"]]; reach = int(max(sp[4], sp[5])) + 2; top = int(sp[6]) + 1
+                if not any(world_get(fx + a, fy + b, fz + c) for b in range(-1, top + 1) for a in range(-reach, reach + 1) for c in range(-reach, reach + 1)): continue    # nothing within reach of the body or rotor
                 await _w_heli_end(me, True, (px, py, pz))
             elif t == "dcrash":
                 dr = me.get("drone")

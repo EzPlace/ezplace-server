@@ -839,6 +839,7 @@
       case 'dend': endDrone(m); break;
       case 'dtp': if (G.drone) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; if (m.v) { G.drone.vx = m.v[0]; G.drone.vy = m.v[1]; G.drone.vz = m.v[2]; } } break;
       case 'dr': if (m.on) { G.drones.set(m.id, { id: m.id, name: m.name || '', x: m.x, y: m.y, z: m.z, tx: m.x, ty: m.y, tz: m.z, el: null, fresh: false }); } else removeDrone(m.id); break;
+      case 'hno': G.hno = (G.hno || 0) + 1; if (G.hno >= 2) { G.hno = 0; sys('Stuck? Moving you out of the helicopter.'); send({ t: 'chat', text: '/unstuck' }); } break;
       case 'hstart': startHeli(m); break;
       case 'hend': endHeli(m); break;
       case 'htp': if (G.heli) { G.heli.x = m.x; G.heli.y = m.y; G.heli.z = m.z; G.heli.vx = G.heli.vy = G.heli.vz = 0; G.heli.crashAt = 0; } break;
@@ -1177,7 +1178,10 @@
   }
   function flyHeli(dt) {
     var h = G.heli, k = G.keys, now = performance.now(), sp = hspec(h.m);
-    if (h.crashAt && now - h.crashAt > 1500) h.crashAt = 0;           // the server did not agree it was a crash: carry on
+    if (h.crashAt && now - h.crashAt > 1500) {                         // the server did not agree it was a crash: carry on, and if that keeps happening get you out
+      h.crashAt = 0; h.tries = (h.tries || 0) + 1;
+      if (h.tries >= 2) { h.tries = 0; sys('Stuck? Moving you out of the helicopter.'); send({ t: 'chat', text: '/unstuck' }); }
+    }
     var inp = (h.crashAt || !locked()) ? {} : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, yl: k.KeyQ, yr: k.KeyE, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
     var res = h.crashAt ? 'ok' : stepHeli(h, inp, dt, sp);
     if (res === 'crash' && !h.crashAt) {
