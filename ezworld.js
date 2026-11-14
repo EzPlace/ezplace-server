@@ -432,6 +432,125 @@
     return res;
   }
 
+
+  // ------------------------------------------------------------------ helicopters: five real ones at real size (1 block is 1 metre), and their flight physics
+  // vmax: top speed in blocks per second; climb: best climb rate; rr: main rotor radius; top: rotor height above the skids; f / b: nose / tail reach from the mast;
+  // hw: half width; hard: the fastest sink rate a landing survives; yawRate: pedal turn rate; chase: camera distance; eye: where the pilot's eyes are (right, up, back is positive)
+  var HELIS = {
+    r22:  { name: 'Robinson R22', price: 2500, vmax: 36, climb: 8, rr: 3.84, top: 2.7, f: 2.1, b: 4.7, hw: 0.6, hard: 3.6, yawRate: 1.5, chase: 14, eye: [0.28, 1.28, -0.8],
+            facts: 'Two-seat piston trainer, the helicopter most pilots learn on. 7.7 m rotor, cruises near 100 knots. Light and twitchy: easy to fly, easy to crash.' },
+    b206: { name: 'Bell 206 JetRanger', price: 6000, vmax: 44, climb: 10, rr: 5.08, top: 2.9, f: 2.6, b: 6.6, hw: 0.75, hard: 4.0, yawRate: 1.3, chase: 17, eye: [0.36, 1.25, -1.2],
+            facts: 'Five-seat turbine helicopter flown since 1967 by news crews and police. 10.2 m rotor, smooth and forgiving.' },
+    uh1:  { name: 'Bell UH-1H Huey', price: 12000, vmax: 46, climb: 11, rr: 7.3, top: 4.4, f: 3.6, b: 8.6, hw: 1.2, hard: 4.8, yawRate: 1.1, chase: 21, eye: [0.5, 1.6, -2.2],
+            facts: 'The Vietnam-era workhorse. One 14.6 m two-blade rotor makes the famous whop-whop. Slow to turn, strong in a climb.' },
+    uh60: { name: 'Sikorsky UH-60 Black Hawk', price: 25000, vmax: 56, climb: 13, rr: 8.18, top: 5.1, f: 4.1, b: 10.0, hw: 1.35, hard: 5.6, yawRate: 1.0, chase: 24, eye: [0.5, 1.9, -2.6],
+            facts: 'The US Army utility helicopter since 1979. Twin turbines, 16.4 m four-blade rotor, crash-absorbing landing gear. The fastest of the five.' },
+    ch47: { name: 'Boeing CH-47 Chinook', price: 40000, vmax: 50, climb: 12, rr: 9.1, top: 5.7, f: 7.8, b: 8.4, hw: 1.9, hard: 5.0, yawRate: 0.75, chase: 34, eye: [0.5, 2.3, -6.3],
+            facts: 'Twin-rotor heavy lifter that carries 33 troops. Two 18.3 m rotors, 30 m long in flight. Huge, steady and slow to turn: it needs a big clearing.' }
+  };
+  var HELI_IDS = ['r22', 'b206', 'uh1', 'uh60', 'ch47'];
+  var HELI_REPAIR = 0.10, HELI_MAXY = 430, HELI_SPOOL = 4.0, HELI_READY = 0.92, HELI_TILT = 0.36;
+  function hspec(id) {
+    var s = HELIS[id], g = typeof window !== 'undefined' && window.HeliGL && window.HeliGL.SPECS && window.HeliGL.SPECS[id];
+    if (g && g.eye && !s._g) { s._g = 1; if (g.chaseDist) s.chase = g.chaseDist; s.eye = g.eye; }
+    return s;
+  }
+  function hpt(h, sp, lx, lz, ly) {            // a point on the helicopter (right, back, up) as a world point
+    var c = Math.cos(h.yaw), s = Math.sin(h.yaw);
+    return [h.x + lx * c + lz * s, h.y + ly, h.z - lx * s + lz * c];
+  }
+  function rotorDisc(sp) {                       // one sample point per block over the whole rotor disc (cached)
+    if (sp._disc) return sp._disc;
+    var pts = [], r = sp.rr, dx, dz;
+    for (dx = -r; dx <= r + 0.01; dx += 0.9) for (dz = -r; dz <= r + 0.01; dz += 0.9) if (dx * dx + dz * dz <= r * r) pts.push([dx, dz]);
+    return (sp._disc = pts);
+  }
+  // What is touching a helicopter placed like h: 1 = the spinning rotor, 2 = the body or tail, 4 = the skids.
+  function heliHit(h, sp) {
+    var m = 0, i, p, ry = Math.floor(h.y + sp.top - 0.2), disc = rotorDisc(sp);
+    for (i = 0; i < disc.length; i++) if (getBlock(Math.floor(h.x + disc[i][0]), ry, Math.floor(h.z + disc[i][1])) !== 0) { m |= 1; break; }
+    var lz, hs = [0.5, sp.top * 0.55];
+    for (lz = -sp.f; lz <= sp.b + 0.01; lz += 1.2) {
+      var xs = lz > 2.2 ? [0] : [-sp.hw, 0, sp.hw];
+      for (var xi = 0; xi < xs.length; xi++) for (var hi = 0; hi < 2; hi++) {
+        p = hpt(h, sp, xs[xi], lz, hs[hi]);
+        if (getBlock(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])) !== 0) { m |= 2; xi = 9; break; }
+      }
+      if (m & 2) break;
+    }
+    var fz = [-sp.f * 0.3, sp.b * 0.12];
+    for (var k = 0; k < 4; k++) {
+      p = hpt(h, sp, (k & 1 ? 1 : -1) * sp.hw * 1.25, fz[k >> 1], -0.02);
+      if (getBlock(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])) !== 0) { m |= 4; break; }
+    }
+    return m;
+  }
+  function heliGround(h) {                       // how far the skids are above the ground below (up to 12 blocks), or -1
+    var by = Math.floor(h.y - 0.02);
+    for (var k = 0; k < 13; k++) if (getBlock(Math.floor(h.x), by - k, Math.floor(h.z)) !== 0) return h.y - (by - k + 1);
+    return -1;
+  }
+  // One physics step. inp: f/b pitch, l/r bank, yl/yr pedals, up/down collective. Returns 'ok', 'bump', 'land' (touched down softly) or 'crash' (h.why says how).
+  function stepHeli(h, inp, dt, sp) {
+    var up = !!inp.up, down = !!inp.down, ready = h.rpm >= HELI_READY;
+    h.rpm = Math.min(1, h.rpm + dt / HELI_SPOOL);
+    var tp = ready && !h.onGround ? ((inp.f ? 1 : 0) - (inp.b ? 1 : 0)) * HELI_TILT : 0, tr = ready && !h.onGround ? ((inp.r ? 1 : 0) - (inp.l ? 1 : 0)) * HELI_TILT * 0.8 : 0;
+    var kt = Math.min(1, dt * 2.4);
+    h.pt += (tp - h.pt) * kt; h.rl += (tr - h.rl) * kt;
+    var wy = h.rpm > 0.5 ? ((inp.yl ? 1 : 0) - (inp.yr ? 1 : 0)) * sp.yawRate : 0;
+    h.wy += (wy - h.wy) * Math.min(1, dt * 3); h.yaw += h.wy * dt;
+    if (h.wy && (heliHit(h, sp) & 2)) { h.yaw -= h.wy * dt; h.wy = 0; }               // the tail swung into something: the pedals stop turning it
+    var vmaxA = sp.vmax * 0.5, fwx = -Math.sin(h.yaw), fwz = -Math.cos(h.yaw), rgx = Math.cos(h.yaw), rgz = -Math.sin(h.yaw);
+    var af = h.pt / HELI_TILT * vmaxA, ar = h.rl / (HELI_TILT * 0.8) * vmaxA * 0.8, k2 = h.rpm * h.rpm;
+    if (h.onGround) { var fr = Math.exp(-3.2 * dt); h.vx *= fr; h.vz *= fr; }
+    else { h.vx += ((fwx * af + rgx * ar) * k2 - h.vx * 0.5) * dt; h.vz += ((fwz * af + rgz * ar) * k2 - h.vz * 0.5) * dt; }
+    var vt = (up ? sp.climb : 0) - (down ? sp.climb * 0.6 : 0);
+    var cushion = false;
+    if (!h.onGround && vt < 0) { var gd = heliGround(h); if (gd >= 0 && gd < 4) { vt = Math.max(vt, -(1.5 + gd * 0.9)); cushion = true; } }       // the cushion of air under the rotor near the ground
+    if (!ready) { if (!h.onGround) h.vy = Math.max(h.vy - 20 * dt, -45); }
+    else if (h.onGround) { if (vt > 0) { h.onGround = false; h.vy = 0.4; } else h.vy = 0; }
+    else h.vy += (vt - h.vy) * Math.min(1, dt * (cushion ? 3.5 : 1.8));
+    var spd = Math.sqrt(h.vx * h.vx + h.vy * h.vy + h.vz * h.vz), steps = Math.max(1, Math.ceil(spd * dt / 0.25)), res = 'ok', ax, mk, t;
+    function fail(why) { h.why = why; h.vx = h.vy = h.vz = 0; res = 'crash'; }
+    for (var i = 0; i < steps && res !== 'crash'; i++) {
+      for (ax = 0; ax < 3 && res !== 'crash'; ax++) {
+        var d = (ax === 0 ? h.vx : ax === 1 ? h.vy : h.vz) * dt / steps;
+        if (!d) continue;
+        var ox = h.x, oy = h.y, oz = h.z;
+        if (ax === 0) h.x += d; else if (ax === 1) h.y += d; else h.z += d;
+        mk = heliHit(h, sp);
+        if (!mk) continue;
+        h.x = ox; h.y = oy; h.z = oz;                                              // blocked: stay where we were
+        var down1 = ax === 1 && h.vy < 0;
+        if ((mk & 1) && h.rpm > 0.3) { fail('The rotor hit something.'); break; }
+        if (mk === 4 && down1) {                                                  // the skids touched down
+          var sink = -h.vy, hs = Math.sqrt(h.vx * h.vx + h.vz * h.vz), tilt = Math.max(Math.abs(h.pt), Math.abs(h.rl));
+          if (sink > sp.hard) { fail('Hard landing.'); break; }
+          if (hs > 9) { fail('You landed too fast.'); break; }
+          if (tilt > 0.22 && sink > 2.2) { fail('You landed on one skid.'); break; }
+          h.y = Math.floor(h.y + d - 0.02) + 1.03; h.vy = 0; h.onGround = true; res = 'land';       // rests 3 cm up, so the skids are not inside the block
+        } else {
+          t = Math.sqrt(h.vx * h.vx + h.vy * h.vy + h.vz * h.vz);
+          if (t >= (mk === 4 ? 6 : 4)) { fail(mk === 4 ? 'The skids caught on something.' : 'You flew into something.'); break; }
+          if (ax === 0) h.vx = 0; else if (ax === 1) h.vy = 0; else h.vz = 0;
+          if (res === 'ok') res = 'bump';
+        }
+      }
+    }
+    if (res !== 'crash' && h.rpm > 0.3 && (heliHit(h, sp) & 1)) fail('The rotor hit something.');      // the blades sweep into a block even when nothing moves
+    if (h.onGround && !(heliHit({ x: h.x, y: h.y - 0.05, z: h.z, yaw: h.yaw }, sp) & 4)) h.onGround = false;       // the ground went away
+    h.x = Math.min(Math.max(h.x, WMIN + 1), WMAX - 1); h.z = Math.min(Math.max(h.z, WMIN + 1), WMAX - 1);
+    if (h.y > HELI_MAXY) { h.y = HELI_MAXY; if (h.vy > 0) h.vy = 0; }
+    return res;
+  }
+  function heliModelMat(x, y, z, yaw, pt, rl) {      // model space (nose toward -z, up +y) to world, column-major
+    var c = Math.cos(yaw), s = Math.sin(yaw), cx = Math.cos(-pt), sx = Math.sin(-pt), cz = Math.cos(-rl), sz = Math.sin(-rl);
+    var rx = [[1, 0, 0], [0, cx, -sx], [0, sx, cx]], rz = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], ry = [[c, 0, s], [0, 1, 0], [-s, 0, c]], a = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], r = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], i, j, k;
+    for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) { for (k = 0; k < 3; k++) a[i][j] += rx[i][k] * rz[k][j]; }
+    for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) { for (k = 0; k < 3; k++) r[i][j] += ry[i][k] * a[k][j]; }
+    return new Float32Array([r[0][0], r[1][0], r[2][0], 0, r[0][1], r[1][1], r[2][1], 0, r[0][2], r[1][2], r[2][2], 0, x, y, z, 1]);
+  }
+
   // ------------------------------------------------------------------ compass
   var WIND = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function headingOf(yaw) { return (((-yaw * 180 / Math.PI) % 360) + 360) % 360; }   // 0 = north (-Z), 90 = east (+X), 180 = south, 270 = west
@@ -486,7 +605,7 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false }, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null }, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
@@ -494,7 +613,8 @@
     $('ew-leave').onclick = function () { close(false); };
     $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
     view.style.setProperty('--ew-launcher', pixUrl(ART_LAUNCHER)); view.style.setProperty('--ew-rocket', pixUrl(ART_ROCKET)); view.style.setProperty('--ew-boom', pixUrl(boomSheet())); view.style.setProperty('--ew-drone0', pixUrl(ART_DRONE[0])); view.style.setProperty('--ew-drone1', pixUrl(ART_DRONE[1]));
-    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
+    heliCss();
+    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; ['ew-hhud', 'ew-hhelp'].forEach(function (k) { var e0 = $(k); if (e0) e0.style.display = 'none'; }); view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
     $('ew-me-name').textContent = opts.username || '';
     var me = $('ew-me-img'); me.onerror = function () { me.onerror = null; me.src = opts.defaultAvatar; }; me.src = opts.avatarUrl(opts.username || '');
     syncUserBar();
@@ -559,6 +679,12 @@
     on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
     on(document, 'mousemove', function (e) {
       if (!locked() || !G.me) return;
+      if (G.heli) {
+        var hc = G.hcam, cock = G.heli.view === 1;
+        hc.yaw -= (e.movementX || 0) * 0.0023; if (cock) hc.yaw = Math.max(-2.2, Math.min(2.2, hc.yaw));
+        hc.pitch = Math.max(cock ? -1.1 : -1.4, Math.min(cock ? 0.9 : 0.6, hc.pitch - (e.movementY || 0) * 0.0023)); hc.idle = 0;
+        return;
+      }
       var who = G.drone || G.me;
       who.yaw -= (e.movementX || 0) * 0.0023;
       who.pitch = Math.max(-1.55, Math.min(1.55, who.pitch - (e.movementY || 0) * 0.0023));
@@ -566,10 +692,10 @@
     on(canvas, 'mousedown', function (e) {            // one action per click: holding the button does nothing
       if (!locked() || !G.ready) return;
       e.preventDefault();
-      if (G.drone) return;                                   // no placing, breaking or rockets while flying
+      if (G.drone || G.heli) return;                         // no placing, breaking or rockets while flying
       if (e.button === 0) { if (G.inv.armed) fireRocket(); else doBreak(); } else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
     });
-    on(canvas, 'wheel', function (e) { e.preventDefault(); selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
+    on(canvas, 'wheel', function (e) { e.preventDefault(); if (G.heli) { G.hcam.dist = Math.max(4, Math.min(80, G.hcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
     on(window, 'keydown', function (e) {
       if (!G || menuOpen() || typingElsewhere()) return;
       if (shopOpen()) { if (e.code === 'Escape' || e.code === 'KeyB') { closeShop(); e.preventDefault(); } return; }
@@ -588,11 +714,13 @@
         if (now - G.lastTap < 320) G.sprint = true;
         G.lastTap = now;
       }
-      if (e.code === 'Digit1' && !G.drone) setArmed(!G.inv.armed);
+      if (e.code === 'Digit1' && !G.drone && !G.heli) setArmed(!G.inv.armed);
       if (e.code === 'Digit2') toggleDrone();
+      if (e.code === 'Digit3' && !e.repeat) toggleHeli();
+      if (e.code === 'KeyV' && G.heli && !e.repeat) { G.heli.view = 1 - G.heli.view; G.hcam.yaw = 0; G.hcam.pitch = G.heli.view ? 0 : -0.22; }
       if (e.code === 'KeyB') { openShop(); return; }
-      if (e.code === 'KeyQ') selectColor(G.sel - 1);
-      if (e.code === 'KeyE') selectColor(G.sel + 1);
+      if (e.code === 'KeyQ' && !G.heli) selectColor(G.sel - 1);
+      if (e.code === 'KeyE' && !G.heli) selectColor(G.sel + 1);
       G.keys[e.code] = true;
       if (e.code === 'Space' || e.code.indexOf('Arrow') === 0) e.preventDefault();
     });
@@ -630,6 +758,7 @@
     on($('ew-shop-equip'), 'click', function () { setArmed(!G.inv.armed); });
     on($('ew-shop-dbuy'), 'click', shopBuyDrone);
     on($('ew-shop-dlaunch'), 'click', function () { closeShop(); toggleDrone(); });
+    on($('ew-shop-helis'), 'click', heliShopClick);
     G.timers.push(setInterval(function () { renderTyping(); syncUserBar(); }, 1000));
     on($('ew-leave'), 'click', function () { close(false); });
     G.timers.push(setInterval(ensureChunks, 200));
@@ -674,6 +803,7 @@
     if (d instanceof ArrayBuffer) {
       var dv = new DataView(d), t = dv.getUint8(0);
       if (t === 0x10) { loadChunkFrame(dv); }
+      else if (t === 0x13) onHeliFrame(dv);
       else if (t === 0x12) {                                 // positions of flying drones
         var dn = dv.getUint16(1, true), dop = 3;
         for (var di = 0; di < dn; di++, dop += 10) {
@@ -709,6 +839,11 @@
       case 'dend': endDrone(m); break;
       case 'dtp': if (G.drone) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; } break;
       case 'dr': if (m.on) { G.drones.set(m.id, { id: m.id, name: m.name || '', x: m.x, y: m.y, z: m.z, tx: m.x, ty: m.y, tz: m.z, el: null, fresh: false }); } else removeDrone(m.id); break;
+      case 'hstart': startHeli(m); break;
+      case 'hend': endHeli(m); break;
+      case 'htp': if (G.heli) { G.heli.x = m.x; G.heli.y = m.y; G.heli.z = m.z; G.heli.vx = G.heli.vy = G.heli.vz = 0; G.heli.crashAt = 0; } break;
+      case 'hr': if (m.on) setOtherHeli(m.id, m.m, m.name, m.x, m.y, m.z); else removeOtherHeli(m.id); break;
+      case 'hx': addWreck(m); break;
       case 'inv': applyInv(m); break;
       case 'rk': addRocket(m); break;
       case 'bs': { (m.d || []).forEach(function (b) { setBlock(b[0], b[1], b[2], b[3]); }); if (m.e) addBoom(m.e, m.s); break; }
@@ -718,7 +853,7 @@
       case 'typing': { var k = String(m.name).toLowerCase(); if (m.typing) G.typers.set(k, { name: m.name, exp: Date.now() + 7000 }); else G.typers.delete(k); renderTyping(); break; }
       case 'reaction': { var rel = G.msgEls.get(m.mid); if (rel && window.EzChat) window.EzChat.apply(rel, m.emoji, m.user, m.on); break; }
       case 'join': addOther(m.id, m.name, m.x, m.y, m.z); sys(m.name + ' joined EzWorld.'); updateOnline(); break;
-      case 'leave': { var o2 = G.others.get(m.id); if (o2) { sys(o2.name + ' left EzWorld.'); o2.el.remove(); G.others.delete(m.id); removeDrone(m.id); G.typers.delete(o2.name.toLowerCase()); renderTyping(); updateOnline(); } break; }
+      case 'leave': { var o2 = G.others.get(m.id); if (o2) { sys(o2.name + ' left EzWorld.'); o2.el.remove(); G.others.delete(m.id); removeDrone(m.id); removeOtherHeli(m.id); G.typers.delete(o2.name.toLowerCase()); renderTyping(); updateOnline(); } break; }
       case 'b': {
         var x = m.d[0], y = m.d[1], z = m.d[2], c = m.d[3];
         var ch = setBlock(x, y, z, c);
@@ -741,7 +876,7 @@
   }
   function updateOnline() { $('ew-online-n').textContent = String(G.others.size + 1); }
   function sendPos(force) {
-    if (!G.me || !G.ws || G.ws.readyState !== 1) return;
+    if (!G.me || G.heli || !G.ws || G.ws.readyState !== 1) return;
     var now = performance.now();
     if (now - G.lastSend < (force ? 40 : 100)) return;
     var b = new ArrayBuffer(9), dv = new DataView(b), m = G.me;
@@ -843,9 +978,10 @@
   function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function setTotal(n) { $('ew-online-total').textContent = String(n); }
   function applyInv(m) {
-    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0 && !G.drone;
+    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0 && !G.drone && !G.heli;
     if (m.price) i.price = m.price; if (m.per) i.per = m.per; if (m.max) i.max = m.max;
     i.drone = !!m.drone; if (m.dprice) i.dprice = m.dprice; i.flying = !!m.flying;
+    i.heli = m.heli || {}; if (m.hp) i.hp = m.hp; if (m.hrep) i.hrep = m.hrep; i.hfly = m.hfly || null;
     renderInv();
   }
   function renderInv() {
@@ -866,6 +1002,13 @@
     var db = $('ew-shop-dbuy'); db.disabled = i.drone;
     if (!G.dbuyArm) db.textContent = i.drone ? 'Owned' : 'Buy';
     var dl = $('ew-shop-dlaunch'); dl.disabled = !i.drone; dl.textContent = G.drone ? 'Land' : 'Launch';
+    var hb3 = $('ew-hotbar3');
+    if (hb3) {
+      var hid = G.hsel && (i.heli || {})[G.hsel] ? G.hsel : (HELI_IDS.filter(function (k) { return (i.heli || {})[k]; }).pop() || '');
+      hb3.style.display = hid ? 'flex' : 'none'; hb3.classList.toggle('sel', !!G.heli);
+      $('ew-hotbar3-name').textContent = hid ? HELIS[hid].name + ((i.heli || {})[hid] === 2 ? ' (wrecked)' : '') : '';
+    }
+    if (shopOpen()) renderHeliShop();
   }
   function balance() { try { return typeof myBalance !== 'undefined' ? myBalance : 0; } catch (e) { return 0; } }
   function shopOpen() { return $('ew-shop').style.display === 'flex'; }
@@ -873,6 +1016,7 @@
     $('ew-shop-bal').textContent = 'PlaceBux: ' + fmt(balance());
     if (G.buyArm && performance.now() > G.buyArm) { G.buyArm = 0; renderInv(); }
     if (G.dbuyArm && performance.now() > G.dbuyArm) { G.dbuyArm = 0; renderInv(); }
+    if (G.hArm && performance.now() > G.hArmT) { G.hArm = ''; renderInv(); }
   }
   function shopBuyDrone() {                                      // two clicks here too
     var i = G.inv, now = performance.now();
@@ -886,7 +1030,7 @@
     $('ew-shop').style.display = 'flex'; $('ew-shop-note').textContent = '';
     renderInv(); refreshShop(); clearInterval(G.shopTimer); G.shopTimer = setInterval(refreshShop, 500);
   }
-  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; G.dbuyArm = 0; renderInv(); }
+  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; G.dbuyArm = 0; G.hArm = ''; renderInv(); }
   function shopBuy() {                                           // two clicks, so 5,000 PlaceBux can't go on one slip
     var i = G.inv, now = performance.now();
     if (i.rockets + i.per > i.max) return;
@@ -942,8 +1086,242 @@
     }
   }
 
+  // ---- flying helicopters: starting, controls, camera, instruments, other pilots, wrecks and the shop cards
+  var HTHUMBS = {};
+  function heliCss() {
+    if (document.getElementById('ew-heli-css')) return;
+    var st = document.createElement('style'); st.id = 'ew-heli-css';
+    st.textContent = '#ew-hhud{display:none;position:absolute;left:50%;bottom:92px;transform:translateX(-50%);gap:14px;padding:6px 14px;font:700 12px "JetBrains Mono","Fira Code",monospace;color:#7dff9a;text-shadow:0 0 6px rgba(0,0,0,.9);background:rgba(8,12,10,.55);border:1px solid rgba(125,255,154,.35);border-radius:8px;pointer-events:none;flex-wrap:wrap;justify-content:center;max-width:94%}' +
+      '#ew-hhud b{color:#fff}#ew-hhud .st{color:#ffd166}#ew-hhud .bad{color:#ff6b5e}#ew-hhud.cockpit{background:rgba(8,12,10,.8)}' +
+      '#ew-hhelp{display:none;position:absolute;left:50%;bottom:62px;transform:translateX(-50%);font-size:11px;color:#fff;opacity:.75;text-shadow:0 0 4px #000;pointer-events:none;text-align:center;max-width:94%}' +
+      '.ew-htag{position:absolute;left:0;top:0;font-size:12px;font-weight:700;color:#fff;text-shadow:0 0 4px #000;pointer-events:none;white-space:nowrap}' +
+      '.ew-smoke{position:absolute;left:0;top:0;border-radius:50%;background:radial-gradient(circle,rgba(40,40,44,.85),rgba(40,40,44,0) 70%);pointer-events:none}' +
+      '#ew-hotbar3{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}' +
+      '#ew-hotbar3.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar3 .key{font-size:11px;opacity:.7}' +
+      '#ew-shop-helis{padding:0 16px 6px;display:flex;flex-direction:column;gap:10px}' +
+      '#ew-shop-helis h4{margin:6px 0 0;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}' +
+      '.ew-hcard{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--bg-secondary)}' +
+      '.ew-hcard img{width:150px;height:80px;object-fit:contain;flex-shrink:0;border-radius:8px;background:rgba(0,0,0,.18)}' +
+      '.ew-hcard .nfo{flex:1;min-width:190px;display:flex;flex-direction:column;gap:3px}.ew-hcard .nfo b{font-size:14px}.ew-hcard .nfo small{font-size:11.5px;color:var(--text-secondary);line-height:1.35}' +
+      '.ew-hcard .nfo span{font-size:12px;color:var(--gold);font-weight:600}.ew-hcard .act{display:flex;flex-direction:column;gap:6px;min-width:128px;text-align:center}' +
+      '.ew-hcard .act .win-btn:disabled{opacity:.45;cursor:not-allowed}#ew-shop .ew-shop-card{max-height:92vh;overflow-y:auto}';
+    document.head.appendChild(st);
+  }
+  var HELI_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src || '').replace(/ezworld.js.*$/, 'heli_gl.js');
+  function heliRenderer() {                       // the helicopter models are a separate file, fetched the first time a helicopter matters (the shop, flying, or seeing one)
+    if (G.hr) return G.hr;
+    if (G.hrFail) return null;
+    if (window.HeliGL) {
+      try { G.hr = window.HeliGL.create(G.gl); } catch (e) { G.hr = null; G.hrFail = true; }
+      return G.hr;
+    }
+    if (!G.hrLoading && HELI_SRC) {
+      G.hrLoading = true; var g0 = G, sc = document.createElement('script');
+      sc.src = HELI_SRC; sc.onload = function () { if (G === g0) { g0.hrLoading = false; renderInv(); } };
+      sc.onerror = function () { g0.hrFail = true; };
+      document.head.appendChild(sc);
+    }
+    return null;
+  }
+  function myHeliBest() {                       // the one the 3 key starts when you have not picked another
+    var own = G.inv.heli || {}, best = null;
+    HELI_IDS.forEach(function (id) { if (own[id] === 1) best = id; });
+    return best;
+  }
+  function toggleHeli() {
+    if (G.heli) { if (!G.heli.onGround) { sys('Land the helicopter first, then press 3 to get out.'); return; } send({ t: 'heli', on: false }); return; }
+    if (G.drone) return;
+    var own = G.inv.heli || {}, id = G.hsel && own[G.hsel] === 1 ? G.hsel : myHeliBest();
+    if (!id) { var anyW = HELI_IDS.some(function (k) { return own[k] === 2; }); sys(anyW ? 'Your helicopter is wrecked. Repair it in the shop (B).' : 'You do not own a helicopter. Buy one in the shop (B).'); return; }
+    if (!G.me || !G.me.onGround) { sys('Stand on the ground to start a helicopter.'); return; }
+    G.hsel = id; send({ t: 'heli', on: true, m: id });
+  }
+  function startHeli(m) {
+    var sp = hspec(m.m);
+    G.heli = { m: m.m, x: m.x, y: m.y + 0.03, z: m.z, vx: 0, vy: 0, vz: 0, yaw: G.me.yaw, wy: 0, pt: 0, rl: 0, rpm: 0, onGround: true, ang: 0, crashAt: 0, why: '', lastSent: '', sent: 0, view: 0 };
+    G.hcam = { yaw: 0, pitch: -0.22, dist: sp.chase, idle: 0 };
+    G.hpose = { x: m.x, y: m.y + 3, z: m.z, yaw: G.me.yaw, pitch: -0.22 };
+    G.inv.armed = false; G.hsel = m.m;
+    heliCss(); heliHud(true);
+    $('ew-cross').style.display = 'none';
+    sys('Starting the ' + sp.name + '. When the rotor is up to speed press Space to lift. W/S pitch, A/D bank, Q/E turn, Space up, Shift down, V changes the camera, 3 gets you out once landed.');
+    renderInv();
+  }
+  function endHeli(m) {
+    var h = G.heli; G.heli = null; G.hpose = null;
+    heliHud(false); $('ew-cross').style.display = '';
+    if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
+    G.bodyWait = true;
+    if (m && m.crash) { sys('You crashed the ' + (HELIS[m.m] ? HELIS[m.m].name : 'helicopter') + (h && h.why ? ' (' + h.why.replace(/\.$/, '').toLowerCase() + ')' : '') + '. It is wrecked: repair it in the shop for ' + Math.round(HELI_REPAIR * 100) + '% of its price.'); G.shake = performance.now() + 450; }
+    renderInv();
+  }
+  function heliHud(on) {
+    var el = $('ew-hhud');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'ew-hhud'; G.view.appendChild(el);
+      var hp = document.createElement('div'); hp.id = 'ew-hhelp'; hp.textContent = 'W/S pitch   A/D bank   Q/E turn   Space up   Shift down   V camera   Wheel zoom   3 exit'; G.view.appendChild(hp);
+    }
+    el.style.display = on ? 'flex' : 'none'; $('ew-hhelp').style.display = on ? 'block' : 'none';
+  }
+  function sendHeliPos(force) {
+    var h = G.heli; if (!h || !G.ws || G.ws.readyState !== 1) return;
+    var qx = Math.round(h.x * 16), qy = Math.round(h.y * 16), qz = Math.round(h.z * 16);
+    var yaw = Math.floor(((h.yaw % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * 256) & 255;
+    var pit = Math.max(1, Math.min(255, Math.round(h.pt / (Math.PI / 2) * 127 + 128))), rol = Math.max(1, Math.min(255, Math.round(h.rl / (Math.PI / 2) * 127 + 128)));
+    var key = qx + ',' + qy + ',' + qz + ',' + yaw + ',' + pit + ',' + rol;
+    if (key === h.lastSent && !force) return;
+    h.lastSent = key; h.sent = performance.now();
+    var b = new ArrayBuffer(10), dv = new DataView(b);
+    dv.setUint8(0, 3); dv.setInt16(1, qx, true); dv.setInt16(3, qy, true); dv.setInt16(5, qz, true); dv.setUint8(7, yaw); dv.setUint8(8, pit); dv.setUint8(9, rol);
+    G.ws.send(b);
+  }
+  function flyHeli(dt) {
+    var h = G.heli, k = G.keys, now = performance.now(), sp = hspec(h.m);
+    if (h.crashAt && now - h.crashAt > 1500) h.crashAt = 0;           // the server did not agree it was a crash: carry on
+    var inp = (h.crashAt || !locked()) ? {} : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, yl: k.KeyQ, yr: k.KeyE, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
+    var res = h.crashAt ? 'ok' : stepHeli(h, inp, dt, sp);
+    if (res === 'crash' && !h.crashAt) {
+      h.crashAt = now; G.hcrashState = { vx: h.vx, vy: h.vy, vz: h.vz };
+      sendHeliPos(true); send({ t: 'hcrash' });
+    } else if (now - h.sent >= 50 || (now - h.sent >= 40 && res !== 'ok')) sendHeliPos(false);
+    h.ang += dt * 40 * h.rpm;
+    var me = G.me; me.x = h.x; me.y = h.y; me.z = h.z; me.yaw = h.yaw;
+    // camera: chase (orbits the helicopter) or cockpit (the pilot's eyes)
+    var hc = G.hcam, hp = G.hpose;
+    hc.idle += dt; if (hc.idle > 1.2 && h.view === 0) hc.yaw *= Math.max(0, 1 - dt * 1.2);
+    if (h.view === 0) {
+      var ya = h.yaw + hc.yaw, cp = Math.cos(hc.pitch), tx = h.x, ty = h.y + sp.top * 0.55, tz = h.z;
+      var dx = Math.sin(ya) * cp, dy = -Math.sin(hc.pitch), dz = Math.cos(ya) * cp, want = hc.dist;      // from the helicopter toward the camera
+      var hit = raycast(tx, ty, tz, dx, dy, dz, want + 0.5); if (hit && hit.t < want) want = Math.max(1.2, hit.t - 0.5);
+      hp.x = tx + dx * want; hp.y = ty + dy * want; hp.z = tz + dz * want; hp.yaw = ya; hp.pitch = hc.pitch;
+    } else {
+      var e = hpt(h, sp, sp.eye[0], sp.eye[2] * -1 * -1, sp.eye[1]);
+      hp.x = e[0]; hp.y = e[1]; hp.z = e[2]; hp.yaw = h.yaw + hc.yaw; hp.pitch = hc.pitch;
+    }
+    // instruments
+    var el = $('ew-hhud'), spd = Math.sqrt(h.vx * h.vx + h.vz * h.vz), gd = h.onGround ? 0 : heliGround(h), status = h.crashAt ? '<span class="bad">CRASH</span>' : h.rpm < HELI_READY ? '<span class="st">ENGINE START ' + Math.round(h.rpm * 100) + '%</span>' : h.onGround ? '<span class="st">READY: Space to lift</span>' : '';
+    var html = '<span>' + esc(sp.name) + '</span><span>IAS <b>' + Math.round(spd * 1.944) + '</b> kt</span><span>ALT <b>' + Math.round(h.y) + '</b></span><span>AGL <b>' + (gd < 0 ? '--' : Math.round(gd)) + '</b></span><span>VS <b>' + (h.vy >= 0 ? '+' : '') + h.vy.toFixed(1) + '</b></span><span>RPM <b>' + Math.round(h.rpm * 100) + '</b>%</span>' + (status ? '<span>' + status + '</span>' : '');
+    if (html !== h.hudHtml) { h.hudHtml = html; el.innerHTML = html; }
+    el.classList.toggle('cockpit', h.view === 1);
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  // other pilots' helicopters
+  function setOtherHeli(id, m, name, x, y, z) {
+    var pl = G.others.get(id);
+    var o = { id: id, m: m, name: name || (pl ? pl.name : ''), x: x, y: y, z: z, tx: x, ty: y, tz: z, yaw: 0, tyaw: 0, pt: 0, rl: 0, tpt: 0, trl: 0, ang: 0, el: null, fresh: true };
+    G.helis.set(id, o); if (pl) pl.hidden = true;
+  }
+  function removeOtherHeli(id) {
+    var o = G.helis.get(id); if (o && o.el) o.el.remove(); G.helis.delete(id);
+    var pl = G.others.get(id); if (pl) { pl.hidden = false; if (o) { pl.x = pl.tx = o.x; pl.y = pl.ty = o.y; pl.z = pl.tz = o.z; } }
+  }
+  function onHeliFrame(dv) {
+    var n = dv.getUint16(1, true), p = 3;
+    for (var i = 0; i < n; i++, p += 12) {
+      var id = dv.getUint16(p, true), o = G.helis.get(id), mid = HELI_IDS[dv.getUint8(p + 11)];
+      if (!o) { setOtherHeli(id, mid, '', 0, 0, 0); o = G.helis.get(id); }
+      o.m = mid || o.m;
+      o.tx = dv.getInt16(p + 2, true) / 16; o.ty = dv.getInt16(p + 4, true) / 16; o.tz = dv.getInt16(p + 6, true) / 16;
+      o.tyaw = dv.getUint8(p + 8) / 256 * 2 * Math.PI; o.tpt = (dv.getUint8(p + 9) - 128) / 127 * Math.PI / 2; o.trl = (dv.getUint8(p + 10) - 128) / 127 * Math.PI / 2;
+      if (o.fresh) { o.x = o.tx; o.y = o.ty; o.z = o.tz; o.yaw = o.tyaw; o.pt = o.tpt; o.rl = o.trl; o.fresh = false; }
+    }
+  }
+  function angDiff(a, b) { var d = (b - a) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; }
+  // wrecks
+  function addWreck(m) {
+    var own = m.id === G.myId, h = own && G.heli ? G.heli : null, st = own ? G.hcrashState : null;
+    var w = { m: m.m, x: m.x, y: m.y, z: m.z, yaw: h ? h.yaw : 0, pt: h ? h.pt : 0, rl: h ? h.rl : 0, vx: st ? st.vx : 0, vy: st ? Math.min(st.vy, 0) : 0, vz: st ? st.vz : 0, wr: (Math.random() - 0.5) * 2.2, wp: (Math.random() - 0.5) * 0.8, down: false, t0: performance.now(), puffs: [], fire: null, nextPuff: 0 };
+    G.wrecks.push(w); while (G.wrecks.length > 6) killWreck(G.wrecks.shift());
+  }
+  function killWreck(w) { if (w.fire) w.fire.remove(); w.puffs.forEach(function (p) { p.el.remove(); }); }
+  function drawHelis(vp, ex, ey, ez, dt, now) {
+    if (!G.heli && !G.helis.size && !G.wrecks.length) return;
+    var r = heliRenderer(); if (!r) return;
+    var fn = RDIST * 16 - 44, ff = RDIST * 16 - 6, cam = [ex, ey, ez];
+    if (G.heli && G.heli.view === 0 && !G.heli.crashAt) { var h = G.heli; r.draw(h.m, heliModelMat(h.x, h.y, h.z, h.yaw, h.pt, h.rl), vp, cam, fn, ff, h.ang, Math.max(0, Math.min(1, (h.rpm - 0.25) / 0.55)), 0); }
+    G.helis.forEach(function (o) {
+      var k = Math.min(1, dt * 10);
+      o.x += (o.tx - o.x) * k; o.y += (o.ty - o.y) * k; o.z += (o.tz - o.z) * k;
+      o.yaw += angDiff(o.yaw, o.tyaw) * k; o.pt += (o.tpt - o.pt) * k; o.rl += (o.trl - o.rl) * k; o.ang += dt * 40;
+      var dx = o.x - ex, dz = o.z - ez; if (dx * dx + dz * dz > 170 * 170 || !HELIS[o.m]) return;
+      r.draw(o.m, heliModelMat(o.x, o.y, o.z, o.yaw, o.pt, o.rl), vp, cam, fn, ff, o.ang, 0.9, 0);
+    });
+    for (var i = G.wrecks.length - 1; i >= 0; i--) {
+      var w = G.wrecks[i], age = (now - w.t0) / 1000;
+      if (age > 120) { killWreck(w); G.wrecks.splice(i, 1); continue; }
+      if (!w.down) {
+        w.vy = Math.max(w.vy - 24 * dt, -40); w.x += w.vx * dt; w.y += w.vy * dt; w.z += w.vz * dt; w.yaw += w.wr * dt; w.rl += w.wr * 0.4 * dt; w.pt += w.wp * dt;
+        if (getBlock(Math.floor(w.x), Math.floor(w.y - 0.05), Math.floor(w.z)) !== 0) { w.y = Math.floor(w.y - 0.05) + 1; w.down = true; w.rl = Math.max(-0.5, Math.min(0.5, w.rl)) + 0.25; w.pt = Math.max(-0.4, Math.min(0.4, w.pt)); w.vx = w.vy = w.vz = 0; }
+        if (w.y < 1) { w.y = 1; w.down = true; }
+      }
+      var ddx = w.x - ex, ddz = w.z - ez; if (ddx * ddx + ddz * ddz < 170 * 170 && HELIS[w.m]) r.draw(w.m, heliModelMat(w.x, w.y, w.z, w.yaw, w.pt, w.rl), vp, cam, fn, ff, 0.6, 0, 0.82);
+    }
+  }
+  function drawHeliFx(vp, focal, ex, ey, ez, dt, now) {
+    var layer = $('ew-fx');
+    G.helis.forEach(function (o) {              // names above the other pilots' helicopters
+      var sp = project(vp, o.x, o.y + (HELIS[o.m] ? HELIS[o.m].top + 1.2 : 3), o.z, G.cw, G.ch);
+      if (!sp || sp.w > 170) { if (o.el) o.el.style.display = 'none'; return; }
+      if (!o.el) { o.el = document.createElement('div'); o.el.className = 'ew-htag'; layer.appendChild(o.el); }
+      var nm = o.name || (G.others.get(o.id) || {}).name || ''; if (o.el.textContent !== nm) o.el.textContent = nm;
+      o.el.style.display = 'block'; o.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-100%)';
+    });
+    G.wrecks.forEach(function (w) {              // flames for a while, and smoke that rises and fades
+      var age = (now - w.t0) / 1000, sp = project(vp, w.x, w.y + 1.1, w.z, G.cw, G.ch);
+      var live = sp && sp.w < 160 && w.down && age < 45;
+      if (live) {
+        if (!w.fire) { w.fire = document.createElement('div'); w.fire.className = 'ew-boom'; layer.appendChild(w.fire); }
+        var fs = Math.max(30, Math.min(500, focal * 5 / sp.w));
+        w.fire.style.display = 'block'; w.fire.style.width = w.fire.style.height = fs.toFixed(0) + 'px'; w.fire.style.setProperty('--f', String(Math.floor(now / 140) % 4)); w.fire.style.opacity = String(Math.max(0, 0.9 - age / 50));
+        w.fire.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-70%)';
+      } else if (w.fire) w.fire.style.display = 'none';
+      if (w.down && age < 75 && now > w.nextPuff && w.puffs.length < 7 && sp && sp.w < 160) {
+        w.nextPuff = now + 600; var pe = document.createElement('div'); pe.className = 'ew-smoke'; layer.appendChild(pe); w.puffs.push({ el: pe, t0: now });
+      }
+      for (var i = w.puffs.length - 1; i >= 0; i--) {
+        var pf = w.puffs[i], pa = (now - pf.t0) / 4200;
+        if (pa >= 1) { pf.el.remove(); w.puffs.splice(i, 1); continue; }
+        var ps = project(vp, w.x + Math.sin(pa * 3 + i) * 0.7, w.y + 1.5 + pa * 9, w.z + Math.cos(pa * 2 + i) * 0.7, G.cw, G.ch);
+        if (!ps || ps.w > 170) { pf.el.style.display = 'none'; continue; }
+        var sz = Math.max(14, Math.min(380, focal * (3 + pa * 6) / ps.w));
+        pf.el.style.display = 'block'; pf.el.style.width = pf.el.style.height = sz.toFixed(0) + 'px'; pf.el.style.opacity = String(Math.max(0, 0.8 * (1 - pa)));
+        pf.el.style.transform = 'translate(' + (ps.x | 0) + 'px,' + (ps.y | 0) + 'px) translate(-50%,-50%)';
+      }
+    });
+  }
+  // shop cards
+  function heliThumb(id) {
+    if (HTHUMBS[id]) return HTHUMBS[id];
+    var r = heliRenderer(); if (!r || !r.thumbnail) return '';
+    try { var u = r.thumbnail(id, 150, 80); if (u) HTHUMBS[id] = u; } catch (e) {}
+    return HTHUMBS[id] || '';
+  }
+  function renderHeliShop() {
+    var box = $('ew-shop-helis'); if (!box) return;
+    heliCss();
+    var own = G.inv.heli || {}, prices = G.inv.hp || {}, html = '<h4>Helicopters</h4>';
+    HELI_IDS.forEach(function (id) {
+      var sp = HELIS[id], price = prices[id] || sp.price, st = own[id], rep = Math.max(1, Math.floor(price * (G.inv.hrep || HELI_REPAIR))), img = heliThumb(id);
+      var btn1 = st === 1 ? '<button class="win-btn" data-h="launch" data-id="' + id + '"' + (G.heli ? ' disabled' : '') + '>' + (G.heli && G.heli.m === id ? 'Flying' : 'Launch') + '</button>'
+        : st === 2 ? '<button class="win-btn" data-h="repair" data-id="' + id + '">' + (G.hArm === 'repair_' + id ? 'Click again to confirm' : 'Repair ' + fmt(rep)) + '</button>'
+        : '<button class="win-btn" data-h="buy" data-id="' + id + '">' + (G.hArm === id ? 'Click again to confirm' : 'Buy') + '</button>';
+      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st === 1 ? ' · owned' : st === 2 ? ' · wrecked' : '') + ' · top speed ' + sp.vmax + ' b/s</span></div><div class="act">' + btn1 + '</div></div>';
+    });
+    if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
+  }
+  function heliShopClick(e) {
+    var t = e.target; if (!t || !t.getAttribute || !t.getAttribute('data-h')) return;
+    var id = t.getAttribute('data-id'), kind = t.getAttribute('data-h'), prices = G.inv.hp || {}, price = prices[id] || HELIS[id].price, now = performance.now();
+    if (kind === 'launch') { closeShop(); G.hsel = id; toggleHeli(); return; }
+    var item = kind === 'repair' ? 'repair_' + id : id, cost = kind === 'repair' ? Math.max(1, Math.floor(price * (G.inv.hrep || HELI_REPAIR))) : price;
+    if (G.hArm === item && now < G.hArmT) { G.hArm = ''; send({ t: 'buy', item: item }); renderInv(); return; }
+    if (balance() < cost) { $('ew-shop-note').textContent = 'You need ' + fmt(cost) + ' PlaceBux (you have ' + fmt(balance()) + ').'; return; }
+    $('ew-shop-note').textContent = ''; G.hArm = item; G.hArmT = now + 3000; renderInv();
+  }
+
   // ---- flying the drone
   function toggleDrone() {
+    if (G.heli) return;
     if (G.drone) { send({ t: 'drone', on: false }); return; }
     if (!G.inv.drone) { sys('You do not own an FPV drone. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to launch the drone.'); return; }
@@ -1082,7 +1460,7 @@
     if (menuOpen() && locked() && document.exitPointerLock) document.exitPointerLock();
     if (G.shake > now) { G.canvas.style.transform = 'translate(' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px,' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px)'; G.shaking = true; } else if (G.shaking) { G.canvas.style.transform = ''; G.shaking = false; }
     if (G.me && G.ready) {
-      var hd = headingOf((G.drone || G.me).yaw);
+      var hd = headingOf((G.drone || G.heli || G.me).yaw);
       if (Math.abs(hd - G.lastHeading) > 0.2 || G.compassDirty) {
         G.lastHeading = hd; G.compassDirty = false;
         if (!G.compassOff) G.compassOff = document.createElement('canvas');
@@ -1108,7 +1486,8 @@
       if (G.ready) {
         var k = G.keys, inp = { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, jump: k.Space, sprint: G.sprint && (k.KeyW || k.ArrowUp) };
         var changed = false;
-        if (G.drone) flyDrone(dt);                                    // the body stands still while the drone flies
+        if (G.heli) flyHeli(dt);
+        else if (G.drone) flyDrone(dt);                                    // the body stands still while the drone flies
         else if (G.bodyWait) { var bu = chunks.get(ckey(Math.floor(me.x) >> 4, Math.floor(me.z) >> 4)); if (bu && bu.loaded) G.bodyWait = false; }
         else changed = stepPlayer(me, inp, dt);
         if (me.stuck > 1.5) { me.stuck = -4; send({ t: 'chat', text: '/unstuck' }); }       // could not push out on our own: ask the server for the nearest free spot
@@ -1131,7 +1510,7 @@
     var gl = G.gl, me = G.me;
     gl.clearColor(SKY[0], SKY[1], SKY[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (!me) return;
-    var cam = G.drone, fovNow = cam ? FOV + 0.45 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
+    var cam = G.drone || G.hpose, fovNow = G.drone ? FOV + 0.45 : G.hpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
     var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
     var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch));
     G.vp = vp;
@@ -1141,7 +1520,7 @@
     gl.uniform3f(G.loc.fogCol, SKY[0], SKY[1], SKY[2]);
     gl.uniform2f(G.loc.fog, RDIST * 16 - 44, RDIST * 16 - 6);
     gl.enableVertexAttribArray(G.loc.pos); gl.enableVertexAttribArray(G.loc.col);
-    var fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
+    var fx = -Math.sin(cam ? cam.yaw : me.yaw), fz = -Math.cos(cam ? cam.yaw : me.yaw);
     chunks.forEach(function (c) {
       if (!c.mesh || !c.mesh.count) return;
       var dx = c.cx * 16 + 8 - ex, dz = c.cz * 16 + 8 - ez;
@@ -1152,8 +1531,9 @@
       gl.uniform3f(G.loc.off, c.cx * 16, 0, c.cz * 16);
       gl.drawArrays(gl.TRIANGLES, 0, c.mesh.count);
     });
+    drawHelis(vp, ex, ey, ez, dt, performance.now());
     // outline of what you are aiming at
-    if (G.ready && !G.drone) {
+    if (G.ready && !G.drone && !G.heli) {
       var h = targetNow();
       if (h) {
         gl.bindBuffer(gl.ARRAY_BUFFER, G.lineBuf);
@@ -1168,7 +1548,9 @@
     var focal = (G.ch / 2) / Math.tan(fovNow / 2);
     drawFx(vp, focal);
     drawDrones(vp, focal, ex, ey, ez, dt, performance.now());
+    drawHeliFx(vp, focal, ex, ey, ez, dt, performance.now());
     G.others.forEach(function (p) {
+      if (p.hidden) { p.el.style.display = 'none'; return; }
       var k = Math.min(1, dt * 12);
       p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; p.z += (p.tz - p.z) * k;
       var cy = p.y + 1.0, sp = project(vp, p.x, cy, p.z, G.cw, G.ch);
@@ -1191,6 +1573,7 @@
     try { if (g.ws) { g.ws.onclose = null; g.ws.close(); } } catch (e) {}
     chunks.forEach(function (c) { if (c.mesh && c.mesh.buf && g.gl) g.gl.deleteBuffer(c.mesh.buf); });
     chunks.clear();
+    try { if (g.hr) g.hr.dispose(); } catch (e) {}
     try { var ext = g.gl && g.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
     g.view.style.display = 'none';
     $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = '';
@@ -1202,7 +1585,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();
