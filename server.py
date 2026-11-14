@@ -9790,7 +9790,7 @@ DRONE_MAX_SPEED = 55.0            # blocks per second a drone may move (it flies
 DRONE_BURST = 14.0                # distance a laggy connection may "catch up" at once
 DRONE_MAX_Y = 430.0               # highest a drone may fly
 DRONE_CRASH_SPEED = 3.0           # hitting something slower than this is only a bump
-DRONE_CRASH_BLOCKS = 3            # a crash breaks at most this many blocks
+DRONE_CRASH_BLOCKS = 0            # a crash breaks at most this many blocks (0: a crash only ends the flight; set a number to let it break blocks again)
 DRONE_COOLDOWN = 3.0              # seconds before the drone can be launched again
 DRONE_NEAR = 96.0                 # drones are refreshed 10 times a second within this distance of the viewer
 ROCKET_PROTECT = 0.0              # rockets break blocks everywhere; set this to a number of blocks to protect that radius around the spawn centre again
@@ -10441,7 +10441,7 @@ async def world_ws_handler(request):
                     await save_place_bucks(); await push_pb_update(me["name"])
                     _inv_touch(); await _inv_save()
                     await _w_send_inv(me)
-                    await _w_sys(me, "Bought an FPV drone. Press 2 to launch it; W A S D fly, Space goes up, Shift goes down. A crash breaks up to 3 blocks.")
+                    await _w_sys(me, "Bought an FPV drone. Press 2 to launch it; W A S D fly, Space goes up, Shift goes down. A hard crash only ends the flight.")
                     continue
                 have = _inv_rockets(me["name"])
                 if have + ROCKETS_PER_LAUNCHER > ROCKET_MAX_HELD:
