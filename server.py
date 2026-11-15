@@ -10371,8 +10371,12 @@ async def _w_jet_end(p, crashed, at=None):
         world_inv.setdefault(p["name"].lower(), {}).setdefault("jet", {}).pop(j["m"], None); _inv_touch(); await _inv_save()
         spot = _w_find_spot(px, py, pz) or _w_pick_spawn()
         await _w_teleport(p, spot[0], spot[1], spot[2])
+        if "vx" in j: vel = [j["vx"], j["vy"], j["vz"]]
+        else:
+            ang = j["yaw"] / 256.0 * 2 * math.pi; pit = (j["pitch"] - 128) / 127.0 * math.pi / 2; spd = j.get("v", 0.0)
+            vel = [-math.sin(ang) * math.cos(pit) * spd, math.sin(pit) * spd, -math.cos(ang) * math.cos(pit) * spd]
         await _w_broadcast({"t": "jx", "id": p["id"], "m": j["m"], "x": round(px, 2), "y": round(py, 2), "z": round(pz, 2),
-                            "v": [round(j.get("vx", 0.0), 1), round(j.get("vy", 0.0), 1), round(j.get("vz", 0.0), 1)]}, near=(int(px), int(pz)))
+                            "v": [round(c, 1) for c in vel]}, near=(int(px), int(pz)))
         spec = JETS[j["m"]]
         await _w_explode((int(math.floor(px)), int(math.floor(py + 1)), int(math.floor(pz))), px, py + 1, pz, radius=JET_CRASH_RADIUS + spec[5] * 0.25, scale=1.6)
     else:
@@ -10381,6 +10385,42 @@ async def _w_jet_end(p, crashed, at=None):
     await _w_send(p, {"t": "jend", "crash": bool(crashed), "m": j["m"], "x": p["x"], "y": p["y"], "z": p["z"]})
     await _w_send_inv(p)
     await _w_broadcast({"t": "jr", "id": p["id"], "on": False}, exclude=p["id"])
+
+def _w_flyer(p):
+    """A flying vehicle as a sphere: (x, y, z, radius) around its middle, or None."""
+    d = p.get("drone")
+    if d: return (d["x"], d["y"], d["z"], 0.6, 0.0)
+    h = p.get("heli")
+    if h:
+        sp = HELIS[h["m"]]; return (h["x"], h["y"] + sp[6] * 0.5, h["z"], max(2.0, sp[5] * 0.75), sp[6] * 0.5)
+    j = p.get("jet")
+    if j:
+        sp = JETS[j["m"]]; return (j["x"], j["y"] + sp[6] * 0.4, j["z"], max(3.0, max(sp[4], sp[5]) * 0.4), sp[6] * 0.4)
+    return None
+
+async def _w_destroy(p, pt):
+    if p.get("drone"): await _w_drone_crash(p, pt)
+    elif p.get("heli"): await _w_heli_end(p, True, pt)
+    elif p.get("jet"): await _w_jet_end(p, True, pt)
+
+async def _w_midair(p, prev):
+    """Two aircraft (drone, helicopter or jet) that meet in the air destroy each other. Checked along the path the mover just flew."""
+    a = _w_flyer(p)
+    if not a: return
+    cx, cy, cz, ar, oy = a
+    px, py, pz = prev
+    for q in list(world_players.values()):
+        if q is p: continue
+        b = _w_flyer(q)
+        if not b: continue
+        for t in (0.25, 0.5, 0.75, 1.0):
+            sx, sy, sz = px + (cx - px) * t, py + oy + (cy - oy - py) * t, pz + (cz - pz) * t
+            if (sx - b[0]) ** 2 + (sy - b[1]) ** 2 + (sz - b[2]) ** 2 < (ar + b[3]) ** 2:
+                pa, pb = (cx, cy - oy, cz), (b[0], b[1] - b[4], b[2])
+                await _w_sys(p, "Mid-air collision!"); await _w_sys(q, "Mid-air collision!")
+                await _w_destroy(q, pb)
+                await _w_destroy(p, pa)
+                return
 
 def _w_heli_clear(x, y, z, spec):
     """Room for the whole helicopter standing with its skids at y: the body (out to its nose or tail) up to the rotor, and the rotor's disc."""
@@ -10549,33 +10589,31 @@ async def world_ws_handler(request):
                 if me is not None and len(d) == 9 and d[0] == 2:
                     if me.get("drone"):
                         _, qx, qy, qz, yaw, pitch = struct.unpack("<BhhhBB", d)
+                        dr0 = me["drone"]; prev = (dr0["x"], dr0["y"], dr0["z"])
                         verdict, pt = _w_drone_move(me, qx / 16.0, qy / 16.0, qz / 16.0, yaw, pitch, time.monotonic())
                         if verdict == "crash": await _w_drone_crash(me, pt)
                         elif verdict == "bounce":
                             dr = me["drone"]; await _w_send(me, {"t": "dtp", "x": dr["x"], "y": dr["y"], "z": dr["z"], "v": [round(c, 2) for c in pt]})     # knocked back off the player
                         elif verdict == "reject":
                             dr = me["drone"]; await _w_send(me, {"t": "dtp", "x": dr["x"], "y": dr["y"], "z": dr["z"]})    # put the camera back where the drone really is
-                        elif verdict == "ok":
-                            for q in list(world_players.values()):                  # two drones that meet both break
-                                qd = q.get("drone")
-                                if q is not me and qd and me.get("drone") and (qd["x"] - me["drone"]["x"]) ** 2 + (qd["y"] - me["drone"]["y"]) ** 2 + (qd["z"] - me["drone"]["z"]) ** 2 < 1.0:
-                                    a, b2 = me["drone"], qd
-                                    await _w_drone_crash(q, (b2["x"], b2["y"], b2["z"]))
-                                    await _w_drone_crash(me, (a["x"], a["y"], a["z"]))
-                                    break
+                        elif verdict == "ok": await _w_midair(me, prev)
                 if me is not None and len(d) == 10 and d[0] == 3:
                     if me.get("heli"):
                         _, qx, qy, qz, yaw, pitch, roll = struct.unpack("<BhhhBBB", d)
+                        h0 = me["heli"]; prev = (h0["x"], h0["y"], h0["z"])
                         verdict, pt = _w_heli_move(me, qx / 16.0, qy / 16.0, qz / 16.0, yaw, pitch, roll, time.monotonic())
                         if verdict == "crash": await _w_heli_end(me, True, pt)
+                        elif verdict == "ok": await _w_midair(me, prev)
                         elif verdict == "reject":
                             hh = me["heli"]; await _w_send(me, {"t": "htp", "x": hh["x"], "y": hh["y"], "z": hh["z"]})
                     continue
                 if me is not None and len(d) == 10 and d[0] == 4:
                     if me.get("jet"):
                         _, qx, qy, qz, yaw, pitch, roll = struct.unpack("<BhhhBBB", d)
+                        j0 = me["jet"]; prev = (j0["x"], j0["y"], j0["z"])
                         verdict, pt = _w_jet_move(me, qx / 16.0, qy / 16.0, qz / 16.0, yaw, pitch, roll, time.monotonic())
                         if verdict == "crash": await _w_jet_end(me, True, pt)
+                        elif verdict == "ok": await _w_midair(me, prev)
                         elif verdict == "reject":
                             jj = me["jet"]; await _w_send(me, {"t": "jtp", "x": jj["x"], "y": jj["y"], "z": jj["z"]})
                     continue

@@ -1253,7 +1253,8 @@
   // ---- flying helicopters: starting, controls, camera, instruments, other pilots, wrecks and the shop cards
   var HTHUMBS = {};
   function impactFx(x, y, z, big) {
-    addBoom([x, y + 1, z], big ? 2.4 : 1.7); G.flash = performance.now(); G.shake = performance.now() + (big ? 900 : 700);
+    var near = !G.me || Math.hypot(x - G.me.x, z - G.me.z) < 70 || (G.jet && G.jet.crashAt) || (G.heli && G.heli.crashAt);
+    addBoom([x, y + 1, z], big ? 2.4 : 1.7); if (near) { G.flash = performance.now(); G.shake = performance.now() + (big ? 900 : 700); }
     var g0 = G;
     [150, 320, 520].forEach(function (d, i) { setTimeout(function () { if (G === g0) addBoom([x + (Math.random() - 0.5) * 8, y + 0.5 + Math.random() * 3, z + (Math.random() - 0.5) * 8], (big ? 1.5 : 1.0) - i * 0.15); }, d); });
     G.rings.push({ p: [x, y + 0.5, z], t0: performance.now(), el: null, r: big ? 46 : 30 });
@@ -1329,7 +1330,8 @@
   }
   function endHeli(m) {
     var h = G.heli, eye0 = G.hpose ? [G.hpose.x, G.hpose.y, G.hpose.z] : null; G.heli = null; G.hpose = null;
-    if (m && m.crash && h && h.wreck) G.cfollow = { w: h.wreck, until: performance.now() + 3800, eye: eye0 };
+    var hw = h && (h.wreck || (m && m.crash ? G.wrecks[G.wrecks.length - 1] : null));       // a crash the server decided (a collision) has its wreck from the broadcast
+    if (m && m.crash && hw) G.cfollow = { w: hw, until: performance.now() + 3800, eye: eye0 };
     heliHud(false); $('ew-cross').style.display = '';
     if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
     G.bodyWait = true;
@@ -1420,12 +1422,13 @@
     wreckKick(w, 1.2 + Math.min(3, Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) * 0.04));
     for (var i = 0; i < 34; i++) w.deb.push({ x: m.x + (Math.random() - 0.5) * 4, y: m.y + Math.random() * 2, z: m.z + (Math.random() - 0.5) * 4, vx: v[0] * 0.5 + (Math.random() - 0.5) * 26, vy: 5 + Math.random() * 20, vz: v[2] * 0.5 + (Math.random() - 0.5) * 26, s: i < 7 ? 1.8 + Math.random() * 1.6 : 0.5 + Math.random() * 1.1, burn: Math.random() < 0.4, el: null, rest: false });      // wings, tail and engine pieces first, then small bits
     G.wrecks.push(w); while (G.wrecks.length > 6) killWreck(G.wrecks.shift());
+    if (!m.local) impactFx(m.x, m.y, m.z, kind === 'j');                 // everybody sees the blast, however the crash happened
     return w;
   }
   function addWreck(m) {
     var own = m.id === G.myId;
     if (own && !m.local && (G.cfollow || (G.heli && G.heli.wreck))) return null;       // already shown the moment it happened
-    var h = own && G.heli ? G.heli : null, st = own ? G.hcrashState : null;
+    var h = own && G.heli ? G.heli : null, st = own && m.local ? G.hcrashState : null;
     return newWreck('h', m, st ? [st.vx, st.vy, st.vz] : [0, 0, 0], { yaw: h ? h.yaw : 0, pt: h ? h.pt : 0, rl: h ? h.rl : 0 });
   }
   function wsolid(x, y, z) { return getBlock(Math.floor(x), Math.floor(y), Math.floor(z)) !== 0; }
@@ -1611,7 +1614,8 @@
   }
   function endJet(m) {
     var j = G.jet, eye0 = G.jpose ? [G.jpose.x, G.jpose.y, G.jpose.z] : null; G.jet = null; G.jpose = null;
-    if (m && m.crash && j && j.wreck) G.cfollow = { w: j.wreck, until: performance.now() + 3800, eye: eye0 };
+    var jw = j && (j.wreck || (m && m.crash ? G.wrecks[G.wrecks.length - 1] : null));
+    if (m && m.crash && jw) G.cfollow = { w: jw, until: performance.now() + 3800, eye: eye0 };
     jetHud(false); $('ew-cross').style.display = '';
     if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
     G.bodyWait = true;
