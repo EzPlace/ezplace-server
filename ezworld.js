@@ -737,7 +737,7 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null }, mouseFly: true, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null }, mouseFly: true, mouseInv: false, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
@@ -813,7 +813,7 @@
       if (!locked() || !G.me) return;
       if ((G.jet || G.heli) && G.mouseFly) {                              // the mouse is the stick: it deflects, and settles back to centre
         var ms = G.mstick;
-        ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.004)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.004));
+        ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.0028)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.0028));
         return;
       }
       if (G.jet) {
@@ -861,6 +861,7 @@
       if (e.code === 'Digit2') toggleDrone();
       if (e.code === 'Digit3' && !e.repeat) toggleHeli();
       if (e.code === 'Digit4' && !e.repeat) toggleJet();
+      if (e.code === 'KeyI' && (G.jet || G.heli) && !e.repeat) { G.mouseInv = !G.mouseInv; sys(G.mouseInv ? 'Mouse up now pulls the nose up (inverted).' : 'Mouse up now pushes the nose down, like a flight stick.'); }
       if (e.code === 'KeyM' && (G.jet || G.heli) && !e.repeat) { G.mouseFly = !G.mouseFly; G.mstick.x = G.mstick.y = 0; sys(G.mouseFly ? 'Mouse steering on: the mouse works like a stick (M to switch to a free-look camera).' : 'Mouse steering off: the mouse looks around (M to steer with it again).'); }
       if (e.code === 'KeyV' && G.jet && !e.repeat) { G.jet.view = 1 - G.jet.view; G.jcam.yaw = 0; G.jcam.pitch = 0; }
       if (e.code === 'KeyV' && G.heli && !e.repeat) { G.heli.view = 1 - G.heli.view; G.hcam.yaw = 0; G.hcam.pitch = G.heli.view ? 0 : -0.22; }
@@ -1251,6 +1252,7 @@
 
   // ---- flying helicopters: starting, controls, camera, instruments, other pilots, wrecks and the shop cards
   var HTHUMBS = {};
+  function mouseCurve(v) { return v * (0.45 + 0.55 * Math.abs(v)); }        // small movements are gentle, big ones are firm
   function heliCss() {
     if (document.getElementById('ew-heli-css')) return;
     var st = document.createElement('style'); st.id = 'ew-heli-css';
@@ -1329,7 +1331,7 @@
     var el = $('ew-hhud');
     if (!el) {
       el = document.createElement('div'); el.id = 'ew-hhud'; G.view.appendChild(el);
-      var hp = document.createElement('div'); hp.id = 'ew-hhelp'; hp.textContent = 'Mouse steers (M: free look)   W/S pitch   A/D bank   Q/E turn   Space up   Shift down   V camera   Wheel zoom   3 exit'; G.view.appendChild(hp);
+      var hp = document.createElement('div'); hp.id = 'ew-hhelp'; hp.textContent = 'Mouse steers (M: free look, I: invert)   W/S pitch   A/D bank   Q/E turn   Space up   Shift down   V camera   Wheel zoom   3 exit'; G.view.appendChild(hp);
     }
     el.style.display = on ? 'flex' : 'none'; $('ew-hhelp').style.display = on ? 'block' : 'none';
   }
@@ -1352,8 +1354,8 @@
       if (h.tries >= 2) { h.tries = 0; sys('Stuck? Moving you out of the helicopter.'); send({ t: 'chat', text: '/unstuck' }); }
     }
     var inp = (h.crashAt || !locked()) ? {} : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, yl: k.KeyQ, yr: k.KeyE, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
-    if (G.mouseFly) { inp.ax = G.mstick.x; inp.ay = G.mstick.y; }
-    G.mstick.x *= Math.exp(-1.3 * dt); G.mstick.y *= Math.exp(-1.3 * dt);
+    if (G.mouseFly) { inp.ax = mouseCurve(G.mstick.x); inp.ay = (G.mouseInv ? -1 : 1) * mouseCurve(G.mstick.y); }
+    G.mstick.x *= Math.exp(-0.9 * dt); G.mstick.y *= Math.exp(-0.9 * dt);
     var res = h.crashAt ? 'ok' : stepHeli(h, inp, dt, sp);
     if (res === 'crash' && !h.crashAt) {
       h.crashAt = now; var hv = h.cv || [0, 0, 0]; G.hcrashState = { vx: hv[0], vy: hv[1], vz: hv[2] };
@@ -1602,7 +1604,7 @@
     var el = $('ew-jhud');
     if (!el) {
       el = document.createElement('div'); el.id = 'ew-jhud'; el.className = 'ew-hudbox'; G.view.appendChild(el);
-      var hp = document.createElement('div'); hp.id = 'ew-jhelp'; hp.className = 'ew-hhelp2'; hp.textContent = 'Mouse steers (M: free look)   W/S pitch   A/D roll   Q/E rudder   Space/Shift throttle   V camera   Wheel zoom   4 exit'; G.view.appendChild(hp);
+      var hp = document.createElement('div'); hp.id = 'ew-jhelp'; hp.className = 'ew-hhelp2'; hp.textContent = 'Mouse steers (M: free look, I: invert)   W/S pitch   A/D roll   Q/E rudder   Space/Shift throttle   V camera   Wheel zoom   4 exit'; G.view.appendChild(hp);
     }
     el.style.display = on ? 'flex' : 'none'; $('ew-jhelp').style.display = on ? 'block' : 'none';
   }
@@ -1632,8 +1634,8 @@
       if (j.tries >= 2) { j.tries = 0; sys('Stuck? Moving you out of the jet.'); send({ t: 'chat', text: '/unstuck' }); }
     }
     var inp = (j.crashAt || !locked()) ? { down: false } : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, yl: k.KeyQ, yr: k.KeyE, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
-    if (G.mouseFly) { inp.ax = G.mstick.x; inp.ay = G.mstick.y; }
-    G.mstick.x *= Math.exp(-1.3 * dt); G.mstick.y *= Math.exp(-1.3 * dt);
+    if (G.mouseFly) { inp.ax = mouseCurve(G.mstick.x); inp.ay = (G.mouseInv ? 1 : -1) * mouseCurve(G.mstick.y); }
+    G.mstick.x *= Math.exp(-0.9 * dt); G.mstick.y *= Math.exp(-0.9 * dt);
     var res = j.crashAt ? 'ok' : stepJet(j, inp, dt, sp);
     if (res === 'crash' && !j.crashAt) {
       j.crashAt = now; var cv = j.cv || [0, 0, 0]; G.jcrashState = { vx: cv[0], vy: cv[1], vz: cv[2], a: jetAngles(j.f, j.u) };
