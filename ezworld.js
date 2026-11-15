@@ -494,10 +494,10 @@
   function stepHeli(h, inp, dt, sp) {
     var up = !!inp.up, down = !!inp.down, ready = h.rpm >= HELI_READY;
     h.rpm = Math.min(1, h.rpm + dt / HELI_SPOOL);
-    var tp = ready && !h.onGround ? ((inp.f ? 1 : 0) - (inp.b ? 1 : 0)) * HELI_TILT : 0, tr = ready && !h.onGround ? ((inp.r ? 1 : 0) - (inp.l ? 1 : 0)) * HELI_TILT * 0.8 : 0;
+    var tp = ready && !h.onGround ? Math.max(-1, Math.min(1, (inp.f ? 1 : 0) - (inp.b ? 1 : 0) + (inp.ay || 0))) * HELI_TILT : 0, tr = ready && !h.onGround ? ((inp.r ? 1 : 0) - (inp.l ? 1 : 0)) * HELI_TILT * 0.8 : 0;
     var kt = Math.min(1, dt * 2.4);
     h.pt += (tp - h.pt) * kt; h.rl += (tr - h.rl) * kt;
-    var wy = h.rpm > 0.5 ? ((inp.yl ? 1 : 0) - (inp.yr ? 1 : 0)) * sp.yawRate : 0;
+    var wy = h.rpm > 0.5 ? Math.max(-1, Math.min(1, (inp.yl ? 1 : 0) - (inp.yr ? 1 : 0) - (inp.ax || 0))) * sp.yawRate : 0;
     h.wy += (wy - h.wy) * Math.min(1, dt * 3); h.yaw += h.wy * dt;
     if (h.wy && (heliHit(h, sp) & 2)) { h.yaw -= h.wy * dt; h.wy = 0; }               // the tail swung into something: the pedals stop turning it
     var vmaxA = sp.vmax * 0.5, fwx = -Math.sin(h.yaw), fwz = -Math.cos(h.yaw), rgx = Math.cos(h.yaw), rgz = -Math.sin(h.yaw);
@@ -511,7 +511,7 @@
     else if (h.onGround) { if (vt > 0) { h.onGround = false; h.vy = 0.4; } else h.vy = 0; }
     else h.vy += (vt - h.vy) * Math.min(1, dt * (cushion ? 3.5 : 1.8));
     var spd = Math.sqrt(h.vx * h.vx + h.vy * h.vy + h.vz * h.vz), steps = Math.max(1, Math.ceil(spd * dt / 0.25)), res = 'ok', ax, mk, t;
-    function fail(why) { h.why = why; h.vx = h.vy = h.vz = 0; res = 'crash'; }
+    function fail(why) { h.why = why; h.cv = [h.vx, h.vy, h.vz]; h.vx = h.vy = h.vz = 0; res = 'crash'; }
     for (var i = 0; i < steps && res !== 'crash'; i++) {
       for (ax = 0; ax < 3 && res !== 'crash'; ax++) {
         var d = (ax === 0 ? h.vx : ax === 1 ? h.vy : h.vz) * dt / steps;
@@ -629,7 +629,7 @@
     if (!air && j.thr < 0.05) j.speed = Math.max(0, j.speed - 14 * dt);
     if (air) j.speed -= 12 * j.f[1] * dt;                                  // climbing costs speed, diving gains it
     j.speed = Math.max(0, Math.min(sp.vmax * 1.25, j.speed));
-    var pull = (inp.b ? 1 : 0) - (inp.f ? 1 : 0), rollIn = (inp.r ? 1 : 0) - (inp.l ? 1 : 0), yawIn = (inp.yl ? 1 : 0) - (inp.yr ? 1 : 0);
+    var pull = Math.max(-1, Math.min(1, (inp.b ? 1 : 0) - (inp.f ? 1 : 0) + (inp.ay || 0))), rollIn = Math.max(-1, Math.min(1, (inp.r ? 1 : 0) - (inp.l ? 1 : 0) + (inp.ax || 0))), yawIn = (inp.yl ? 1 : 0) - (inp.yr ? 1 : 0);
     var auth = air ? Math.max(0.05, Math.min(1, (j.speed - 0.35 * sp.stall) / (0.9 * sp.stall))) : 0;
     var lf = Math.max(0, Math.min(1, (j.speed - 0.7 * sp.stall) / (0.4 * sp.stall)));
     j.stalled = air && lf < 0.6;
@@ -676,7 +676,7 @@
       } else if (j.speed >= 8 || (mk & 1)) { j.why = (mk & 1) ? 'You flew into something.' : 'The landing gear caught on something.'; res = 'crash'; }
       else { j.speed = 0; if (res === 'ok') res = 'bump'; break; }
     }
-    if (res === 'crash') { j.speed = 0; j.vx = j.vy = j.vz = 0; }
+    if (res === 'crash') { j.cv = [vx, vy, vz]; j.speed = 0; j.vx = j.vy = j.vz = 0; }
     if (j.onGround) { var gp = jetHit({ x: j.x, y: j.y - 0.05, z: j.z, f: j.f, u: j.u }, sp); if (!(gp & 2)) j.onGround = false; }       // the ground went away
     j.x = Math.min(Math.max(j.x, WMIN + 1), WMAX - 1); j.z = Math.min(Math.max(j.z, WMIN + 1), WMAX - 1);
     if (j.y > JET_MAXY) { j.y = JET_MAXY; if (j.f[1] > 0) jetRotate(j, 0, -0.5 * dt); }
@@ -737,7 +737,7 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null }, mouseFly: true, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
@@ -811,6 +811,11 @@
     on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
     on(document, 'mousemove', function (e) {
       if (!locked() || !G.me) return;
+      if ((G.jet || G.heli) && G.mouseFly) {                              // the mouse is the stick: it deflects, and settles back to centre
+        var ms = G.mstick;
+        ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.004)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.004));
+        return;
+      }
       if (G.jet) {
         var jc0 = G.jcam, cock0 = G.jet.view === 1;
         jc0.yaw -= (e.movementX || 0) * 0.0023; jc0.pitch = Math.max(-1.2, Math.min(1.2, jc0.pitch - (e.movementY || 0) * 0.0023)); jc0.idle = 0;
@@ -856,6 +861,7 @@
       if (e.code === 'Digit2') toggleDrone();
       if (e.code === 'Digit3' && !e.repeat) toggleHeli();
       if (e.code === 'Digit4' && !e.repeat) toggleJet();
+      if (e.code === 'KeyM' && (G.jet || G.heli) && !e.repeat) { G.mouseFly = !G.mouseFly; G.mstick.x = G.mstick.y = 0; sys(G.mouseFly ? 'Mouse steering on: the mouse works like a stick (M to switch to a free-look camera).' : 'Mouse steering off: the mouse looks around (M to steer with it again).'); }
       if (e.code === 'KeyV' && G.jet && !e.repeat) { G.jet.view = 1 - G.jet.view; G.jcam.yaw = 0; G.jcam.pitch = 0; }
       if (e.code === 'KeyV' && G.heli && !e.repeat) { G.heli.view = 1 - G.heli.view; G.hcam.yaw = 0; G.hcam.pitch = G.heli.view ? 0 : -0.22; }
       if (e.code === 'KeyB') { openShop(); return; }
@@ -1257,6 +1263,7 @@
       '.ew-hhelp2{display:none;position:absolute;left:50%;bottom:62px;transform:translateX(-50%);font-size:11px;color:#fff;opacity:.75;text-shadow:0 0 4px #000;pointer-events:none;text-align:center;max-width:94%}' +
       '#ew-hotbar4{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}#ew-hotbar4.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar4 .key{font-size:11px;opacity:.7}' +
       '#ew-shop-jets{padding:0 16px 6px;display:flex;flex-direction:column;gap:10px}#ew-shop-jets h4{margin:6px 0 0;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}' +
+      '.ew-debris{position:absolute;left:0;top:0;background:#2a2a2d;border:1px solid #0a0a0b;pointer-events:none}' +
       '.ew-smoke{position:absolute;left:0;top:0;border-radius:50%;background:radial-gradient(circle,rgba(40,40,44,.85),rgba(40,40,44,0) 70%);pointer-events:none}' +
       '#ew-hotbar3{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}' +
       '#ew-hotbar3.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar3 .key{font-size:11px;opacity:.7}' +
@@ -1310,7 +1317,8 @@
     renderInv();
   }
   function endHeli(m) {
-    var h = G.heli; G.heli = null; G.hpose = null;
+    var h = G.heli, eye0 = G.hpose ? [G.hpose.x, G.hpose.y, G.hpose.z] : null; G.heli = null; G.hpose = null;
+    if (m && m.crash && h && h.wreck) G.cfollow = { w: h.wreck, until: performance.now() + 3800, eye: eye0 };
     heliHud(false); $('ew-cross').style.display = '';
     if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
     G.bodyWait = true;
@@ -1321,7 +1329,7 @@
     var el = $('ew-hhud');
     if (!el) {
       el = document.createElement('div'); el.id = 'ew-hhud'; G.view.appendChild(el);
-      var hp = document.createElement('div'); hp.id = 'ew-hhelp'; hp.textContent = 'W/S pitch   A/D bank   Q/E turn   Space up   Shift down   V camera   Wheel zoom   3 exit'; G.view.appendChild(hp);
+      var hp = document.createElement('div'); hp.id = 'ew-hhelp'; hp.textContent = 'Mouse steers (M: free look)   W/S pitch   A/D bank   Q/E turn   Space up   Shift down   V camera   Wheel zoom   3 exit'; G.view.appendChild(hp);
     }
     el.style.display = on ? 'flex' : 'none'; $('ew-hhelp').style.display = on ? 'block' : 'none';
   }
@@ -1340,14 +1348,17 @@
   function flyHeli(dt) {
     var h = G.heli, k = G.keys, now = performance.now(), sp = hspec(h.m);
     if (h.crashAt && now - h.crashAt > 1500) {                         // the server did not agree it was a crash: carry on, and if that keeps happening get you out
-      h.crashAt = 0; h.tries = (h.tries || 0) + 1;
+      h.crashAt = 0; h.tries = (h.tries || 0) + 1; if (h.wreck) { dropWreck(h.wreck); h.wreck = null; }
       if (h.tries >= 2) { h.tries = 0; sys('Stuck? Moving you out of the helicopter.'); send({ t: 'chat', text: '/unstuck' }); }
     }
     var inp = (h.crashAt || !locked()) ? {} : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, yl: k.KeyQ, yr: k.KeyE, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
+    if (G.mouseFly) { inp.ax = G.mstick.x; inp.ay = G.mstick.y; }
+    G.mstick.x *= Math.exp(-1.3 * dt); G.mstick.y *= Math.exp(-1.3 * dt);
     var res = h.crashAt ? 'ok' : stepHeli(h, inp, dt, sp);
     if (res === 'crash' && !h.crashAt) {
-      h.crashAt = now; G.hcrashState = { vx: h.vx, vy: h.vy, vz: h.vz };
+      h.crashAt = now; var hv = h.cv || [0, 0, 0]; G.hcrashState = { vx: hv[0], vy: hv[1], vz: hv[2] };
       sendHeliPos(true); send({ t: 'hcrash' });
+      h.wreck = addWreck({ id: G.myId, m: h.m, x: h.x, y: h.y + 0.3, z: h.z, local: true });
     } else if (now - h.sent >= 50 || (now - h.sent >= 40 && res !== 'ok')) sendHeliPos(false);
     h.ang += dt * 40 * h.rpm;
     var me = G.me; me.x = h.x; me.y = h.y; me.z = h.z; me.yaw = h.yaw;
@@ -1355,7 +1366,7 @@
     var hc = G.hcam, hp = G.hpose;
     hc.idle += dt; if (hc.idle > 1.2 && h.view === 0) hc.yaw *= Math.max(0, 1 - dt * 1.2);
     if (h.view === 0) {
-      var ya = h.yaw + hc.yaw, cp = Math.cos(hc.pitch), tx = h.x, ty = h.y + sp.top * 0.55, tz = h.z;
+      var ya = h.yaw + hc.yaw, cp = Math.cos(hc.pitch), tg = h.wreck || h, tx = tg.x, ty = tg.y + sp.top * 0.55, tz = tg.z;
       var dx = Math.sin(ya) * cp, dy = -Math.sin(hc.pitch), dz = Math.cos(ya) * cp, want = hc.dist;      // from the helicopter toward the camera
       var hit = raycast(tx, ty, tz, dx, dy, dz, want + 0.5); if (hit && hit.t < want) want = Math.max(1.2, hit.t - 0.5);
       hp.x = tx + dx * want; hp.y = ty + dy * want; hp.z = tz + dz * want; hp.yaw = ya; hp.pitch = hc.pitch;
@@ -1393,12 +1404,66 @@
   }
   function angDiff(a, b) { var d = (b - a) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; }
   // wrecks
-  function addWreck(m) {
-    var own = m.id === G.myId, h = own && G.heli ? G.heli : null, st = own ? G.hcrashState : null;
-    var w = { m: m.m, x: m.x, y: m.y, z: m.z, yaw: h ? h.yaw : 0, pt: h ? h.pt : 0, rl: h ? h.rl : 0, vx: st ? st.vx : 0, vy: st ? Math.min(st.vy, 0) : 0, vz: st ? st.vz : 0, wr: (Math.random() - 0.5) * 2.2, wp: (Math.random() - 0.5) * 0.8, down: false, t0: performance.now(), puffs: [], fire: null, nextPuff: 0 };
+  function wreckKick(w, a) { w.wy += (Math.random() - 0.5) * a * 2; w.wp += (Math.random() - 0.5) * a * 2; w.wr += (Math.random() - 0.5) * a * 3; }
+  function newWreck(kind, m, v, a) {
+    var w = { kind: kind, m: m.m, x: m.x, y: m.y, z: m.z, yaw: a.yaw, pt: a.pt, rl: a.rl, vx: v[0], vy: v[1], vz: v[2], wy: 0, wp: 0, wr: 0, down: false, t0: performance.now(), puffs: [], fire: null, nextPuff: 0, deb: [] };
+    wreckKick(w, 1.2 + Math.min(3, Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) * 0.04));
+    for (var i = 0; i < 14; i++) w.deb.push({ x: m.x + (Math.random() - 0.5) * 3, y: m.y + Math.random() * 2, z: m.z + (Math.random() - 0.5) * 3, vx: v[0] * 0.5 + (Math.random() - 0.5) * 14, vy: 4 + Math.random() * 14, vz: v[2] * 0.5 + (Math.random() - 0.5) * 14, s: 0.5 + Math.random(), el: null, rest: false });
     G.wrecks.push(w); while (G.wrecks.length > 6) killWreck(G.wrecks.shift());
+    return w;
   }
-  function killWreck(w) { if (w.fire) w.fire.remove(); w.puffs.forEach(function (p) { p.el.remove(); }); }
+  function addWreck(m) {
+    var own = m.id === G.myId;
+    if (own && !m.local && (G.cfollow || (G.heli && G.heli.wreck))) return null;       // already shown the moment it happened
+    var h = own && G.heli ? G.heli : null, st = own ? G.hcrashState : null;
+    return newWreck('h', m, st ? [st.vx, st.vy, st.vz] : [0, 0, 0], { yaw: h ? h.yaw : 0, pt: h ? h.pt : 0, rl: h ? h.rl : 0 });
+  }
+  function wsolid(x, y, z) { return getBlock(Math.floor(x), Math.floor(y), Math.floor(z)) !== 0; }
+  // A wreck is a falling, spinning body: it hits the ground and bounces, hits walls and rebounds, slides, loses speed and spin, and finally settles.
+  function stepWreck(w, dt) {
+    var i, d;
+    for (i = 0; i < w.deb.length; i++) {
+      d = w.deb[i]; if (d.rest) continue;
+      d.vy -= 26 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      if (wsolid(d.x, d.y - 0.1, d.z)) { d.y = Math.floor(d.y - 0.1) + 1.1; if (d.vy < -3) { d.vy *= -0.35; d.vx *= 0.6; d.vz *= 0.6; } else d.rest = true; }
+    }
+    if (w.down) return;
+    var R = w.kind === 'j' ? 2.2 : 1.6, spd = Math.sqrt(w.vx * w.vx + w.vy * w.vy + w.vz * w.vz), steps = Math.max(1, Math.ceil(spd * dt / 0.4)), h = dt / steps, grounded = false;
+    for (i = 0; i < steps; i++) {
+      w.vy = Math.max(w.vy - 26 * h, -80);
+      var nx = w.x + w.vx * h, nz = w.z + w.vz * h, ny = w.y + w.vy * h;
+      if (wsolid(nx + (w.vx > 0 ? R : -R), w.y + 0.9, w.z)) { w.vx *= -0.3; w.vz *= 0.7; wreckKick(w, 0.8); } else w.x = nx;
+      if (wsolid(w.x, w.y + 0.9, nz + (w.vz > 0 ? R : -R))) { w.vz *= -0.3; w.vx *= 0.7; wreckKick(w, 0.8); } else w.z = nz;
+      if (w.vy < 0 && wsolid(w.x, ny - 0.1, w.z)) {
+        var impact = -w.vy; w.y = Math.floor(ny - 0.1) + 1.1;
+        if (impact > 4) { w.vy = impact * 0.3; w.vx *= 0.8; w.vz *= 0.8; wreckKick(w, Math.min(2.5, impact * 0.08)); } else { w.vy = 0; grounded = true; }
+      } else if (w.vy > 0 && wsolid(w.x, ny + 1.8, w.z)) w.vy = 0;
+      else w.y = ny;
+      if (w.y < 1.1) { w.y = 1.1; w.vy = 0; grounded = true; }
+    }
+    var fr = grounded ? Math.exp(-2.4 * dt) : 1, af = Math.exp((grounded ? -2.4 : -0.3) * dt);
+    w.vx *= fr; w.vz *= fr; w.wy *= af; w.wp *= af; w.wr *= af;
+    w.yaw += w.wy * dt; w.pt += w.wp * dt; w.rl += w.wr * dt;
+    if (grounded && Math.sqrt(w.vx * w.vx + w.vz * w.vz) < 0.8) {
+      w.down = true; w.vx = w.vz = w.wy = w.wp = w.wr = 0;
+      w.pt = Math.max(-0.35, Math.min(0.35, w.pt));
+      var rl = ((w.rl + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+      w.rl = Math.abs(rl) > 1.4 ? (rl > 0 ? Math.PI : -Math.PI) : Math.max(-0.5, Math.min(0.5, rl));        // on its belly, on its side, or upside down
+    }
+  }
+  function dropWreck(w) { killWreck(w); var i = G.wrecks.indexOf(w); if (i >= 0) G.wrecks.splice(i, 1); }
+  function updateCrashCam(dt, now) {               // after a crash the camera stays with the wreck for a few seconds
+    var c = G.cfollow; if (!c) return;
+    if (now > c.until || G.jet || G.heli || G.drone || G.wrecks.indexOf(c.w) < 0) { G.cfollow = null; G.cpose = null; return; }
+    var w = c.w, tx = w.x, ty = w.y + 1.5, tz = w.z;
+    if (!c.eye) c.eye = [tx + 14, ty + 6, tz + 14];
+    var dx = c.eye[0] - tx, dy = c.eye[1] - ty, dz = c.eye[2] - tz, dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1, want = 18, k = Math.min(1, dt * 3);
+    var gx = tx + dx / dl * want, gy = ty + Math.max(4, dy / dl * want), gz = tz + dz / dl * want;
+    c.eye[0] += (gx - c.eye[0]) * k; c.eye[1] += (gy - c.eye[1]) * k; c.eye[2] += (gz - c.eye[2]) * k;
+    var f = [tx - c.eye[0], ty - c.eye[1], tz - c.eye[2]]; jnorm(f);
+    G.cpose = { x: c.eye[0], y: c.eye[1], z: c.eye[2], yaw: Math.atan2(-f[0], -f[2]), pitch: Math.asin(Math.max(-1, Math.min(1, f[1]))), f: f, u: Math.abs(f[1]) > 0.97 ? [0, 0, 1] : [0, 1, 0] };
+  }
+  function killWreck(w) { if (w.fire) w.fire.remove(); w.puffs.forEach(function (p) { p.el.remove(); }); (w.deb || []).forEach(function (d) { if (d.el) d.el.remove(); }); }
   function drawHelis(vp, ex, ey, ez, dt, now) {
     var needH = G.heli || G.helis.size || G.wrecks.some(function (w) { return w.kind !== 'j'; });
     if (!needH && !G.wrecks.length) return;
@@ -1415,11 +1480,6 @@
     for (var i = G.wrecks.length - 1; i >= 0; i--) {
       var w = G.wrecks[i], age = (now - w.t0) / 1000;
       if (age > 120) { killWreck(w); G.wrecks.splice(i, 1); continue; }
-      if (!w.down) {
-        w.vy = Math.max(w.vy - 24 * dt, -40); w.x += w.vx * dt; w.y += w.vy * dt; w.z += w.vz * dt; w.yaw += w.wr * dt; w.rl += w.wr * 0.4 * dt; w.pt += w.wp * dt;
-        if (getBlock(Math.floor(w.x), Math.floor(w.y - 0.05), Math.floor(w.z)) !== 0) { w.y = Math.floor(w.y - 0.05) + 1; w.down = true; w.rl = Math.max(-0.5, Math.min(0.5, w.rl)) + 0.25; w.pt = Math.max(-0.4, Math.min(0.4, w.pt)); w.vx = w.vy = w.vz = 0; }
-        if (w.y < 1) { w.y = 1; w.down = true; }
-      }
       var ddx = w.x - ex, ddz = w.z - ez; if (r && w.kind !== 'j' && ddx * ddx + ddz * ddz < 170 * 170 && HELIS[w.m]) r.draw(w.m, heliModelMat(w.x, w.y, w.z, w.yaw, w.pt, w.rl), vp, cam, fn, ff, 0.6, 0, 0.82);
     }
   }
@@ -1434,14 +1494,22 @@
     });
     G.wrecks.forEach(function (w) {              // flames for a while, and smoke that rises and fades
       var age = (now - w.t0) / 1000, sp = project(vp, w.x, w.y + 1.1, w.z, G.cw, G.ch);
-      var live = sp && sp.w < 160 && w.down && age < 45;
+      w.deb.forEach(function (d) {
+        var ps = project(vp, d.x, d.y, d.z, G.cw, G.ch);
+        if (!ps || ps.w > 200) { if (d.el) d.el.style.display = 'none'; return; }
+        if (!d.el) { d.el = document.createElement('div'); d.el.className = 'ew-debris'; layer.appendChild(d.el); }
+        var sz = Math.max(3, Math.min(60, focal * 0.5 * d.s / ps.w));
+        d.el.style.display = 'block'; d.el.style.width = d.el.style.height = sz.toFixed(1) + 'px';
+        d.el.style.transform = 'translate(' + (ps.x | 0) + 'px,' + (ps.y | 0) + 'px) translate(-50%,-50%) rotate(' + ((d.x + d.y + d.z) * 2).toFixed(2) + 'rad)';
+      });
+      var live = sp && sp.w < 220 && age > 0.1 && age < 45;
       if (live) {
         if (!w.fire) { w.fire = document.createElement('div'); w.fire.className = 'ew-boom'; layer.appendChild(w.fire); }
         var fs = Math.max(30, Math.min(500, focal * 5 / sp.w));
         w.fire.style.display = 'block'; w.fire.style.width = w.fire.style.height = fs.toFixed(0) + 'px'; w.fire.style.setProperty('--f', String(Math.floor(now / 140) % 4)); w.fire.style.opacity = String(Math.max(0, 0.9 - age / 50));
         w.fire.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-70%)';
       } else if (w.fire) w.fire.style.display = 'none';
-      if (w.down && age < 75 && now > w.nextPuff && w.puffs.length < 7 && sp && sp.w < 160) {
+      if (age < 75 && now > w.nextPuff && w.puffs.length < 7 && sp && sp.w < 160) {
         w.nextPuff = now + 600; var pe = document.createElement('div'); pe.className = 'ew-smoke'; layer.appendChild(pe); w.puffs.push({ el: pe, t0: now });
       }
       for (var i = w.puffs.length - 1; i >= 0; i--) {
@@ -1513,7 +1581,7 @@
   function startJet(m) {
     var sp = jspec(m.m), yaw = G.me.yaw;
     G.jet = { m: m.m, x: m.x, y: m.y + 0.03, z: m.z, f: [-Math.sin(yaw), 0, -Math.cos(yaw)], u: [0, 1, 0], speed: 0, thr: 0, sink: 0, vx: 0, vy: 0, vz: 0, rp: 0, rr: 0, ry: 0, onGround: true, crashAt: 0, why: '', lastSent: '', sent: 0, view: 0, gear: 1, yaw: yaw, tries: 0 };
-    G.jcam = { yaw: 0, pitch: 0, dist: sp.chase, idle: 0, cf: [-Math.sin(yaw), 0, -Math.cos(yaw)] };
+    G.jcam = { yaw: 0, pitch: 0, dist: sp.chase, idle: 0, cf: [-Math.sin(yaw), 0, -Math.cos(yaw)], cu: [0, 1, 0] };
     G.jpose = { x: m.x, y: m.y + 3, z: m.z, yaw: yaw, pitch: 0, f: G.jet.f.slice(), u: [0, 1, 0] };
     G.inv.armed = false; G.jsel = m.m;
     heliCss(); jetHud(true);
@@ -1522,7 +1590,8 @@
     renderInv();
   }
   function endJet(m) {
-    var j = G.jet; G.jet = null; G.jpose = null;
+    var j = G.jet, eye0 = G.jpose ? [G.jpose.x, G.jpose.y, G.jpose.z] : null; G.jet = null; G.jpose = null;
+    if (m && m.crash && j && j.wreck) G.cfollow = { w: j.wreck, until: performance.now() + 3800, eye: eye0 };
     jetHud(false); $('ew-cross').style.display = '';
     if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
     G.bodyWait = true;
@@ -1533,7 +1602,7 @@
     var el = $('ew-jhud');
     if (!el) {
       el = document.createElement('div'); el.id = 'ew-jhud'; el.className = 'ew-hudbox'; G.view.appendChild(el);
-      var hp = document.createElement('div'); hp.id = 'ew-jhelp'; hp.className = 'ew-hhelp2'; hp.textContent = 'W/S pitch   A/D roll   Q/E rudder   Space/Shift throttle   V camera   Wheel zoom   4 exit'; G.view.appendChild(hp);
+      var hp = document.createElement('div'); hp.id = 'ew-jhelp'; hp.className = 'ew-hhelp2'; hp.textContent = 'Mouse steers (M: free look)   W/S pitch   A/D roll   Q/E rudder   Space/Shift throttle   V camera   Wheel zoom   4 exit'; G.view.appendChild(hp);
     }
     el.style.display = on ? 'flex' : 'none'; $('ew-jhelp').style.display = on ? 'block' : 'none';
   }
@@ -1559,14 +1628,17 @@
   function flyJet(dt) {
     var j = G.jet, k = G.keys, now = performance.now(), sp = jspec(j.m);
     if (j.crashAt && now - j.crashAt > 1500) {                         // the server did not agree it was a crash: carry on, and if that keeps happening get you out
-      j.crashAt = 0; j.tries++;
+      j.crashAt = 0; j.tries++; if (j.wreck) { dropWreck(j.wreck); j.wreck = null; }
       if (j.tries >= 2) { j.tries = 0; sys('Stuck? Moving you out of the jet.'); send({ t: 'chat', text: '/unstuck' }); }
     }
     var inp = (j.crashAt || !locked()) ? { down: false } : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, yl: k.KeyQ, yr: k.KeyE, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
+    if (G.mouseFly) { inp.ax = G.mstick.x; inp.ay = G.mstick.y; }
+    G.mstick.x *= Math.exp(-1.3 * dt); G.mstick.y *= Math.exp(-1.3 * dt);
     var res = j.crashAt ? 'ok' : stepJet(j, inp, dt, sp);
     if (res === 'crash' && !j.crashAt) {
-      j.crashAt = now; G.jcrashState = { vx: j.vx, vy: j.vy, vz: j.vz, a: jetAngles(j.f, j.u) };
-      sendJetPos(true); send({ t: 'jcrash', v: [j.vx, j.vy, j.vz] });
+      j.crashAt = now; var cv = j.cv || [0, 0, 0]; G.jcrashState = { vx: cv[0], vy: cv[1], vz: cv[2], a: jetAngles(j.f, j.u) };
+      sendJetPos(true); send({ t: 'jcrash', v: cv });
+      j.wreck = addJetWreck({ id: G.myId, m: j.m, x: j.x, y: j.y + 0.5, z: j.z, v: cv, local: true });
     } else if (now - j.sent >= 50 || (now - j.sent >= 40 && res !== 'ok')) sendJetPos(false);
     var me = G.me; me.x = j.x; me.y = j.y; me.z = j.z;
     var an = jetAngles(j.f, j.u); j.yaw = an.yaw; me.yaw = an.yaw;
@@ -1579,13 +1651,21 @@
     var jc = G.jcam, jp = G.jpose;
     jc.idle += dt; if (jc.idle > 1.5 && j.view === 0) { jc.yaw *= Math.max(0, 1 - dt * 1.5); jc.pitch *= Math.max(0, 1 - dt * 1.5); }
     if (j.view === 0) {
-      var kf = Math.min(1, dt * 4.5); for (var q = 0; q < 3; q++) jc.cf[q] += (j.f[q] - jc.cf[q]) * kf; jnorm(jc.cf);
-      var yaw0 = Math.atan2(-jc.cf[0], -jc.cf[2]) + jc.yaw, pit0 = Math.asin(Math.max(-1, Math.min(1, jc.cf[1]))) * 0.6 + jc.pitch;
-      var cp = Math.cos(pit0), tx = j.x, ty = j.y + sp.h * 0.4, tz = j.z;
-      var dx = Math.sin(yaw0) * cp, dy = -Math.sin(pit0) + 0.18, dz = Math.cos(yaw0) * cp, dl = Math.sqrt(dx * dx + dy * dy + dz * dz); dx /= dl; dy /= dl; dz /= dl;
-      var want = jc.dist, hit = raycast(tx, ty, tz, dx, dy, dz, want + 0.5); if (hit && hit.t < want) want = Math.max(2, hit.t - 0.5);
-      jp.x = tx + dx * want; jp.y = ty + dy * want; jp.z = tz + dz * want;
-      var lf = [tx - jp.x, ty - jp.y, tz - jp.z]; jnorm(lf); jp.f = lf; jp.u = [0, 1, 0]; jp.yaw = Math.atan2(-lf[0], -lf[2]); jp.pitch = Math.asin(lf[1]);
+      var kf = Math.min(1, dt * 5), ku = Math.min(1, dt * 2.5), q;
+      for (q = 0; q < 3; q++) { jc.cf[q] += (j.f[q] - jc.cf[q]) * kf; jc.cu[q] += (j.u[q] - jc.cu[q]) * ku; }
+      jnorm(jc.cf); var dd = jc.cf[0] * jc.cu[0] + jc.cf[1] * jc.cu[1] + jc.cf[2] * jc.cu[2]; for (q = 0; q < 3; q++) jc.cu[q] -= jc.cf[q] * dd; jnorm(jc.cu);
+      var cr = jcross(jc.cf, jc.cu), cY = Math.cos(jc.yaw), sY = Math.sin(jc.yaw), cP = Math.cos(jc.pitch), sP = Math.sin(jc.pitch);
+      var lf0 = [jc.cf[0] * cY - cr[0] * sY, jc.cf[1] * cY - cr[1] * sY, jc.cf[2] * cY - cr[2] * sY];
+      var lf1 = jnorm([lf0[0] * cP + jc.cu[0] * sP, lf0[1] * cP + jc.cu[1] * sP, lf0[2] * cP + jc.cu[2] * sP]), lu1 = [jc.cu[0] * cP - lf0[0] * sP, jc.cu[1] * cP - lf0[1] * sP, jc.cu[2] * cP - lf0[2] * sP];
+      var tg = j.wreck || j, tx = tg.x, ty = tg.y + sp.h * 0.4, tz = tg.z, up0 = sp.chaseUp * 0.5;
+      var ex2 = tx - lf1[0] * jc.dist + lu1[0] * up0, ey2 = ty - lf1[1] * jc.dist + lu1[1] * up0, ez2 = tz - lf1[2] * jc.dist + lu1[2] * up0;
+      var bx = ex2 - tx, by = ey2 - ty, bz = ez2 - tz, bl = Math.sqrt(bx * bx + by * by + bz * bz) || 1, hit = raycast(tx, ty, tz, bx / bl, by / bl, bz / bl, bl + 0.5);
+      if (hit && hit.t < bl) { var cl = Math.max(2, hit.t - 0.5); ex2 = tx + bx / bl * cl; ey2 = ty + by / bl * cl; ez2 = tz + bz / bl * cl; }
+      if (j.wreck) { var sk = Math.min(1, dt * 3); ex2 = jp.x + (ex2 - jp.x) * sk; ey2 = jp.y + (ey2 - jp.y) * sk; ez2 = jp.z + (ez2 - jp.z) * sk; }
+      jp.x = ex2; jp.y = ey2; jp.z = ez2;
+      var lf = jnorm([tx - jp.x, ty - jp.y, tz - jp.z]), uu = lu1.slice(), du = lf[0] * uu[0] + lf[1] * uu[1] + lf[2] * uu[2];
+      for (q = 0; q < 3; q++) uu[q] -= lf[q] * du; jnorm(uu);
+      jp.f = lf; jp.u = uu; jp.yaw = Math.atan2(-lf[0], -lf[2]); jp.pitch = Math.asin(Math.max(-1, Math.min(1, lf[1])));
     } else {
       var e = jpt(j, sp.eye[0], sp.eye[1], sp.eye[2]); jp.x = e[0]; jp.y = e[1]; jp.z = e[2];
       var f2 = j.f.slice(), u2 = j.u.slice(); jc.pitch = Math.max(-1.1, Math.min(1.1, jc.pitch)); jc.yaw = Math.max(-2.4, Math.min(2.4, jc.yaw));
@@ -1628,9 +1708,10 @@
     }
   }
   function addJetWreck(m) {
-    var own = m.id === G.myId, st = own ? G.jcrashState : null, v = m.v || [0, 0, 0];
-    var w = { kind: 'j', m: m.m, x: m.x, y: m.y, z: m.z, yaw: st ? st.a.yaw : 0, pt: st ? st.a.pitch : 0, rl: st ? st.a.roll : 0, vx: st ? st.vx : v[0], vy: st ? Math.min(st.vy, 0) : Math.min(v[1], 0), vz: st ? st.vz : v[2], wr: (Math.random() - 0.5) * 2.4, wp: (Math.random() - 0.5) * 0.9, down: false, t0: performance.now(), puffs: [], fire: null, nextPuff: 0 };
-    G.wrecks.push(w); while (G.wrecks.length > 6) killWreck(G.wrecks.shift());
+    var own = m.id === G.myId;
+    if (own && !m.local && (G.cfollow || (G.jet && G.jet.wreck))) return null;
+    var st = own && m.local ? G.jcrashState : null, v = st ? [st.vx, st.vy, st.vz] : (m.v || [0, 0, 0]);
+    return newWreck('j', m, v, st ? { yaw: st.a.yaw, pt: st.a.pitch, rl: st.a.roll } : { yaw: 0, pt: 0, rl: 0 });
   }
   function drawJets(vp, ex, ey, ez, dt, now) {
     if (!G.jet && !G.jets.size && !G.wrecks.some(function (w) { return w.kind === 'j'; })) return;
@@ -1882,7 +1963,8 @@
     var gl = G.gl, me = G.me;
     gl.clearColor(SKY[0], SKY[1], SKY[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (!me) return;
-    var cam = G.drone || G.hpose || G.jpose, fovNow = G.drone ? FOV + 0.45 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.hpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
+    if (G.cfollow) updateCrashCam(dt, performance.now());
+    var cam = G.drone || G.hpose || G.jpose || G.cpose, fovNow = G.drone ? FOV + 0.45 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
     var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
     var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), (cam && cam.f ? viewLook(ex, ey, ez, cam.f, cam.u) : viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch)));
     G.vp = vp;
@@ -1903,6 +1985,7 @@
       gl.uniform3f(G.loc.off, c.cx * 16, 0, c.cz * 16);
       gl.drawArrays(gl.TRIANGLES, 0, c.mesh.count);
     });
+    G.wrecks.forEach(function (w) { stepWreck(w, dt); });
     drawHelis(vp, ex, ey, ez, dt, performance.now());
     drawJets(vp, ex, ey, ez, dt, performance.now());
     // outline of what you are aiming at
@@ -1960,7 +2043,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();
