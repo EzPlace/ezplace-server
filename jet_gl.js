@@ -437,7 +437,7 @@ function cockpitKit(B, x, y, d, o) {
   ell(B, x, y + 0.62, d + 0.06, 0.12, 0.13, 0.12, 8, 4, helm);
   if (!o.noPanel) {
     var pz = d - 0.95;
-    box(B, x, y + 0.2, pz, 0.34, 0.09, 0.2, dark);                       // coaming / instrument hood
+    box(B, x, y + 0.19, pz - 0.08, 0.32, 0.08, 0.12, dark);                       // coaming / instrument hood
     box(B, x, y + 0.1, pz - 0.05, 0.3, 0.06, 0.03, [30, 32, 36, 255]);
     gauges(B, x - 0.2, x + 0.2, y + 0.13, pz - 0.1, 5, 2);
     // HUD frame
