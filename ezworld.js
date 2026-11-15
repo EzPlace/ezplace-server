@@ -737,7 +737,7 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null }, mouseFly: true, mouseInv: false, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null }, rings: [], mouseFly: true, mouseInv: false, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
@@ -811,9 +811,9 @@
     on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
     on(document, 'mousemove', function (e) {
       if (!locked() || !G.me) return;
-      if ((G.jet || G.heli) && G.mouseFly) {                              // the mouse is the stick: it deflects, and settles back to centre
+      if (G.jet && G.mouseFly) {                              // the mouse is the stick: it deflects, and settles back to centre
         var ms = G.mstick;
-        ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.007)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.007));
+        ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.0042)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.0042));
         return;
       }
       if (G.jet) {
@@ -861,8 +861,8 @@
       if (e.code === 'Digit2') toggleDrone();
       if (e.code === 'Digit3' && !e.repeat) toggleHeli();
       if (e.code === 'Digit4' && !e.repeat) toggleJet();
-      if (e.code === 'KeyI' && (G.jet || G.heli) && !e.repeat) { G.mouseInv = !G.mouseInv; sys(G.mouseInv ? 'Mouse up now pulls the nose up (inverted).' : 'Mouse up now pushes the nose down, like a flight stick.'); }
-      if (e.code === 'KeyM' && (G.jet || G.heli) && !e.repeat) { G.mouseFly = !G.mouseFly; G.mstick.x = G.mstick.y = 0; sys(G.mouseFly ? 'Mouse steering on: the mouse works like a stick (M to switch to a free-look camera).' : 'Mouse steering off: the mouse looks around (M to steer with it again).'); }
+      if (e.code === 'KeyI' && G.jet && !e.repeat) { G.mouseInv = !G.mouseInv; sys(G.mouseInv ? 'Mouse up now pulls the nose up (inverted).' : 'Mouse up now pushes the nose down, like a flight stick.'); }
+      if (e.code === 'KeyM' && G.jet && !e.repeat) { G.mouseFly = !G.mouseFly; G.mstick.x = G.mstick.y = 0; sys(G.mouseFly ? 'Mouse steering on: the mouse works like a stick (M to switch to a free-look camera).' : 'Mouse steering off: the mouse looks around (M to steer with it again).'); }
       if (e.code === 'KeyV' && G.jet && !e.repeat) { G.jet.view = 1 - G.jet.view; G.jcam.yaw = 0; G.jcam.pitch = 0; }
       if (e.code === 'KeyV' && G.heli && !e.repeat) { G.heli.view = 1 - G.heli.view; G.hcam.yaw = 0; G.hcam.pitch = G.heli.view ? 0 : -0.22; }
       if (e.code === 'KeyB') { openShop(); return; }
@@ -1252,6 +1252,13 @@
 
   // ---- flying helicopters: starting, controls, camera, instruments, other pilots, wrecks and the shop cards
   var HTHUMBS = {};
+  function impactFx(x, y, z, big) {
+    addBoom([x, y + 1, z], big ? 2.4 : 1.7); G.flash = performance.now(); G.shake = performance.now() + (big ? 900 : 700);
+    var g0 = G;
+    [150, 320, 520].forEach(function (d, i) { setTimeout(function () { if (G === g0) addBoom([x + (Math.random() - 0.5) * 8, y + 0.5 + Math.random() * 3, z + (Math.random() - 0.5) * 8], (big ? 1.5 : 1.0) - i * 0.15); }, d); });
+    G.rings.push({ p: [x, y + 0.5, z], t0: performance.now(), el: null, r: big ? 46 : 30 });
+    for (var i = 0; i < 8; i++) { var a = i / 8 * 6.283; G.rings.push({ p: [x + Math.cos(a) * 2, y + 0.4, z + Math.sin(a) * 2], t0: performance.now(), el: null, r: 0, dust: [Math.cos(a), Math.sin(a)] }); }
+  }
   function mouseCurve(v) { return v * (0.45 + 0.55 * Math.abs(v)); }        // small movements are gentle, big ones are firm
   function heliCss() {
     if (document.getElementById('ew-heli-css')) return;
@@ -1266,6 +1273,7 @@
       '#ew-hotbar4{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}#ew-hotbar4.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar4 .key{font-size:11px;opacity:.7}' +
       '#ew-shop-jets{padding:0 16px 6px;display:flex;flex-direction:column;gap:10px}#ew-shop-jets h4{margin:6px 0 0;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}' +
       '.ew-debris.burn{background:#ff8a1e;border-color:#ffd070;box-shadow:0 0 10px 3px rgba(255,120,20,.7)}' +
+      '.ew-ring{position:absolute;left:0;top:0;border-radius:50%;border:5px solid rgba(255,225,170,.9);box-shadow:0 0 30px 8px rgba(255,150,50,.5),inset 0 0 30px rgba(255,150,50,.4);pointer-events:none}' +
       '.ew-debris{position:absolute;left:0;top:0;background:#2a2a2d;border:1px solid #0a0a0b;pointer-events:none}' +
       '.ew-smoke{position:absolute;left:0;top:0;border-radius:50%;background:radial-gradient(circle,rgba(40,40,44,.85),rgba(40,40,44,0) 70%);pointer-events:none}' +
       '#ew-hotbar3{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}' +
@@ -1332,7 +1340,7 @@
     var el = $('ew-hhud');
     if (!el) {
       el = document.createElement('div'); el.id = 'ew-hhud'; G.view.appendChild(el);
-      var hp = document.createElement('div'); hp.id = 'ew-hhelp'; hp.textContent = 'Mouse steers (M: free look, I: invert)   W/S pitch   A/D bank   Q/E turn   Space up   Shift down   V camera   Wheel zoom   3 exit'; G.view.appendChild(hp);
+      var hp = document.createElement('div'); hp.id = 'ew-hhelp'; hp.textContent = 'W/S pitch   A/D bank   Q/E turn   Space up   Shift down   V camera   Wheel zoom   3 exit'; G.view.appendChild(hp);
     }
     el.style.display = on ? 'flex' : 'none'; $('ew-hhelp').style.display = on ? 'block' : 'none';
   }
@@ -1355,14 +1363,12 @@
       if (h.tries >= 2) { h.tries = 0; sys('Stuck? Moving you out of the helicopter.'); send({ t: 'chat', text: '/unstuck' }); }
     }
     var inp = (h.crashAt || !locked()) ? {} : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, yl: k.KeyQ, yr: k.KeyE, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
-    if (G.mouseFly) { inp.ax = mouseCurve(G.mstick.x); inp.ay = (G.mouseInv ? -1 : 1) * mouseCurve(G.mstick.y); }
-    G.mstick.x *= Math.exp(-0.9 * dt); G.mstick.y *= Math.exp(-0.9 * dt);
     var res = h.crashAt ? 'ok' : stepHeli(h, inp, dt, sp);
     if (res === 'crash' && !h.crashAt) {
       h.crashAt = now; var hv = h.cv || [0, 0, 0]; G.hcrashState = { vx: hv[0], vy: hv[1], vz: hv[2] };
       sendHeliPos(true); send({ t: 'hcrash' });
       h.wreck = addWreck({ id: G.myId, m: h.m, x: h.x, y: h.y + 0.3, z: h.z, local: true });
-      addBoom([h.x, h.y + 1, h.z], 1.6); G.flash = now; G.shake = now + 600;
+      impactFx(h.x, h.y, h.z, false);
     } else if (now - h.sent >= 50 || (now - h.sent >= 40 && res !== 'ok')) sendHeliPos(false);
     h.ang += dt * 40 * h.rpm;
     var me = G.me; me.x = h.x; me.y = h.y; me.z = h.z; me.yaw = h.yaw;
@@ -1496,6 +1502,16 @@
       var nm = o.name || (G.others.get(o.id) || {}).name || ''; if (o.el.textContent !== nm) o.el.textContent = nm;
       o.el.style.display = 'block'; o.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-100%)';
     });
+    for (var ri = G.rings.length - 1; ri >= 0; ri--) {   // the shockwave ring and the dust thrown outward
+      var rg = G.rings[ri], ra = (now - rg.t0) / (rg.dust ? 1500 : 650);
+      if (ra >= 1) { if (rg.el) rg.el.remove(); G.rings.splice(ri, 1); continue; }
+      var px = rg.p[0] + (rg.dust ? rg.dust[0] * ra * 22 : 0), pz = rg.p[2] + (rg.dust ? rg.dust[1] * ra * 22 : 0), rs = project(vp, px, rg.p[1] + (rg.dust ? ra * 2 : 0), pz, G.cw, G.ch);
+      if (!rs) { if (rg.el) rg.el.style.display = 'none'; continue; }
+      if (!rg.el) { rg.el = document.createElement('div'); rg.el.className = rg.dust ? 'ew-smoke' : 'ew-ring'; layer.appendChild(rg.el); }
+      var rsz = rg.dust ? Math.max(20, Math.min(420, focal * (4 + ra * 8) / rs.w)) : Math.max(20, Math.min(1600, focal * rg.r * ra * 2 / rs.w));
+      rg.el.style.display = 'block'; rg.el.style.width = rg.el.style.height = rsz.toFixed(0) + 'px'; rg.el.style.opacity = String(rg.dust ? 0.7 * (1 - ra) : 0.9 * (1 - ra));
+      rg.el.style.transform = 'translate(' + (rs.x | 0) + 'px,' + (rs.y | 0) + 'px) translate(-50%,-50%)';
+    }
     G.wrecks.forEach(function (w) {              // flames for a while, and smoke that rises and fades
       var age = (now - w.t0) / 1000, sp = project(vp, w.x, w.y + 1.1, w.z, G.cw, G.ch);
       w.deb.forEach(function (d) {
@@ -1643,7 +1659,7 @@
       j.crashAt = now; var cv = j.cv || [0, 0, 0]; G.jcrashState = { vx: cv[0], vy: cv[1], vz: cv[2], a: jetAngles(j.f, j.u) };
       sendJetPos(true); send({ t: 'jcrash', v: cv });
       j.wreck = addJetWreck({ id: G.myId, m: j.m, x: j.x, y: j.y + 0.5, z: j.z, v: cv, local: true });
-      addBoom([j.x, j.y + 1, j.z], 2.2); G.flash = now; G.shake = now + 700;
+      impactFx(j.x, j.y, j.z, true);
     } else if (now - j.sent >= 50 || (now - j.sent >= 40 && res !== 'ok')) sendJetPos(false);
     var me = G.me; me.x = j.x; me.y = j.y; me.z = j.z;
     var an = jetAngles(j.f, j.u); j.yaw = an.yaw; me.yaw = an.yaw;
