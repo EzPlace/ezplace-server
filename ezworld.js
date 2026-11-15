@@ -551,6 +551,138 @@
     return new Float32Array([r[0][0], r[1][0], r[2][0], 0, r[0][1], r[1][1], r[2][1], 0, r[0][2], r[1][2], r[2][2], 0, x, y, z, 1]);
   }
 
+
+  // ------------------------------------------------------------------ fighter jets: five real ones at real size, and their flight physics
+  // vmax: top speed in blocks per second; stall: below this the wings stop lifting; len / span / h: real size in metres; mach: real top speed in Mach
+  var JETS = {
+    f16xl:   { name: 'General Dynamics F-16XL', price: 30000, vmax: 105, stall: 30, len: 16.5, span: 10.4, h: 5.1, mach: 2.0, chase: 26,
+               facts: 'An experimental F-16 with a huge cranked-arrow delta wing, built for NASA. Only two were made. Carries more fuel and flies a long way, fast, with a very high roll rate.' },
+    f15:     { name: 'McDonnell Douglas F-15 Eagle', price: 45000, vmax: 100, stall: 31, len: 19.43, span: 13.05, h: 5.63, mach: 2.5, chase: 30,
+               facts: 'The air-superiority fighter that has never been shot down in air combat. Two big engines, two tail fins and a Mach 2.5 top speed. Huge wing, stable and strong.' },
+    rafale:  { name: 'Dassault Rafale', price: 60000, vmax: 100, stall: 29, len: 15.27, span: 10.8, h: 5.34, mach: 1.8, chase: 24,
+               facts: 'French delta-wing fighter with canards. Flies from land and from aircraft carriers, and slows down well for short landings. Nimble and light.' },
+    typhoon: { name: 'Eurofighter Typhoon', price: 75000, vmax: 108, stall: 29, len: 15.96, span: 10.95, h: 5.28, mach: 2.0, chase: 25,
+               facts: 'Four European nations built this delta-canard fighter. It is deliberately unstable so it turns on a coin; the computer holds it steady. Fastest of the five here.' },
+    su30:    { name: 'Sukhoi Su-30SM2', price: 90000, vmax: 95, stall: 27, len: 21.9, span: 14.7, h: 6.4, mach: 2.0, chase: 34,
+               facts: 'Russian two-seat twin-engine heavy fighter with thrust-vectoring nozzles. It is famous for flying at slow speed and still turning hard. Biggest and slowest of the five.' }
+  };
+  var JET_IDS = ['f16xl', 'f15', 'rafale', 'typhoon', 'su30'];
+  var JET_MAXY = 430;
+  function jspec(id) {
+    var s = JETS[id]; if (s._r) return s;
+    var g = typeof window !== 'undefined' && window.JetGL && window.JetGL.SPECS && window.JetGL.SPECS[id], L = s.len, sp = s.span;
+    s.noseZ = g && g.noseZ || -0.55 * L; s.tailZ = g && g.tailZ || 0.45 * L;
+    s.tips = g && g.wingTips || [[-sp / 2, 1.3, 0.2 * L], [sp / 2, 1.3, 0.2 * L]];
+    s.fin = g && g.finTop || [0, s.h, 0.35 * L];
+    s.wheels = g && g.wheels || [[0, 0, -0.3 * L], [-1.6, 0, 0.1 * L], [1.6, 0, 0.1 * L]];
+    s.eye = g && g.eye || [0, 1.7, -0.3 * L]; s.nozzles = g && g.nozzles || [[0, 1.3, s.tailZ]];
+    if (g && g.chaseDist) s.chase = g.chaseDist;
+    s.chaseUp = g && g.chaseUp || 0.2 * L;
+    var pts = [[0, 1.3, s.noseZ], [0, 1.4, s.tailZ], s.fin, [0, 1.9, 0]], wx;
+    for (wx = 0; wx <= 1.0001; wx += 1.5 / Math.abs(s.tips[1][0] || 5)) { pts.push([s.tips[0][0] * wx, s.tips[0][1], s.tips[0][2]]); pts.push([s.tips[1][0] * wx, s.tips[1][1], s.tips[1][2]]); }
+    pts.push(s.tips[0], s.tips[1]);
+    for (var z = s.noseZ + 2; z < s.tailZ - 1; z += 2.5) pts.push([0, 1.3, z]);
+    s.body = pts; s.vrot = s.stall * 1.12;
+    if (g) s._r = true;
+    return s;
+  }
+  function jv(x, y, z) { return [x, y, z]; }
+  function jnorm(v) { var l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1; v[0] /= l; v[1] /= l; v[2] /= l; return v; }
+  function jcross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+  // A world point from model coordinates (right, up, back-positive z) for a jet with forward f, up u at position p
+  function jpt(j, x, y, z) { var r = jcross(j.f, j.u); return [j.x + r[0] * x + j.u[0] * y - j.f[0] * z, j.y + r[1] * x + j.u[1] * y - j.f[1] * z, j.z + r[2] * x + j.u[2] * y - j.f[2] * z]; }
+  function jetBasis(yaw, pitch, roll) {              // forward / up vectors from the three angles sent over the wire
+    var sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch);
+    var f = [-sy * cp, sp, -cy * cp], u0 = [sy * sp, cp, cy * sp], r0 = jcross(f, u0), cr = Math.cos(roll), sr = Math.sin(roll);
+    return { f: f, u: [u0[0] * cr + r0[0] * sr, u0[1] * cr + r0[1] * sr, u0[2] * cr + r0[2] * sr] };
+  }
+  function jetAngles(f, u) {                          // and back: yaw, pitch, roll
+    var pitch = Math.asin(Math.max(-1, Math.min(1, f[1]))), yaw = Math.atan2(-f[0], -f[2]);
+    var b = jetBasis(yaw, pitch, 0), r0 = jcross(f, b.u);
+    var roll = Math.atan2(u[0] * r0[0] + u[1] * r0[1] + u[2] * r0[2], u[0] * b.u[0] + u[1] * b.u[1] + u[2] * b.u[2]);
+    return { yaw: yaw, pitch: pitch, roll: roll };
+  }
+  function jetMat(x, y, z, f, u) {                    // model space to world, column-major: columns are right, up, back
+    var r = jcross(f, u);
+    return new Float32Array([r[0], r[1], r[2], 0, u[0], u[1], u[2], 0, -f[0], -f[1], -f[2], 0, x, y, z, 1]);
+  }
+  function jetHit(j, sp) {                            // 1 = something touches the airframe, 2 = a wheel touches something
+    var m = 0, i, p, pts = sp.body;
+    for (i = 0; i < pts.length; i++) { p = jpt(j, pts[i][0], pts[i][1], pts[i][2]); if (getBlock(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])) !== 0) { m |= 1; break; } }
+    for (i = 0; i < sp.wheels.length; i++) { p = jpt(j, sp.wheels[i][0], sp.wheels[i][1] - 0.02, sp.wheels[i][2]); if (getBlock(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])) !== 0) { m |= 2; break; } }
+    return m;
+  }
+  function jetRotate(j, axis, ang) {                  // axis 0: pitch (about the right wing), 1: roll (about the nose), 2: yaw (about the up axis)
+    var c = Math.cos(ang), s = Math.sin(ang), f = j.f, u = j.u, r = jcross(f, u), i;
+    if (axis === 0) { for (i = 0; i < 3; i++) { var nf = f[i] * c + u[i] * s, nu = u[i] * c - f[i] * s; f[i] = nf; u[i] = nu; } }
+    else if (axis === 1) { for (i = 0; i < 3; i++) u[i] = u[i] * c + r[i] * s; }
+    else { for (i = 0; i < 3; i++) f[i] = f[i] * c - r[i] * s; }
+    jnorm(f); var d = f[0] * u[0] + f[1] * u[1] + f[2] * u[2]; for (i = 0; i < 3; i++) u[i] -= f[i] * d; jnorm(u);
+  }
+  // One physics step. inp: f/b nose down / up, l/r roll, yl/yr rudder, up/down throttle. Returns 'ok', 'bump', 'land' or 'crash' (j.why says how).
+  function stepJet(j, inp, dt, sp) {
+    var res = 'ok', air = !j.onGround, i;
+    j.thr = Math.max(0, Math.min(1, j.thr + ((inp.up ? 1 : 0) - (inp.down ? 1 : 0)) * 0.6 * dt));
+    var target = j.thr * sp.vmax;
+    var dv = (target - j.speed) * (target > j.speed ? 0.55 : (air ? 0.18 : 0.5));
+    j.speed += Math.min(dv, air ? 24 : 11) * dt;                           // an engine can only push so hard: a fighter needs a runway
+    if (!air && j.thr < 0.05) j.speed = Math.max(0, j.speed - 14 * dt);
+    if (air) j.speed -= 12 * j.f[1] * dt;                                  // climbing costs speed, diving gains it
+    j.speed = Math.max(0, Math.min(sp.vmax * 1.25, j.speed));
+    var pull = (inp.b ? 1 : 0) - (inp.f ? 1 : 0), rollIn = (inp.r ? 1 : 0) - (inp.l ? 1 : 0), yawIn = (inp.yl ? 1 : 0) - (inp.yr ? 1 : 0);
+    var auth = air ? Math.max(0.05, Math.min(1, (j.speed - 0.35 * sp.stall) / (0.9 * sp.stall))) : 0;
+    var lf = Math.max(0, Math.min(1, (j.speed - 0.7 * sp.stall) / (0.4 * sp.stall)));
+    j.stalled = air && lf < 0.6;
+    var k = Math.min(1, dt * 7);
+    j.rp += ((pull * 1.15 - (air ? (1 - lf) * 0.9 : 0)) * auth - j.rp) * k; j.rr += (rollIn * 2.6 * auth - j.rr) * k; j.ry += (yawIn * 0.45 * auth - j.ry) * k;
+    if (air) {
+      jetRotate(j, 0, j.rp * dt); jetRotate(j, 1, j.rr * dt); jetRotate(j, 2, j.ry * dt);
+      if (!rollIn && j.u[1] > 0.1 && Math.abs(j.f[1]) < 0.85) {          // a gentle self-levelling when the stick is centred
+        var bank = jcross(j.f, j.u)[1];                                  // right wing's height: positive means rolled left
+        jetRotate(j, 1, Math.max(-1, Math.min(1, bank * 2.2)) * 0.8 * auth * dt);
+      }
+      j.sink = (j.sink || 0) - 26 * (1 - lf) * dt; j.sink *= Math.exp(-2.5 * lf * dt);
+    } else {
+      var turn = ((inp.yl ? 1 : 0) - (inp.yr ? 1 : 0)) * 0.5 * Math.min(1, j.speed / 10);
+      var ang = Math.atan2(-j.f[0], -j.f[2]) + turn * dt; j.f = [-Math.sin(ang), 0, -Math.cos(ang)]; j.u = [0, 1, 0]; j.sink = 0;
+      if (j.speed >= sp.vrot && pull > 0) { j.onGround = false; air = true; jetRotate(j, 0, 0.12); j.sink = 0.5; }
+    }
+    var vx = j.f[0] * j.speed, vy = j.f[1] * j.speed + (air ? j.sink : 0), vz = j.f[2] * j.speed;
+    j.vx = vx; j.vy = vy; j.vz = vz;
+    var tot = Math.sqrt(vx * vx + vy * vy + vz * vz), steps = Math.max(1, Math.ceil(tot * dt / 0.5));
+    for (i = 0; i < steps && res !== 'crash'; i++) {
+      var ox = j.x, oy = j.y, oz = j.z;
+      j.x += vx * dt / steps; j.y += vy * dt / steps; j.z += vz * dt / steps;
+      var mk = jetHit(j, sp);
+      if (!mk) continue;
+      if (mk === 2 && vy >= 0) {                                          // wheels scraping while rising or rotating: lift out of the ground instead of stopping
+        for (var lt = 0; lt < 12 && jetHit(j, sp) === 2; lt++) j.y += 0.08;
+        if (jetHit(j, sp) === 0) continue;
+      }
+      j.x = ox; j.y = oy; j.z = oz;
+      if (mk === 2 && vy < 0 && air) {                                    // the wheels touched down
+        var pitch = Math.asin(Math.max(-1, Math.min(1, j.f[1])));
+        if (-vy > 7) { j.why = 'You hit the ground too hard.'; res = 'crash'; }
+        else if (j.u[1] < 0.93) { j.why = 'You landed with a wing down.'; res = 'crash'; }
+        else if (pitch > 0.4 || pitch < -0.14) { j.why = 'You landed at a bad angle.'; res = 'crash'; }
+        else if (j.speed > sp.vmax * 0.8) { j.why = 'You landed far too fast.'; res = 'crash'; }
+        else {
+          var ang2 = Math.atan2(-j.f[0], -j.f[2]); j.f = [-Math.sin(ang2), 0, -Math.cos(ang2)]; j.u = [0, 1, 0];
+          var top = -1;
+          for (var wi = 0; wi < sp.wheels.length; wi++) { var wp = jpt({ x: ox, y: oy, z: oz, f: [-Math.sin(ang2), 0, -Math.cos(ang2)], u: [0, 1, 0] }, sp.wheels[wi][0], 0, sp.wheels[wi][2]), by = Math.floor(wp[1] + 0.3); for (var q = 0; q < 4 && getBlock(Math.floor(wp[0]), by, Math.floor(wp[2])) === 0; q++) by--; if (getBlock(Math.floor(wp[0]), by, Math.floor(wp[2])) !== 0) top = Math.max(top, by + 1); }
+          if (top >= 0) j.y = top + 1.03 - 1;
+          j.onGround = true; j.sink = 0; res = 'land'; air = false; break;
+        }
+      } else if (j.speed >= 8 || (mk & 1)) { j.why = (mk & 1) ? 'You flew into something.' : 'The landing gear caught on something.'; res = 'crash'; }
+      else { j.speed = 0; if (res === 'ok') res = 'bump'; break; }
+    }
+    if (res === 'crash') { j.speed = 0; j.vx = j.vy = j.vz = 0; }
+    if (j.onGround) { var gp = jetHit({ x: j.x, y: j.y - 0.05, z: j.z, f: j.f, u: j.u }, sp); if (!(gp & 2)) j.onGround = false; }       // the ground went away
+    j.x = Math.min(Math.max(j.x, WMIN + 1), WMAX - 1); j.z = Math.min(Math.max(j.z, WMIN + 1), WMAX - 1);
+    if (j.y > JET_MAXY) { j.y = JET_MAXY; if (j.f[1] > 0) jetRotate(j, 0, -0.5 * dt); }
+    return res;
+  }
+
   // ------------------------------------------------------------------ compass
   var WIND = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function headingOf(yaw) { return (((-yaw * 180 / Math.PI) % 360) + 360) % 360; }   // 0 = north (-Z), 90 = east (+X), 180 = south, 270 = west
@@ -605,7 +737,7 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null }, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
@@ -614,7 +746,7 @@
     $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
     view.style.setProperty('--ew-launcher', pixUrl(ART_LAUNCHER)); view.style.setProperty('--ew-rocket', pixUrl(ART_ROCKET)); view.style.setProperty('--ew-boom', pixUrl(boomSheet())); view.style.setProperty('--ew-drone0', pixUrl(ART_DRONE[0])); view.style.setProperty('--ew-drone1', pixUrl(ART_DRONE[1]));
     heliCss();
-    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; ['ew-hhud', 'ew-hhelp'].forEach(function (k) { var e0 = $(k); if (e0) e0.style.display = 'none'; }); view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
+    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; ['ew-hhud', 'ew-hhelp', 'ew-jhud', 'ew-jhelp'].forEach(function (k) { var e0 = $(k); if (e0) e0.style.display = 'none'; }); view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
     $('ew-me-name').textContent = opts.username || '';
     var me = $('ew-me-img'); me.onerror = function () { me.onerror = null; me.src = opts.defaultAvatar; }; me.src = opts.avatarUrl(opts.username || '');
     syncUserBar();
@@ -679,6 +811,12 @@
     on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
     on(document, 'mousemove', function (e) {
       if (!locked() || !G.me) return;
+      if (G.jet) {
+        var jc0 = G.jcam, cock0 = G.jet.view === 1;
+        jc0.yaw -= (e.movementX || 0) * 0.0023; jc0.pitch = Math.max(-1.2, Math.min(1.2, jc0.pitch - (e.movementY || 0) * 0.0023)); jc0.idle = 0;
+        if (cock0) jc0.yaw = Math.max(-2.4, Math.min(2.4, jc0.yaw));
+        return;
+      }
       if (G.heli) {
         var hc = G.hcam, cock = G.heli.view === 1;
         hc.yaw -= (e.movementX || 0) * 0.0023; if (cock) hc.yaw = Math.max(-2.2, Math.min(2.2, hc.yaw));
@@ -692,10 +830,10 @@
     on(canvas, 'mousedown', function (e) {            // one action per click: holding the button does nothing
       if (!locked() || !G.ready) return;
       e.preventDefault();
-      if (G.drone || G.heli) return;                         // no placing, breaking or rockets while flying
+      if (G.drone || G.heli || G.jet) return;                  // no placing, breaking or rockets while flying
       if (e.button === 0) { if (G.inv.armed) fireRocket(); else doBreak(); } else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
     });
-    on(canvas, 'wheel', function (e) { e.preventDefault(); if (G.heli) { G.hcam.dist = Math.max(4, Math.min(80, G.hcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
+    on(canvas, 'wheel', function (e) { e.preventDefault(); if (G.jet) { G.jcam.dist = Math.max(6, Math.min(120, G.jcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } if (G.heli) { G.hcam.dist = Math.max(4, Math.min(80, G.hcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
     on(window, 'keydown', function (e) {
       if (!G || menuOpen() || typingElsewhere()) return;
       if (shopOpen()) { if (e.code === 'Escape' || e.code === 'KeyB') { closeShop(); e.preventDefault(); } return; }
@@ -714,13 +852,15 @@
         if (now - G.lastTap < 320) G.sprint = true;
         G.lastTap = now;
       }
-      if (e.code === 'Digit1' && !G.drone && !G.heli) setArmed(!G.inv.armed);
+      if (e.code === 'Digit1' && !G.drone && !G.heli && !G.jet) setArmed(!G.inv.armed);
       if (e.code === 'Digit2') toggleDrone();
       if (e.code === 'Digit3' && !e.repeat) toggleHeli();
+      if (e.code === 'Digit4' && !e.repeat) toggleJet();
+      if (e.code === 'KeyV' && G.jet && !e.repeat) { G.jet.view = 1 - G.jet.view; G.jcam.yaw = 0; G.jcam.pitch = 0; }
       if (e.code === 'KeyV' && G.heli && !e.repeat) { G.heli.view = 1 - G.heli.view; G.hcam.yaw = 0; G.hcam.pitch = G.heli.view ? 0 : -0.22; }
       if (e.code === 'KeyB') { openShop(); return; }
-      if (e.code === 'KeyQ' && !G.heli) selectColor(G.sel - 1);
-      if (e.code === 'KeyE' && !G.heli) selectColor(G.sel + 1);
+      if (e.code === 'KeyQ' && !G.heli && !G.jet) selectColor(G.sel - 1);
+      if (e.code === 'KeyE' && !G.heli && !G.jet) selectColor(G.sel + 1);
       G.keys[e.code] = true;
       if (e.code === 'Space' || e.code.indexOf('Arrow') === 0) e.preventDefault();
     });
@@ -759,6 +899,7 @@
     on($('ew-shop-dbuy'), 'click', shopBuyDrone);
     on($('ew-shop-dlaunch'), 'click', function () { closeShop(); toggleDrone(); });
     on($('ew-shop-helis'), 'click', heliShopClick);
+    on($('ew-shop-jets'), 'click', jetShopClick);
     G.timers.push(setInterval(function () { renderTyping(); syncUserBar(); }, 1000));
     on($('ew-leave'), 'click', function () { close(false); });
     G.timers.push(setInterval(ensureChunks, 200));
@@ -804,6 +945,7 @@
       var dv = new DataView(d), t = dv.getUint8(0);
       if (t === 0x10) { loadChunkFrame(dv); }
       else if (t === 0x13) onHeliFrame(dv);
+      else if (t === 0x14) onJetFrame(dv);
       else if (t === 0x12) {                                 // positions of flying drones
         var dn = dv.getUint16(1, true), dop = 3;
         for (var di = 0; di < dn; di++, dop += 10) {
@@ -845,6 +987,12 @@
       case 'htp': if (G.heli) { G.heli.x = m.x; G.heli.y = m.y; G.heli.z = m.z; G.heli.vx = G.heli.vy = G.heli.vz = 0; G.heli.crashAt = 0; } break;
       case 'hr': if (m.on) setOtherHeli(m.id, m.m, m.name, m.x, m.y, m.z); else removeOtherHeli(m.id); break;
       case 'hx': addWreck(m); break;
+      case 'jstart': startJet(m); break;
+      case 'jend': endJet(m); break;
+      case 'jtp': if (G.jet) { G.jet.x = m.x; G.jet.y = m.y; G.jet.z = m.z; G.jet.speed = 0; G.jet.vx = G.jet.vy = G.jet.vz = 0; G.jet.crashAt = 0; } break;
+      case 'jr': if (m.on) setOtherJet(m.id, m.m, m.name, m.x, m.y, m.z); else removeOtherJet(m.id); break;
+      case 'jx': addJetWreck(m); break;
+      case 'jno': G.jno = (G.jno || 0) + 1; if (G.jno >= 2) { G.jno = 0; sys('Stuck? Moving you out of the jet.'); send({ t: 'chat', text: '/unstuck' }); } break;
       case 'inv': applyInv(m); break;
       case 'rk': addRocket(m); break;
       case 'bs': { (m.d || []).forEach(function (b) { setBlock(b[0], b[1], b[2], b[3]); }); if (m.e) addBoom(m.e, m.s); break; }
@@ -854,7 +1002,7 @@
       case 'typing': { var k = String(m.name).toLowerCase(); if (m.typing) G.typers.set(k, { name: m.name, exp: Date.now() + 7000 }); else G.typers.delete(k); renderTyping(); break; }
       case 'reaction': { var rel = G.msgEls.get(m.mid); if (rel && window.EzChat) window.EzChat.apply(rel, m.emoji, m.user, m.on); break; }
       case 'join': addOther(m.id, m.name, m.x, m.y, m.z); sys(m.name + ' joined EzWorld.'); updateOnline(); break;
-      case 'leave': { var o2 = G.others.get(m.id); if (o2) { sys(o2.name + ' left EzWorld.'); o2.el.remove(); G.others.delete(m.id); removeDrone(m.id); removeOtherHeli(m.id); G.typers.delete(o2.name.toLowerCase()); renderTyping(); updateOnline(); } break; }
+      case 'leave': { var o2 = G.others.get(m.id); if (o2) { sys(o2.name + ' left EzWorld.'); o2.el.remove(); G.others.delete(m.id); removeDrone(m.id); removeOtherHeli(m.id); removeOtherJet(m.id); G.typers.delete(o2.name.toLowerCase()); renderTyping(); updateOnline(); } break; }
       case 'b': {
         var x = m.d[0], y = m.d[1], z = m.d[2], c = m.d[3];
         var ch = setBlock(x, y, z, c);
@@ -877,7 +1025,7 @@
   }
   function updateOnline() { $('ew-online-n').textContent = String(G.others.size + 1); }
   function sendPos(force) {
-    if (!G.me || G.heli || !G.ws || G.ws.readyState !== 1) return;
+    if (!G.me || G.heli || G.jet || !G.ws || G.ws.readyState !== 1) return;
     var now = performance.now();
     if (now - G.lastSend < (force ? 40 : 100)) return;
     var b = new ArrayBuffer(9), dv = new DataView(b), m = G.me;
@@ -979,10 +1127,11 @@
   function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function setTotal(n) { $('ew-online-total').textContent = String(n); }
   function applyInv(m) {
-    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0 && !G.drone && !G.heli;
+    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0 && !G.drone && !G.heli && !G.jet;
     if (m.price) i.price = m.price; if (m.per) i.per = m.per; if (m.max) i.max = m.max;
     i.drone = !!m.drone; if (m.dprice) i.dprice = m.dprice; i.flying = !!m.flying;
     i.heli = m.heli || {}; if (m.hp) i.hp = m.hp; i.hfly = m.hfly || null;
+    i.jet = m.jet || {}; if (m.jp) i.jp = m.jp; i.jfly = m.jfly || null;
     renderInv();
   }
   function renderInv() {
@@ -1009,7 +1158,13 @@
       hb3.style.display = hid ? 'flex' : 'none'; hb3.classList.toggle('sel', !!G.heli);
       $('ew-hotbar3-name').textContent = hid ? HELIS[hid].name : '';
     }
-    if (shopOpen()) renderHeliShop();
+    var hb4 = $('ew-hotbar4');
+    if (hb4) {
+      var jid = G.jsel && (i.jet || {})[G.jsel] ? G.jsel : (JET_IDS.filter(function (k) { return (i.jet || {})[k]; }).pop() || '');
+      hb4.style.display = jid ? 'flex' : 'none'; hb4.classList.toggle('sel', !!G.jet);
+      $('ew-hotbar4-name').textContent = jid ? JETS[jid].name : '';
+    }
+    if (shopOpen()) { renderHeliShop(); renderJetShop(); }
   }
   function balance() { try { return typeof myBalance !== 'undefined' ? myBalance : 0; } catch (e) { return 0; } }
   function shopOpen() { return $('ew-shop').style.display === 'flex'; }
@@ -1018,6 +1173,7 @@
     if (G.buyArm && performance.now() > G.buyArm) { G.buyArm = 0; renderInv(); }
     if (G.dbuyArm && performance.now() > G.dbuyArm) { G.dbuyArm = 0; renderInv(); }
     if (G.hArm && performance.now() > G.hArmT) { G.hArm = ''; renderInv(); }
+    if (G.jArm && performance.now() > G.jArmT) { G.jArm = ''; renderInv(); }
   }
   function shopBuyDrone() {                                      // two clicks here too
     var i = G.inv, now = performance.now();
@@ -1031,7 +1187,7 @@
     $('ew-shop').style.display = 'flex'; $('ew-shop-note').textContent = '';
     renderInv(); refreshShop(); clearInterval(G.shopTimer); G.shopTimer = setInterval(refreshShop, 500);
   }
-  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; G.dbuyArm = 0; G.hArm = ''; renderInv(); }
+  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; G.dbuyArm = 0; G.hArm = ''; G.jArm = ''; renderInv(); }
   function shopBuy() {                                           // two clicks, so 5,000 PlaceBux can't go on one slip
     var i = G.inv, now = performance.now();
     if (i.rockets + i.per > i.max) return;
@@ -1096,6 +1252,11 @@
       '#ew-hhud b{color:#fff}#ew-hhud .st{color:#ffd166}#ew-hhud .bad{color:#ff6b5e}#ew-hhud.cockpit{background:rgba(8,12,10,.8)}' +
       '#ew-hhelp{display:none;position:absolute;left:50%;bottom:62px;transform:translateX(-50%);font-size:11px;color:#fff;opacity:.75;text-shadow:0 0 4px #000;pointer-events:none;text-align:center;max-width:94%}' +
       '.ew-htag{position:absolute;left:0;top:0;font-size:12px;font-weight:700;color:#fff;text-shadow:0 0 4px #000;pointer-events:none;white-space:nowrap}' +
+      '.ew-hudbox{display:none;position:absolute;left:50%;bottom:92px;transform:translateX(-50%);gap:14px;padding:6px 14px;font:700 12px "JetBrains Mono","Fira Code",monospace;color:#7dff9a;text-shadow:0 0 6px rgba(0,0,0,.9);background:rgba(8,12,10,.55);border:1px solid rgba(125,255,154,.35);border-radius:8px;pointer-events:none;flex-wrap:wrap;justify-content:center;max-width:94%}' +
+      '.ew-hudbox b{color:#fff}.ew-hudbox .st{color:#ffd166}.ew-hudbox .bad{color:#ff6b5e}' +
+      '.ew-hhelp2{display:none;position:absolute;left:50%;bottom:62px;transform:translateX(-50%);font-size:11px;color:#fff;opacity:.75;text-shadow:0 0 4px #000;pointer-events:none;text-align:center;max-width:94%}' +
+      '#ew-hotbar4{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}#ew-hotbar4.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar4 .key{font-size:11px;opacity:.7}' +
+      '#ew-shop-jets{padding:0 16px 6px;display:flex;flex-direction:column;gap:10px}#ew-shop-jets h4{margin:6px 0 0;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}' +
       '.ew-smoke{position:absolute;left:0;top:0;border-radius:50%;background:radial-gradient(circle,rgba(40,40,44,.85),rgba(40,40,44,0) 70%);pointer-events:none}' +
       '#ew-hotbar3{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}' +
       '#ew-hotbar3.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar3 .key{font-size:11px;opacity:.7}' +
@@ -1131,7 +1292,7 @@
   }
   function toggleHeli() {
     if (G.heli) { if (!G.heli.onGround) { sys('Land the helicopter first, then press 3 to get out.'); return; } send({ t: 'heli', on: false }); return; }
-    if (G.drone) return;
+    if (G.drone || G.jet) return;
     var own = G.inv.heli || {}, id = G.hsel && own[G.hsel] === 1 ? G.hsel : myHeliBest();
     if (!id) { sys('You do not own a helicopter. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to start a helicopter.'); return; }
@@ -1239,8 +1400,9 @@
   }
   function killWreck(w) { if (w.fire) w.fire.remove(); w.puffs.forEach(function (p) { p.el.remove(); }); }
   function drawHelis(vp, ex, ey, ez, dt, now) {
-    if (!G.heli && !G.helis.size && !G.wrecks.length) return;
-    var r = heliRenderer(); if (!r) return;
+    var needH = G.heli || G.helis.size || G.wrecks.some(function (w) { return w.kind !== 'j'; });
+    if (!needH && !G.wrecks.length) return;
+    var r = needH ? heliRenderer() : null; if (needH && !r) return;
     var fn = RDIST * 16 - 44, ff = RDIST * 16 - 6, cam = [ex, ey, ez];
     if (G.heli && G.heli.view === 0 && !G.heli.crashAt) { var h = G.heli; r.draw(h.m, heliModelMat(h.x, h.y, h.z, h.yaw, h.pt, h.rl), vp, cam, fn, ff, h.ang, Math.max(0, Math.min(1, (h.rpm - 0.25) / 0.55)), 0); }
     G.helis.forEach(function (o) {
@@ -1258,7 +1420,7 @@
         if (getBlock(Math.floor(w.x), Math.floor(w.y - 0.05), Math.floor(w.z)) !== 0) { w.y = Math.floor(w.y - 0.05) + 1; w.down = true; w.rl = Math.max(-0.5, Math.min(0.5, w.rl)) + 0.25; w.pt = Math.max(-0.4, Math.min(0.4, w.pt)); w.vx = w.vy = w.vz = 0; }
         if (w.y < 1) { w.y = 1; w.down = true; }
       }
-      var ddx = w.x - ex, ddz = w.z - ez; if (ddx * ddx + ddz * ddz < 170 * 170 && HELIS[w.m]) r.draw(w.m, heliModelMat(w.x, w.y, w.z, w.yaw, w.pt, w.rl), vp, cam, fn, ff, 0.6, 0, 0.82);
+      var ddx = w.x - ex, ddz = w.z - ez; if (r && w.kind !== 'j' && ddx * ddx + ddz * ddz < 170 * 170 && HELIS[w.m]) r.draw(w.m, heliModelMat(w.x, w.y, w.z, w.yaw, w.pt, w.rl), vp, cam, fn, ff, 0.6, 0, 0.82);
     }
   }
   function drawHeliFx(vp, focal, ex, ey, ez, dt, now) {
@@ -1322,9 +1484,215 @@
     $('ew-shop-note').textContent = ''; G.hArm = item; G.hArmT = now + 3000; renderInv();
   }
 
+  // ---- flying fighter jets: starting, controls, camera, instruments, other pilots, wrecks and the shop cards
+  var JET_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src || '').replace(/ezworld\.js.*$/, 'jet_gl.js');
+  var JTHUMBS = {};
+  function jetRenderer() {                       // the jet models are another separate file, fetched the first time a jet matters
+    if (G.jr) return G.jr;
+    if (G.jrFail) return null;
+    if (window.JetGL) {
+      try { G.jr = window.JetGL.create(G.gl); } catch (e) { G.jr = null; G.jrFail = true; }
+      return G.jr;
+    }
+    if (!G.jrLoading && JET_SRC) {
+      G.jrLoading = true; var g0 = G, sc = document.createElement('script');
+      sc.src = JET_SRC; sc.onload = function () { if (G === g0) { g0.jrLoading = false; renderInv(); } };
+      sc.onerror = function () { g0.jrFail = true; };
+      document.head.appendChild(sc);
+    }
+    return null;
+  }
+  function toggleJet() {
+    if (G.jet) { if (!G.jet.onGround || G.jet.speed > 4) { sys('Land and stop the jet first, then press 4 to get out.'); return; } send({ t: 'jet', on: false }); return; }
+    if (G.drone || G.heli) return;
+    var own = G.inv.jet || {}, id = G.jsel && own[G.jsel] ? G.jsel : JET_IDS.filter(function (k) { return own[k]; }).pop();
+    if (!id) { sys('You do not own a jet. Buy one in the shop (B).'); return; }
+    if (!G.me || !G.me.onGround) { sys('Stand on the ground to get into a jet.'); return; }
+    G.jsel = id; send({ t: 'jet', on: true, m: id });
+  }
+  function startJet(m) {
+    var sp = jspec(m.m), yaw = G.me.yaw;
+    G.jet = { m: m.m, x: m.x, y: m.y + 0.03, z: m.z, f: [-Math.sin(yaw), 0, -Math.cos(yaw)], u: [0, 1, 0], speed: 0, thr: 0, sink: 0, vx: 0, vy: 0, vz: 0, rp: 0, rr: 0, ry: 0, onGround: true, crashAt: 0, why: '', lastSent: '', sent: 0, view: 0, gear: 1, yaw: yaw, tries: 0 };
+    G.jcam = { yaw: 0, pitch: 0, dist: sp.chase, idle: 0, cf: [-Math.sin(yaw), 0, -Math.cos(yaw)] };
+    G.jpose = { x: m.x, y: m.y + 3, z: m.z, yaw: yaw, pitch: 0, f: G.jet.f.slice(), u: [0, 1, 0] };
+    G.inv.armed = false; G.jsel = m.m;
+    heliCss(); jetHud(true);
+    $('ew-cross').style.display = 'none';
+    sys('Starting the ' + sp.name + '. Hold Space for throttle, roll down the strip until about ' + Math.round(sp.vrot) + ' b/s then pull back (S) to take off. W/S pitch, A/D roll, Q/E rudder, Space/Shift throttle, V camera, 4 to get out once stopped.');
+    renderInv();
+  }
+  function endJet(m) {
+    var j = G.jet; G.jet = null; G.jpose = null;
+    jetHud(false); $('ew-cross').style.display = '';
+    if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
+    G.bodyWait = true;
+    if (m && m.crash) { sys('You crashed the ' + (JETS[m.m] ? JETS[m.m].name : 'jet') + (j && j.why ? ' (' + j.why.replace(/\.$/, '').toLowerCase() + ')' : '') + '. It is destroyed and gone from your inventory.'); G.shake = performance.now() + 500; }
+    renderInv();
+  }
+  function jetHud(on) {
+    var el = $('ew-jhud');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'ew-jhud'; el.className = 'ew-hudbox'; G.view.appendChild(el);
+      var hp = document.createElement('div'); hp.id = 'ew-jhelp'; hp.className = 'ew-hhelp2'; hp.textContent = 'W/S pitch   A/D roll   Q/E rudder   Space/Shift throttle   V camera   Wheel zoom   4 exit'; G.view.appendChild(hp);
+    }
+    el.style.display = on ? 'flex' : 'none'; $('ew-jhelp').style.display = on ? 'block' : 'none';
+  }
+  function sendJetPos(force) {
+    var j = G.jet; if (!j || !G.ws || G.ws.readyState !== 1) return;
+    var qx = Math.round(j.x * 16), qy = Math.round(j.y * 16), qz = Math.round(j.z * 16), a = jetAngles(j.f, j.u);
+    var yaw = Math.floor(((a.yaw % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * 256) & 255;
+    var pit = Math.max(1, Math.min(255, Math.round(a.pitch / (Math.PI / 2) * 127 + 128))), rol = Math.max(1, Math.min(255, Math.round(a.roll / Math.PI * 127 + 128)));
+    var key = qx + ',' + qy + ',' + qz + ',' + yaw + ',' + pit + ',' + rol;
+    if (key === j.lastSent && !force) return;
+    j.lastSent = key; j.sent = performance.now();
+    var b = new ArrayBuffer(10), dv = new DataView(b);
+    dv.setUint8(0, 4); dv.setInt16(1, qx, true); dv.setInt16(3, qy, true); dv.setInt16(5, qz, true); dv.setUint8(7, yaw); dv.setUint8(8, pit); dv.setUint8(9, rol);
+    G.ws.send(b);
+  }
+  function viewLook(ex, ey, ez, f, u) {            // a view matrix from a forward and an up vector (so a rolling cockpit view works)
+    var r = jcross(f, u); jnorm(r);
+    var m = new Float32Array(16);
+    m[0] = r[0]; m[1] = u[0]; m[2] = -f[0]; m[4] = r[1]; m[5] = u[1]; m[6] = -f[1]; m[8] = r[2]; m[9] = u[2]; m[10] = -f[2];
+    m[12] = -(r[0] * ex + r[1] * ey + r[2] * ez); m[13] = -(u[0] * ex + u[1] * ey + u[2] * ez); m[14] = f[0] * ex + f[1] * ey + f[2] * ez; m[15] = 1;
+    return m;
+  }
+  function flyJet(dt) {
+    var j = G.jet, k = G.keys, now = performance.now(), sp = jspec(j.m);
+    if (j.crashAt && now - j.crashAt > 1500) {                         // the server did not agree it was a crash: carry on, and if that keeps happening get you out
+      j.crashAt = 0; j.tries++;
+      if (j.tries >= 2) { j.tries = 0; sys('Stuck? Moving you out of the jet.'); send({ t: 'chat', text: '/unstuck' }); }
+    }
+    var inp = (j.crashAt || !locked()) ? { down: false } : { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, yl: k.KeyQ, yr: k.KeyE, up: k.Space, down: k.ShiftLeft || k.ShiftRight };
+    var res = j.crashAt ? 'ok' : stepJet(j, inp, dt, sp);
+    if (res === 'crash' && !j.crashAt) {
+      j.crashAt = now; G.jcrashState = { vx: j.vx, vy: j.vy, vz: j.vz, a: jetAngles(j.f, j.u) };
+      sendJetPos(true); send({ t: 'jcrash', v: [j.vx, j.vy, j.vz] });
+    } else if (now - j.sent >= 50 || (now - j.sent >= 40 && res !== 'ok')) sendJetPos(false);
+    var me = G.me; me.x = j.x; me.y = j.y; me.z = j.z;
+    var an = jetAngles(j.f, j.u); j.yaw = an.yaw; me.yaw = an.yaw;
+    // the gear and the burner
+    var agl = j.onGround ? 0 : -1;
+    var tg = (j.onGround || (j.speed < sp.stall * 1.5 && (agl = jetAglNow(j)) >= 0 && agl < 45)) ? 1 : 0;
+    j.gear += (tg - j.gear) * Math.min(1, dt * 1.6);
+    j.burner = j.speed < 1 && j.thr < 0.05 ? 0 : Math.min(1, 0.15 + j.thr * 0.85);
+    // camera: chase (behind, level) or cockpit (the pilot's eyes)
+    var jc = G.jcam, jp = G.jpose;
+    jc.idle += dt; if (jc.idle > 1.5 && j.view === 0) { jc.yaw *= Math.max(0, 1 - dt * 1.5); jc.pitch *= Math.max(0, 1 - dt * 1.5); }
+    if (j.view === 0) {
+      var kf = Math.min(1, dt * 4.5); for (var q = 0; q < 3; q++) jc.cf[q] += (j.f[q] - jc.cf[q]) * kf; jnorm(jc.cf);
+      var yaw0 = Math.atan2(-jc.cf[0], -jc.cf[2]) + jc.yaw, pit0 = Math.asin(Math.max(-1, Math.min(1, jc.cf[1]))) * 0.6 + jc.pitch;
+      var cp = Math.cos(pit0), tx = j.x, ty = j.y + sp.h * 0.4, tz = j.z;
+      var dx = Math.sin(yaw0) * cp, dy = -Math.sin(pit0) + 0.18, dz = Math.cos(yaw0) * cp, dl = Math.sqrt(dx * dx + dy * dy + dz * dz); dx /= dl; dy /= dl; dz /= dl;
+      var want = jc.dist, hit = raycast(tx, ty, tz, dx, dy, dz, want + 0.5); if (hit && hit.t < want) want = Math.max(2, hit.t - 0.5);
+      jp.x = tx + dx * want; jp.y = ty + dy * want; jp.z = tz + dz * want;
+      var lf = [tx - jp.x, ty - jp.y, tz - jp.z]; jnorm(lf); jp.f = lf; jp.u = [0, 1, 0]; jp.yaw = Math.atan2(-lf[0], -lf[2]); jp.pitch = Math.asin(lf[1]);
+    } else {
+      var e = jpt(j, sp.eye[0], sp.eye[1], sp.eye[2]); jp.x = e[0]; jp.y = e[1]; jp.z = e[2];
+      var f2 = j.f.slice(), u2 = j.u.slice(); jc.pitch = Math.max(-1.1, Math.min(1.1, jc.pitch)); jc.yaw = Math.max(-2.4, Math.min(2.4, jc.yaw));
+      var sY = Math.sin(jc.yaw), cY = Math.cos(jc.yaw), r2 = jcross(f2, u2);              // look left and right about the up axis, up and down about the wing axis
+      var f3 = [f2[0] * cY - r2[0] * sY, f2[1] * cY - r2[1] * sY, f2[2] * cY - r2[2] * sY], cP = Math.cos(jc.pitch), sP = Math.sin(jc.pitch);
+      var f4 = [f3[0] * cP + u2[0] * sP, f3[1] * cP + u2[1] * sP, f3[2] * cP + u2[2] * sP], u4 = [u2[0] * cP - f3[0] * sP, u2[1] * cP - f3[1] * sP, u2[2] * cP - f3[2] * sP];
+      jp.f = jnorm(f4); jp.u = jnorm(u4); jp.yaw = Math.atan2(-f4[0], -f4[2]); jp.pitch = Math.asin(Math.max(-1, Math.min(1, f4[1])));
+    }
+    // instruments
+    if (!j.hudAt || now - j.hudAt > 90) {
+      j.hudAt = now;
+      var agl2 = j.onGround ? 0 : jetAglNow(j), vsp = j.vy, mach = j.speed / sp.vmax * sp.mach;
+      var warn = j.crashAt ? '<span class="bad">CRASH</span>' : (!j.onGround && agl2 >= 0 && agl2 < 40 && vsp < -16) ? '<span class="bad">PULL UP</span>' : j.stalled ? '<span class="bad">STALL</span>' : (j.onGround && j.speed >= sp.vrot) ? '<span class="st">ROTATE: pull S</span>' : (j.onGround && j.thr < 0.05 && j.speed < 1) ? '<span class="st">Space: throttle</span>' : '';
+      var html = '<span>' + esc(sp.name) + '</span><span>SPD <b>' + Math.round(j.speed * 3.6) + '</b> km/h</span><span>MACH <b>' + mach.toFixed(2) + '</b></span><span>ALT <b>' + Math.round(j.y) + '</b></span><span>AGL <b>' + (agl2 < 0 ? '--' : Math.round(agl2)) + '</b></span><span>THR <b>' + Math.round(j.thr * 100) + '</b>%' + (j.thr > 0.9 ? ' AB' : '') + '</span><span>GEAR <b>' + (j.gear > 0.5 ? 'DOWN' : 'UP') + '</b></span>' + (warn ? '<span>' + warn + '</span>' : '');
+      if (html !== j.hudHtml) { j.hudHtml = html; $('ew-jhud').innerHTML = html; }
+    }
+  }
+  function jetAglNow(j) {
+    var h = raycast(j.x, j.y + 0.3, j.z, 0, -1, 0, 400); return h ? j.y - (h.y + 1) : -1;
+  }
+  // other pilots' jets
+  function setOtherJet(id, m, name, x, y, z) {
+    var pl = G.others.get(id);
+    G.jets.set(id, { id: id, m: m, name: name || (pl ? pl.name : ''), x: x, y: y, z: z, tx: x, ty: y, tz: z, yaw: 0, tyaw: 0, pt: 0, rl: 0, tpt: 0, trl: 0, el: null, fresh: true, lx: x, lz: z, spd: 0 });
+    if (pl) pl.hidden = true;
+  }
+  function removeOtherJet(id) {
+    var o = G.jets.get(id); if (o && o.el) o.el.remove(); G.jets.delete(id);
+    var pl = G.others.get(id); if (pl) { pl.hidden = false; if (o) { pl.x = pl.tx = o.x; pl.y = pl.ty = o.y; pl.z = pl.tz = o.z; } }
+  }
+  function onJetFrame(dv) {
+    var n = dv.getUint16(1, true), p = 3;
+    for (var i = 0; i < n; i++, p += 12) {
+      var id = dv.getUint16(p, true), o = G.jets.get(id), mid = JET_IDS[dv.getUint8(p + 11)];
+      if (!o) { setOtherJet(id, mid, '', 0, 0, 0); o = G.jets.get(id); }
+      o.m = mid || o.m;
+      o.tx = dv.getInt16(p + 2, true) / 16; o.ty = dv.getInt16(p + 4, true) / 16; o.tz = dv.getInt16(p + 6, true) / 16;
+      o.tyaw = dv.getUint8(p + 8) / 256 * 2 * Math.PI; o.tpt = (dv.getUint8(p + 9) - 128) / 127 * Math.PI / 2; o.trl = (dv.getUint8(p + 10) - 128) / 127 * Math.PI;
+      if (o.fresh) { o.x = o.tx; o.y = o.ty; o.z = o.tz; o.yaw = o.tyaw; o.pt = o.tpt; o.rl = o.trl; o.fresh = false; o.lx = o.x; o.lz = o.z; }
+    }
+  }
+  function addJetWreck(m) {
+    var own = m.id === G.myId, st = own ? G.jcrashState : null, v = m.v || [0, 0, 0];
+    var w = { kind: 'j', m: m.m, x: m.x, y: m.y, z: m.z, yaw: st ? st.a.yaw : 0, pt: st ? st.a.pitch : 0, rl: st ? st.a.roll : 0, vx: st ? st.vx : v[0], vy: st ? Math.min(st.vy, 0) : Math.min(v[1], 0), vz: st ? st.vz : v[2], wr: (Math.random() - 0.5) * 2.4, wp: (Math.random() - 0.5) * 0.9, down: false, t0: performance.now(), puffs: [], fire: null, nextPuff: 0 };
+    G.wrecks.push(w); while (G.wrecks.length > 6) killWreck(G.wrecks.shift());
+  }
+  function drawJets(vp, ex, ey, ez, dt, now) {
+    if (!G.jet && !G.jets.size && !G.wrecks.some(function (w) { return w.kind === 'j'; })) return;
+    var r = jetRenderer(); if (!r) return;
+    var fn = RDIST * 16 - 44, ff = RDIST * 16 - 6, cam = [ex, ey, ez];
+    if (G.jet && G.jet.view === 0 && !G.jet.crashAt) { var j = G.jet; r.draw(j.m, jetMat(j.x, j.y, j.z, j.f, j.u), vp, cam, fn, ff, j.burner || 0, 0, j.gear); }
+    G.jets.forEach(function (o) {
+      var k = Math.min(1, dt * 10);
+      o.x += (o.tx - o.x) * k; o.y += (o.ty - o.y) * k; o.z += (o.tz - o.z) * k;
+      o.yaw += angDiff(o.yaw, o.tyaw) * k; o.pt += (o.tpt - o.pt) * k; o.rl += angDiff(o.rl, o.trl) * k;
+      var sp = Math.hypot(o.x - o.lx, o.z - o.lz) / Math.max(dt, 0.001); o.lx = o.x; o.lz = o.z; o.spd += (sp - o.spd) * Math.min(1, dt * 3);
+      var dx = o.x - ex, dz = o.z - ez; if (dx * dx + dz * dz > 200 * 200 || !JETS[o.m]) return;
+      var b = jetBasis(o.yaw, o.pt, o.rl), s2 = jspec(o.m);
+      r.draw(o.m, jetMat(o.x, o.y, o.z, b.f, b.u), vp, cam, fn, ff, Math.min(1, 0.2 + o.spd / s2.vmax), 0, o.spd < s2.stall * 1.4 && Math.abs(o.ty - Math.round(o.ty)) < 1.2 ? 1 : 0);
+    });
+    G.wrecks.forEach(function (w) {
+      if (w.kind !== 'j' || !JETS[w.m]) return;
+      var ddx = w.x - ex, ddz = w.z - ez; if (ddx * ddx + ddz * ddz > 200 * 200) return;
+      var b = jetBasis(w.yaw, w.pt, w.rl); r.draw(w.m, jetMat(w.x, w.y, w.z, b.f, b.u), vp, cam, fn, ff, 0, 0.82, 0);
+    });
+  }
+  function drawJetFx(vp, focal, ex, ey, ez, dt, now) {
+    var layer = $('ew-fx');
+    G.jets.forEach(function (o) {              // names above the other pilots' jets
+      var sp = project(vp, o.x, o.y + 4, o.z, G.cw, G.ch);
+      if (!sp || sp.w > 220) { if (o.el) o.el.style.display = 'none'; return; }
+      if (!o.el) { o.el = document.createElement('div'); o.el.className = 'ew-htag'; layer.appendChild(o.el); }
+      var nm = o.name || (G.others.get(o.id) || {}).name || ''; if (o.el.textContent !== nm) o.el.textContent = nm;
+      o.el.style.display = 'block'; o.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px) translate(-50%,-100%)';
+    });
+  }
+  // shop cards
+  function jetThumb(id) {
+    if (JTHUMBS[id]) return JTHUMBS[id];
+    var r = jetRenderer(); if (!r || !r.thumbnail) return '';
+    try { var u = r.thumbnail(id, 150, 80); if (u) JTHUMBS[id] = u; } catch (e) {}
+    return JTHUMBS[id] || '';
+  }
+  function renderJetShop() {
+    var box = $('ew-shop-jets'); if (!box) return;
+    heliCss();
+    var own = G.inv.jet || {}, prices = G.inv.jp || {}, html = '<h4>Fighter jets</h4>';
+    JET_IDS.forEach(function (id) {
+      var sp = JETS[id], price = prices[id] || sp.price, st = own[id], img = jetThumb(id);
+      var btn1 = st ? '<button class="win-btn" data-j="launch" data-id="' + id + '"' + (G.jet || G.heli || G.drone ? ' disabled' : '') + '>' + (G.jet && G.jet.m === id ? 'Flying' : 'Get in') + '</button>'
+        : '<button class="win-btn" data-j="buy" data-id="' + id + '">' + (G.jArm === id ? 'Click again to confirm' : 'Buy') + '</button>';
+      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st ? ' · owned' : '') + ' · top speed ' + Math.round(sp.vmax * 3.6) + ' km/h (Mach ' + sp.mach + ' real)</span></div><div class="act">' + btn1 + '</div></div>';
+    });
+    if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
+  }
+  function jetShopClick(e) {
+    var t = e.target; if (!t || !t.getAttribute || !t.getAttribute('data-j')) return;
+    var id = t.getAttribute('data-id'), kind = t.getAttribute('data-j'), prices = G.inv.jp || {}, price = prices[id] || JETS[id].price, now = performance.now();
+    if (kind === 'launch') { closeShop(); G.jsel = id; toggleJet(); return; }
+    if (G.jArm === id && now < G.jArmT) { G.jArm = ''; send({ t: 'buy', item: id }); renderInv(); return; }
+    if (balance() < price) { $('ew-shop-note').textContent = 'You need ' + fmt(price) + ' PlaceBux (you have ' + fmt(balance()) + ').'; return; }
+    $('ew-shop-note').textContent = ''; G.jArm = id; G.jArmT = now + 3000; renderInv();
+  }
+
   // ---- flying the drone
   function toggleDrone() {
-    if (G.heli) return;
+    if (G.heli || G.jet) return;
     if (G.drone) { send({ t: 'drone', on: false }); return; }
     if (!G.inv.drone) { sys('You do not own an FPV drone. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to launch the drone.'); return; }
@@ -1463,7 +1831,7 @@
     if (menuOpen() && locked() && document.exitPointerLock) document.exitPointerLock();
     if (G.shake > now) { G.canvas.style.transform = 'translate(' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px,' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px)'; G.shaking = true; } else if (G.shaking) { G.canvas.style.transform = ''; G.shaking = false; }
     if (G.me && G.ready) {
-      var hd = headingOf((G.drone || G.heli || G.me).yaw);
+      var hd = headingOf((G.drone || G.heli || G.jet || G.me).yaw);
       if (Math.abs(hd - G.lastHeading) > 0.2 || G.compassDirty) {
         G.lastHeading = hd; G.compassDirty = false;
         if (!G.compassOff) G.compassOff = document.createElement('canvas');
@@ -1489,7 +1857,8 @@
       if (G.ready) {
         var k = G.keys, inp = { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, jump: k.Space, sprint: G.sprint && (k.KeyW || k.ArrowUp) };
         var changed = false;
-        if (G.heli) flyHeli(dt);
+        if (G.jet) flyJet(dt);
+        else if (G.heli) flyHeli(dt);
         else if (G.drone) flyDrone(dt);                                    // the body stands still while the drone flies
         else if (G.bodyWait) { var bu = chunks.get(ckey(Math.floor(me.x) >> 4, Math.floor(me.z) >> 4)); if (bu && bu.loaded) G.bodyWait = false; }
         else changed = stepPlayer(me, inp, dt);
@@ -1513,9 +1882,9 @@
     var gl = G.gl, me = G.me;
     gl.clearColor(SKY[0], SKY[1], SKY[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (!me) return;
-    var cam = G.drone || G.hpose, fovNow = G.drone ? FOV + 0.45 : G.hpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
+    var cam = G.drone || G.hpose || G.jpose, fovNow = G.drone ? FOV + 0.45 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.hpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
     var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
-    var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch));
+    var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), (cam && cam.f ? viewLook(ex, ey, ez, cam.f, cam.u) : viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch)));
     G.vp = vp;
     gl.useProgram(G.prog);
     gl.uniformMatrix4fv(G.loc.vp, false, vp);
@@ -1535,8 +1904,9 @@
       gl.drawArrays(gl.TRIANGLES, 0, c.mesh.count);
     });
     drawHelis(vp, ex, ey, ez, dt, performance.now());
+    drawJets(vp, ex, ey, ez, dt, performance.now());
     // outline of what you are aiming at
-    if (G.ready && !G.drone && !G.heli) {
+    if (G.ready && !G.drone && !G.heli && !G.jet) {
       var h = targetNow();
       if (h) {
         gl.bindBuffer(gl.ARRAY_BUFFER, G.lineBuf);
@@ -1552,6 +1922,7 @@
     drawFx(vp, focal);
     drawDrones(vp, focal, ex, ey, ez, dt, performance.now());
     drawHeliFx(vp, focal, ex, ey, ez, dt, performance.now());
+    drawJetFx(vp, focal, ex, ey, ez, dt, performance.now());
     G.others.forEach(function (p) {
       if (p.hidden) { p.el.style.display = 'none'; return; }
       var k = Math.min(1, dt * 12);
@@ -1577,6 +1948,7 @@
     chunks.forEach(function (c) { if (c.mesh && c.mesh.buf && g.gl) g.gl.deleteBuffer(c.mesh.buf); });
     chunks.clear();
     try { if (g.hr) g.hr.dispose(); } catch (e) {}
+    try { if (g.jr) g.jr.dispose(); } catch (e) {}
     try { var ext = g.gl && g.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
     g.view.style.display = 'none';
     $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = '';
@@ -1588,7 +1960,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();

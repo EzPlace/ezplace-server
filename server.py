@@ -9806,6 +9806,18 @@ HELI_MAX_Y = 430.0
 HELI_COOLDOWN = 4.0
 HELI_CRASH_RADIUS = 3.0               # a crash blows away the blocks within this (plus a quarter of the rotor radius) of the wreck
 HELI_NEAR = 112.0
+
+# Fighter jets: five real ones, bought once and kept (a crash destroys them for good). model: (name, price, top speed b/s, stall speed b/s, length, wing span, height)
+JETS = {"f16xl": ("General Dynamics F-16XL", 30000, 105.0, 30.0, 16.5, 10.4, 5.1), "f15": ("McDonnell Douglas F-15 Eagle", 45000, 100.0, 31.0, 19.43, 13.05, 5.63),
+        "rafale": ("Dassault Rafale", 60000, 100.0, 29.0, 15.27, 10.8, 5.34), "typhoon": ("Eurofighter Typhoon", 75000, 108.0, 29.0, 15.96, 10.95, 5.28),
+        "su30": ("Sukhoi Su-30SM2", 90000, 95.0, 27.0, 21.9, 14.7, 6.4)}
+JET_IDS = list(JETS)
+JET_BURST = 40.0                      # distance a laggy connection may "catch up" at once
+JET_CRASH_SPEED = 8.0                 # touching something slower than this is only a bump
+JET_MAX_Y = 430.0
+JET_COOLDOWN = 4.0
+JET_RUNWAY = 90                       # open ground needed in front of the nose to start
+JET_CRASH_RADIUS = 4.0                # a crash blows away the blocks within this (plus a quarter of the wing span) of the wreck
 ROCKET_PROTECT = 0.0              # rockets break blocks everywhere; set this to a number of blocks to protect that radius around the spawn centre again
 WORLD_MAX_HSPEED = 10.0           # sprinting is 7 b/s; the margin covers lag spikes
 WORLD_JUMP_BUDGET = 1.7           # how far up you may rise per jump (a jump is ~1.3 blocks)
@@ -10030,6 +10042,9 @@ async def _w_teleport(p, x, y, z):
     if p.get("heli"):
         p["heli"] = None
         await _w_send(p, {"t": "hend", "crash": False, "m": "", "x": x, "y": y, "z": z}); await _w_broadcast({"t": "hr", "id": p["id"], "on": False}, exclude=p["id"])
+    if p.get("jet"):
+        p["jet"] = None
+        await _w_send(p, {"t": "jend", "crash": False, "m": "", "x": x, "y": y, "z": z}); await _w_broadcast({"t": "jr", "id": p["id"], "on": False}, exclude=p["id"])
     x, y, z = _w_clamp_pos(x, y, z)
     p["x"], p["y"], p["z"] = x, y, z
     p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["hb"] = 6.0; p["q"] = (int(x * 16), int(y * 16), int(z * 16)); p["ver"] += 1
@@ -10096,7 +10111,7 @@ def _w_tick_frames():
         seen = r["seen"]
         entries = []
         for p in plist:
-            if p is r or p.get("heli"): continue                            # somebody flying is drawn as a helicopter instead
+            if p is r or p.get("heli") or p.get("jet"): continue                            # somebody flying is drawn as a helicopter instead
             ent = seen.get(p["id"])
             if ent is not None and ent[0] == p["ver"]: continue            # nothing new about this player
             d = ((p["x"] - vx) ** 2 + (p["z"] - vz) ** 2) ** 0.5
@@ -10142,6 +10157,23 @@ def _w_tick_frames():
             body = bytearray(struct.pack("<BH", 0x13, len(hent)))
             for pid, hh in hent:
                 body += struct.pack("<HhhhBBBB", pid, int(hh["x"] * 16), int(hh["y"] * 16), int(hh["z"] * 16), hh["yaw"], hh["pitch"], hh["roll"], HELI_IDS.index(hh["m"]))
+            out.append((r, bytes(body)))
+        jseen = r.setdefault("jseen", {})
+        jent = []
+        for p in plist:
+            jj = p.get("jet")
+            if p is r or not jj: continue
+            ent = jseen.get(p["id"])
+            if ent is not None and ent[0] == jj["ver"]: continue
+            d = ((jj["x"] - vx) ** 2 + (jj["z"] - vz) ** 2) ** 0.5
+            if d > WORLD_FAR: continue
+            if d > HELI_NEAR and ent is not None and world_tick_n - ent[1] < WORLD_MID_EVERY: continue
+            jseen[p["id"]] = (jj["ver"], world_tick_n)
+            jent.append((p["id"], jj))
+        if jent:
+            body = bytearray(struct.pack("<BH", 0x14, len(jent)))
+            for pid, jj in jent:
+                body += struct.pack("<HhhhBBBB", pid, int(jj["x"] * 16), int(jj["y"] * 16), int(jj["z"] * 16), jj["yaw"], jj["pitch"], jj["roll"], JET_IDS.index(jj["m"]))
             out.append((r, bytes(body)))
     return out
 
@@ -10193,10 +10225,12 @@ def _inv_touch():
     _inv_dirty = True
     if _inv_handle is None: _inv_handle = asyncio.get_event_loop().call_later(15, lambda: asyncio.ensure_future(_inv_save()))
 
+def _inv_jet(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}).get("jet") or {}).items() if v == 1 and k in JETS}
+
 async def _w_send_inv(p):
     await _w_send(p, {"t": "inv", "rockets": _inv_rockets(p["name"]), "armed": bool(p.get("armed")), "price": ROCKET_PRICE, "per": ROCKETS_PER_LAUNCHER, "max": ROCKET_MAX_HELD,
                       "drone": _inv_drone(p["name"]), "dprice": DRONE_PRICE, "flying": bool(p.get("drone")),
-                      "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
+                      "jet": _inv_jet(p["name"]), "jp": {k: v[1] for k, v in JETS.items()}, "jfly": (p["jet"]["m"] if p.get("jet") else None), "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
 
 async def _w_explode(cell, ex, ey, ez, by=None, radius=None, scale=None):
     """A rocket arrived: remove the blocks in a ball around it (never bedrock, never near spawn) and tell everybody nearby."""
@@ -10281,6 +10315,72 @@ async def _w_drone_crash(p, pt):
     if changed: world_schedule_save()
     await _w_broadcast({"t": "bs", "e": [round(px, 2), round(py, 2), round(pz, 2)], "d": changed, "s": 0.35}, near=(cx, cz))
     await _w_drone_end(p, True)
+
+def _w_jet_clear(x, y, z, yawb, spec):
+    """A strip of open ground in front of (and room behind) the jet: wide as its wings, tall as its fin, JET_RUNWAY long ahead of the nose."""
+    a = yawb / 256.0 * 2 * math.pi
+    fx, fz, rx, rz = -math.sin(a), -math.cos(a), math.cos(a), -math.sin(a)
+    length, span, h = spec[4], spec[5], spec[6]
+    y0, y1 = int(math.floor(y + 0.05)), int(math.floor(y + h + 0.5))
+    for s in range(-int(length * 0.5) - 1, int(length * 0.55) + JET_RUNWAY):
+        for w in range(-int(span / 2) - 1, int(span / 2) + 2):
+            bx, bz = int(math.floor(x + fx * s + rx * w)), int(math.floor(z + fz * s + rz * w))
+            if not world_in_bounds(bx, bz): return False
+            for by in range(y0, y1 + 1):
+                if world_get(bx, by, bz): return False
+    return True
+
+def _w_jet_move(p, x, y, z, yaw, pitch, roll, now):
+    """One position report from a flying jet. Returns ("ok", None), ("reject", None) or ("crash", (x, y, z))."""
+    j = p["jet"]; spec = JETS[j["m"]]
+    dt = min(max(now - j["t"], 0.0), 2.0)
+    j["hb"] = min(j["hb"] + spec[2] * 1.35 * dt, JET_BURST)
+    fx, fy, fz = int(math.floor(x)), int(math.floor(y)), int(math.floor(z))
+    if not world_in_bounds(fx, fz) or y < 0.5 or y > JET_MAX_Y: return ("reject", None)
+    dx, dy, dz = x - j["x"], y - j["y"], z - j["z"]
+    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if dist > j["hb"] + 1.0: return ("reject", None)
+    j["hb"] = max(0.0, j["hb"] - dist)
+    speed = dist / max(dt, 0.03)
+    j["t"] = now
+    hit = None
+    if dist > 1e-6: hit = _w_ray(j["x"], j["y"] + 0.6, j["z"], dx / dist, dy / dist, dz / dist, dist)
+    if hit is None and world_get(fx, int(math.floor(y + 0.6)), fz): hit = ((fx, fy, fz), dist)
+    if hit is not None:
+        if speed >= JET_CRASH_SPEED or j.get("v", 0.0) >= JET_CRASH_SPEED * 1.5:
+            t = max(0.0, hit[1] - 0.01)
+            if dist > 1e-6: return ("crash", (j["x"] + dx / dist * t, j["y"] + dy / dist * t, j["z"] + dz / dist * t))
+            return ("crash", (j["x"], j["y"], j["z"]))
+        return ("reject", None)
+    j["x"], j["y"], j["z"], j["yaw"], j["pitch"], j["roll"] = x, y, z, yaw, pitch, roll
+    j["v"] = max(speed, j.get("v", 0.0) * 0.5)
+    j["ver"] += 1
+    p["x"], p["y"], p["z"] = x, y, z
+    p["last_t"] = now; p["q"] = (int(x * 16), int(y * 16), int(z * 16))
+    return ("ok", None)
+
+async def _w_jet_end(p, crashed, at=None):
+    """The flight is over. A crash destroys the jet for good (deleted from the inventory) and blows up blocks around it; a landing keeps it."""
+    j = p.get("jet")
+    if not j: return
+    p["jet"] = None
+    now = time.monotonic()
+    p["jet_ready"] = now + JET_COOLDOWN
+    px, py, pz = (at if at else (j["x"], j["y"], j["z"]))
+    if crashed:
+        world_inv.setdefault(p["name"].lower(), {}).setdefault("jet", {}).pop(j["m"], None); _inv_touch(); await _inv_save()
+        spot = _w_find_spot(px, py, pz) or _w_pick_spawn()
+        await _w_teleport(p, spot[0], spot[1], spot[2])
+        await _w_broadcast({"t": "jx", "id": p["id"], "m": j["m"], "x": round(px, 2), "y": round(py, 2), "z": round(pz, 2),
+                            "v": [round(j.get("vx", 0.0), 1), round(j.get("vy", 0.0), 1), round(j.get("vz", 0.0), 1)]}, near=(int(px), int(pz)))
+        spec = JETS[j["m"]]
+        await _w_explode((int(math.floor(px)), int(math.floor(py + 1)), int(math.floor(pz))), px, py + 1, pz, radius=JET_CRASH_RADIUS + spec[5] * 0.25, scale=1.6)
+    else:
+        p["x"], p["y"], p["z"] = px, py, pz
+        p["low"] = py; p["gt"] = now; p["hb"] = 6.0; p["last_t"] = now; p["q"] = (int(px * 16), int(py * 16), int(pz * 16)); p["ver"] += 1
+    await _w_send(p, {"t": "jend", "crash": bool(crashed), "m": j["m"], "x": p["x"], "y": p["y"], "z": p["z"]})
+    await _w_send_inv(p)
+    await _w_broadcast({"t": "jr", "id": p["id"], "on": False}, exclude=p["id"])
 
 def _w_heli_clear(x, y, z, spec):
     """Room for the whole helicopter standing with its skids at y: the body (out to its nose or tail) up to the rotor, and the rotor's disc."""
@@ -10471,7 +10571,15 @@ async def world_ws_handler(request):
                         elif verdict == "reject":
                             hh = me["heli"]; await _w_send(me, {"t": "htp", "x": hh["x"], "y": hh["y"], "z": hh["z"]})
                     continue
-                if me is not None and len(d) == 9 and d[0] == 1 and not me.get("heli"):
+                if me is not None and len(d) == 10 and d[0] == 4:
+                    if me.get("jet"):
+                        _, qx, qy, qz, yaw, pitch, roll = struct.unpack("<BhhhBBB", d)
+                        verdict, pt = _w_jet_move(me, qx / 16.0, qy / 16.0, qz / 16.0, yaw, pitch, roll, time.monotonic())
+                        if verdict == "crash": await _w_jet_end(me, True, pt)
+                        elif verdict == "reject":
+                            jj = me["jet"]; await _w_send(me, {"t": "jtp", "x": jj["x"], "y": jj["y"], "z": jj["z"]})
+                    continue
+                if me is not None and len(d) == 9 and d[0] == 1 and not me.get("heli") and not me.get("jet"):
                     _, qx, qy, qz, yaw, pitch = struct.unpack("<BhhhBB", d)
                     now = time.monotonic()
                     x, y, z = qx / 16.0, qy / 16.0, qz / 16.0
@@ -10509,11 +10617,11 @@ async def world_ws_handler(request):
                     try: await old["ws"].send_json({"t": "error", "text": "You joined EzWorld from another tab."}); await old["ws"].close()
                     except Exception: pass
                     world_players.pop(old["id"], None); world_by_name.pop(name.lower(), None)
-                    for q in world_players.values(): q["seen"].pop(old["id"], None); q.get("dseen", {}).pop(old["id"], None); q.get("hseen", {}).pop(old["id"], None)
+                    for q in world_players.values(): q["seen"].pop(old["id"], None); q.get("dseen", {}).pop(old["id"], None); q.get("hseen", {}).pop(old["id"], None); q.get("jseen", {}).pop(old["id"], None)
                     await _w_broadcast({"t": "leave", "id": old["id"]})
                 sx, fy, sz = _w_pick_spawn()
                 pid = world_next_id; world_next_id = world_next_id % 60000 + 1
-                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0, "armed": False, "last_fire": 0.0, "drone": None, "drone_ready": 0.0, "dseen": {}, "heli": None, "heli_ready": 0.0, "hseen": {},
+                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0, "armed": False, "last_fire": 0.0, "drone": None, "drone_ready": 0.0, "dseen": {}, "heli": None, "heli_ready": 0.0, "hseen": {}, "jet": None, "jet_ready": 0.0, "jseen": {},
                       "last_t": time.monotonic(), "low": fy, "gt": time.monotonic(), "hb": 6.0, "last_edit": 0.0, "chat_times": []}
                 world_players[pid] = me; world_by_name[name.lower()] = pid
                 await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX, "total": _global_online_total(),
@@ -10533,7 +10641,7 @@ async def world_ws_handler(request):
                         if WORLD_MIN >> 4 <= cx <= (WORLD_MAX - 1) >> 4 and WORLD_MIN >> 4 <= cz <= (WORLD_MAX - 1) >> 4:
                             await ws.send_bytes(_w_chunk_frame(cx, cz))
             elif t == "edit":
-                if me.get("drone") or me.get("heli"): continue
+                if me.get("drone") or me.get("heli") or me.get("jet"): continue
                 x, y, z, c = data.get("x"), data.get("y"), data.get("z"), data.get("c")
                 if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y, z, c)): continue
                 now = time.monotonic()
@@ -10573,6 +10681,16 @@ async def world_ws_handler(request):
                 ul = me["name"].lower()
                 item = data.get("item")
                 if not isinstance(item, str) or not check_rate_limit(me["name"], "world_buy", 8, 60): continue
+                if item in JETS:
+                    spec = JETS[item]; mine = world_inv.setdefault(ul, {}).setdefault("jet", {})
+                    if item in mine:
+                        await _w_sys(me, f"You already own a {spec[0]}."); continue
+                    if not spend_pb(me["name"], spec[1]):
+                        await _w_sys(me, f"A {spec[0]} costs {spec[1]:,} PlaceBux."); continue
+                    mine[item] = 1                                              # no await between paying and receiving
+                    await save_place_bucks(); await push_pb_update(me["name"])
+                    _inv_touch(); await _inv_save(); await _w_send_inv(me)
+                    await _w_sys(me, f"Bought a {spec[0]}. Press 4 to get in; it needs {JET_RUNWAY} blocks of open ground to take off."); continue
                 if item in HELIS:
                     mid = item
                     spec = HELIS[mid]; mine = world_inv.setdefault(ul, {}).setdefault("heli", {})
@@ -10607,7 +10725,7 @@ async def world_ws_handler(request):
                 await _w_send_inv(me)
                 await _w_sys(me, f"Bought a rocket launcher with {ROCKETS_PER_LAUNCHER} rockets. Press 1 to equip it.")
             elif t == "equip":
-                if me.get("drone") or me.get("heli"):
+                if me.get("drone") or me.get("heli") or me.get("jet"):
                     await _w_send_inv(me); continue
                 if bool(data.get("on")) and _inv_rockets(me["name"]) <= 0:
                     me["armed"] = False; await _w_sys(me, "You have no rockets. Buy a rocket launcher in the shop.")
@@ -10616,7 +10734,7 @@ async def world_ws_handler(request):
             elif t == "fire":
                 now = time.monotonic()
                 d = data.get("d")
-                if not me.get("armed") or me.get("drone") or me.get("heli") or now - me["last_fire"] < ROCKET_COOLDOWN: continue
+                if not me.get("armed") or me.get("drone") or me.get("heli") or me.get("jet") or now - me["last_fire"] < ROCKET_COOLDOWN: continue
                 if _inv_rockets(me["name"]) <= 0:
                     me["armed"] = False; await _w_send_inv(me); continue
                 if not (isinstance(d, list) and len(d) == 3 and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in d)): continue
@@ -10640,7 +10758,7 @@ async def world_ws_handler(request):
                 if bool(data.get("on")):
                     if not _inv_drone(me["name"]):
                         await _w_sys(me, "You do not own an FPV drone. Buy one in the shop (B)."); continue
-                    if me.get("drone") or me.get("heli"): continue
+                    if me.get("drone") or me.get("heli") or me.get("jet"): continue
                     if now < me.get("drone_ready", 0.0):
                         await _w_sys(me, "The drone is recharging."); continue
                     if not _w_supported(me["x"], me["y"], me["z"]):
@@ -10655,11 +10773,46 @@ async def world_ws_handler(request):
                     await _w_broadcast({"t": "dr", "id": me["id"], "on": True, "x": sx, "y": sy, "z": sz, "name": me["name"]}, exclude=me["id"])
                 elif me.get("drone"):
                     await _w_drone_end(me, False)
+            elif t == "jet":
+                now = time.monotonic()
+                mid = data.get("m")
+                if bool(data.get("on")):
+                    if me.get("jet") or me.get("heli") or me.get("drone") or mid not in JETS: continue
+                    spec = JETS[mid]
+                    if not _inv_jet(me["name"]).get(mid): await _w_sys(me, f"You do not own a {spec[0]}. Buy one in the shop (B)."); continue
+                    if now < me.get("jet_ready", 0.0): await _w_sys(me, "The jet is being refuelled."); continue
+                    if not _w_supported(me["x"], me["y"], me["z"]):
+                        await _w_sys(me, "Stand on the ground to get into a jet."); continue
+                    sx, sy, sz = me["x"], me["y"], me["z"]
+                    if not _w_jet_clear(sx, sy, sz, me["yaw"], spec):
+                        await _w_sys(me, f"A {spec[0]} needs a clear strip of ground {JET_RUNWAY} blocks long and as wide as its wings, in the direction you are facing."); continue
+                    me["armed"] = False
+                    me["jet"] = {"m": mid, "x": sx, "y": sy, "z": sz, "yaw": me["yaw"], "pitch": 128, "roll": 128, "t": now, "hb": JET_BURST, "v": 0.0, "ver": 1}
+                    await _w_send(me, {"t": "jstart", "m": mid, "x": sx, "y": sy, "z": sz})
+                    await _w_send_inv(me)
+                    await _w_broadcast({"t": "jr", "id": me["id"], "on": True, "m": mid, "name": me["name"], "x": sx, "y": sy, "z": sz}, exclude=me["id"])
+                elif me.get("jet"):
+                    jj = me["jet"]
+                    gy = round(jj["y"])
+                    veff = jj.get("v", 0.0) if now - jj["t"] < 0.4 else 0.0
+                    if not _w_heli_landed(jj["x"], gy, jj["z"]) or abs(jj["y"] - gy) > 0.3 or veff > 4.0:
+                        await _w_sys(me, "Land and stop the jet before you get out."); await _w_send(me, {"t": "jno"}); continue
+                    await _w_jet_end(me, False, (jj["x"], float(gy), jj["z"]))
+            elif t == "jcrash":
+                jj = me.get("jet")
+                if not jj: continue
+                if isinstance(data.get("v"), list) and len(data["v"]) == 3 and all(isinstance(c, (int, float)) and not isinstance(c, bool) and math.isfinite(c) for c in data["v"]):
+                    jj["vx"], jj["vy"], jj["vz"] = (max(-200.0, min(200.0, float(c))) for c in data["v"])
+                sp = JETS[jj["m"]]; px, py, pz = jj["x"], jj["y"], jj["z"]
+                fx, fy, fz = int(math.floor(px)), int(math.floor(py)), int(math.floor(pz))
+                reach = int(sp[5] / 2) + 3
+                if not any(world_get(fx + a, fy + b, fz + c) for b in range(-2, int(sp[6]) + 2) for a in range(-reach, reach + 1) for c in range(-reach, reach + 1)): continue
+                await _w_jet_end(me, True, (px, py, pz))
             elif t == "heli":
                 now = time.monotonic()
                 mid = data.get("m")
                 if bool(data.get("on")):
-                    if me.get("heli") or me.get("drone") or mid not in HELIS: continue
+                    if me.get("heli") or me.get("drone") or me.get("jet") or mid not in HELIS: continue
                     st = _inv_heli(me["name"]).get(mid)
                     spec = HELIS[mid]
                     if not st: await _w_sys(me, f"You do not own a {spec[0]}. Buy one in the shop (B)."); continue
@@ -10711,13 +10864,17 @@ async def world_ws_handler(request):
         print(f"world ws error: {type(e).__name__}: {e}")
     finally:
         _ws_release(_ip)
+        if me is not None and me.get("jet"):
+            jj = me["jet"]; me["jet"] = None
+            if not _w_heli_landed(jj["x"], round(jj["y"]), jj["z"]):          # leaving mid-flight is a crash
+                world_inv.setdefault(me["name"].lower(), {}).setdefault("jet", {}).pop(jj["m"], None); _inv_touch()
         if me is not None and me.get("heli"):
             hh = me["heli"]; me["heli"] = None
             if not _w_supported(hh["x"], hh["y"], hh["z"]):                 # leaving mid-flight is a crash
                 world_inv.setdefault(me["name"].lower(), {}).setdefault("heli", {}).pop(hh["m"], None); _inv_touch()
         if me is not None and world_players.get(me["id"]) is me:
             world_players.pop(me["id"], None)
-            for q in world_players.values(): q["seen"].pop(me["id"], None); q.get("dseen", {}).pop(me["id"], None); q.get("hseen", {}).pop(me["id"], None)
+            for q in world_players.values(): q["seen"].pop(me["id"], None); q.get("dseen", {}).pop(me["id"], None); q.get("hseen", {}).pop(me["id"], None); q.get("jseen", {}).pop(me["id"], None)
             if world_by_name.get(me["name"].lower()) == me["id"]: world_by_name.pop(me["name"].lower(), None)
             await _w_broadcast({"t": "leave", "id": me["id"]})
             discord_forward_event("world", me["name"], "left", "EzWorld")
@@ -10773,6 +10930,31 @@ async def heli_js_handler(request):
     if "gzip" in ae: return web.Response(body=_HELI_GZ, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "gzip"})
     return web.Response(body=_HELI_RAW, content_type="application/javascript", charset="utf-8", headers=hdr)
 
+_JET_RAW = _JET_BR = _JET_GZ = b""
+_JET_ETAG = ""
+try:
+    with open("jet_gl.js", "rb") as _f: _JET_SRC = _f.read()
+    _JET_ETAG = hashlib.md5(_JET_SRC).hexdigest()
+    _JET_RAW = _JET_SRC; _JET_GZ = gzip.compress(_JET_SRC, compresslevel=9)
+    try:
+        with open("jet_gl.min.meta.json", "r", encoding="utf8") as _f: _m = json.load(_f)
+        if _m.get("source_md5") == _JET_ETAG:
+            with open("jet_gl.min.js", "rb") as _f: _JET_RAW = _f.read()
+            with open("jet_gl.min.js.br", "rb") as _f: _JET_BR = _f.read()
+            _JET_GZ = gzip.compress(_JET_RAW, compresslevel=9)
+    except Exception: pass
+except Exception as _e:
+    print(f"jet_gl.js not found ({_e}); jets will have no 3D models")
+
+async def jet_js_handler(request):
+    if not _JET_RAW: return web.Response(status=404)
+    hdr = {"Cache-Control": "no-cache, must-revalidate", "ETag": '"' + _JET_ETAG + '"', "Vary": "Accept-Encoding"}
+    if request.headers.get("If-None-Match", "") == hdr["ETag"]: return web.Response(status=304, headers=hdr)
+    ae = request.headers.get("Accept-Encoding", "")
+    if _JET_BR and "br" in ae: return web.Response(body=_JET_BR, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "br"})
+    if "gzip" in ae: return web.Response(body=_JET_GZ, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "gzip"})
+    return web.Response(body=_JET_RAW, content_type="application/javascript", charset="utf-8", headers=hdr)
+
 async def ezworld_js_handler(request):
     if not _EZW_RAW: return web.Response(status=404)
     hdr = {"Cache-Control": "no-cache, must-revalidate", "ETag": '"' + _EZW_ETAG + '"', "Vary": "Accept-Encoding"}
@@ -10791,6 +10973,7 @@ _g, _p = app.router.add_get, app.router.add_post
 _g("/cosmetics/{name}", cosmetic_image_handler)
 _g("/ezworld.js", ezworld_js_handler)
 _g("/heli_gl.js", heli_js_handler)
+_g("/jet_gl.js", jet_js_handler)
 _g("/ws/world", world_ws_handler)
 _p("/api/admin/emergency", admin_emergency_handler)
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))

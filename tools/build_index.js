@@ -47,5 +47,15 @@ const CleanCSS = require('clean-css');
     fs.writeFileSync('heli_gl.min.meta.json', JSON.stringify({ source_md5: crypto.createHash('md5').update(hSrc).digest('hex'), min_bytes: hBuf.length, br_bytes: hBr.length }));
     console.log('heli_gl.js: ' + hSrc.length + ' -> ' + hBuf.length + ' min, ' + hBr.length + ' brotli');
   }
+  if (fs.existsSync('jet_gl.js')) {
+    const jSrc = fs.readFileSync('jet_gl.js', 'utf8');
+    const r = await minify(jSrc, { compress: { passes: 1 }, mangle: true, format: { comments: false } });
+    if (r.error || !r.code) throw new Error('terser failed on jet_gl.js');
+    const jBuf = Buffer.from(r.code, 'utf8');
+    const jBr = zlib.brotliCompressSync(jBuf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: jBuf.length } });
+    fs.writeFileSync('jet_gl.min.js', jBuf); fs.writeFileSync('jet_gl.min.js.br', jBr);
+    fs.writeFileSync('jet_gl.min.meta.json', JSON.stringify({ source_md5: crypto.createHash('md5').update(jSrc).digest('hex'), min_bytes: jBuf.length, br_bytes: jBr.length }));
+    console.log('jet_gl.js: ' + jSrc.length + ' -> ' + jBuf.length + ' min, ' + jBr.length + ' brotli');
+  }
   console.log(JSON.stringify({ source: src.length, js: [jsBefore, jsAfter], css: [cssBefore, cssAfter], min: buf.length, gz: gz.length, br: br.length, original_gz: zlib.gzipSync(Buffer.from(src), { level: 9 }).length }));
 })().catch(e => { console.error('BUILD FAILED', e.message); process.exit(1); });
