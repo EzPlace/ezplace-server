@@ -813,7 +813,7 @@
       if (!locked() || !G.me) return;
       if ((G.jet || G.heli) && G.mouseFly) {                              // the mouse is the stick: it deflects, and settles back to centre
         var ms = G.mstick;
-        ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.0028)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.0028));
+        ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.007)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.007));
         return;
       }
       if (G.jet) {
@@ -1265,6 +1265,7 @@
       '.ew-hhelp2{display:none;position:absolute;left:50%;bottom:62px;transform:translateX(-50%);font-size:11px;color:#fff;opacity:.75;text-shadow:0 0 4px #000;pointer-events:none;text-align:center;max-width:94%}' +
       '#ew-hotbar4{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}#ew-hotbar4.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar4 .key{font-size:11px;opacity:.7}' +
       '#ew-shop-jets{padding:0 16px 6px;display:flex;flex-direction:column;gap:10px}#ew-shop-jets h4{margin:6px 0 0;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}' +
+      '.ew-debris.burn{background:#ff8a1e;border-color:#ffd070;box-shadow:0 0 10px 3px rgba(255,120,20,.7)}' +
       '.ew-debris{position:absolute;left:0;top:0;background:#2a2a2d;border:1px solid #0a0a0b;pointer-events:none}' +
       '.ew-smoke{position:absolute;left:0;top:0;border-radius:50%;background:radial-gradient(circle,rgba(40,40,44,.85),rgba(40,40,44,0) 70%);pointer-events:none}' +
       '#ew-hotbar3{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}' +
@@ -1361,6 +1362,7 @@
       h.crashAt = now; var hv = h.cv || [0, 0, 0]; G.hcrashState = { vx: hv[0], vy: hv[1], vz: hv[2] };
       sendHeliPos(true); send({ t: 'hcrash' });
       h.wreck = addWreck({ id: G.myId, m: h.m, x: h.x, y: h.y + 0.3, z: h.z, local: true });
+      addBoom([h.x, h.y + 1, h.z], 1.6); G.flash = now; G.shake = now + 600;
     } else if (now - h.sent >= 50 || (now - h.sent >= 40 && res !== 'ok')) sendHeliPos(false);
     h.ang += dt * 40 * h.rpm;
     var me = G.me; me.x = h.x; me.y = h.y; me.z = h.z; me.yaw = h.yaw;
@@ -1410,7 +1412,7 @@
   function newWreck(kind, m, v, a) {
     var w = { kind: kind, m: m.m, x: m.x, y: m.y, z: m.z, yaw: a.yaw, pt: a.pt, rl: a.rl, vx: v[0], vy: v[1], vz: v[2], wy: 0, wp: 0, wr: 0, down: false, t0: performance.now(), puffs: [], fire: null, nextPuff: 0, deb: [] };
     wreckKick(w, 1.2 + Math.min(3, Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) * 0.04));
-    for (var i = 0; i < 14; i++) w.deb.push({ x: m.x + (Math.random() - 0.5) * 3, y: m.y + Math.random() * 2, z: m.z + (Math.random() - 0.5) * 3, vx: v[0] * 0.5 + (Math.random() - 0.5) * 14, vy: 4 + Math.random() * 14, vz: v[2] * 0.5 + (Math.random() - 0.5) * 14, s: 0.5 + Math.random(), el: null, rest: false });
+    for (var i = 0; i < 34; i++) w.deb.push({ x: m.x + (Math.random() - 0.5) * 4, y: m.y + Math.random() * 2, z: m.z + (Math.random() - 0.5) * 4, vx: v[0] * 0.5 + (Math.random() - 0.5) * 26, vy: 5 + Math.random() * 20, vz: v[2] * 0.5 + (Math.random() - 0.5) * 26, s: i < 7 ? 1.8 + Math.random() * 1.6 : 0.5 + Math.random() * 1.1, burn: Math.random() < 0.4, el: null, rest: false });      // wings, tail and engine pieces first, then small bits
     G.wrecks.push(w); while (G.wrecks.length > 6) killWreck(G.wrecks.shift());
     return w;
   }
@@ -1499,7 +1501,7 @@
       w.deb.forEach(function (d) {
         var ps = project(vp, d.x, d.y, d.z, G.cw, G.ch);
         if (!ps || ps.w > 200) { if (d.el) d.el.style.display = 'none'; return; }
-        if (!d.el) { d.el = document.createElement('div'); d.el.className = 'ew-debris'; layer.appendChild(d.el); }
+        if (!d.el) { d.el = document.createElement('div'); d.el.className = d.burn ? 'ew-debris burn' : 'ew-debris'; layer.appendChild(d.el); }
         var sz = Math.max(3, Math.min(60, focal * 0.5 * d.s / ps.w));
         d.el.style.display = 'block'; d.el.style.width = d.el.style.height = sz.toFixed(1) + 'px';
         d.el.style.transform = 'translate(' + (ps.x | 0) + 'px,' + (ps.y | 0) + 'px) translate(-50%,-50%) rotate(' + ((d.x + d.y + d.z) * 2).toFixed(2) + 'rad)';
@@ -1641,6 +1643,7 @@
       j.crashAt = now; var cv = j.cv || [0, 0, 0]; G.jcrashState = { vx: cv[0], vy: cv[1], vz: cv[2], a: jetAngles(j.f, j.u) };
       sendJetPos(true); send({ t: 'jcrash', v: cv });
       j.wreck = addJetWreck({ id: G.myId, m: j.m, x: j.x, y: j.y + 0.5, z: j.z, v: cv, local: true });
+      addBoom([j.x, j.y + 1, j.z], 2.2); G.flash = now; G.shake = now + 700;
     } else if (now - j.sent >= 50 || (now - j.sent >= 40 && res !== 'ok')) sendJetPos(false);
     var me = G.me; me.x = j.x; me.y = j.y; me.z = j.z;
     var an = jetAngles(j.f, j.u); j.yaw = an.yaw; me.yaw = an.yaw;
@@ -1966,6 +1969,11 @@
     gl.clearColor(SKY[0], SKY[1], SKY[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (!me) return;
     if (G.cfollow) updateCrashCam(dt, performance.now());
+    var fe = $('ew-flash');
+    if (G.flash) {                                                                   // a white-orange flash that fades as the aircraft blows up
+      if (!fe) { fe = document.createElement('div'); fe.id = 'ew-flash'; fe.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;opacity:0;background:radial-gradient(circle,#fff6d0 0%,#ff9a3a 55%,#a01000 100%)'; G.view.appendChild(fe); }
+      var fa = 1 - (performance.now() - G.flash) / 700; fe.style.opacity = fa > 0 ? (fa * 0.85).toFixed(2) : '0'; if (fa <= 0) G.flash = 0;
+    } else if (fe && fe.style.opacity !== '0') fe.style.opacity = '0';
     var cam = G.drone || G.hpose || G.jpose || G.cpose, fovNow = G.drone ? FOV + 0.45 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
     var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
     var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), (cam && cam.f ? viewLook(ex, ey, ez, cam.f, cam.u) : viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch)));
