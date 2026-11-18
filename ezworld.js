@@ -841,6 +841,7 @@
     on(canvas, 'wheel', function (e) { e.preventDefault(); if (G.jet) { G.jcam.dist = Math.max(6, Math.min(120, G.jcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } if (G.heli) { G.hcam.dist = Math.max(4, Math.min(80, G.hcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
     on(window, 'keydown', function (e) {
       if (!G || menuOpen() || typingElsewhere()) return;
+      audio();                                                                  // browsers only allow sound after a key press or click
       if (shopOpen()) { if (e.code === 'Escape' || e.code === 'KeyB') { closeShop(); e.preventDefault(); } return; }
       if (chatFocused()) {
         if (e.code === 'Escape') { $('ew-chat-input').blur(); e.preventDefault(); }
@@ -861,6 +862,7 @@
       if (e.code === 'Digit2') toggleDrone();
       if (e.code === 'Digit3' && !e.repeat) toggleHeli();
       if (e.code === 'Digit4' && !e.repeat) toggleJet();
+      if (e.code === 'KeyN' && !e.repeat) toggleMute();
       if (e.code === 'KeyI' && G.jet && !e.repeat) { G.mouseInv = !G.mouseInv; sys(G.mouseInv ? 'Mouse up now pulls the nose up (inverted).' : 'Mouse up now pushes the nose down, like a flight stick.'); }
       if (e.code === 'KeyM' && G.jet && !e.repeat) { G.mouseFly = !G.mouseFly; G.mstick.x = G.mstick.y = 0; sys(G.mouseFly ? 'Mouse steering on: the mouse works like a stick (M to switch to a free-look camera).' : 'Mouse steering off: the mouse looks around (M to steer with it again).'); }
       if (e.code === 'KeyV' && G.jet && !e.repeat) { G.jet.view = 1 - G.jet.view; G.jcam.yaw = 0; G.jcam.pitch = 0; }
@@ -988,7 +990,7 @@
       case 'dend': endDrone(m); break;
       case 'dhp': if (G.drone) {
           var hp0 = G.dhp; G.dhp = m.hp;
-          if (m.hp < hp0) { G.dhurt = performance.now(); if (G.dview) G.dview.jolt = 1; if (m.x !== undefined) G.shake = performance.now() + 250; }
+          if (m.hp < hp0) { G.dhurt = performance.now(); if (G.dview) G.dview.jolt = 1; if (G.aud && m.x !== undefined) noiseHit(G.aud, 0.7, 0.35, 1800, 200, 120); if (m.x !== undefined) G.shake = performance.now() + 250; }
           if (m.x !== undefined) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; if (m.v) { G.drone.vx = m.v[0]; G.drone.vy = m.v[1]; G.drone.vz = m.v[2]; } }
         } break;
       case 'dtp': if (G.drone) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; if (m.v) { G.drone.vx = m.v[0]; G.drone.vy = m.v[1]; G.drone.vz = m.v[2]; } } break;
@@ -1224,6 +1226,7 @@
   function addRocket(m) { G.rks.push({ o: m.o, e: m.e, s: m.s || 45, t0: performance.now(), el: null }); }
   function addBoom(e, scale) {
     G.booms.push({ p: e, t0: performance.now(), el: null, s: scale || 1 });
+    if (G.aud && G.cw) { var bc = G.drone || G.hpose || G.jpose || G.cpose || G.me; if (bc) boomSound(Math.hypot(e[0] - bc.x, e[1] - bc.y, e[2] - bc.z), scale); }
     if (G.me) { var dx = e[0] - G.me.x, dz = e[2] - G.me.z; if (dx * dx + dz * dz < 900) G.shake = performance.now() + 350; }
   }
   function drawFx(vp, focal) {
@@ -1811,6 +1814,101 @@
     $('ew-shop-note').textContent = ''; G.jArm = id; G.jArmT = now + 3000; renderInv();
   }
 
+  // ---- sound: made with the browser's audio synth, nothing is downloaded. A drone is four whining motors (slightly out of tune, so they beat against each other
+  // like the real buzz), a higher whine, and prop-wash hiss; other drones are heard in 3D with distance, left and right, a Doppler shift, and muffling behind walls.
+  function audio() {
+    if (G.aud === undefined) {
+      G.aud = null;
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+        var ctx = new AC(), master = ctx.createGain(), comp = ctx.createDynamicsCompressor(), len = ctx.sampleRate * 2, nb = ctx.createBuffer(1, len, ctx.sampleRate), ch = nb.getChannelData(0);
+        for (var i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+        master.gain.value = G.mute ? 0 : 0.7; master.connect(comp); comp.connect(ctx.destination);
+        G.aud = { ctx: ctx, master: master, noise: nb, voices: new Map(), own: null };
+      } catch (e) { G.aud = null; }
+    }
+    var a = G.aud;
+    if (a && a.ctx.state === 'suspended') { try { a.ctx.resume(); } catch (e) {} }
+    return a;
+  }
+  function toggleMute() {
+    G.mute = !G.mute; var a = G.aud;
+    if (a) a.master.gain.setTargetAtTime(G.mute ? 0 : 0.7, a.ctx.currentTime, 0.05);
+    sys(G.mute ? 'Sound off (N to turn it back on).' : 'Sound on (N to turn it off).');
+  }
+  function makeDroneVoice(a) {
+    var ctx = a.ctx, v = { ctx: ctx, oscs: [] }, i;
+    var mix = ctx.createGain(); mix.gain.value = 0.22;
+    var detune = [-17, 12, -6, 21];
+    for (i = 0; i < 4; i++) {
+      var o = ctx.createOscillator(); o.type = i < 2 ? 'sawtooth' : 'square'; o.frequency.value = 300; o.detune.value = detune[i];
+      var g = ctx.createGain(); g.gain.value = i < 2 ? 0.5 : 0.18; o.connect(g); g.connect(mix); o.start(); v.oscs.push(o);
+    }
+    v.wh = ctx.createOscillator(); v.wh.type = 'triangle'; v.wh.frequency.value = 600; var wg = ctx.createGain(); wg.gain.value = 0.32; v.wh.connect(wg); wg.connect(mix); v.wh.start();
+    v.nz = ctx.createBufferSource(); v.nz.buffer = a.noise; v.nz.loop = true;
+    v.bp = ctx.createBiquadFilter(); v.bp.type = 'bandpass'; v.bp.frequency.value = 1800; v.bp.Q.value = 0.8;
+    v.ng = ctx.createGain(); v.ng.gain.value = 0.03; v.nz.connect(v.bp); v.bp.connect(v.ng); v.ng.connect(mix); v.nz.start();
+    v.lp = ctx.createBiquadFilter(); v.lp.type = 'lowpass'; v.lp.frequency.value = 3500; v.lp.Q.value = 0.6;
+    v.trem = ctx.createGain(); v.trem.gain.value = 1;
+    v.lfo = ctx.createOscillator(); v.lfo.frequency.value = 13; v.lg = ctx.createGain(); v.lg.gain.value = 0; v.lfo.connect(v.lg); v.lg.connect(v.trem.gain); v.lfo.start();   // a damaged motor stutters
+    v.out = ctx.createGain(); v.out.gain.value = 0;
+    v.pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    mix.connect(v.lp); v.lp.connect(v.trem); v.trem.connect(v.out);
+    if (v.pan) { v.out.connect(v.pan); v.pan.connect(a.master); } else v.out.connect(a.master);
+    return v;
+  }
+  function setDroneVoice(v, p) {
+    var t = v.ctx.currentTime, i;
+    for (i = 0; i < v.oscs.length; i++) v.oscs[i].frequency.setTargetAtTime(p.freq * (i === 3 ? 0.995 : 1), t, 0.05);
+    v.wh.frequency.setTargetAtTime(p.freq * 2.013, t, 0.05);
+    v.out.gain.setTargetAtTime(p.gain, t, 0.05);
+    if (v.pan) v.pan.pan.setTargetAtTime(p.pan, t, 0.05);
+    v.lp.frequency.setTargetAtTime(p.cut, t, 0.08);
+    v.bp.frequency.setTargetAtTime(p.freq * 5, t, 0.1);
+    v.ng.gain.setTargetAtTime(p.wash, t, 0.1);
+    v.lg.gain.setTargetAtTime(p.dmg, t, 0.1);
+  }
+  function stopDroneVoice(v, falling) {
+    if (!v) return;
+    var t = v.ctx.currentTime;
+    if (falling) { v.oscs.forEach(function (o) { o.frequency.cancelScheduledValues(t); o.frequency.setTargetAtTime(40, t, 0.12); }); v.out.gain.setTargetAtTime(0, t + 0.15, 0.08); }
+    else v.out.gain.setTargetAtTime(0, t, 0.05);
+    setTimeout(function () { try { v.oscs.forEach(function (o) { o.stop(); }); v.wh.stop(); v.nz.stop(); v.lfo.stop(); v.out.disconnect(); } catch (e) {} }, 700);
+  }
+  function noiseHit(a, vol, dur, f0, f1, boom) {            // a burst of filtered noise (and an optional low thump): impacts, crashes and explosions
+    var ctx = a.ctx, t = ctx.currentTime, src = ctx.createBufferSource(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+    src.buffer = a.noise; src.loop = true; f.type = 'lowpass'; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(a.master); src.start(t, Math.random()); src.stop(t + dur + 0.05);
+    if (boom) {
+      var o = ctx.createOscillator(), og = ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(boom, t); o.frequency.exponentialRampToValueAtTime(28, t + dur);
+      og.gain.setValueAtTime(vol * 1.1, t); og.gain.exponentialRampToValueAtTime(0.001, t + dur); o.connect(og); og.connect(a.master); o.start(t); o.stop(t + dur + 0.05);
+    }
+  }
+  function boomSound(dist, scale) {
+    var a = G.aud; if (!a) return;
+    var vol = Math.min(1, 0.9 / (1 + dist / 25)) * Math.min(1.4, 0.6 + (scale || 1) * 0.4);
+    if (vol > 0.02) noiseHit(a, vol, 1.1 + (scale || 1) * 0.3, 2400, 90, 90);
+  }
+  function ownDroneSound(d, inp, dt, spn, hp) {
+    var a = G.aud; if (!a) return;
+    if (!a.own) a.own = makeDroneVoice(a);
+    var thr = Math.min(1, 0.22 + spn * 0.55 + (inp.up ? 0.2 : 0) + (inp.f ? 0.12 : 0));
+    setDroneVoice(a.own, { freq: 230 + 390 * thr, gain: 0.5, pan: 0, cut: 2400 + 2600 * thr, wash: 0.02 + 0.08 * spn, dmg: hp < 40 ? (40 - hp) / 40 * 0.55 : 0 });
+  }
+  function otherDroneSound(dr, vp, ex, ey, ez, dt, blocked) {
+    var a = G.aud; if (!a) return;
+    var dx = dr.x - ex, dy = dr.y - ey, dz = dr.z - ez, dist = Math.sqrt(dx * dx + dy * dy + dz * dz), v = a.voices.get(dr.id);
+    if (dist > 150) { if (v) { stopDroneVoice(v, false); a.voices.delete(dr.id); } dr.lastD = undefined; return; }
+    if (!v) { if (a.voices.size >= 6) return; v = makeDroneVoice(a); a.voices.set(dr.id, v); }
+    var rdot = dr.lastD === undefined ? 0 : (dist - dr.lastD) / Math.max(dt, 0.001); dr.lastD = dist;
+    dr.spdA = (dr.spdA || 0) + ((dr.lx === undefined ? 0 : Math.hypot(dr.x - dr.lx, dr.y - dr.ly, dr.z - dr.lz) / Math.max(dt, 0.001)) - (dr.spdA || 0)) * Math.min(1, dt * 4);
+    dr.lx = dr.x; dr.ly = dr.y; dr.lz = dr.z;
+    var thr = Math.min(1, 0.22 + Math.min(1, dr.spdA / 45) * 0.6), dopp = 1 / (1 + Math.max(-60, Math.min(60, rdot)) / 140);
+    var sp = project(vp, dr.x, dr.y, dr.z, G.cw, G.ch), pan = sp ? Math.max(-1, Math.min(1, (sp.x / G.cw * 2 - 1) * 1.1)) : 0;
+    setDroneVoice(v, { freq: (230 + 390 * thr) * dopp, gain: 0.5 * Math.pow(1 / (1 + dist / 14), 1.5), pan: pan, cut: (blocked ? 700 : 3800 - Math.min(2400, dist * 22)) * (sp ? 1 : 0.6), wash: 0.03, dmg: 0 });
+  }
+
   // ---- flying the drone
   function toggleDrone() {
     if (G.heli || G.jet) return;
@@ -1843,10 +1941,11 @@
   function endDrone(m) {
     G.drone = null; G.bodyWait = true;                             // back in your body; wait for the ground under it to be loaded before it moves
     G.view.classList.remove('fpv'); $('ew-osd').style.display = 'none'; fpvOverlay(false);
+    if (G.aud && G.aud.own) { stopDroneVoice(G.aud.own, !!(m && m.crash)); G.aud.own = null; if (m && m.crash) noiseHit(G.aud, 0.9, 0.9, 3000, 120, 110); }
     if (m && m.crash) { sys('Signal lost: your drone crashed.'); G.shake = performance.now() + 250; }
     renderInv();
   }
-  function removeDrone(id) { var d = G.drones.get(id); if (d && d.el) d.el.remove(); G.drones.delete(id); }
+  function removeDrone(id) { if (G.aud) { var av = G.aud.voices.get(id); if (av) { stopDroneVoice(av, true); G.aud.voices.delete(id); } } var d = G.drones.get(id); if (d && d.el) d.el.remove(); G.drones.delete(id); }
   function sendDronePos(force) {
     var d = G.drone; if (!d || !G.ws || G.ws.readyState !== 1) return;
     var qx = Math.round(d.x * 16), qy = Math.round(d.y * 16), qz = Math.round(d.z * 16);
@@ -1889,6 +1988,7 @@
         $('fp-warn').className = 'fp-bad'; $('fp-spd').textContent = Math.round(sp * 3.6) + ' km/h'; $('fp-alt').textContent = 'ALT ' + Math.round(d.y); $('fp-home').textContent = 'HOME ' + Math.round(home) + 'm';
       }
     }
+    ownDroneSound(d, inp, dt, spn, G.dhp === undefined ? 100 : G.dhp);
     $('ew-osd-spd').textContent = sp.toFixed(1); $('ew-osd-alt').textContent = String(Math.round(d.y));
     $('ew-osd-dist').textContent = String(Math.round(home));
   }
@@ -1897,6 +1997,7 @@
     G.drones.forEach(function (dr) {
       var k = Math.min(1, dt * 14);
       dr.x += (dr.tx - dr.x) * k; dr.y += (dr.ty - dr.y) * k; dr.z += (dr.tz - dr.z) * k;
+      if (G.aud) otherDroneSound(dr, vp, ex, ey, ez, dt, lineBlocked(ex, ey, ez, dr.x, dr.y, dr.z));
       var sp = project(vp, dr.x, dr.y, dr.z, G.cw, G.ch);
       if (!sp || sp.w > 170 || lineBlocked(ex, ey, ez, dr.x, dr.y, dr.z)) { if (dr.el) dr.el.style.display = 'none'; return; }
       if (!dr.el) {
@@ -2113,6 +2214,7 @@
     chunks.forEach(function (c) { if (c.mesh && c.mesh.buf && g.gl) g.gl.deleteBuffer(c.mesh.buf); });
     chunks.clear();
     try { if (g.hr) g.hr.dispose(); } catch (e) {}
+    try { if (g.aud) g.aud.ctx.close(); } catch (e) {}
     try { if (g.jr) g.jr.dispose(); } catch (e) {}
     try { var ext = g.gl && g.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
     g.view.style.display = 'none';
