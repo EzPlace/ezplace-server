@@ -746,7 +746,7 @@
     $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
     view.style.setProperty('--ew-launcher', pixUrl(ART_LAUNCHER)); view.style.setProperty('--ew-rocket', pixUrl(ART_ROCKET)); view.style.setProperty('--ew-boom', pixUrl(boomSheet())); view.style.setProperty('--ew-drone0', pixUrl(ART_DRONE[0])); view.style.setProperty('--ew-drone1', pixUrl(ART_DRONE[1]));
     heliCss();
-    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; ['ew-hhud', 'ew-hhelp', 'ew-jhud', 'ew-jhelp'].forEach(function (k) { var e0 = $(k); if (e0) e0.style.display = 'none'; }); view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
+    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; ['ew-hhud', 'ew-hhelp', 'ew-jhud', 'ew-jhelp', 'ew-fpv'].forEach(function (k) { var e0 = $(k); if (e0) e0.style.display = 'none'; }); view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
     $('ew-me-name').textContent = opts.username || '';
     var me = $('ew-me-img'); me.onerror = function () { me.onerror = null; me.src = opts.defaultAvatar; }; me.src = opts.avatarUrl(opts.username || '');
     syncUserBar();
@@ -1274,6 +1274,15 @@
       '#ew-hotbar4{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}#ew-hotbar4.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar4 .key{font-size:11px;opacity:.7}' +
       '#ew-shop-jets{padding:0 16px 6px;display:flex;flex-direction:column;gap:10px}#ew-shop-jets h4{margin:6px 0 0;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}' +
       '.ew-debris.burn{background:#ff8a1e;border-color:#ffd070;box-shadow:0 0 10px 3px rgba(255,120,20,.7)}' +
+      '#ew-fpv{position:absolute;inset:0;pointer-events:none;z-index:2;overflow:hidden;font:700 13px "JetBrains Mono","Fira Code",monospace;color:#fff;text-shadow:1px 1px 0 #000,-1px 1px 0 #000,1px -1px 0 #000,-1px -1px 0 #000}' +
+      '#ew-fpv .fp-noise{position:absolute;inset:-20px;opacity:.05;background:url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'160\' height=\'160\'><filter id=\'n\'><feTurbulence type=\'fractalNoise\' baseFrequency=\'.85\' numOctaves=\'2\' stitchTiles=\'stitch\'/></filter><rect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/></svg>")}' +
+      '#ew-fpv .fp-lines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.10) 0,rgba(0,0,0,.10) 1px,transparent 1px,transparent 3px)}' +
+      '#ew-fpv .fp-vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 48%,rgba(0,0,0,.55) 82%,rgba(0,0,0,.92) 100%)}' +
+      '#ew-fpv .fp-hor{position:absolute;left:50%;top:50%;width:0;height:0}' +
+      '#ew-fpv .fp-hor i{position:absolute;left:0;height:2px;background:#fff;box-shadow:0 0 0 1px #000}' +
+      '#ew-fpv .fp-top{position:absolute;left:0;right:0;top:12px;display:flex;justify-content:space-between;padding:0 28px}' +
+      '#ew-fpv .fp-bot{position:absolute;left:0;right:0;bottom:16px;display:flex;justify-content:center;gap:26px;padding:0 20px;flex-wrap:wrap}' +
+      '#ew-fpv .fp-bat{position:absolute;left:28px;bottom:16px}#ew-fpv .fp-rec{color:#ff4d4d}#ew-fpv .fp-bad{color:#ff5a4d}' +
       '.ew-ring{position:absolute;left:0;top:0;border-radius:50%;border:5px solid rgba(255,225,170,.9);box-shadow:0 0 30px 8px rgba(255,150,50,.5),inset 0 0 30px rgba(255,150,50,.4);pointer-events:none}' +
       '.ew-debris{position:absolute;left:0;top:0;background:#2a2a2d;border:1px solid #0a0a0b;pointer-events:none}' +
       '.ew-smoke{position:absolute;left:0;top:0;border-radius:50%;background:radial-gradient(circle,rgba(40,40,44,.85),rgba(40,40,44,0) 70%);pointer-events:none}' +
@@ -1804,15 +1813,30 @@
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to launch the drone.'); return; }
     send({ t: 'drone', on: true });
   }
+  function fpvOverlay(on) {                       // the goggles: noise, scan lines, a vignette, a horizon and the flight controller's on-screen display
+    var el = $('ew-fpv');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'ew-fpv';
+      var hor = ''; for (var d = -40; d <= 40; d += 10) { if (d === 0) hor += '<i style="top:-1px;left:-90px;width:70px"></i><i style="top:-1px;left:20px;width:70px"></i>'; else hor += '<i style="top:' + (-d * 4.6 - 1).toFixed(0) + 'px;left:' + (d > 0 ? -34 : -34) + 'px;width:68px;opacity:.75;height:1px"></i>'; }
+      el.innerHTML = '<div class="fp-noise"></div><div class="fp-lines"></div><div class="fp-vig"></div><div class="fp-hor" id="fp-hor">' + hor + '</div>' +
+        '<div class="fp-top"><span id="fp-rssi"></span><span id="fp-time"></span><span class="fp-rec">&#9679; REC</span></div>' +
+        '<div class="fp-bat"><span id="fp-bat"></span> <span id="fp-warn"></span></div>' +
+        '<div class="fp-bot"><span id="fp-mode">ANGLE</span><span id="fp-spd"></span><span id="fp-alt"></span><span id="fp-home"></span></div>';
+      ($('ew-stage') || G.view).appendChild(el);
+    }
+    el.style.display = on ? 'block' : 'none';
+    G.canvas.style.filter = on ? 'contrast(1.14) saturate(1.3) brightness(1.04)' : '';
+  }
   function startDrone(m) {
     G.drone = { x: m.x, y: m.y, z: m.z, vx: 0, vy: 0, vz: 0, yaw: G.me.yaw, pitch: 0, crashAt: 0 };
+    G.dview = { roll: 0, lean: 0, t0: performance.now() }; heliCss(); fpvOverlay(true);
     G.inv.armed = false; G.dlast = ''; G.dsent = 0;
     G.view.classList.add('fpv'); $('ew-osd').style.display = 'flex'; $('ew-cross').style.display = 'block';
     renderInv();
   }
   function endDrone(m) {
     G.drone = null; G.bodyWait = true;                             // back in your body; wait for the ground under it to be loaded before it moves
-    G.view.classList.remove('fpv'); $('ew-osd').style.display = 'none';
+    G.view.classList.remove('fpv'); $('ew-osd').style.display = 'none'; fpvOverlay(false);
     if (m && m.crash) { sys('Signal lost: your drone crashed.'); G.shake = performance.now() + 250; }
     renderInv();
   }
@@ -1836,9 +1860,29 @@
     var res = stepDrone(d, inp, dt);
     if (res === 'crash' && !d.crashAt) { d.crashAt = now; d.vx = d.vy = d.vz = 0; sendDronePos(true); send({ t: 'dcrash' }); }
     else if (now - G.dsent >= 50) sendDronePos();
-    var me = G.me, sp = Math.sqrt(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz);
+    // what an FPV pilot sees: the camera leans into the flight, banks sideways, shakes with the motors, and the picture breaks up far from home
+    var dv = G.dview, fxh = -Math.sin(d.yaw), fzh = -Math.cos(d.yaw), vf = d.vx * fxh + d.vz * fzh, vr = d.vx * Math.cos(d.yaw) - d.vz * Math.sin(d.yaw);
+    var yr = angDiff(d.pyaw === undefined ? d.yaw : d.pyaw, d.yaw) / Math.max(dt, 0.001); d.pyaw = d.yaw;
+    var kk = Math.min(1, dt * 7);
+    dv.roll += (Math.max(-0.75, Math.min(0.75, vr / 45 * 0.6 + Math.max(-5, Math.min(5, yr)) * 0.05)) - dv.roll) * kk;
+    dv.lean += (-Math.max(-1, Math.min(1, vf / 45)) * 0.32 - dv.lean) * kk;
+    var spn = Math.min(1, Math.sqrt(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz) / 45), amp = 0.003 + 0.009 * spn, tt = now * 0.001;
+    var jr = (Math.sin(tt * 61) + Math.sin(tt * 97.3) * 0.7) * amp, jp = (Math.sin(tt * 73.1) + Math.sin(tt * 113) * 0.6) * amp * 0.8;
+    var bs = jetBasis(d.yaw, Math.max(-1.5, Math.min(1.5, d.pitch + dv.lean + jp)), dv.roll + jr); d.f = bs.f; d.u = bs.u;
+    var me = G.me, sp = Math.sqrt(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz), home = Math.hypot(d.x - me.x, d.y - me.y, d.z - me.z);
+    if (!G.dfpvAt || now - G.dfpvAt > 60) {
+      G.dfpvAt = now;
+      var el = $('ew-fpv'), secs = (now - dv.t0) / 1000, volts = Math.max(13.2, 16.8 - 2.4 * secs / 240), sig = Math.max(0, Math.min(1, (home - 70) / 230));
+      if (el) {
+        el.querySelector('.fp-noise').style.opacity = (0.05 + sig * 0.75).toFixed(2); el.querySelector('.fp-noise').style.backgroundPosition = ((Math.random() * 160) | 0) + 'px ' + ((Math.random() * 160) | 0) + 'px';
+        $('fp-hor').style.transform = 'rotate(' + (-dv.roll).toFixed(3) + 'rad) translateY(' + ((d.pitch + dv.lean + jp) * 270).toFixed(0) + 'px)';
+        $('fp-rssi').textContent = 'LINK ' + Math.round(100 - sig * 90) + '%'; $('fp-time').textContent = Math.floor(secs / 60) + ':' + ('0' + Math.floor(secs % 60)).slice(-2);
+        $('fp-bat').textContent = volts.toFixed(1) + 'V'; $('fp-warn').textContent = volts < 14.2 ? 'LOW BATTERY' : (sig > 0.6 ? 'LOW SIGNAL' : '');
+        $('fp-warn').className = 'fp-bad'; $('fp-spd').textContent = Math.round(sp * 3.6) + ' km/h'; $('fp-alt').textContent = 'ALT ' + Math.round(d.y); $('fp-home').textContent = 'HOME ' + Math.round(home) + 'm';
+      }
+    }
     $('ew-osd-spd').textContent = sp.toFixed(1); $('ew-osd-alt').textContent = String(Math.round(d.y));
-    $('ew-osd-dist').textContent = String(Math.round(Math.hypot(d.x - me.x, d.y - me.y, d.z - me.z)));
+    $('ew-osd-dist').textContent = String(Math.round(home));
   }
   function drawDrones(vp, focal, ex, ey, ez, dt, now) {
     var layer = $('ew-fx'), f1 = Math.floor(now / 90) % 2 === 1;
@@ -1994,7 +2038,7 @@
       if (!fe) { fe = document.createElement('div'); fe.id = 'ew-flash'; fe.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;opacity:0;background:radial-gradient(circle,#fff6d0 0%,#ff9a3a 55%,#a01000 100%)'; G.view.appendChild(fe); }
       var fa = 1 - (performance.now() - G.flash) / 700; fe.style.opacity = fa > 0 ? (fa * 0.85).toFixed(2) : '0'; if (fa <= 0) G.flash = 0;
     } else if (fe && fe.style.opacity !== '0') fe.style.opacity = '0';
-    var cam = G.drone || G.hpose || G.jpose || G.cpose, fovNow = G.drone ? FOV + 0.45 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
+    var cam = G.drone || G.hpose || G.jpose || G.cpose, fovNow = G.drone ? FOV + 0.68 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
     var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
     var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), (cam && cam.f ? viewLook(ex, ey, ez, cam.f, cam.u) : viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch)));
     G.vp = vp;
