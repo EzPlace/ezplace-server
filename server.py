@@ -9798,6 +9798,11 @@ DRONE_DMG_PER_SPEED = 4.0         # damage per block/second of impact speed abov
 DRONE_RAM_SPEED = 12.0            # a drone flown into a player at least this fast blows up (the player is sent back to spawn)
 DRONE_RAM_RADIUS = 3.5            # players within this distance of the blast are caught in it
 DRONE_PROTECT = 4.0               # seconds a player who has just respawned cannot be blown up again
+DRONE_MAX_LEVEL = 100             # speed upgrades: as many as you can pay for, up to this
+def _drone_mult(level):
+    level = max(0, min(int(level), DRONE_MAX_LEVEL))
+    return 1.0 + 0.1 * min(level, 20) + 0.03 * max(0, level - 20)     # +10% top speed per level up to 20, then +3%
+def _drone_upg_price(level): return int(round(250 * 1.22 ** level))     # each level costs 22% more than the last
 DRONE_HIT_GAP = 0.5               # seconds before another impact can hurt again (one hit is reported by both the page and the server)
 
 # Helicopters: five real ones at real size (1 block = 1 metre), bought once and kept.
@@ -10191,7 +10196,7 @@ async def world_tick():
             await asyncio.sleep(0.1)
             for r, frame in _w_tick_frames(): await _w_send(r, frame)
             await _w_hazards()
-            if world_tick_n % 300 == 0: await _w_broadcast({"t": "online", "total": _global_online_total()})
+            if world_tick_n % 50 == 0: await _w_broadcast({"t": "online", "total": _global_online_total(), "here": len(world_players)})
     finally:
         world_tick_task = None
 
@@ -10215,6 +10220,7 @@ def _w_ray(ox, oy, oz, dx, dy, dz, maxd):
 
 def _inv_rockets(name): return int((world_inv.get(name.lower()) or {}).get("rockets", 0))
 def _inv_drone(name): return bool((world_inv.get(name.lower()) or {}).get("drone"))
+def _inv_dlevel(name): return int((world_inv.get(name.lower()) or {}).get("dlevel", 0))
 def _inv_heli(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}).get("heli") or {}).items() if v == 1 and k in HELIS}     # model -> 1 (owned); crashed ones are deleted
 
 async def _inv_save():
@@ -10237,7 +10243,7 @@ def _inv_jet(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}
 async def _w_send_inv(p):
     await _w_send(p, {"t": "inv", "rockets": _inv_rockets(p["name"]), "armed": bool(p.get("armed")), "price": ROCKET_PRICE, "per": ROCKETS_PER_LAUNCHER, "max": ROCKET_MAX_HELD,
                       "drone": _inv_drone(p["name"]), "dprice": DRONE_PRICE, "flying": bool(p.get("drone")),
-                      "jet": _inv_jet(p["name"]), "jp": {k: v[1] for k, v in JETS.items()}, "jfly": (p["jet"]["m"] if p.get("jet") else None), "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
+                      "dlevel": _inv_dlevel(p["name"]), "dupg": (_drone_upg_price(_inv_dlevel(p["name"])) if _inv_dlevel(p["name"]) < DRONE_MAX_LEVEL else None), "dmult": _drone_mult(_inv_dlevel(p["name"])), "jet": _inv_jet(p["name"]), "jp": {k: v[1] for k, v in JETS.items()}, "jfly": (p["jet"]["m"] if p.get("jet") else None), "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
 
 async def _w_explode(cell, ex, ey, ez, by=None, radius=None, scale=None):
     """A rocket arrived: remove the blocks in a ball around it (never bedrock, never near spawn) and tell everybody nearby."""
@@ -10264,7 +10270,8 @@ def _w_drone_move(p, x, y, z, yaw, pitch, now):
     """Check one position report from a flying drone. Returns ("ok", None), ("reject", None) or ("crash", (x, y, z))."""
     dr = p["drone"]
     dt = min(max(now - dr["t"], 0.0), 2.0)
-    dr["hb"] = min(dr["hb"] + DRONE_MAX_SPEED * dt, DRONE_BURST)
+    mult = dr.get("mult", 1.0)
+    dr["hb"] = min(dr["hb"] + DRONE_MAX_SPEED * mult * dt, DRONE_BURST * mult)
     fx, fy, fz = int(math.floor(x)), int(math.floor(y)), int(math.floor(z))
     if not world_in_bounds(fx, fz) or y < 0.5 or y > DRONE_MAX_Y: return ("reject", None)
     dx, dy, dz = x - dr["x"], y - dr["y"], z - dr["z"]
@@ -10748,6 +10755,7 @@ async def world_ws_handler(request):
                 await _w_sys(me, "Welcome to EzWorld! This is a shared 3D world where everyone builds together. Left click breaks a block, right click places one, and you can use all the colors from the 2D canvas. Press W twice quickly to sprint. Type /help to see the chat commands (/unstuck if you ever get stuck). The world is 2000 by 2000 blocks, so /goto is handy for getting around. Anyone can change anything, so build nicely.")
                 await _w_send_inv(me)
                 await _w_broadcast({"t": "join", "id": pid, "name": name, "x": sx, "y": fy, "z": sz}, exclude=pid)
+                await _w_broadcast({"t": "online", "total": _global_online_total(), "here": len(world_players)})
                 discord_forward_event("world", name, "joined", "EzWorld")
                 if world_tick_task is None: world_tick_task = asyncio.ensure_future(world_tick())
                 continue
@@ -10799,7 +10807,17 @@ async def world_ws_handler(request):
             elif t == "buy":
                 ul = me["name"].lower()
                 item = data.get("item")
-                if not isinstance(item, str) or not check_rate_limit(me["name"], "world_buy", 8, 60): continue
+                if not isinstance(item, str) or not check_rate_limit(me["name"], "world_buy", 30, 60): continue
+                if item == "drone_speed":
+                    if not _inv_drone(me["name"]): await _w_sys(me, "Buy an FPV drone first."); continue
+                    lvl = _inv_dlevel(me["name"])
+                    if lvl >= DRONE_MAX_LEVEL: await _w_sys(me, "Your drone is fully upgraded."); continue
+                    price = _drone_upg_price(lvl)
+                    if not spend_pb(me["name"], price): await _w_sys(me, f"The next speed upgrade costs {price:,} PlaceBux."); continue
+                    world_inv.setdefault(ul, {})["dlevel"] = lvl + 1                # no await between paying and receiving
+                    await save_place_bucks(); await push_pb_update(me["name"])
+                    _inv_touch(); await _inv_save(); await _w_send_inv(me)
+                    await _w_sys(me, f"Drone speed level {lvl + 1}: top speed is now {round(45 * _drone_mult(lvl + 1) * 3.6)} km/h." + (" It takes effect on your next flight." if me.get("drone") else "")); continue
                 if item in JETS:
                     spec = JETS[item]; mine = world_inv.setdefault(ul, {}).setdefault("jet", {})
                     if item in mine:
@@ -10886,8 +10904,8 @@ async def world_ws_handler(request):
                     if world_get(int(math.floor(sx)), int(math.floor(sy)), int(math.floor(sz))) or world_get(int(math.floor(sx)), int(math.floor(sy)) + 1, int(math.floor(sz))):
                         await _w_sys(me, "There is no room above you to launch the drone."); continue
                     me["armed"] = False
-                    me["drone"] = {"x": sx, "y": sy, "z": sz, "yaw": me["yaw"], "pitch": 128, "t": now, "hb": DRONE_BURST, "v": 0.0, "ver": 1, "hp": DRONE_HP, "hit_t": 0.0}
-                    await _w_send(me, {"t": "dstart", "x": sx, "y": sy, "z": sz, "hp": DRONE_HP})
+                    me["drone"] = {"x": sx, "y": sy, "z": sz, "yaw": me["yaw"], "pitch": 128, "t": now, "hb": DRONE_BURST, "v": 0.0, "ver": 1, "hp": DRONE_HP, "hit_t": 0.0, "mult": _drone_mult(_inv_dlevel(me["name"]))}
+                    await _w_send(me, {"t": "dstart", "x": sx, "y": sy, "z": sz, "hp": DRONE_HP, "mult": me["drone"]["mult"]})
                     await _w_send_inv(me)
                     await _w_broadcast({"t": "dr", "id": me["id"], "on": True, "x": sx, "y": sy, "z": sz, "name": me["name"]}, exclude=me["id"])
                 elif me.get("drone"):
@@ -10996,6 +11014,7 @@ async def world_ws_handler(request):
             for q in world_players.values(): q["seen"].pop(me["id"], None); q.get("dseen", {}).pop(me["id"], None); q.get("hseen", {}).pop(me["id"], None); q.get("jseen", {}).pop(me["id"], None)
             if world_by_name.get(me["name"].lower()) == me["id"]: world_by_name.pop(me["name"].lower(), None)
             await _w_broadcast({"t": "leave", "id": me["id"]})
+            await _w_broadcast({"t": "online", "total": _global_online_total(), "here": len(world_players)})
             discord_forward_event("world", me["name"], "left", "EzWorld")
         try: await ws.close()
         except Exception: pass
