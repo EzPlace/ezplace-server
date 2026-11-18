@@ -1838,17 +1838,17 @@
   }
   function makeDroneVoice(a) {
     var ctx = a.ctx, v = { ctx: ctx, oscs: [] }, i;
-    var mix = ctx.createGain(); mix.gain.value = 0.22;
-    var detune = [-17, 12, -6, 21];
+    var mix = ctx.createGain(); mix.gain.value = 0.2;
+    var detune = [-7, 5, -3, 8];
     for (i = 0; i < 4; i++) {
-      var o = ctx.createOscillator(); o.type = i < 2 ? 'sawtooth' : 'square'; o.frequency.value = 300; o.detune.value = detune[i];
-      var g = ctx.createGain(); g.gain.value = i < 2 ? 0.5 : 0.18; o.connect(g); g.connect(mix); o.start(); v.oscs.push(o);
+      var o = ctx.createOscillator(); o.type = i < 2 ? 'sawtooth' : 'triangle'; o.frequency.value = 200; o.detune.value = detune[i];
+      var g = ctx.createGain(); g.gain.value = i < 2 ? 0.45 : 0.3; o.connect(g); g.connect(mix); o.start(); v.oscs.push(o);
     }
-    v.wh = ctx.createOscillator(); v.wh.type = 'triangle'; v.wh.frequency.value = 600; var wg = ctx.createGain(); wg.gain.value = 0.32; v.wh.connect(wg); wg.connect(mix); v.wh.start();
+    v.wh = ctx.createOscillator(); v.wh.type = 'triangle'; v.wh.frequency.value = 600; var wg = ctx.createGain(); wg.gain.value = 0.07; v.wh.connect(wg); wg.connect(mix); v.wh.start();
     v.nz = ctx.createBufferSource(); v.nz.buffer = a.noise; v.nz.loop = true;
     v.bp = ctx.createBiquadFilter(); v.bp.type = 'bandpass'; v.bp.frequency.value = 1800; v.bp.Q.value = 0.8;
-    v.ng = ctx.createGain(); v.ng.gain.value = 0.03; v.nz.connect(v.bp); v.bp.connect(v.ng); v.ng.connect(mix); v.nz.start();
-    v.lp = ctx.createBiquadFilter(); v.lp.type = 'lowpass'; v.lp.frequency.value = 3500; v.lp.Q.value = 0.6;
+    v.ng = ctx.createGain(); v.ng.gain.value = 0.015; v.nz.connect(v.bp); v.bp.connect(v.ng); v.ng.connect(mix); v.nz.start();
+    v.lp = ctx.createBiquadFilter(); v.lp.type = 'lowpass'; v.lp.frequency.value = 1800; v.lp.Q.value = 0.6;
     v.trem = ctx.createGain(); v.trem.gain.value = 1;
     v.lfo = ctx.createOscillator(); v.lfo.frequency.value = 13; v.lg = ctx.createGain(); v.lg.gain.value = 0; v.lfo.connect(v.lg); v.lg.connect(v.trem.gain); v.lfo.start();   // a damaged motor stutters
     v.out = ctx.createGain(); v.out.gain.value = 0;
@@ -1894,7 +1894,7 @@
     var a = G.aud; if (!a) return;
     if (!a.own) a.own = makeDroneVoice(a);
     var thr = Math.min(1, 0.22 + spn * 0.55 + (inp.up ? 0.2 : 0) + (inp.f ? 0.12 : 0));
-    setDroneVoice(a.own, { freq: 230 + 390 * thr, gain: 0.5, pan: 0, cut: 2400 + 2600 * thr, wash: 0.02 + 0.08 * spn, dmg: hp < 40 ? (40 - hp) / 40 * 0.55 : 0 });
+    setDroneVoice(a.own, { freq: 140 + 230 * thr, gain: 0.3, pan: 0, cut: 900 + 1500 * thr, wash: 0.012 + 0.04 * spn, dmg: hp < 40 ? (40 - hp) / 40 * 0.55 : 0 });
   }
   function otherDroneSound(dr, vp, ex, ey, ez, dt, blocked) {
     var a = G.aud; if (!a) return;
@@ -1906,7 +1906,7 @@
     dr.lx = dr.x; dr.ly = dr.y; dr.lz = dr.z;
     var thr = Math.min(1, 0.22 + Math.min(1, dr.spdA / 45) * 0.6), dopp = 1 / (1 + Math.max(-60, Math.min(60, rdot)) / 140);
     var sp = project(vp, dr.x, dr.y, dr.z, G.cw, G.ch), pan = sp ? Math.max(-1, Math.min(1, (sp.x / G.cw * 2 - 1) * 1.1)) : 0;
-    setDroneVoice(v, { freq: (230 + 390 * thr) * dopp, gain: 0.5 * Math.pow(1 / (1 + dist / 14), 1.5), pan: pan, cut: (blocked ? 700 : 3800 - Math.min(2400, dist * 22)) * (sp ? 1 : 0.6), wash: 0.03, dmg: 0 });
+    setDroneVoice(v, { freq: (140 + 230 * thr) * dopp, gain: 0.3 * Math.pow(1 / (1 + dist / 14), 1.5), pan: pan, cut: (blocked ? 450 : 2300 - Math.min(1500, dist * 14)) * (sp ? 1 : 0.6), wash: 0.015, dmg: 0 });
   }
 
   // ---- flying the drone

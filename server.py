@@ -9795,6 +9795,9 @@ DRONE_COOLDOWN = 3.0              # seconds before the drone can be launched aga
 DRONE_NEAR = 96.0                 # drones are refreshed 10 times a second within this distance of the viewer
 DRONE_HP = 100.0                  # a drone's health: hits drain it, at zero it breaks
 DRONE_DMG_PER_SPEED = 4.0         # damage per block/second of impact speed above DRONE_CRASH_SPEED (a 25 b/s smash into a wall is 88)
+DRONE_RAM_SPEED = 12.0            # a drone flown into a player at least this fast blows up (the player is sent back to spawn)
+DRONE_RAM_RADIUS = 3.5            # players within this distance of the blast are caught in it
+DRONE_PROTECT = 4.0               # seconds a player who has just respawned cannot be blown up again
 DRONE_HIT_GAP = 0.5               # seconds before another impact can hurt again (one hit is reported by both the page and the server)
 
 # Helicopters: five real ones at real size (1 block = 1 metre), bought once and kept.
@@ -10281,6 +10284,7 @@ def _w_drone_move(p, x, y, z, yaw, pitch, now):
                 if abs(mx - q["x"]) < 0.62 and abs(mz - q["z"]) < 0.62 and q["y"] - 0.32 < my < q["y"] + 2.12:        # a player's body plus the drone's own size
                     ax, ay, az = dr["x"] - q["x"], dr["y"] - (q["y"] + 0.9), dr["z"] - q["z"]
                     ln = math.sqrt(ax * ax + ay * ay + az * az) or 1.0
+                    if speed >= DRONE_RAM_SPEED and time.monotonic() >= q.get("protect", 0.0) and not q.get("heli") and not q.get("jet"): return ("ram", (mx, my, mz))
                     return ("bounce", (ax / ln * 9.0, ay / ln * 9.0, az / ln * 9.0))
     if hit is not None:
         if speed >= DRONE_CRASH_SPEED:
@@ -10409,6 +10413,21 @@ async def _w_drone_hurt(p, dmg, pt, bounce=None, impact=True):
         msg.update({"x": pt[0], "y": pt[1], "z": pt[2], "v": [round(c, 2) for c in (bounce or (0.0, 0.0, 0.0))]})
     await _w_send(p, msg)
     return False
+
+async def _w_drone_ram(p, pt):
+    """The drone hit a player at speed: it explodes, and anyone standing in the blast is blown up and respawns at the spawn area."""
+    px, py, pz = pt
+    victims = [v for v in world_players.values() if v is not p and not v.get("heli") and not v.get("jet") and time.monotonic() >= v.get("protect", 0.0)
+               and (v["x"] - px) ** 2 + (v["y"] + 0.9 - py) ** 2 + (v["z"] - pz) ** 2 < DRONE_RAM_RADIUS ** 2]
+    await _w_drone_crash(p, pt)
+    await _w_broadcast({"t": "bs", "e": [round(px, 2), round(py, 2), round(pz, 2)], "d": [], "s": 1.1}, near=(int(px), int(pz)))
+    for v in victims:
+        v["protect"] = time.monotonic() + DRONE_PROTECT
+        spot = _w_pick_spawn()
+        await _w_teleport(v, spot[0], spot[1], spot[2])
+        await _w_sys(v, f"{p['name']}'s drone blew you up.")
+        await _w_broadcast({"t": "sys", "text": f"{v['name']} was blown up by {p['name']}'s drone."}, exclude=v["id"])
+    if victims: await _w_sys(p, "Direct hit!")
 
 async def _w_hazards():
     """Every tick: a drone caught in a helicopter's downwash or behind a jet's exhaust is damaged while it stays there."""
@@ -10652,6 +10671,7 @@ async def world_ws_handler(request):
                         if verdict == "crash":
                             dr = me["drone"]; hd = dr.get("hitdir", (0.0, 0.0, 0.0))
                             await _w_drone_hurt(me, (dr.get("hitv", 0.0) - DRONE_CRASH_SPEED) * DRONE_DMG_PER_SPEED + 5.0, pt, bounce=(-hd[0] * 4.0, -hd[1] * 4.0, -hd[2] * 4.0))
+                        elif verdict == "ram": await _w_drone_ram(me, pt)
                         elif verdict == "bounce":
                             dr = me["drone"]; await _w_send(me, {"t": "dtp", "x": dr["x"], "y": dr["y"], "z": dr["z"], "v": [round(c, 2) for c in pt]})     # knocked back off the player
                             await _w_drone_hurt(me, 6.0 + dr.get("v", 0.0) * 0.5, (dr["x"], dr["y"], dr["z"]), bounce=pt)
