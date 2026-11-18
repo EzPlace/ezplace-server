@@ -9793,6 +9793,9 @@ DRONE_CRASH_SPEED = 3.0           # hitting something slower than this is only a
 DRONE_CRASH_BLOCKS = 0            # a crash breaks at most this many blocks (0: a crash only ends the flight; set a number to let it break blocks again)
 DRONE_COOLDOWN = 3.0              # seconds before the drone can be launched again
 DRONE_NEAR = 96.0                 # drones are refreshed 10 times a second within this distance of the viewer
+DRONE_HP = 100.0                  # a drone's health: hits drain it, at zero it breaks
+DRONE_DMG_PER_SPEED = 4.0         # damage per block/second of impact speed above DRONE_CRASH_SPEED (a 25 b/s smash into a wall is 88)
+DRONE_HIT_GAP = 0.5               # seconds before another impact can hurt again (one hit is reported by both the page and the server)
 
 # Helicopters: five real ones at real size (1 block = 1 metre), bought once and kept.
 # model: (name, price, top speed b/s, best climb b/s, body reach from the mast (nose or tail), main rotor radius, rotor height)
@@ -10184,6 +10187,7 @@ async def world_tick():
         while world_players:
             await asyncio.sleep(0.1)
             for r, frame in _w_tick_frames(): await _w_send(r, frame)
+            await _w_hazards()
             if world_tick_n % 300 == 0: await _w_broadcast({"t": "online", "total": _global_online_total()})
     finally:
         world_tick_task = None
@@ -10280,6 +10284,7 @@ def _w_drone_move(p, x, y, z, yaw, pitch, now):
                     return ("bounce", (ax / ln * 9.0, ay / ln * 9.0, az / ln * 9.0))
     if hit is not None:
         if speed >= DRONE_CRASH_SPEED:
+            dr["hitv"] = speed; dr["hitdir"] = (dx / dist, dy / dist, dz / dist) if dist > 1e-6 else (0.0, 0.0, 0.0)
             t = max(0.0, hit[1] - 0.01)
             if dist > 1e-6: return ("crash", (dr["x"] + dx / dist * t, dr["y"] + dy / dist * t, dr["z"] + dz / dist * t))
             return ("crash", (dr["x"], dr["y"], dr["z"]))
@@ -10386,6 +10391,52 @@ async def _w_jet_end(p, crashed, at=None):
     await _w_send_inv(p)
     await _w_broadcast({"t": "jr", "id": p["id"], "on": False}, exclude=p["id"])
 
+async def _w_drone_hurt(p, dmg, pt, bounce=None, impact=True):
+    """Take health off a drone. Returns True if that broke it. A drone that survives an impact is put at the point it hit (and knocked back)."""
+    dr = p.get("drone")
+    if not dr or dmg <= 0: return False
+    now = time.monotonic()
+    if impact:
+        if now - dr.get("hit_t", 0.0) < DRONE_HIT_GAP: return False
+        dr["hit_t"] = now
+    dr["hp"] = dr.get("hp", DRONE_HP) - dmg
+    if dr["hp"] <= 0:
+        await _w_drone_crash(p, pt); return True
+    msg = {"t": "dhp", "hp": round(dr["hp"], 1)}
+    if impact:
+        dr["x"], dr["y"], dr["z"] = pt
+        dr["v"] = 0.0; dr["ver"] += 1
+        msg.update({"x": pt[0], "y": pt[1], "z": pt[2], "v": [round(c, 2) for c in (bounce or (0.0, 0.0, 0.0))]})
+    await _w_send(p, msg)
+    return False
+
+async def _w_hazards():
+    """Every tick: a drone caught in a helicopter's downwash or behind a jet's exhaust is damaged while it stays there."""
+    drones = [p for p in world_players.values() if p.get("drone")]
+    if not drones: return
+    for p in drones:
+        dr = p["drone"]; rate = 0.0
+        for q in world_players.values():
+            if q is p: continue
+            h = q.get("heli")
+            if h:
+                sp = HELIS[h["m"]]; reach = sp[5] * 1.3
+                dx, dz, dy = dr["x"] - h["x"], dr["z"] - h["z"], dr["y"] - h["y"]
+                dist = math.hypot(dx, dz)
+                if dist < reach and -14.0 < dy < sp[6] + 1.0: rate += 22.0 * (1.0 - 0.6 * dist / reach)
+                continue
+            j = q.get("jet")
+            if j and j.get("v", 0.0) > 8.0:
+                ang = j["yaw"] / 256.0 * 2 * math.pi; pit = (j["pitch"] - 128) / 127.0 * math.pi / 2
+                fx, fy, fz = -math.sin(ang) * math.cos(pit), math.sin(pit), -math.cos(ang) * math.cos(pit)
+                rx, ry, rz = dr["x"] - j["x"], dr["y"] - (j["y"] + 1.5), dr["z"] - j["z"]
+                along = -(rx * fx + ry * fy + rz * fz)
+                if 1.0 < along < 16.0:
+                    perp2 = rx * rx + ry * ry + rz * rz - along * along
+                    if perp2 < (2.5 + along * 0.2) ** 2: rate += 40.0 * (1.0 - along / 16.0)
+        if rate > 0:
+            await _w_drone_hurt(p, rate * 0.1, (dr["x"], dr["y"], dr["z"]), impact=False)
+
 def _w_flyer(p):
     """A flying vehicle as a sphere: (x, y, z, radius) around its middle, or None."""
     d = p.get("drone")
@@ -10418,6 +10469,13 @@ async def _w_midair(p, prev):
             if (sx - b[0]) ** 2 + (sy - b[1]) ** 2 + (sz - b[2]) ** 2 < (ar + b[3]) ** 2:
                 pa, pb = (cx, cy - oy, cz), (b[0], b[1] - b[4], b[2])
                 await _w_sys(p, "Mid-air collision!"); await _w_sys(q, "Mid-air collision!")
+                if p.get("drone") and q.get("drone"):
+                    dmg = 25.0 + 0.6 * (p["drone"].get("v", 0.0) + q["drone"].get("v", 0.0))
+                    ax, ay, az = pa[0] - pb[0], pa[1] - pb[1], pa[2] - pb[2]; ln = math.sqrt(ax * ax + ay * ay + az * az) or 1.0
+                    kx, ky, kz = ax / ln * 6.0, ay / ln * 6.0, az / ln * 6.0
+                    await _w_drone_hurt(q, dmg, pb, bounce=(-kx, -ky, -kz))
+                    await _w_drone_hurt(p, dmg, pa, bounce=(kx, ky, kz))
+                    return
                 await _w_destroy(q, pb)
                 await _w_destroy(p, pa)
                 return
@@ -10591,9 +10649,12 @@ async def world_ws_handler(request):
                         _, qx, qy, qz, yaw, pitch = struct.unpack("<BhhhBB", d)
                         dr0 = me["drone"]; prev = (dr0["x"], dr0["y"], dr0["z"])
                         verdict, pt = _w_drone_move(me, qx / 16.0, qy / 16.0, qz / 16.0, yaw, pitch, time.monotonic())
-                        if verdict == "crash": await _w_drone_crash(me, pt)
+                        if verdict == "crash":
+                            dr = me["drone"]; hd = dr.get("hitdir", (0.0, 0.0, 0.0))
+                            await _w_drone_hurt(me, (dr.get("hitv", 0.0) - DRONE_CRASH_SPEED) * DRONE_DMG_PER_SPEED + 5.0, pt, bounce=(-hd[0] * 4.0, -hd[1] * 4.0, -hd[2] * 4.0))
                         elif verdict == "bounce":
                             dr = me["drone"]; await _w_send(me, {"t": "dtp", "x": dr["x"], "y": dr["y"], "z": dr["z"], "v": [round(c, 2) for c in pt]})     # knocked back off the player
+                            await _w_drone_hurt(me, 6.0 + dr.get("v", 0.0) * 0.5, (dr["x"], dr["y"], dr["z"]), bounce=pt)
                         elif verdict == "reject":
                             dr = me["drone"]; await _w_send(me, {"t": "dtp", "x": dr["x"], "y": dr["y"], "z": dr["z"]})    # put the camera back where the drone really is
                         elif verdict == "ok": await _w_midair(me, prev)
@@ -10805,8 +10866,8 @@ async def world_ws_handler(request):
                     if world_get(int(math.floor(sx)), int(math.floor(sy)), int(math.floor(sz))) or world_get(int(math.floor(sx)), int(math.floor(sy)) + 1, int(math.floor(sz))):
                         await _w_sys(me, "There is no room above you to launch the drone."); continue
                     me["armed"] = False
-                    me["drone"] = {"x": sx, "y": sy, "z": sz, "yaw": me["yaw"], "pitch": 128, "t": now, "hb": DRONE_BURST, "v": 0.0, "ver": 1}
-                    await _w_send(me, {"t": "dstart", "x": sx, "y": sy, "z": sz})
+                    me["drone"] = {"x": sx, "y": sy, "z": sz, "yaw": me["yaw"], "pitch": 128, "t": now, "hb": DRONE_BURST, "v": 0.0, "ver": 1, "hp": DRONE_HP, "hit_t": 0.0}
+                    await _w_send(me, {"t": "dstart", "x": sx, "y": sy, "z": sz, "hp": DRONE_HP})
                     await _w_send_inv(me)
                     await _w_broadcast({"t": "dr", "id": me["id"], "on": True, "x": sx, "y": sy, "z": sz, "name": me["name"]}, exclude=me["id"])
                 elif me.get("drone"):
@@ -10886,7 +10947,7 @@ async def world_ws_handler(request):
                 px, py, pz = dr["x"], dr["y"], dr["z"]
                 fx, fy, fz = int(math.floor(px)), int(math.floor(py)), int(math.floor(pz))
                 if not any(world_get(fx + a, fy + b, fz + c) for a in (-1, 0, 1) for b in (-1, 0, 1) for c in (-1, 0, 1)): continue     # nothing there to crash into
-                await _w_drone_crash(me, (px, py, pz))
+                await _w_drone_hurt(me, (dr.get("v", 0.0) - DRONE_CRASH_SPEED) * DRONE_DMG_PER_SPEED + 5.0, (px, py, pz))
             elif t == "typing":
                 if check_rate_limit(me["name"], "world_typing", 20, 6):
                     await _w_broadcast({"t": "typing", "name": me["name"], "typing": bool(data.get("typing"))}, exclude=me["id"])

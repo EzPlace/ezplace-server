@@ -986,6 +986,11 @@
         break;
       case 'dstart': startDrone(m); break;
       case 'dend': endDrone(m); break;
+      case 'dhp': if (G.drone) {
+          var hp0 = G.dhp; G.dhp = m.hp;
+          if (m.hp < hp0) { G.dhurt = performance.now(); if (G.dview) G.dview.jolt = 1; if (m.x !== undefined) G.shake = performance.now() + 250; }
+          if (m.x !== undefined) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; if (m.v) { G.drone.vx = m.v[0]; G.drone.vy = m.v[1]; G.drone.vz = m.v[2]; } }
+        } break;
       case 'dtp': if (G.drone) { G.drone.x = m.x; G.drone.y = m.y; G.drone.z = m.z; G.drone.vx = G.drone.vy = G.drone.vz = 0; G.drone.crashAt = 0; if (m.v) { G.drone.vx = m.v[0]; G.drone.vy = m.v[1]; G.drone.vz = m.v[2]; } } break;
       case 'dr': if (m.on) { G.drones.set(m.id, { id: m.id, name: m.name || '', x: m.x, y: m.y, z: m.z, tx: m.x, ty: m.y, tz: m.z, el: null, fresh: false }); } else removeDrone(m.id); break;
       case 'hno': G.hno = (G.hno || 0) + 1; if (G.hno >= 2) { G.hno = 0; sys('Stuck? Moving you out of the helicopter.'); send({ t: 'chat', text: '/unstuck' }); } break;
@@ -1277,6 +1282,7 @@
       '#ew-fpv{position:absolute;inset:0;pointer-events:none;z-index:2;overflow:hidden;font:700 13px "JetBrains Mono","Fira Code",monospace;color:#fff;text-shadow:1px 1px 0 #000,-1px 1px 0 #000,1px -1px 0 #000,-1px -1px 0 #000}' +
       '#ew-fpv .fp-noise{position:absolute;inset:-20px;opacity:.05;background:url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'160\' height=\'160\'><filter id=\'n\'><feTurbulence type=\'fractalNoise\' baseFrequency=\'.85\' numOctaves=\'2\' stitchTiles=\'stitch\'/></filter><rect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/></svg>")}' +
       '#ew-fpv .fp-lines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.10) 0,rgba(0,0,0,.10) 1px,transparent 1px,transparent 3px)}' +
+      '#ew-fpv .fp-hurt{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,rgba(255,0,0,0) 28%,rgba(255,30,20,.8) 100%)}' +
       '#ew-fpv .fp-vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 48%,rgba(0,0,0,.55) 82%,rgba(0,0,0,.92) 100%)}' +
       '#ew-fpv .fp-hor{position:absolute;left:50%;top:50%;width:0;height:0}' +
       '#ew-fpv .fp-hor i{position:absolute;left:0;height:2px;background:#fff;box-shadow:0 0 0 1px #000}' +
@@ -1818,10 +1824,10 @@
     if (!el) {
       el = document.createElement('div'); el.id = 'ew-fpv';
       var hor = ''; for (var d = -40; d <= 40; d += 10) { if (d === 0) hor += '<i style="top:-1px;left:-90px;width:70px"></i><i style="top:-1px;left:20px;width:70px"></i>'; else hor += '<i style="top:' + (-d * 4.6 - 1).toFixed(0) + 'px;left:' + (d > 0 ? -34 : -34) + 'px;width:68px;opacity:.75;height:1px"></i>'; }
-      el.innerHTML = '<div class="fp-noise"></div><div class="fp-lines"></div><div class="fp-vig"></div><div class="fp-hor" id="fp-hor">' + hor + '</div>' +
+      el.innerHTML = '<div class="fp-noise"></div><div class="fp-lines"></div><div class="fp-vig"></div><div class="fp-hurt"></div><div class="fp-hor" id="fp-hor">' + hor + '</div>' +
         '<div class="fp-top"><span id="fp-rssi"></span><span id="fp-time"></span><span class="fp-rec">&#9679; REC</span></div>' +
         '<div class="fp-bat"><span id="fp-bat"></span> <span id="fp-warn"></span></div>' +
-        '<div class="fp-bot"><span id="fp-mode">ANGLE</span><span id="fp-spd"></span><span id="fp-alt"></span><span id="fp-home"></span></div>';
+        '<div class="fp-bot"><span id="fp-mode">ANGLE</span><span id="fp-spd"></span><span id="fp-alt"></span><span id="fp-home"></span><span id="fp-hp"></span></div>';
       ($('ew-stage') || G.view).appendChild(el);
     }
     el.style.display = on ? 'block' : 'none';
@@ -1829,7 +1835,7 @@
   }
   function startDrone(m) {
     G.drone = { x: m.x, y: m.y, z: m.z, vx: 0, vy: 0, vz: 0, yaw: G.me.yaw, pitch: 0, crashAt: 0 };
-    G.dview = { roll: 0, lean: 0, t0: performance.now() }; heliCss(); fpvOverlay(true);
+    G.dhp = m.hp || 100; G.dhurt = 0; G.dview = { roll: 0, lean: 0, t0: performance.now(), jolt: 0 }; heliCss(); fpvOverlay(true);
     G.inv.armed = false; G.dlast = ''; G.dsent = 0;
     G.view.classList.add('fpv'); $('ew-osd').style.display = 'flex'; $('ew-cross').style.display = 'block';
     renderInv();
@@ -1866,7 +1872,7 @@
     var kk = Math.min(1, dt * 7);
     dv.roll += (Math.max(-0.75, Math.min(0.75, vr / 45 * 0.6 + Math.max(-5, Math.min(5, yr)) * 0.05)) - dv.roll) * kk;
     dv.lean += (-Math.max(-1, Math.min(1, vf / 45)) * 0.32 - dv.lean) * kk;
-    var spn = Math.min(1, Math.sqrt(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz) / 45), amp = 0.003 + 0.009 * spn, tt = now * 0.001;
+    var spn = Math.min(1, Math.sqrt(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz) / 45), amp = 0.003 + 0.009 * spn + (dv.jolt || 0) * 0.06, tt = now * 0.001; dv.jolt = (dv.jolt || 0) * Math.exp(-6 * dt);
     var jr = (Math.sin(tt * 61) + Math.sin(tt * 97.3) * 0.7) * amp, jp = (Math.sin(tt * 73.1) + Math.sin(tt * 113) * 0.6) * amp * 0.8;
     var bs = jetBasis(d.yaw, Math.max(-1.5, Math.min(1.5, d.pitch + dv.lean + jp)), dv.roll + jr); d.f = bs.f; d.u = bs.u;
     var me = G.me, sp = Math.sqrt(d.vx * d.vx + d.vy * d.vy + d.vz * d.vz), home = Math.hypot(d.x - me.x, d.y - me.y, d.z - me.z);
@@ -1874,7 +1880,9 @@
       G.dfpvAt = now;
       var el = $('ew-fpv'), secs = (now - dv.t0) / 1000, volts = Math.max(13.2, 16.8 - 2.4 * secs / 240), sig = Math.max(0, Math.min(1, (home - 70) / 230));
       if (el) {
-        el.querySelector('.fp-noise').style.opacity = (0.05 + sig * 0.75).toFixed(2); el.querySelector('.fp-noise').style.backgroundPosition = ((Math.random() * 160) | 0) + 'px ' + ((Math.random() * 160) | 0) + 'px';
+        var hpv = G.dhp === undefined ? 100 : G.dhp, hurtA = Math.max(0, 1 - (now - (G.dhurt || 0)) / 700);
+        el.querySelector('.fp-noise').style.opacity = Math.min(0.9, 0.05 + sig * 0.75 + (hpv < 50 ? (50 - hpv) / 50 * 0.45 : 0)).toFixed(2); el.querySelector('.fp-hurt').style.opacity = Math.max(hurtA * 0.85, hpv < 30 ? 0.18 + 0.12 * Math.sin(now * 0.012) : 0).toFixed(2);
+        $('fp-hp').textContent = 'HP ' + '█'.repeat(Math.max(0, Math.round(hpv / 10))) + '░'.repeat(10 - Math.max(0, Math.min(10, Math.round(hpv / 10)))) + ' ' + Math.max(0, Math.round(hpv)); $('fp-hp').className = hpv < 30 ? 'fp-bad' : ''; el.querySelector('.fp-noise').style.backgroundPosition = ((Math.random() * 160) | 0) + 'px ' + ((Math.random() * 160) | 0) + 'px';
         $('fp-hor').style.transform = 'rotate(' + (-dv.roll).toFixed(3) + 'rad) translateY(' + ((d.pitch + dv.lean + jp) * 270).toFixed(0) + 'px)';
         $('fp-rssi').textContent = 'LINK ' + Math.round(100 - sig * 90) + '%'; $('fp-time').textContent = Math.floor(secs / 60) + ':' + ('0' + Math.floor(secs % 60)).slice(-2);
         $('fp-bat').textContent = volts.toFixed(1) + 'V'; $('fp-warn').textContent = volts < 14.2 ? 'LOW BATTERY' : (sig > 0.6 ? 'LOW SIGNAL' : '');
