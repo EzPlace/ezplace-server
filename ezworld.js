@@ -2160,7 +2160,7 @@
   function startCar(m) {
     var sp = cspec(m.m), yaw = m.yaw / 256 * 2 * Math.PI;
     G.car = { id: m.id, m: m.m, x: m.x, y: m.y, z: m.z, yaw: yaw, vf: 0, vl: 0, vy: 0, wy: 0, steer: 0, speed: 0, onGround: true, pitch: 0, roll: 0, wheel: 0, dmg: m.dmg || 0, dents: (m.dents || [0, 0, 0, 0]).slice(), lost: m.lost | 0, sent: 0, lastSent: '', view: 0, head: false, gw: null };
-    G.ccam = { yaw: 0, pitch: 0, idle: 0, cyaw: yaw, dist: sp.chase * 0.75 };
+    G.ccam = { yaw: 0, pitch: 0, idle: 0, cyaw: yaw, dist: sp.chase * 0.9 };
     G.carpose = { x: m.x, y: m.y + 3, z: m.z, yaw: yaw, pitch: 0, f: [-Math.sin(yaw), 0, -Math.cos(yaw)], u: [0, 1, 0] };
     G.cars.delete(m.id); G.inv.armed = false; G.csel = m.m; G.hijack = null;
     carCss(); carHud(true); $('ew-cross').style.display = 'none';
@@ -2272,18 +2272,18 @@
     } else if (now - c.sent >= 50) sendCarPos(inp, false);
     me.x = c.x; me.y = c.y; me.z = c.z; me.yaw = c.yaw;
     // cameras
-    var cc = G.ccam, cp = G.carpose, b = carBasis(c);
-    cc.idle += dt; if (cc.idle > 1.5 && c.view === 0) { cc.yaw *= Math.max(0, 1 - dt * 2); cc.pitch *= Math.max(0, 1 - dt * 2); }
+    var cc = G.ccam, cp = G.carpose, b = carBasis(c), bc = jetBasis(c.yaw, c.pitch * 0.4, c.roll * 0.2);          // the cockpit view only leans a little with the body, so the horizon stays steady
+    cc.idle += dt; if (cc.idle > 0.5 && c.view === 0) { cc.yaw *= Math.max(0, 1 - dt * 6); cc.pitch *= Math.max(0, 1 - dt * 6); }          // the view swings back behind the car soon after you stop moving the mouse
     if (c.view === 0) {
-      cc.cyaw += angDiff(cc.cyaw, c.yaw) * Math.min(1, dt * 5);
-      var y0 = cc.cyaw + cc.yaw, tx = c.x, ty = c.y + sp.h * 0.8, tz = c.z, hgt = sp.chaseUp * 0.6 + 0.4 + cc.pitch * cc.dist * 0.8;
+      cc.cyaw += angDiff(cc.cyaw, c.yaw) * Math.min(1, dt * 9);
+      var y0 = cc.cyaw + cc.yaw, tx = c.x, ty = c.y + sp.h * 0.8, tz = c.z, hgt = sp.chaseUp * 0.7 + 0.5 + cc.pitch * cc.dist * 0.8;
       var ex2 = tx + Math.sin(y0) * cc.dist, ey2 = ty + hgt, ez2 = tz + Math.cos(y0) * cc.dist;
       var bx = ex2 - tx, by = ey2 - ty, bz = ez2 - tz, bl = Math.sqrt(bx * bx + by * by + bz * bz) || 1, hit = raycast(tx, ty, tz, bx / bl, by / bl, bz / bl, bl + 0.4);
       if (hit && hit.t < bl) { var cl = Math.max(1.5, hit.t - 0.4); ex2 = tx + bx / bl * cl; ey2 = ty + by / bl * cl; ez2 = tz + bz / bl * cl; }
       cp.x = ex2; cp.y = ey2; cp.z = ez2;
       var lf = jnorm([tx - ex2, ty - ey2, tz - ez2]); cp.f = lf; cp.u = [0, 1, 0]; cp.yaw = Math.atan2(-lf[0], -lf[2]); cp.pitch = Math.asin(Math.max(-1, Math.min(1, lf[1])));
     } else {
-      var e = jpt({ x: c.x, y: c.y - 0.03, z: c.z, f: b.f, u: b.u }, sp.eye[0], sp.eye[1], sp.eye[2]); cp.x = e[0]; cp.y = e[1]; cp.z = e[2];
+      var e = jpt({ x: c.x, y: c.y - 0.03, z: c.z, f: b.f, u: b.u }, sp.eye[0], sp.eye[1], sp.eye[2]); cp.x = e[0]; cp.y = e[1]; cp.z = e[2]; b = bc;
       cc.pitch = Math.max(-0.7, Math.min(0.7, cc.pitch)); cc.yaw = Math.max(-2.2, Math.min(2.2, cc.yaw));
       var sY = Math.sin(cc.yaw), cY = Math.cos(cc.yaw), r2 = jcross(b.f, b.u), cPp = Math.cos(cc.pitch), sP = Math.sin(cc.pitch);
       var f3 = [b.f[0] * cY - r2[0] * sY, b.f[1] * cY - r2[1] * sY, b.f[2] * cY - r2[2] * sY], f4 = [f3[0] * cPp + b.u[0] * sP, f3[1] * cPp + b.u[1] * sP, f3[2] * cPp + b.u[2] * sP], u4 = [b.u[0] * cPp - f3[0] * sP, b.u[1] * cPp - f3[1] * sP, b.u[2] * cPp - f3[2] * sP];
@@ -2401,7 +2401,7 @@
     if (!v.samp && !thr && v.smRpm > 0.5 && vfa > 8 && Math.random() < ep.crack * dt * 9 && a) popSound(a, v);
     v.lastThr = thr ? 1 : 0;
     var f = rpmR / 60 * ep.cyl / 2;
-    return { q: Math.max(0, Math.min(1, starting ? 0 : v.smRpm)), thr: thr ? 1 : 0, f: f, cut: (380 + 1900 * v.smRpm) * ep.lp * (thr ? 1.15 : 0.85), res: f * 0.5, vol: (0.11 + (thr ? 0.12 : 0.03) + 0.1 * frac) * crank, am: f,
+    return { rpm: rpmR, q: Math.max(0, Math.min(1, starting ? 0 : v.smRpm)), thr: thr ? 1 : 0, f: f, cut: (380 + 1900 * v.smRpm) * ep.lp * (thr ? 1.15 : 0.85), res: f * 0.5, vol: (0.11 + (thr ? 0.12 : 0.03) + 0.1 * frac) * crank, am: f,
              itK: ep.intake * (thr ? 1 : 0.25) * (0.02 + 0.07 * v.smRpm * v.smRpm), road: 0.02 + 0.12 * frac, wind: 0.2 * frac * frac, skid: slip,
              wh: ep.turbo ? 900 + 3200 * v.boost : (ep.whine && v.smRpm > 0.6 ? 1500 + 3500 * (v.smRpm - 0.6) : 0), whG: ep.turbo ? 0.025 * v.boost * (thr ? 1 : 0.4) : (ep.whine && v.smRpm > 0.6 ? ep.whine * 0.05 * (v.smRpm - 0.6) / 0.4 : 0) };
   }
@@ -2415,13 +2415,24 @@
     v.rdG.gain.setTargetAtTime(p.road, t, 0.1); v.wdG.gain.setTargetAtTime(p.wind, t, 0.1);
     v.skG.gain.setTargetAtTime(p.skid, t, 0.05); v.skB.frequency.setTargetAtTime(1500 + p.skid * 3500, t, 0.08); v.skLg.gain.setTargetAtTime(p.skid * 0.3, t, 0.08);
     if (p.wh) v.wh.frequency.setTargetAtTime(p.wh * dp, t, 0.05); v.whG.gain.setTargetAtTime(v.samp ? 0 : p.whG, t, 0.05);
-    if (v.samp) {                                                       // blend the recordings either side of the current revs and pitch them to match
-      var rs = v.samp.rungs, q = p.q, step = 1 / Math.max(1, rs.length - 1), tot = 0, ws = [], i2;
-      for (i2 = 0; i2 < rs.length; i2++) { var w = Math.max(0, 1 - Math.abs(q - rs[i2].q) / (step * 1.1)); ws.push(w * w); tot += w * w; }
-      var loud = (0.55 + 0.75 * q) * (p.thr ? 1 : 0.7);
+    if (v.samp) {                                                       // blend the recordings either side of the current revs and pitch each to match them exactly
+      var rs = v.samp.rungs, q = p.q, tot = 0, ws = [], rates = [], i2, loud = (0.55 + 0.75 * q) * (p.thr ? 1 : 0.7);
+      if (rs[0].pn !== undefined && p.rpm) {                            // the clips know how fast the engine was turning in each: line the pitch up with the real rpm
+        var top = v.ep.red * 0.97, near = 0, nd = 1e9;
+        for (i2 = 0; i2 < rs.length; i2++) {
+          var ri = Math.max(300, top * rs[i2].pn), d = Math.abs(Math.log(p.rpm / ri)), prev = i2 ? Math.log(ri / Math.max(300, top * rs[i2 - 1].pn)) : 0, next = i2 < rs.length - 1 ? Math.log(Math.max(300, top * rs[i2 + 1].pn) / ri) : 0;
+          var wd = Math.max(0.22, 0.75 * Math.max(prev, next)), w = Math.max(0, 1 - d / wd);
+          ws.push(w * w); tot += w * w; rates.push(Math.max(0.5, Math.min(2.4, p.rpm / ri * dp)));
+          if (d < nd) { nd = d; near = i2; }
+        }
+        if (tot <= 0) { ws[near] = 1; tot = 1; }
+      } else {
+        var step = 1 / Math.max(1, rs.length - 1);
+        for (i2 = 0; i2 < rs.length; i2++) { var w2 = Math.max(0, 1 - Math.abs(q - rs[i2].q) / (step * 1.1)); ws.push(w2 * w2); tot += w2 * w2; rates.push(Math.max(0.7, Math.min(1.45, (1 + (q - rs[i2].q) * 0.6) * dp))); }
+      }
       for (i2 = 0; i2 < rs.length; i2++) {
         v.samp.gains[i2].gain.setTargetAtTime(tot > 0 ? ws[i2] / tot * loud : 0, t, 0.06);
-        v.samp.srcs[i2].playbackRate.setTargetAtTime(Math.max(0.7, Math.min(1.45, (1 + (q - rs[i2].q) * 0.6) * dp)), t, 0.06);
+        v.samp.srcs[i2].playbackRate.setTargetAtTime(rates[i2], t, 0.06);
       }
     }
     if (v.pan) v.pan.pan.setTargetAtTime(p.pan || 0, t, 0.05);
@@ -2899,7 +2910,7 @@
       if (!fe) { fe = document.createElement('div'); fe.id = 'ew-flash'; fe.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;opacity:0;background:radial-gradient(circle,#fff6d0 0%,#ff9a3a 55%,#a01000 100%)'; G.view.appendChild(fe); }
       var fa = 1 - (performance.now() - G.flash) / 700; fe.style.opacity = fa > 0 ? (fa * 0.85).toFixed(2) : '0'; if (fa <= 0) G.flash = 0;
     } else if (fe && fe.style.opacity !== '0') fe.style.opacity = '0';
-    var cam = G.drone || G.hpose || G.jpose || G.carpose || G.cpose, fovNow = G.drone ? FOV + 0.68 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.carpose ? FOV + (G.car && G.car.view === 1 ? 0.2 : 0.05 + Math.min(0.25, G.car ? Math.abs(G.car.vf) / cspec(G.car.m).vmax * 0.25 : 0)) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
+    var cam = G.drone || G.hpose || G.jpose || G.carpose || G.cpose, fovNow = G.drone ? FOV + 0.68 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.carpose ? FOV + (G.car && G.car.view === 1 ? 0.2 : 0.04 + Math.min(0.12, G.car ? Math.abs(G.car.vf) / cspec(G.car.m).vmax * 0.12 : 0)) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
     var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
     var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), (cam && cam.f ? viewLook(ex, ey, ez, cam.f, cam.u) : viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch)));
     G.vp = vp;
@@ -2984,7 +2995,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { audState: function () { return G && G.aud; }, loadCarSound: loadCarSound, getParts: function () { return G && G.parts; }, getSkid: function () { return G && G.sk; }, EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { carState: function () { return G && G.car; }, audState: function () { return G && G.aud; }, loadCarSound: loadCarSound, getParts: function () { return G && G.parts; }, getSkid: function () { return G && G.sk; }, EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();
