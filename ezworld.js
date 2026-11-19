@@ -684,6 +684,124 @@
     return res;
   }
 
+
+  // ------------------------------------------------------------------ cars: seven real ones at real size, and their driving physics
+  // vmax: top speed in blocks per second (about 3.6 km/h each); accel: how hard it pulls from a standstill; grip: how quickly sideways sliding dies away;
+  // wb: wheelbase; len / wid / h: real size; chase: camera distance
+  var CARS = {
+    yaris:   { name: 'Toyota Yaris', price: 6000, vmax: 28, accel: 11, brake: 22, grip: 6.5, wb: 2.55, len: 3.95, wid: 1.70, h: 1.50, chase: 7.5, pitchF: 1.0,
+               facts: 'The small Toyota hatchback: light, cheap and tough. Easy to park and quick to turn, but the slowest of the lot. 175 km/h in real life.' },
+    civic:   { name: 'Honda Civic', price: 10000, vmax: 34, accel: 12, brake: 24, grip: 6.8, wb: 2.70, len: 4.67, wid: 1.80, h: 1.41, chase: 8, pitchF: 1.0,
+               facts: 'The compact sedan that put Honda on the map. Sharp steering and plenty of grip for the money. Around 200 km/h.' },
+    f150:    { name: 'Ford F-150', price: 20000, vmax: 31, accel: 10, brake: 20, grip: 5.6, wb: 3.69, len: 5.89, wid: 2.03, h: 1.97, chase: 10, pitchF: 0.8,
+               facts: "America's best-selling pickup for decades. Tall, heavy and wide: it shrugs off bumps but it wallows through corners. 180 km/h and a long wheelbase." },
+    c5:      { name: 'Chevrolet Corvette C5', price: 28000, vmax: 48, accel: 19, brake: 28, grip: 7.4, wb: 2.65, len: 4.56, wid: 1.87, h: 1.21, chase: 8, pitchF: 1.1,
+               facts: 'The 1997 to 2004 front-engine Corvette: a V8 and a long hood in a low fibreglass body. Built to go fast in a straight line. Up to 270 km/h.' },
+    m3:      { name: 'BMW M3', price: 40000, vmax: 46, accel: 18, brake: 28, grip: 7.2, wb: 2.73, len: 4.49, wid: 1.78, h: 1.37, chase: 8, pitchF: 1.0,
+               facts: 'The E46 M3 coupe, loved for its straight-six and balance. It grips hard and turns eagerly. Electronically limited at 250 km/h.' },
+    '911':   { name: 'Porsche 911 Carrera', price: 70000, vmax: 52, accel: 20, brake: 30, grip: 7.8, wb: 2.35, len: 4.45, wid: 1.80, h: 1.30, chase: 8, pitchF: 1.1,
+               facts: 'The rear-engined icon: the engine hangs behind the axle, so it launches hard and the tail can swing. Short wheelbase, huge grip. About 285 km/h.' },
+    cls63:   { name: 'Mercedes-Benz CLS 63 AMG', price: 55000, vmax: 50, accel: 17, brake: 27, grip: 6.9, wb: 2.95, len: 4.99, wid: 1.88, h: 1.42, chase: 8.5, pitchF: 1.0,
+               facts: 'A four-door coupe with a hand-built twin-turbo V8. Luxury on the inside, a monster on the road. Limited to about 250 km/h.' }
+  };
+  var CAR_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63'];
+  var CAR_CRASH_MIN = 8;
+  function cspec(id) {
+    var s = CARS[id]; if (s._r) return s;
+    var g = typeof window !== 'undefined' && window.CarGL && window.CarGL.SPECS && window.CarGL.SPECS[id], hw = s.wid / 2, wbh = s.wb / 2;
+    s.wheels = g && g.wheels || [[-hw * 0.85, 0.32, -wbh], [hw * 0.85, 0.32, -wbh], [-hw * 0.85, 0.32, wbh], [hw * 0.85, 0.32, wbh]];
+    s.eye = g && g.eye || [-0.35, 1.15, -0.2]; s.noseZ = g && g.noseZ || -s.len / 2; s.tailZ = g && g.tailZ || s.len / 2;
+    s.wr = g && g.wheelRadius || 0.32;
+    if (g && g.chaseDist) s.chase = g.chaseDist; s.chaseUp = g && g.chaseUp || 2.4;
+    var hl = Math.max(Math.abs(s.noseZ), Math.abs(s.tailZ)) * 0.98, hwid = s.wid / 2 * 0.98;
+    s.pts = [[-hwid, -hl], [hwid, -hl], [-hwid, hl], [hwid, hl], [0, -hl], [0, hl], [-hwid, 0], [hwid, 0]];
+    if (g) s._r = true;
+    return s;
+  }
+  function carGroundAt(x, y, z) {                  // the top of the ground under a point, looking down from just above y; null when there is nothing for 14 blocks
+    var bx = Math.floor(x), bz = Math.floor(z), by = Math.floor(y + 1.1);
+    for (var k = 0; k < 15; k++) if (getBlock(bx, by - k, bz) !== 0) return by - k + 1;
+    return null;
+  }
+  function carDirs(yaw) { return [-Math.sin(yaw), -Math.cos(yaw), Math.cos(yaw), -Math.sin(yaw)]; }       // forward x, z and right x, z
+  function carWheelXZ(c, sp, w) { var d = carDirs(c.yaw); return [c.x + d[2] * w[0] - d[0] * w[2], c.z + d[3] * w[0] - d[1] * w[2]]; }
+  function carBodyHit(c, sp, x, z) {               // is any part of the body (above a one block step) inside a block?
+    var d = carDirs(c.yaw), yy = Math.floor(c.y + 1.2);
+    for (var i = 0; i < sp.pts.length; i++) {
+      var p = sp.pts[i], px = x + d[2] * p[0] - d[0] * p[1], pz = z + d[3] * p[0] - d[1] * p[1];
+      if (getBlock(Math.floor(px), yy, Math.floor(pz)) !== 0) return true;
+    }
+    return false;
+  }
+  // One physics step. inp: f throttle, b brake/reverse, l/r steer, hb handbrake. Returns null, or { res: 'crash' | 'bump' | 'land', spd, dx, dz } for something that touched.
+  function stepCar(c, inp, dt, sp) {
+    var thr = !!inp.f, brk = !!inp.b, hb = !!inp.hb, ev = null;
+    var sm = 0.58 - 0.38 * Math.min(1, Math.abs(c.vf) / sp.vmax), st = ((inp.r ? 1 : 0) - (inp.l ? 1 : 0)) * sm;
+    c.steer += (st - c.steer) * Math.min(1, dt * (st ? 6 : 10));
+    if (c.onGround) {
+      var acc = 0;
+      if (thr) acc = c.vf < -0.5 ? sp.brake : sp.accel * (1 - c.vf / sp.vmax);
+      if (brk) acc = c.vf > 0.5 ? -sp.brake : -sp.accel * 0.7 * Math.max(0, 1 + c.vf / (sp.vmax * 0.3));
+      if (!thr && !brk) { var coast = 2.2 + Math.abs(c.vf) * 0.08; acc = Math.abs(c.vf) < coast * dt ? -c.vf / dt : -Math.sign(c.vf) * coast; }
+      c.vf += acc * dt;
+      if (hb) c.vf *= Math.exp(-0.7 * dt);
+    }
+    var wlim = Math.min(2.4, (9 + sp.grip) / Math.max(Math.abs(c.vf), 3)) * (hb ? 1.4 : 1), wyT = Math.max(-wlim, Math.min(wlim, -c.vf / sp.wb * Math.tan(c.steer) * (hb ? 1.4 : 1)));      // and no turn can be tighter than the tyres hold          // steering right (positive) turns the heading clockwise
+    if (!c.onGround) wyT = c.wy;
+    c.wy += (wyT - c.wy) * Math.min(1, dt * 9);
+    var d0 = carDirs(c.yaw), vx = d0[0] * c.vf + d0[2] * c.vl, vz = d0[1] * c.vf + d0[3] * c.vl;     // the world velocity, then re-aimed at the new heading
+    c.yaw += c.wy * dt;
+    var d1 = carDirs(c.yaw);
+    c.vf = vx * d1[0] + vz * d1[1]; c.vl = vx * d1[2] + vz * d1[3];
+    if (c.onGround) { c.vl *= Math.exp(-(hb ? 1.3 : sp.grip) * dt); c.vf *= Math.exp(-Math.abs(c.vl) * 0.012 * dt); }
+    vx = d1[0] * c.vf + d1[2] * c.vl; vz = d1[1] * c.vf + d1[3] * c.vl;
+    c.speed = Math.sqrt(vx * vx + vz * vz);
+    var steps = Math.max(1, Math.ceil(c.speed * dt / 0.35)), h = dt / steps, i;
+    for (i = 0; i < steps; i++) {
+      var nx = c.x + vx * h, nz = c.z + vz * h, hit = false;
+      var ys = c.y;
+      // the wheels: a step up of a block or less is driven over, anything taller is a wall
+      var gmax = -1e9, gsum = [0, 0, 0, 0], w, gw;
+      for (w = 0; w < 4; w++) {
+        var wp = carWheelXZ({ x: nx, z: nz, yaw: c.yaw }, sp, sp.wheels[w]); gw = carGroundAt(wp[0], ys, wp[1]);
+        if (gw === null) gw = ys - 15;
+        if (gw > ys + 1.06) hit = true;
+        gsum[w] = gw; if (gw > gmax) gmax = gw;
+      }
+      if (!hit && carBodyHit(c, sp, nx, nz)) hit = true;
+      if (hit) {
+        var spd = Math.sqrt(vx * vx + vz * vz) || 1;
+        ev = { res: spd >= CAR_CRASH_MIN ? 'crash' : 'bump', spd: spd, dx: vx / spd, dz: vz / spd };
+        vx *= -0.28; vz *= -0.28;                                         // it bounces back off what it hit
+        c.vf = vx * d1[0] + vz * d1[1]; c.vl = vx * d1[2] + vz * d1[3]; c.wy += (c.vf > 0 ? -1 : 1) * (Math.random() - 0.3) * Math.min(2.5, spd * 0.08);
+        break;
+      }
+      c.x = nx; c.z = nz;
+      // the height: ride on the highest wheel, fall when there is nothing under them
+      var gt = gmax;
+      if (c.y < gt + 0.03 - 1e-6 || (c.onGround && c.y - gt < 0.4)) {
+        c.y += Math.min(gt + 0.03 - c.y, 9 * h + 0.05); if (c.y > gt + 0.03) c.y = gt + 0.03;
+        if (!c.onGround && c.y >= gt + 0.03 - 1e-6) { c.onGround = true; if (c.vy < -9) ev = ev || { res: 'crash', spd: -c.vy * 0.7, dx: 0, dz: 0 }; else if (c.vy < -3) ev = ev || { res: 'land', spd: -c.vy, dx: 0, dz: 0 }; c.vy = 0; }
+        else if (c.onGround) c.vy = 0;
+        c.gw = gsum;
+      } else {
+        c.onGround = false; c.vy = Math.max(c.vy - 28 * h, -60); c.y += c.vy * h;
+        if (c.y <= gt + 0.03) { c.y = gt + 0.03; c.onGround = true; if (c.vy < -9) ev = ev || { res: 'crash', spd: -c.vy * 0.7, dx: 0, dz: 0 }; else if (c.vy < -3) ev = ev || { res: 'land', spd: -c.vy, dx: 0, dz: 0 }; c.vy = 0; }
+        c.gw = gsum;
+      }
+    }
+    // body attitude from how high the four wheels sit: nose up or down on a slope, one side up on a kerb
+    var g = c.gw || [c.y, c.y, c.y, c.y], pf = ((g[0] + g[1]) / 2 - (g[2] + g[3]) / 2) / sp.wb, rf = ((g[0] + g[2]) / 2 - (g[1] + g[3]) / 2) / (sp.wid * 0.8);
+    var tp = c.onGround ? Math.atan(pf) : Math.max(-0.5, Math.min(0.5, c.vy * 0.03)), tr = c.onGround ? Math.atan(rf) : 0;
+    tp += (c.vf - (c.pvf === undefined ? c.vf : c.pvf)) / Math.max(dt, 0.001) * 0.0035 * (sp.pitchF || 1);        // braking dips the nose, accelerating squats the tail
+    c.pvf = c.vf;
+    tr += c.wy * c.vf * 0.0065;                                                                                  // leaning out in a corner
+    c.pitch += (tp - c.pitch) * Math.min(1, dt * 7); c.roll += (tr - c.roll) * Math.min(1, dt * 7);
+    c.x = Math.min(Math.max(c.x, WMIN + 2), WMAX - 2); c.z = Math.min(Math.max(c.z, WMIN + 2), WMAX - 2);
+    c.wheel += c.vf * dt / sp.wr;
+    return ev;
+  }
+
   // ------------------------------------------------------------------ compass
   var WIND = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function headingOf(yaw) { return (((-yaw * 180 / Math.PI) % 360) + 360) % 360; }   // 0 = north (-Z), 90 = east (+X), 180 = south, 270 = west
@@ -738,7 +856,7 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null }, rings: [], mouseFly: true, mouseInv: false, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null, car: {}, cp: {}, ccid: null, cdrive: null }, rings: [], cars: new Map(), car: null, csel: '', cArm: '', cArmT: 0, ccam: null, carpose: null, hijack: null, mouseFly: true, mouseInv: false, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
@@ -746,8 +864,8 @@
     $('ew-leave').onclick = function () { close(false); };
     $('ew-typing').style.display = 'none'; $('ew-reply-bar').style.display = 'none'; $('ew-mention').style.display = 'none';
     view.style.setProperty('--ew-launcher', pixUrl(ART_LAUNCHER)); view.style.setProperty('--ew-rocket', pixUrl(ART_ROCKET)); view.style.setProperty('--ew-boom', pixUrl(boomSheet())); view.style.setProperty('--ew-drone0', pixUrl(ART_DRONE[0])); view.style.setProperty('--ew-drone1', pixUrl(ART_DRONE[1]));
-    heliCss();
-    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; ['ew-hhud', 'ew-hhelp', 'ew-jhud', 'ew-jhelp', 'ew-fpv'].forEach(function (k) { var e0 = $(k); if (e0) e0.style.display = 'none'; }); view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
+    heliCss(); carCss();
+    $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = ''; $('ew-hotbar').style.display = 'none'; $('ew-hotbar2').style.display = 'none'; $('ew-osd').style.display = 'none'; ['ew-hhud', 'ew-hhelp', 'ew-jhud', 'ew-jhelp', 'ew-fpv', 'ew-chud', 'ew-carprompt'].forEach(function (k) { var e0 = $(k); if (e0) e0.style.display = 'none'; }); view.classList.remove('fpv'); $('ew-held').style.display = 'none'; $('ew-online-total').textContent = '0';
     $('ew-me-name').textContent = opts.username || '';
     var me = $('ew-me-img'); me.onerror = function () { me.onerror = null; me.src = opts.defaultAvatar; }; me.src = opts.avatarUrl(opts.username || '');
     syncUserBar();
@@ -812,6 +930,10 @@
     on(document, 'pointerlockchange', function () { $('ew-hint').style.display = (G.ready && !locked() && !chatFocused() && !menuOpen()) ? 'flex' : 'none'; if (!locked()) { G.keys = {}; G.sprint = false; } });
     on(document, 'mousemove', function (e) {
       if (!locked() || !G.me) return;
+      if (G.car) {
+        var c0 = G.ccam; c0.yaw -= (e.movementX || 0) * 0.0023; c0.pitch = Math.max(-1.2, Math.min(1.2, c0.pitch - (e.movementY || 0) * 0.0023)); c0.idle = 0;
+        return;
+      }
       if (G.jet && G.mouseFly) {                              // the mouse is the stick: it deflects, and settles back to centre
         var ms = G.mstick;
         ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.0042)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.0042));
@@ -836,10 +958,10 @@
     on(canvas, 'mousedown', function (e) {            // one action per click: holding the button does nothing
       if (!locked() || !G.ready) return;
       e.preventDefault();
-      if (G.drone || G.heli || G.jet) return;                  // no placing, breaking or rockets while flying
+      if (G.drone || G.heli || G.jet || G.car) return;           // no placing, breaking or rockets while flying
       if (e.button === 0) { if (G.inv.armed) fireRocket(); else doBreak(); } else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
     });
-    on(canvas, 'wheel', function (e) { e.preventDefault(); if (G.jet) { G.jcam.dist = Math.max(6, Math.min(120, G.jcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } if (G.heli) { G.hcam.dist = Math.max(4, Math.min(80, G.hcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
+    on(canvas, 'wheel', function (e) { e.preventDefault(); if (G.car) { G.ccam.dist = Math.max(3, Math.min(30, G.ccam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } if (G.jet) { G.jcam.dist = Math.max(6, Math.min(120, G.jcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } if (G.heli) { G.hcam.dist = Math.max(4, Math.min(80, G.hcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
     on(window, 'keydown', function (e) {
       if (!G || menuOpen() || typingElsewhere()) return;
       audio();                                                                  // browsers only allow sound after a key press or click
@@ -859,18 +981,23 @@
         if (now - G.lastTap < 320) G.sprint = true;
         G.lastTap = now;
       }
-      if (e.code === 'Digit1' && !G.drone && !G.heli && !G.jet) setArmed(!G.inv.armed);
+      if (e.code === 'Digit1' && !G.drone && !G.heli && !G.jet && !G.car) setArmed(!G.inv.armed);
       if (e.code === 'Digit2') toggleDrone();
       if (e.code === 'Digit3' && !e.repeat) toggleHeli();
       if (e.code === 'Digit4' && !e.repeat) toggleJet();
+      if (e.code === 'Digit5' && !e.repeat) summonCar();
+      if (e.code === 'KeyF' && !e.repeat) carUse();
+      if (e.code === 'KeyH' && G.car && !e.repeat) { send({ t: 'horn' }); hornSound(1, 0, G.car.m); }
+      if (e.code === 'KeyL' && G.car && !e.repeat) { G.car.head = !G.car.head; }
+      if (e.code === 'KeyV' && G.car && !e.repeat) { G.car.view = 1 - G.car.view; G.ccam.yaw = 0; G.ccam.pitch = 0; }
       if (e.code === 'KeyN' && !e.repeat) toggleMute();
       if (e.code === 'KeyI' && G.jet && !e.repeat) { G.mouseInv = !G.mouseInv; sys(G.mouseInv ? 'Mouse up now pulls the nose up (inverted).' : 'Mouse up now pushes the nose down, like a flight stick.'); }
       if (e.code === 'KeyM' && G.jet && !e.repeat) { G.mouseFly = !G.mouseFly; G.mstick.x = G.mstick.y = 0; sys(G.mouseFly ? 'Mouse steering on: the mouse works like a stick (M to switch to a free-look camera).' : 'Mouse steering off: the mouse looks around (M to steer with it again).'); }
       if (e.code === 'KeyV' && G.jet && !e.repeat) { G.jet.view = 1 - G.jet.view; G.jcam.yaw = 0; G.jcam.pitch = 0; }
       if (e.code === 'KeyV' && G.heli && !e.repeat) { G.heli.view = 1 - G.heli.view; G.hcam.yaw = 0; G.hcam.pitch = G.heli.view ? 0 : -0.22; }
       if (e.code === 'KeyB') { openShop(); return; }
-      if (e.code === 'KeyQ' && !G.heli && !G.jet) selectColor(G.sel - 1);
-      if (e.code === 'KeyE' && !G.heli && !G.jet) selectColor(G.sel + 1);
+      if (e.code === 'KeyQ' && !G.heli && !G.jet && !G.car) selectColor(G.sel - 1);
+      if (e.code === 'KeyE' && !G.heli && !G.jet && !G.car) selectColor(G.sel + 1);
       G.keys[e.code] = true;
       if (e.code === 'Space' || e.code.indexOf('Arrow') === 0) e.preventDefault();
     });
@@ -913,6 +1040,7 @@
     on(document, 'click', function (e) { var p = $('ew-online-panel'); if (p && p.style.display === 'block' && !p.contains(e.target)) p.style.display = 'none'; });
     on($('ew-shop-helis'), 'click', heliShopClick);
     on($('ew-shop-jets'), 'click', jetShopClick);
+    on($('ew-shop-cars'), 'click', carShopClick);
     G.timers.push(setInterval(function () { renderTyping(); syncUserBar(); }, 1000));
     on($('ew-leave'), 'click', function () { close(false); });
     G.timers.push(setInterval(ensureChunks, 200));
@@ -959,6 +1087,7 @@
       if (t === 0x10) { loadChunkFrame(dv); }
       else if (t === 0x13) onHeliFrame(dv);
       else if (t === 0x14) onJetFrame(dv);
+      else if (t === 0x15) onCarFrame(dv);
       else if (t === 0x12) {                                 // positions of flying drones
         var dn = dv.getUint16(1, true), dop = 3;
         for (var di = 0; di < dn; di++, dop += 10) {
@@ -1005,6 +1134,15 @@
       case 'htp': if (G.heli) { G.heli.x = m.x; G.heli.y = m.y; G.heli.z = m.z; G.heli.vx = G.heli.vy = G.heli.vz = 0; G.heli.crashAt = 0; } break;
       case 'hr': if (m.on) setOtherHeli(m.id, m.m, m.name, m.x, m.y, m.z); else removeOtherHeli(m.id); break;
       case 'hx': addWreck(m); break;
+      case 'cstart': startCar(m); break;
+      case 'cend': endCar(m); break;
+      case 'ctp': if (G.car) { var cd = carDirs(G.car.yaw); G.car.x = m.x; G.car.y = m.y; G.car.z = m.z; G.car.vf = (m.v ? m.v[0] * cd[0] + m.v[2] * cd[1] : 0); G.car.vl = (m.v ? m.v[0] * cd[2] + m.v[2] * cd[3] : 0); G.car.vy = 0; G.car.onGround = true; } break;
+      case 'cdmg': if (G.car && G.car.id === m.id) { G.car.dmg = m.dmg; G.car.dents = (m.dents || G.car.dents).slice(); } break;
+      case 'chj': G.hijack = { id: m.id, t0: performance.now(), ms: m.ms || 1500 }; break;
+      case 'cx': addCarWreck(m); break;
+      case 'cgone': G.cars.delete(m.id); break;
+      case 'horn': { var hc = G.cars.get(m.id), cmv = G.drone || G.heli || G.jet || G.car || G.me; if (hc && cmv) hornSound(1 / (1 + Math.hypot(hc.x - cmv.x, hc.z - cmv.z) / 15), 0, hc.m); break; }
+      case 'cno': break;
       case 'jstart': startJet(m); break;
       case 'jend': endJet(m); break;
       case 'jtp': if (G.jet) { G.jet.x = m.x; G.jet.y = m.y; G.jet.z = m.z; G.jet.speed = 0; G.jet.vx = G.jet.vy = G.jet.vz = 0; G.jet.crashAt = 0; } break;
@@ -1065,7 +1203,7 @@
     } catch (er) { draw([]); }
   }
   function sendPos(force) {
-    if (!G.me || G.heli || G.jet || !G.ws || G.ws.readyState !== 1) return;
+    if (!G.me || G.heli || G.jet || G.car || !G.ws || G.ws.readyState !== 1) return;
     var now = performance.now();
     if (now - G.lastSend < (force ? 40 : 100)) return;
     var b = new ArrayBuffer(9), dv = new DataView(b), m = G.me;
@@ -1167,12 +1305,13 @@
   function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function setTotal(n) { $('ew-online-total').textContent = String(n); }
   function applyInv(m) {
-    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0 && !G.drone && !G.heli && !G.jet;
+    var i = G.inv; i.rockets = m.rockets | 0; i.armed = !!m.armed && i.rockets > 0 && !G.drone && !G.heli && !G.jet && !G.car;
     if (m.price) i.price = m.price; if (m.per) i.per = m.per; if (m.max) i.max = m.max;
     i.drone = !!m.drone; if (m.dprice) i.dprice = m.dprice; i.flying = !!m.flying;
     i.dlevel = m.dlevel | 0; i.dupg = m.dupg === undefined ? null : m.dupg; i.dmult = m.dmult || 1;
     i.heli = m.heli || {}; if (m.hp) i.hp = m.hp; i.hfly = m.hfly || null;
     i.jet = m.jet || {}; if (m.jp) i.jp = m.jp; i.jfly = m.jfly || null;
+    i.car = m.car || {}; if (m.cp) i.cp = m.cp; i.ccid = m.ccid === undefined ? null : m.ccid; i.cdrive = m.cdrive || null;
     renderInv();
   }
   function renderInv() {
@@ -1212,7 +1351,13 @@
       hb4.style.display = jid ? 'flex' : 'none'; hb4.classList.toggle('sel', !!G.jet);
       $('ew-hotbar4-name').textContent = jid ? JETS[jid].name : '';
     }
-    if (shopOpen()) { renderHeliShop(); renderJetShop(); }
+    var hb5 = $('ew-hotbar5');
+    if (hb5) {
+      var cid = G.csel && (i.car || {})[G.csel] ? G.csel : (CAR_IDS.filter(function (k) { return (i.car || {})[k]; }).pop() || '');
+      hb5.style.display = cid ? 'flex' : 'none'; hb5.classList.toggle('sel', !!G.car);
+      $('ew-hotbar5-name').textContent = cid ? CARS[cid].name : '';
+    }
+    if (shopOpen()) { renderHeliShop(); renderJetShop(); renderCarShop(); }
   }
   function balance() { try { return typeof myBalance !== 'undefined' ? myBalance : 0; } catch (e) { return 0; } }
   function shopOpen() { return $('ew-shop').style.display === 'flex'; }
@@ -1222,6 +1367,7 @@
     if (G.dbuyArm && performance.now() > G.dbuyArm) { G.dbuyArm = 0; renderInv(); }
     if (G.hArm && performance.now() > G.hArmT) { G.hArm = ''; renderInv(); }
     if (G.jArm && performance.now() > G.jArmT) { G.jArm = ''; renderInv(); }
+    if (G.cArm && performance.now() > G.cArmT) { G.cArm = ''; renderInv(); }
     if (G.dupgArm && performance.now() > G.dupgArm) { G.dupgArm = 0; renderInv(); }
   }
   function shopUpgradeDrone() {                                  // another level, two clicks, as long as you can pay
@@ -1243,7 +1389,7 @@
     $('ew-shop').style.display = 'flex'; $('ew-shop-note').textContent = '';
     renderInv(); refreshShop(); clearInterval(G.shopTimer); G.shopTimer = setInterval(refreshShop, 500);
   }
-  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; G.dbuyArm = 0; G.dupgArm = 0; G.hArm = ''; G.jArm = ''; renderInv(); }
+  function closeShop() { $('ew-shop').style.display = 'none'; clearInterval(G.shopTimer); G.buyArm = 0; G.dbuyArm = 0; G.dupgArm = 0; G.hArm = ''; G.jArm = ''; G.cArm = ''; renderInv(); }
   function shopBuy() {                                           // two clicks, so 5,000 PlaceBux can't go on one slip
     var i = G.inv, now = performance.now();
     if (i.rockets + i.per > i.max) return;
@@ -1371,7 +1517,7 @@
   }
   function toggleHeli() {
     if (G.heli) { if (!G.heli.onGround) { sys('Land the helicopter first, then press 3 to get out.'); return; } send({ t: 'heli', on: false }); return; }
-    if (G.drone || G.jet) return;
+    if (G.drone || G.jet || G.car) return;
     var own = G.inv.heli || {}, id = G.hsel && own[G.hsel] === 1 ? G.hsel : myHeliBest();
     if (!id) { sys('You do not own a helicopter. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to start a helicopter.'); return; }
@@ -1538,7 +1684,7 @@
   }
   function killWreck(w) { if (w.fire) w.fire.remove(); w.puffs.forEach(function (p) { p.el.remove(); }); (w.deb || []).forEach(function (d) { if (d.el) d.el.remove(); }); }
   function drawHelis(vp, ex, ey, ez, dt, now) {
-    var needH = G.heli || G.helis.size || G.wrecks.some(function (w) { return w.kind !== 'j'; });
+    var needH = G.heli || G.helis.size || G.wrecks.some(function (w) { return w.kind === 'h'; });
     if (!needH && !G.wrecks.length) return;
     var r = needH ? heliRenderer() : null; if (needH && !r) return;
     var fn = RDIST * 16 - 44, ff = RDIST * 16 - 6, cam = [ex, ey, ez];
@@ -1553,7 +1699,7 @@
     for (var i = G.wrecks.length - 1; i >= 0; i--) {
       var w = G.wrecks[i], age = (now - w.t0) / 1000;
       if (age > 120) { killWreck(w); G.wrecks.splice(i, 1); continue; }
-      var ddx = w.x - ex, ddz = w.z - ez; if (r && w.kind !== 'j' && ddx * ddx + ddz * ddz < 170 * 170 && HELIS[w.m]) r.draw(w.m, heliModelMat(w.x, w.y, w.z, w.yaw, w.pt, w.rl), vp, cam, fn, ff, 0.6, 0, 0.82);
+      var ddx = w.x - ex, ddz = w.z - ez; if (r && w.kind === 'h' && ddx * ddx + ddz * ddz < 170 * 170 && HELIS[w.m]) r.draw(w.m, heliModelMat(w.x, w.y, w.z, w.yaw, w.pt, w.rl), vp, cam, fn, ff, 0.6, 0, 0.82);
     }
   }
   function drawHeliFx(vp, focal, ex, ey, ez, dt, now) {
@@ -1655,7 +1801,7 @@
   }
   function toggleJet() {
     if (G.jet) { if (!G.jet.onGround || G.jet.speed > 4) { sys('Land and stop the jet first, then press 4 to get out.'); return; } send({ t: 'jet', on: false }); return; }
-    if (G.drone || G.heli) return;
+    if (G.drone || G.heli || G.car) return;
     var own = G.inv.jet || {}, id = G.jsel && own[G.jsel] ? G.jsel : JET_IDS.filter(function (k) { return own[k]; }).pop();
     if (!id) { sys('You do not own a jet. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to get into a jet.'); return; }
@@ -1951,9 +2097,376 @@
     setDroneVoice(v, { freq: (140 + 230 * thr) * dopp, gain: 0.3 * Math.pow(1 / (1 + dist / 14), 1.5), pan: pan, cut: (blocked ? 450 : 2300 - Math.min(1500, dist * 14)) * (sp ? 1 : 0.6), wash: 0.015, dmg: 0 });
   }
 
+  // ---- cars: bringing one out, getting in and out, hijacking, driving, the cameras, other people's cars, wrecks, sound and the shop cards
+  var CAR_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src || '').replace(/ezworld\.js.*$/, 'car_gl.js');
+  var CTHUMBS = {}, ENG = { yaris: 1.2, civic: 1.1, f150: 0.85, c5: 0.9, m3: 1.1, '911': 1.15, cls63: 0.88 };
+  function carRenderer() {                       // the car models are another separate file, fetched the first time a car matters
+    if (G.cr) return G.cr;
+    if (G.crFail) return null;
+    if (window.CarGL) {
+      try { G.cr = window.CarGL.create(G.gl); } catch (e) { G.cr = null; G.crFail = true; }
+      return G.cr;
+    }
+    if (!G.crLoading && CAR_SRC) {
+      G.crLoading = true; var g0 = G, sc = document.createElement('script');
+      sc.src = CAR_SRC; sc.onload = function () { if (G === g0) { g0.crLoading = false; renderInv(); } };
+      sc.onerror = function () { g0.crFail = true; };
+      document.head.appendChild(sc);
+    }
+    return null;
+  }
+  function carCss() {
+    if (document.getElementById('ew-car-css')) return;
+    var st = document.createElement('style'); st.id = 'ew-car-css';
+    st.textContent = '#ew-chud{display:none;position:absolute;left:50%;bottom:78px;transform:translateX(-50%);gap:16px;padding:8px 18px;font:700 14px "JetBrains Mono","Fira Code",monospace;color:#fff;text-shadow:0 0 6px rgba(0,0,0,.9);background:rgba(8,10,14,.62);border:1px solid rgba(255,255,255,.22);border-radius:10px;pointer-events:none;align-items:center}' +
+      '#ew-chud b{font-size:22px;color:#7dff9a}#ew-chud .bar{width:90px;height:8px;border-radius:4px;background:rgba(255,255,255,.18);overflow:hidden;display:inline-block;vertical-align:middle}#ew-chud .bar i{display:block;height:100%;background:#7dff9a}' +
+      '#ew-chud .bad{color:#ff6b5e}#ew-chud .st{color:#ffd166}' +
+      '#ew-carprompt{display:none;position:absolute;left:50%;bottom:140px;transform:translateX(-50%);padding:6px 14px;border-radius:8px;background:rgba(8,10,14,.7);border:1px solid rgba(255,255,255,.25);color:#fff;font-weight:700;font-size:13px;pointer-events:none;text-align:center}' +
+      '#ew-carprompt .pb{display:none;margin-top:5px;width:160px;height:7px;border-radius:4px;background:rgba(255,255,255,.2);overflow:hidden}#ew-carprompt .pb i{display:block;height:100%;width:0;background:#ff6b5e}' +
+      '#ew-hotbar5{display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-weight:700;font-size:13px}#ew-hotbar5.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-hotbar5 .key{font-size:11px;opacity:.7}' +
+      '#ew-shop-cars{padding:0 16px 6px;display:flex;flex-direction:column;gap:10px}#ew-shop-cars h4{margin:6px 0 0;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}#ew-shop-cars .warn{font-size:11.5px;color:var(--red)}';
+    document.head.appendChild(st);
+  }
+  function carBasis(c) { return jetBasis(c.yaw, c.pitch, c.roll); }
+  function carMat(c) { var b = carBasis(c); return jetMat(c.x, c.y - 0.03, c.z, b.f, b.u); }
+  function nearestCar() {
+    var best = null, bd = 5.5 * 5.5, m = G.me; if (!m) return null;
+    G.cars.forEach(function (o) { var dx = o.x - m.x, dz = o.z - m.z, d = dx * dx + dz * dz; if (d < bd && Math.abs(o.y - m.y) < 3) { bd = d; best = o; } });
+    return best;
+  }
+  function summonCar() {
+    if (G.car || G.drone || G.heli || G.jet) return;
+    var own = G.inv.car || {}, id = G.csel && own[G.csel] ? G.csel : CAR_IDS.filter(function (k) { return own[k]; }).pop();
+    if (!id) { sys('You do not own a car. Buy one in the shop (B).'); return; }
+    if (!G.me || !G.me.onGround) { sys('Stand on the ground to bring out a car.'); return; }
+    G.csel = id; send({ t: 'car', a: 'summon', m: id });
+  }
+  function carUse() {                              // F: get out of your car, or into the nearest one (somebody else's: hold F to hijack it)
+    if (G.car) {
+      if (Math.abs(G.car.vf) > 6) { sys('Slow down before you get out.'); return; }
+      send({ t: 'car', a: 'exit' }); return;
+    }
+    if (G.drone || G.heli || G.jet) return;
+    var o = nearestCar(); if (!o) return;
+    send({ t: 'car', a: 'enter', id: o.id });
+  }
+  function startCar(m) {
+    var sp = cspec(m.m), yaw = m.yaw / 256 * 2 * Math.PI;
+    G.car = { id: m.id, m: m.m, x: m.x, y: m.y, z: m.z, yaw: yaw, vf: 0, vl: 0, vy: 0, wy: 0, steer: 0, speed: 0, onGround: true, pitch: 0, roll: 0, wheel: 0, dmg: m.dmg || 0, dents: (m.dents || [0, 0, 0, 0]).slice(), sent: 0, lastSent: '', view: 0, head: false, gw: null };
+    G.ccam = { yaw: 0, pitch: 0, idle: 0, cyaw: yaw, dist: sp.chase };
+    G.carpose = { x: m.x, y: m.y + 3, z: m.z, yaw: yaw, pitch: 0, f: [-Math.sin(yaw), 0, -Math.cos(yaw)], u: [0, 1, 0] };
+    G.cars.delete(m.id); G.inv.armed = false; G.csel = m.m; G.hijack = null;
+    carCss(); carHud(true); $('ew-cross').style.display = 'none';
+    sys('Driving the ' + sp.name + '. W gas, S brake and reverse, A/D steer, Space handbrake, V camera, H horn, L lights, F get out.' + (m.mine ? '' : ' (Hijacked!)'));
+    doorSound();
+    renderInv();
+  }
+  function endCar(m) {
+    var c = G.car, eye0 = G.carpose ? [G.carpose.x, G.carpose.y, G.carpose.z] : null; G.car = null; G.carpose = null;
+    carHud(false); $('ew-cross').style.display = '';
+    stopOwnEngine(); doorSound();
+    if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
+    G.bodyWait = true;
+    if (m && m.why === 'totaled') { sys('Your ' + (c ? CARS[c.m].name : 'car') + ' was totaled. It is gone for good.'); G.shake = performance.now() + 500; }
+    else if (m && m.forced && m.why) sys(m.why);
+    renderInv();
+  }
+  function carHud(on) {
+    var el = $('ew-chud');
+    if (!el) { el = document.createElement('div'); el.id = 'ew-chud'; G.view.appendChild(el); }
+    el.style.display = on ? 'flex' : 'none';
+  }
+  function carHints(now) {                          // the prompt next to a car, and the hijack progress bar
+    var pr = $('ew-carprompt');
+    if (!pr) { carCss(); pr = document.createElement('div'); pr.id = 'ew-carprompt'; pr.innerHTML = '<span class="tx"></span><div class="pb"><i></i></div>'; G.view.appendChild(pr); }
+    if (G.car || G.drone || G.heli || G.jet || !G.ready) { pr.style.display = 'none'; return; }
+    var hj = G.hijack;
+    if (hj) {
+      var f = Math.min(1, (now - hj.t0) / hj.ms);
+      pr.style.display = 'block'; pr.querySelector('.tx').textContent = 'Hijacking... keep holding F'; pr.querySelector('.pb').style.display = 'block'; pr.querySelector('.pb i').style.width = (f * 100).toFixed(0) + '%';
+      if (!G.keys.KeyF) { G.hijack = null; return; }
+      if (f >= 1) { send({ t: 'car', a: 'enter', id: hj.id, confirm: true }); G.hijack = null; }
+      return;
+    }
+    if (now - (G.cphAt || 0) < 150) return; G.cphAt = now;
+    var o = nearestCar();
+    if (!o) { pr.style.display = 'none'; return; }
+    var mine = o.id === G.inv.ccid;
+    pr.style.display = 'block'; pr.querySelector('.pb').style.display = 'none';
+    pr.querySelector('.tx').textContent = (CARS[CAR_IDS[o.mi]] ? CARS[CAR_IDS[o.mi]].name : 'Car') + (o.flags & 4 ? ' (somebody is driving)' : '') + ': ' + (mine && !(o.flags & 4) ? 'press F to get in' : 'hold F to hijack');
+  }
+  function sendCarPos(inp, force) {
+    var c = G.car; if (!c || !G.ws || G.ws.readyState !== 1) return;
+    var qx = Math.round(c.x * 16), qy = Math.round(c.y * 16), qz = Math.round(c.z * 16);
+    var yaw = Math.floor(((c.yaw % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * 256) & 255, st = Math.max(-127, Math.min(127, Math.round(c.steer / 0.6 * 127)));
+    var flags = ((inp.b && c.vf > 0.5) || inp.hb ? 1 : 0) | (c.head ? 2 : 0), key = qx + ',' + qy + ',' + qz + ',' + yaw + ',' + st + ',' + flags;
+    if (key === c.lastSent && !force) return;
+    c.lastSent = key; c.sent = performance.now();
+    var b = new ArrayBuffer(10), dv = new DataView(b);
+    dv.setUint8(0, 5); dv.setInt16(1, qx, true); dv.setInt16(3, qy, true); dv.setInt16(5, qz, true); dv.setUint8(7, yaw); dv.setInt8(8, st); dv.setUint8(9, flags);
+    G.ws.send(b);
+  }
+  function carImpact(c, ev, sp) {                    // something was hit: tell the server, dent the car at once, shake and crunch
+    send({ t: 'ccrash', v: ev.spd, dx: ev.dx, dz: ev.dz });
+    var dmg = (ev.spd - CAR_CRASH_MIN) * 2.4 + 2, d = carDirs(c.yaw), along = ev.dx * d[0] + ev.dz * d[1], side = ev.dx * d[2] + ev.dz * d[3];
+    if (Math.abs(along) >= Math.abs(side)) c.dents[along > 0 ? 0 : 1] = Math.min(1, c.dents[along > 0 ? 0 : 1] + dmg / 70); else c.dents[side > 0 ? 3 : 2] = Math.min(1, c.dents[side > 0 ? 3 : 2] + dmg / 80);
+    c.dmg = Math.min(99, c.dmg + dmg);
+    G.shake = performance.now() + Math.min(600, 150 + ev.spd * 10);
+    crashSound(ev.spd);
+  }
+  function driveCar(dt) {
+    var c = G.car, k = G.keys, now = performance.now(), sp = cspec(c.m), me = G.me;
+    var inp = locked() ? { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, hb: k.Space } : {};
+    var ev = stepCar(c, inp, dt, sp);
+    if (ev) {
+      if (ev.res === 'crash') carImpact(c, ev, sp);
+      else if (ev.res === 'bump' && G.aud && ev.spd > 2) noiseHit(G.aud, 0.15, 0.15, 900, 200, 0);
+      sendCarPos(inp, true);
+    } else if (now - c.sent >= 50) sendCarPos(inp, false);
+    me.x = c.x; me.y = c.y; me.z = c.z; me.yaw = c.yaw;
+    // cameras
+    var cc = G.ccam, cp = G.carpose, b = carBasis(c);
+    cc.idle += dt; if (cc.idle > 1.5 && c.view === 0) { cc.yaw *= Math.max(0, 1 - dt * 2); cc.pitch *= Math.max(0, 1 - dt * 2); }
+    if (c.view === 0) {
+      cc.cyaw += angDiff(cc.cyaw, c.yaw + Math.max(-0.5, Math.min(0.5, c.vl * 0.05))) * Math.min(1, dt * 4);
+      var y0 = cc.cyaw + cc.yaw, tx = c.x, ty = c.y + sp.h * 0.7, tz = c.z, hgt = sp.chaseUp + cc.pitch * cc.dist * 0.8;
+      var ex2 = tx + Math.sin(y0) * cc.dist, ey2 = ty + hgt, ez2 = tz + Math.cos(y0) * cc.dist;
+      var bx = ex2 - tx, by = ey2 - ty, bz = ez2 - tz, bl = Math.sqrt(bx * bx + by * by + bz * bz) || 1, hit = raycast(tx, ty, tz, bx / bl, by / bl, bz / bl, bl + 0.4);
+      if (hit && hit.t < bl) { var cl = Math.max(1.5, hit.t - 0.4); ex2 = tx + bx / bl * cl; ey2 = ty + by / bl * cl; ez2 = tz + bz / bl * cl; }
+      cp.x = ex2; cp.y = ey2; cp.z = ez2;
+      var lf = jnorm([tx - ex2, ty - ey2, tz - ez2]); cp.f = lf; cp.u = [0, 1, 0]; cp.yaw = Math.atan2(-lf[0], -lf[2]); cp.pitch = Math.asin(Math.max(-1, Math.min(1, lf[1])));
+    } else {
+      var e = jpt({ x: c.x, y: c.y - 0.03, z: c.z, f: b.f, u: b.u }, sp.eye[0], sp.eye[1], sp.eye[2]); cp.x = e[0]; cp.y = e[1]; cp.z = e[2];
+      cc.pitch = Math.max(-0.7, Math.min(0.7, cc.pitch)); cc.yaw = Math.max(-2.2, Math.min(2.2, cc.yaw));
+      var sY = Math.sin(cc.yaw), cY = Math.cos(cc.yaw), r2 = jcross(b.f, b.u), cPp = Math.cos(cc.pitch), sP = Math.sin(cc.pitch);
+      var f3 = [b.f[0] * cY - r2[0] * sY, b.f[1] * cY - r2[1] * sY, b.f[2] * cY - r2[2] * sY], f4 = [f3[0] * cPp + b.u[0] * sP, f3[1] * cPp + b.u[1] * sP, f3[2] * cPp + b.u[2] * sP], u4 = [b.u[0] * cPp - f3[0] * sP, b.u[1] * cPp - f3[1] * sP, b.u[2] * cPp - f3[2] * sP];
+      cp.f = jnorm(f4); cp.u = jnorm(u4); cp.yaw = Math.atan2(-f4[0], -f4[2]); cp.pitch = Math.asin(Math.max(-1, Math.min(1, f4[1])));
+    }
+    // instruments
+    if (!c.hudAt || now - c.hudAt > 90) {
+      c.hudAt = now;
+      var kmh = Math.round(Math.abs(c.vf) * 3.6), hp = Math.max(0, 100 - c.dmg), warn = c.dmg > 85 ? '<span class="bad">CRITICAL</span>' : c.dmg > 60 ? '<span class="bad">HEAVY DAMAGE</span>' : '';
+      var html = '<span><b>' + kmh + '</b> km/h</span><span>' + (c.vf < -0.5 ? 'R' : kmh < 1 ? 'N' : String(Math.min(6, 1 + Math.floor(Math.abs(c.vf) / sp.vmax * 6)))) + '</span><span>' + esc(sp.name) + '</span><span>CAR <span class="bar"><i style="width:' + hp.toFixed(0) + '%;background:' + (hp > 50 ? '#7dff9a' : hp > 25 ? '#ffd166' : '#ff6b5e') + '"></i></span> ' + Math.round(hp) + '%</span>' + (c.head ? '<span class="st">LIGHTS</span>' : '') + (inp.hb ? '<span class="st">HANDBRAKE</span>' : '') + warn;
+      if (html !== c.hudHtml) { c.hudHtml = html; $('ew-chud').innerHTML = html; }
+    }
+    c.brakeL = !!((inp.b && c.vf > 0.5) || inp.hb); c.headL = c.head;
+    ownEngine(c, inp, sp, dt);
+  }
+  // ---- sound: an engine that climbs through the gears, tyre squeal when it slides, a horn, and other drivers heard in 3D
+  // Each car has its own engine, built from sound waves: how many cylinders it has sets the pitch for the revs, a table of harmonics sets the tone (a V8's deep burble,
+  // a straight-six's smooth howl, a flat-six's rasp), pulses in the volume stand in for the cylinders firing, and extras add a VTEC-style howl, a turbo whistle with a blow-off
+  // valve, exhaust crackles when you lift off, wind and road noise, tyre squeal, and a starter motor when you get in.
+  var EP = {
+    yaris:  { cyl: 3, idle: 900, red: 6600, h: [0.9, 1, 0.5, 0.45, 0.25, 0.2, 0.12, 0.1], am: 0.22, amIrr: 0.0, sub: 0.25, intake: 0.6, whine: 0.0, crack: 0.0, turbo: 0, lp: 1.0, bov: 0, clatter: 0 },
+    civic:  { cyl: 4, idle: 800, red: 7200, h: [0.45, 1, 0.3, 0.6, 0.18, 0.3, 0.1, 0.16], am: 0.1, amIrr: 0.0, sub: 0.2, intake: 0.85, whine: 0.55, crack: 0.05, turbo: 0, lp: 1.1, bov: 0, clatter: 0 },
+    f150:   { cyl: 8, idle: 650, red: 5600, h: [1, 0.85, 0.55, 0.4, 0.3, 0.2, 0.15, 0.1], am: 0.5, amIrr: 0.38, sub: 0.7, intake: 0.35, whine: 0.0, crack: 0.15, turbo: 0, lp: 0.7, bov: 0, clatter: 0 },
+    c5:     { cyl: 8, idle: 700, red: 6300, h: [1, 0.95, 0.65, 0.55, 0.4, 0.3, 0.22, 0.16], am: 0.46, amIrr: 0.45, sub: 0.6, intake: 0.4, whine: 0.0, crack: 0.9, turbo: 0, lp: 0.85, bov: 0, clatter: 0 },
+    m3:     { cyl: 6, idle: 850, red: 8000, h: [0.6, 1, 0.4, 0.65, 0.32, 0.45, 0.22, 0.28], am: 0.07, amIrr: 0.0, sub: 0.25, intake: 1.0, whine: 0.3, crack: 0.3, turbo: 0, lp: 1.25, bov: 0, clatter: 0 },
+    '911':  { cyl: 6, idle: 800, red: 7600, h: [0.75, 0.95, 0.8, 0.85, 0.55, 0.6, 0.4, 0.34], am: 0.24, amIrr: 0.18, sub: 0.2, intake: 0.7, whine: 0.0, crack: 0.35, turbo: 0, lp: 1.15, bov: 0, clatter: 0.35 },
+    cls63:  { cyl: 8, idle: 700, red: 6600, h: [1, 0.9, 0.62, 0.45, 0.3, 0.22, 0.16, 0.1], am: 0.36, amIrr: 0.22, sub: 0.55, intake: 0.5, whine: 0.0, crack: 0.9, turbo: 1, lp: 0.9, bov: 1, clatter: 0 }
+  };
+  var HORN = { yaris: [466, 587], civic: [415, 494], f150: [311, 370], c5: [392, 311], m3: [392, 494], '911': [440, 370], cls63: [370, 466] };
+  var GEAR_TOP = [0.16, 0.31, 0.48, 0.67, 0.85, 1.0];
+  function waveFor(ctx, h) {
+    var re = new Float32Array(h.length + 1), im = new Float32Array(h.length + 1);
+    for (var i = 0; i < h.length; i++) im[i + 1] = h[i] / (1 + i * 0.05);
+    return ctx.createPeriodicWave(re, im);
+  }
+  function makeEngineVoice(a, model) {
+    var ctx = a.ctx, ep = EP[model] || EP.civic, v = { ctx: ctx, ep: ep, model: model, gear: 0, shiftUntil: 0, boost: 0, lastThr: 0, rpmN: 0, smRpm: 0, startT: ctx.currentTime };
+    var mix = ctx.createGain(); mix.gain.value = 0.3;
+    var wave = waveFor(ctx, ep.h);
+    function osc(det, g, type) { var o = ctx.createOscillator(); if (type) o.type = type; else o.setPeriodicWave(wave); o.frequency.value = 60; o.detune.value = det; var gn = ctx.createGain(); gn.gain.value = g; o.connect(gn); gn.connect(v.am); o.start(); return [o, gn]; }
+    v.am = ctx.createGain(); v.am.gain.value = 1 - ep.am * 0.5;                                          // the cylinders: the volume pulses at the firing rate
+    var o1 = osc(0, 0.6), o2 = osc(5, 0.4), o3 = osc(0, ep.sub, 'sine');
+    v.o1 = o1[0]; v.o2 = o2[0]; v.o3 = o3[0];
+    v.lfo = ctx.createOscillator(); v.lfo.frequency.value = 30; v.lg = ctx.createGain(); v.lg.gain.value = ep.am * 0.5; v.lfo.connect(v.lg); v.lg.connect(v.am.gain); v.lfo.start();
+    v.lfo2 = ctx.createOscillator(); v.lfo2.frequency.value = 17; v.lg2 = ctx.createGain(); v.lg2.gain.value = ep.amIrr * 0.35; v.lfo2.connect(v.lg2); v.lg2.connect(v.am.gain); v.lfo2.start();   // uneven firing: the V8 burble
+    v.cut = ctx.createBiquadFilter(); v.cut.type = 'lowpass'; v.cut.frequency.value = 900; v.cut.Q.value = 0.9;
+    v.res = ctx.createBiquadFilter(); v.res.type = 'peaking'; v.res.frequency.value = 140; v.res.Q.value = 2.2; v.res.gain.value = 6;       // the exhaust note
+    v.am.connect(v.cut); v.cut.connect(v.res); v.res.connect(mix);
+    v.nz = ctx.createBufferSource(); v.nz.buffer = a.noise; v.nz.loop = true; v.nz.start();
+    function noiseTo(type, f, q, g) { var b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; var gn = ctx.createGain(); gn.gain.value = g; v.nz.connect(b); b.connect(gn); return [b, gn]; }
+    var it = noiseTo('bandpass', 1200, 1.2, 0), rd = noiseTo('lowpass', 260, 0.7, 0), wd = noiseTo('bandpass', 1500, 0.5, 0), sk = noiseTo('bandpass', 2200, 5, 0);
+    v.itB = it[0]; v.itG = it[1]; v.rdG = rd[1]; v.wdG = wd[1]; v.skB = sk[0]; v.skG = sk[1];
+    v.itG.connect(mix); v.rdG.connect(v.out = ctx.createGain()); v.wdG.connect(v.out); v.skG.connect(v.out); mix.connect(v.out);
+    v.out.gain.value = 0;
+    v.wh = ctx.createOscillator(); v.wh.type = ep.turbo ? 'sine' : 'triangle'; v.wh.frequency.value = 800; v.whG = ctx.createGain(); v.whG.gain.value = 0; v.wh.connect(v.whG); v.whG.connect(v.out); v.wh.start();   // VTEC howl or turbo whistle
+    v.skLfo = ctx.createOscillator(); v.skLfo.frequency.value = 9; v.skLg = ctx.createGain(); v.skLg.gain.value = 0; v.skLfo.connect(v.skLg); v.skLg.connect(v.skG.gain); v.skLfo.start();
+    v.pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (v.pan) { v.out.connect(v.pan); v.pan.connect(a.master); } else v.out.connect(a.master);
+    return v;
+  }
+  // From the car's speed work out the gear, the revs and what the driver is doing; fire the one-off sounds (shifts, crackles, blow-off); return what to set on the voice.
+  function engineState(v, vfa, vmax, thr, slip, hb, dt, now) {
+    var ep = v.ep, frac = Math.min(1, vfa / vmax), g = 0;
+    while (g < 5 && frac > GEAR_TOP[g]) g++;
+    var lo = g ? GEAR_TOP[g - 1] : 0, gp = Math.max(0, Math.min(1, (frac - lo) / (GEAR_TOP[g] - lo)));
+    var rpmN = vfa < 0.8 ? (thr ? 0.12 : 0.02) : (0.24 + 0.7 * gp);
+    if (thr && rpmN < 0.95) rpmN = Math.min(1, rpmN + 0.05);
+    var a = G ? G.aud : null, shifting = now < v.shiftUntil;
+    if (g !== v.gear && vfa > 3) {                                                    // a gear change: a dip in the revs and a blip of the throttle
+      var up = g > v.gear; v.shiftUntil = now + 220; v.gear = g;
+      if (up && thr && a) noiseHit(a, 0.05, 0.08, 900, 300, 0);
+      v.dropRpm = up ? 0.55 : 0.9;
+    } else if (g !== v.gear) v.gear = g;
+    if (shifting) rpmN = Math.min(rpmN, v.dropRpm || rpmN) * 0.9;
+    v.smRpm += (rpmN - v.smRpm) * Math.min(1, dt * (rpmN > v.smRpm ? 9 : 5));
+    var st = (v.ctx.currentTime - v.startT);                                          // the starter motor: the engine cranks, coughs and catches
+    var rpmR = ep.idle + (ep.red - ep.idle) * v.smRpm, starting = st < 1.0, crank = 1;
+    if (starting) { var k = st / 1.0; rpmR = k < 0.55 ? 140 + 90 * Math.sin(st * 38) : 140 + (ep.idle - 140) * Math.pow((k - 0.55) / 0.45, 0.6); crank = k < 0.55 ? 0.6 + 0.4 * Math.sin(st * 70) : 1; }
+    // turbo
+    v.boost += ((thr && v.smRpm > 0.3 ? 1 : 0) * Math.min(1, v.smRpm * 1.3) - v.boost) * Math.min(1, dt * (thr ? 2.5 : 6));
+    if (ep.bov && v.lastThr && !thr && v.boost > 0.55 && a) { bovSound(a, v); v.boost = 0.2; }
+    // exhaust pops when you lift off
+    if (!thr && v.smRpm > 0.5 && vfa > 8 && Math.random() < ep.crack * dt * 9 && a) popSound(a, v);
+    v.lastThr = thr ? 1 : 0;
+    var f = rpmR / 60 * ep.cyl / 2;
+    return { f: f, cut: (380 + 1900 * v.smRpm) * ep.lp * (thr ? 1.15 : 0.85), res: f * 0.5, vol: (0.11 + (thr ? 0.12 : 0.03) + 0.1 * frac) * crank, am: f,
+             itK: ep.intake * (thr ? 1 : 0.25) * (0.02 + 0.07 * v.smRpm * v.smRpm), road: 0.02 + 0.12 * frac, wind: 0.2 * frac * frac, skid: slip,
+             wh: ep.turbo ? 900 + 3200 * v.boost : (ep.whine && v.smRpm > 0.6 ? 1500 + 3500 * (v.smRpm - 0.6) : 0), whG: ep.turbo ? 0.025 * v.boost * (thr ? 1 : 0.4) : (ep.whine && v.smRpm > 0.6 ? ep.whine * 0.05 * (v.smRpm - 0.6) / 0.4 : 0) };
+  }
+  function setEngineVoice(v, p) {                  // p comes from engineState, plus vol (distance) pan, dopp, cutK from the caller
+    var t = v.ctx.currentTime, dp = p.dopp || 1, ep = v.ep, f = p.f * dp, vol = p.volK === undefined ? 1 : p.volK, i;
+    v.o1.frequency.setTargetAtTime(f, t, 0.03); v.o2.frequency.setTargetAtTime(f, t, 0.03); v.o3.frequency.setTargetAtTime(f * 0.5, t, 0.03);
+    v.lfo.frequency.setTargetAtTime(f * 0.5, t, 0.03); v.lfo2.frequency.setTargetAtTime(f * 0.37, t, 0.03);
+    v.cut.frequency.setTargetAtTime(p.cut * (p.cutK === undefined ? 1 : p.cutK), t, 0.05); v.res.frequency.setTargetAtTime(Math.max(60, p.res * 2.2), t, 0.05);
+    v.out.gain.setTargetAtTime(p.vol * 1.1 * vol, t, 0.04);
+    v.itB.frequency.setTargetAtTime(500 + f * 6, t, 0.06); v.itG.gain.setTargetAtTime(p.itK, t, 0.06);
+    v.rdG.gain.setTargetAtTime(p.road, t, 0.1); v.wdG.gain.setTargetAtTime(p.wind, t, 0.1);
+    v.skG.gain.setTargetAtTime(p.skid, t, 0.05); v.skB.frequency.setTargetAtTime(1500 + p.skid * 3500, t, 0.08); v.skLg.gain.setTargetAtTime(p.skid * 0.3, t, 0.08);
+    if (p.wh) v.wh.frequency.setTargetAtTime(p.wh * dp, t, 0.05); v.whG.gain.setTargetAtTime(p.whG, t, 0.05);
+    if (v.pan) v.pan.pan.setTargetAtTime(p.pan || 0, t, 0.05);
+  }
+  function stopEngineVoice(v) {
+    if (!v) return; var t = v.ctx.currentTime;
+    [v.o1, v.o2].forEach(function (o) { o.frequency.cancelScheduledValues(t); o.frequency.setTargetAtTime(14, t, 0.12); });    // the engine dies away
+    v.out.gain.setTargetAtTime(0, t + 0.05, 0.12);
+    setTimeout(function () { try { [v.o1, v.o2, v.o3, v.lfo, v.lfo2, v.wh, v.skLfo, v.nz].forEach(function (o) { o.stop(); }); v.out.disconnect(); } catch (e) {} }, 800);
+  }
+  function popSound(a, v) {                         // a crackle out of the exhaust
+    var ctx = a.ctx, t = ctx.currentTime, src = ctx.createBufferSource(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+    src.buffer = a.noise; f.type = 'bandpass'; f.frequency.value = 700 + Math.random() * 1500; f.Q.value = 1.5;
+    g.gain.setValueAtTime(0.5 + Math.random() * 0.4, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05 + Math.random() * 0.05);
+    src.connect(f); f.connect(g); g.connect(v.out); src.start(t, Math.random()); src.stop(t + 0.14);
+  }
+  function bovSound(a, v) {                         // the turbo's blow-off valve
+    var ctx = a.ctx, t = ctx.currentTime, src = ctx.createBufferSource(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+    src.buffer = a.noise; f.type = 'highpass'; f.frequency.setValueAtTime(2600, t); f.frequency.exponentialRampToValueAtTime(1100, t + 0.55);
+    g.gain.setValueAtTime(0.0, t); g.gain.linearRampToValueAtTime(0.35, t + 0.03); g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    src.connect(f); f.connect(g); g.connect(v.out); src.start(t, Math.random()); src.stop(t + 0.7);
+  }
+  function ownEngine(c, inp, sp, dt) {
+    var a = G.aud; if (!a) return;
+    if (!a.ownCar || a.ownCar.model !== c.m) { if (a.ownCar) stopEngineVoice(a.ownCar); a.ownCar = makeEngineVoice(a, c.m); }
+    var slip = (Math.abs(c.vl) > 2.5 && c.speed > 4) || (inp.hb && c.speed > 6) ? Math.min(0.4, 0.08 + (Math.abs(c.vl) - 2) * 0.05 + (inp.hb ? 0.1 : 0)) : 0;
+    setEngineVoice(a.ownCar, engineState(a.ownCar, Math.abs(c.vf), sp.vmax, !!inp.f, slip, !!inp.hb, dt, performance.now()));
+  }
+  function stopOwnEngine() { var a = G.aud; if (a && a.ownCar) { stopEngineVoice(a.ownCar); a.ownCar = null; } }
+  function doorSound() { var a = G.aud; if (a) { noiseHit(a, 0.3, 0.1, 700, 160, 95); setTimeout(function () { if (G && G.aud) noiseHit(G.aud, 0.1, 0.04, 3000, 900, 0); }, 90); } }
+  function crashSound(spd) {                        // metal, a low thump, ringing panels and, in a hard one, breaking glass
+    var a = G.aud; if (!a) return; var ctx = a.ctx, t = ctx.currentTime, k = Math.min(1, spd / 40);
+    noiseHit(a, 0.35 + 0.65 * k, 0.4 + 0.5 * k, 2600, 140, 70);
+    [520, 1180, 1900].forEach(function (fr, i) {
+      var o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); o.type = 'square'; o.frequency.value = fr * (0.9 + Math.random() * 0.2); f.type = 'bandpass'; f.frequency.value = fr; f.Q.value = 8;
+      g.gain.setValueAtTime(0.06 * (0.5 + k), t + 0.01 * i); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3 + 0.2 * k); o.connect(f); f.connect(g); g.connect(a.master); o.start(t); o.stop(t + 0.6);
+    });
+    if (spd > 22) for (var j = 0; j < 7; j++) setTimeout(function () { if (G && G.aud) noiseHit(G.aud, 0.12 * Math.random() + 0.04, 0.07, 9000, 4500, 0); }, 40 + j * (30 + Math.random() * 60));
+  }
+  function hornSound(gain, pan, model) {
+    var a = G.aud; if (!a || gain < 0.02) return; var ctx = a.ctx, t = ctx.currentTime, g = ctx.createGain(), p = ctx.createStereoPanner ? ctx.createStereoPanner() : null, hf = HORN[model] || HORN.civic;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.16 * gain, t + 0.02); g.gain.setValueAtTime(0.16 * gain, t + 0.42); g.gain.linearRampToValueAtTime(0, t + 0.5);
+    hf.forEach(function (f) { var o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2000; o.connect(lp); lp.connect(g); o.start(t); o.stop(t + 0.55); });
+    if (p) { p.pan.value = pan || 0; g.connect(p); p.connect(a.master); } else g.connect(a.master);
+  }
+  // ---- other people's cars
+  function onCarFrame(dv) {
+    var n = dv.getUint16(1, true), p = 3;
+    for (var i = 0; i < n; i++, p += 17) {
+      var id = dv.getUint16(p, true), o = G.cars.get(id);
+      if (G.car && G.car.id === id) continue;
+      if (!o) { o = { id: id, el: null, fresh: true, wheel: 0, lx: 0, lz: 0, spd: 0, pitch: 0, roll: 0, dents: [0, 0, 0, 0], x: 0, y: 0, z: 0, yaw: 0 }; G.cars.set(id, o); }
+      o.tx = dv.getInt16(p + 2, true) / 16; o.ty = dv.getInt16(p + 4, true) / 16; o.tz = dv.getInt16(p + 6, true) / 16;
+      o.tyaw = dv.getUint8(p + 8) / 256 * 2 * Math.PI; o.steerR = dv.getInt8(p + 9) / 127 * 0.6; o.mi = dv.getUint8(p + 10); o.m = CAR_IDS[o.mi] || 'civic';
+      o.dmg = dv.getUint8(p + 11) / 2.55; o.flags = dv.getUint8(p + 12);
+      for (var q = 0; q < 4; q++) o.dents[q] = dv.getUint8(p + 13 + q) / 255;
+      if (o.fresh) { o.x = o.tx; o.y = o.ty; o.z = o.tz; o.yaw = o.tyaw; o.lx = o.x; o.lz = o.z; o.fresh = false; }
+    }
+  }
+  function carDrawOpts(c, cockpit) { return { steer: c.steerR !== undefined ? c.steerR : c.steer, wheelSpin: c.wheel, damage: Math.min(1, (c.dmg || 0) / 100), dentF: c.dents[0], dentB: c.dents[1], dentL: c.dents[2], dentR: c.dents[3], brake: c.brakeL ? 1 : 0, head: c.headL ? 1 : 0, cockpit: !!cockpit, tint: 0 }; }
+  function addCarWreck(m) {
+    var w = newWreck('c', m, [0, 0, 0], { yaw: m.yaw / 256 * 2 * Math.PI, pt: 0, rl: 0 });
+    w.wy = w.wp = w.wr = 0; w.dents = m.dents || [1, 0.6, 0.4, 0.4]; w.cm = m.m;
+    if (G.car && G.car.id === m.id) { /* the driver is already out */ }
+    return w;
+  }
+  function drawCars(vp, ex, ey, ez, dt, now) {
+    if (!G.car && !G.cars.size && !G.wrecks.some(function (w) { return w.kind === 'c'; })) return;
+    var r = carRenderer(); if (!r) return;
+    var fn = RDIST * 16 - 44, ff = RDIST * 16 - 6, cam = [ex, ey, ez], a = G.aud;
+    if (G.car) { var c = G.car; r.draw(c.m, carMat(c), vp, cam, fn, ff, carDrawOpts(c, c.view === 1)); }
+    G.cars.forEach(function (o) {
+      var k = Math.min(1, dt * 12);
+      o.x += (o.tx - o.x) * k; o.y += (o.ty - o.y) * k; o.z += (o.tz - o.z) * k; o.yaw += angDiff(o.yaw, o.tyaw) * k;
+      var sp0 = Math.hypot(o.x - o.lx, o.z - o.lz) / Math.max(dt, 0.001); o.lx = o.x; o.lz = o.z; o.spd += (sp0 - o.spd) * Math.min(1, dt * 3); o.wheel += o.spd * dt / 0.33;
+      o.brakeL = !!(o.flags & 1); o.headL = !!(o.flags & 2);
+      var dx = o.x - ex, dz = o.z - ez, d2 = dx * dx + dz * dz;
+      // other drivers' engines
+      if (a) {
+        var key = 'c' + o.id, v = a.voices.get(key);
+        if ((o.flags & 4) && d2 < 110 * 110) {
+          if (!v) { if (a.voices.size >= 7) { v = null; } else { v = makeEngineVoice(a, o.m); v.isCar = true; a.voices.set(key, v); } }
+          if (v) {
+            var dist = Math.sqrt(d2), rdot = o.rd === undefined ? 0 : (dist - o.rd) / Math.max(dt, 0.001); o.rd = dist;
+            var spc = cspec(o.m), st = engineState(v, o.spd, spc.vmax, o.spd > 1.5, 0, false, dt, now), psp = project(vp, o.x, o.y + 1, o.z, G.cw, G.ch);
+            st.dopp = 1 / (1 + Math.max(-60, Math.min(60, rdot)) / 200); st.volK = 1.2 * Math.pow(1 / (1 + dist / 12), 1.4); st.cutK = lineBlocked(ex, ey, ez, o.x, o.y + 1, o.z) ? 0.35 : 1; st.pan = psp ? Math.max(-1, Math.min(1, (psp.x / G.cw * 2 - 1) * 1.1)) : 0;
+            setEngineVoice(v, st);
+          }
+        } else if (v) { stopEngineVoice(v); a.voices.delete(key); }
+      }
+      if (d2 > 230 * 230 || !CARS[o.m]) return;
+      var cb = { x: o.x, y: o.y, z: o.z, yaw: o.yaw, pitch: 0, roll: 0 };
+      r.draw(o.m, carMat(cb), vp, cam, fn, ff, carDrawOpts(o, false));
+    });
+    G.wrecks.forEach(function (w) {
+      if (w.kind !== 'c' || !CARS[w.cm]) return;
+      var ddx = w.x - ex, ddz = w.z - ez; if (ddx * ddx + ddz * ddz > 230 * 230) return;
+      var o2 = { steer: 0, wheel: 0, dmg: 100, dents: w.dents, brakeL: false, headL: false };
+      var opt = carDrawOpts(o2, false); opt.tint = 0.85; opt.damage = 1;
+      r.draw(w.cm, carMat({ x: w.x, y: w.y - 1.07, z: w.z, yaw: w.yaw, pitch: w.pt, roll: w.rl }), vp, cam, fn, ff, opt);
+    });
+  }
+  // ---- shop cards
+  function carThumb(id) {
+    if (CTHUMBS[id]) return CTHUMBS[id];
+    var r = carRenderer(); if (!r || !r.thumbnail) return '';
+    try { var u = r.thumbnail(id, 150, 80); if (u) CTHUMBS[id] = u; } catch (e) {}
+    return CTHUMBS[id] || '';
+  }
+  function renderCarShop() {
+    var box = $('ew-shop-cars'); if (!box) return;
+    carCss(); heliCss();
+    var own = G.inv.car || {}, prices = G.inv.cp || {}, html = '<h4>Cars</h4><div class="warn">Cars take damage. Crash one until it is totaled and it is gone for good. Anyone can hijack a parked car.</div>';
+    CAR_IDS.forEach(function (id) {
+      var sp = CARS[id], price = prices[id] || sp.price, st = own[id], img = carThumb(id);
+      var btn1 = st ? '<button class="win-btn" data-c="launch" data-id="' + id + '"' + (G.car || G.drone || G.heli || G.jet ? ' disabled' : '') + '>' + (G.car && G.car.m === id ? 'Driving' : 'Bring out') + '</button>'
+        : '<button class="win-btn" data-c="buy" data-id="' + id + '">' + (G.cArm === id ? 'Click again to confirm' : 'Buy') + '</button>';
+      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st ? ' · owned' : '') + ' · top speed ' + Math.round(sp.vmax * 3.6) + ' km/h</span></div><div class="act">' + btn1 + '</div></div>';
+    });
+    if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
+  }
+  function carShopClick(e) {
+    var t = e.target; if (!t || !t.getAttribute || !t.getAttribute('data-c')) return;
+    var id = t.getAttribute('data-id'), kind = t.getAttribute('data-c'), prices = G.inv.cp || {}, price = prices[id] || CARS[id].price, now = performance.now();
+    if (kind === 'launch') { closeShop(); G.csel = id; summonCar(); return; }
+    if (G.cArm === id && now < G.cArmT) { G.cArm = ''; send({ t: 'buy', item: id }); renderInv(); return; }
+    if (balance() < price) { $('ew-shop-note').textContent = 'You need ' + fmt(price) + ' PlaceBux (you have ' + fmt(balance()) + ').'; return; }
+    $('ew-shop-note').textContent = ''; G.cArm = id; G.cArmT = now + 3000; renderInv();
+  }
+
   // ---- flying the drone
   function toggleDrone() {
-    if (G.heli || G.jet) return;
+    if (G.heli || G.jet || G.car) return;
     if (G.drone) { send({ t: 'drone', on: false }); return; }
     if (!G.inv.drone) { sys('You do not own an FPV drone. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to launch the drone.'); return; }
@@ -2132,7 +2645,7 @@
     if (menuOpen() && locked() && document.exitPointerLock) document.exitPointerLock();
     if (G.shake > now) { G.canvas.style.transform = 'translate(' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px,' + ((Math.random() - 0.5) * 8).toFixed(1) + 'px)'; G.shaking = true; } else if (G.shaking) { G.canvas.style.transform = ''; G.shaking = false; }
     if (G.me && G.ready) {
-      var hd = headingOf((G.drone || G.heli || G.jet || G.me).yaw);
+      var hd = headingOf((G.drone || G.heli || G.jet || G.car || G.me).yaw);
       if (Math.abs(hd - G.lastHeading) > 0.2 || G.compassDirty) {
         G.lastHeading = hd; G.compassDirty = false;
         if (!G.compassOff) G.compassOff = document.createElement('canvas');
@@ -2158,7 +2671,8 @@
       if (G.ready) {
         var k = G.keys, inp = { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, jump: k.Space, sprint: G.sprint && (k.KeyW || k.ArrowUp) };
         var changed = false;
-        if (G.jet) flyJet(dt);
+        if (G.car) driveCar(dt);
+        else if (G.jet) flyJet(dt);
         else if (G.heli) flyHeli(dt);
         else if (G.drone) flyDrone(dt);                                    // the body stands still while the drone flies
         else if (G.bodyWait) { var bu = chunks.get(ckey(Math.floor(me.x) >> 4, Math.floor(me.z) >> 4)); if (bu && bu.loaded) G.bodyWait = false; }
@@ -2176,6 +2690,7 @@
       pend.sort(function (a, b) { return Math.abs(a.cx * 16 + 8 - me.x) + Math.abs(a.cz * 16 + 8 - me.z) - Math.abs(b.cx * 16 + 8 - me.x) - Math.abs(b.cz * 16 + 8 - me.z); });
       for (var i = 0; i < pend.length && budget > 0 && performance.now() - t0 < cap; i++, budget--) upload(pend[i]);
     }
+    if (G.ready) carHints(now);
     draw(dt);
   }
 
@@ -2189,7 +2704,7 @@
       if (!fe) { fe = document.createElement('div'); fe.id = 'ew-flash'; fe.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;opacity:0;background:radial-gradient(circle,#fff6d0 0%,#ff9a3a 55%,#a01000 100%)'; G.view.appendChild(fe); }
       var fa = 1 - (performance.now() - G.flash) / 700; fe.style.opacity = fa > 0 ? (fa * 0.85).toFixed(2) : '0'; if (fa <= 0) G.flash = 0;
     } else if (fe && fe.style.opacity !== '0') fe.style.opacity = '0';
-    var cam = G.drone || G.hpose || G.jpose || G.cpose, fovNow = G.drone ? FOV + 0.68 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
+    var cam = G.drone || G.hpose || G.jpose || G.carpose || G.cpose, fovNow = G.drone ? FOV + 0.68 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.carpose ? FOV + (G.car && G.car.view === 1 ? 0.2 : 0.05 + Math.min(0.25, G.car ? Math.abs(G.car.vf) / cspec(G.car.m).vmax * 0.25 : 0)) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
     var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
     var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), (cam && cam.f ? viewLook(ex, ey, ez, cam.f, cam.u) : viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch)));
     G.vp = vp;
@@ -2213,8 +2728,9 @@
     G.wrecks.forEach(function (w) { stepWreck(w, dt); });
     drawHelis(vp, ex, ey, ez, dt, performance.now());
     drawJets(vp, ex, ey, ez, dt, performance.now());
+    drawCars(vp, ex, ey, ez, dt, performance.now());
     // outline of what you are aiming at
-    if (G.ready && !G.drone && !G.heli && !G.jet) {
+    if (G.ready && !G.drone && !G.heli && !G.jet && !G.car) {
       var h = targetNow();
       if (h) {
         gl.bindBuffer(gl.ARRAY_BUFFER, G.lineBuf);
@@ -2258,6 +2774,7 @@
     try { if (g.hr) g.hr.dispose(); } catch (e) {}
     try { if (g.aud) g.aud.ctx.close(); } catch (e) {}
     try { if (g.jr) g.jr.dispose(); } catch (e) {}
+    try { if (g.cr) g.cr.dispose(); } catch (e) {}
     try { var ext = g.gl && g.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
     g.view.style.display = 'none';
     $('ew-shop').style.display = 'none'; $('ew-fx').innerHTML = '';
@@ -2269,7 +2786,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();

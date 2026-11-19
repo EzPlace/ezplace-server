@@ -9828,6 +9828,19 @@ JET_CRASH_SPEED = 8.0                 # touching something slower than this is o
 JET_MAX_Y = 430.0
 JET_COOLDOWN = 4.0
 JET_RUNWAY = 90                       # open ground needed in front of the nose to start
+# Cars: seven real ones, bought once and kept until they are totalled. model: (name, price, top speed b/s, length, width, height)
+CARS = {"yaris": ("Toyota Yaris", 6000, 28.0, 3.95, 1.70, 1.50), "civic": ("Honda Civic", 10000, 34.0, 4.67, 1.80, 1.41), "f150": ("Ford F-150", 20000, 31.0, 5.89, 2.03, 1.97),
+        "c5": ("Chevrolet Corvette C5", 28000, 48.0, 4.56, 1.87, 1.21), "m3": ("BMW M3", 40000, 46.0, 4.49, 1.78, 1.37), "911": ("Porsche 911 Carrera", 70000, 52.0, 4.45, 1.80, 1.30),
+        "cls63": ("Mercedes-Benz CLS 63 AMG", 55000, 50.0, 4.99, 1.88, 1.42)}
+CAR_IDS = list(CARS)
+CAR_CRASH_MIN = 8.0               # an impact slower than this does no damage
+CAR_DMG_PER_SPEED = 2.4           # damage per block/second above that (a 25 b/s wall is about 40, a 45 b/s wall about 90)
+CAR_HIT_GAP = 0.4                 # seconds between two damaging impacts (the page and the server both report one)
+CAR_BURST = 12.0
+CAR_ENTER_RANGE = 5.5
+CAR_HIJACK_MS = 1500              # holding F next to somebody else's car for this long takes it
+CAR_HIJACK_MAX_SPEED = 6.0        # a car that is flying along cannot be hijacked
+CAR_MAX = 300
 JET_CRASH_RADIUS = 4.0                # a crash blows away the blocks within this (plus a quarter of the wing span) of the wreck
 ROCKET_PROTECT = 0.0              # rockets break blocks everywhere; set this to a number of blocks to protect that radius around the spawn centre again
 WORLD_MAX_HSPEED = 10.0           # sprinting is 7 b/s; the margin covers lag spikes
@@ -10056,6 +10069,7 @@ async def _w_teleport(p, x, y, z):
     if p.get("jet"):
         p["jet"] = None
         await _w_send(p, {"t": "jend", "crash": False, "m": "", "x": x, "y": y, "z": z}); await _w_broadcast({"t": "jr", "id": p["id"], "on": False}, exclude=p["id"])
+    if p.get("car"): await _w_car_exit(p)
     x, y, z = _w_clamp_pos(x, y, z)
     p["x"], p["y"], p["z"] = x, y, z
     p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["hb"] = 6.0; p["q"] = (int(x * 16), int(y * 16), int(z * 16)); p["ver"] += 1
@@ -10186,6 +10200,24 @@ def _w_tick_frames():
             for pid, jj in jent:
                 body += struct.pack("<HhhhBBBB", pid, int(jj["x"] * 16), int(jj["y"] * 16), int(jj["z"] * 16), jj["yaw"], jj["pitch"], jj["roll"], JET_IDS.index(jj["m"]))
             out.append((r, bytes(body)))
+        cseen = r.setdefault("cseen", {})
+        cent = []
+        for car in world_cars.values():
+            if car.get("driver") == r["id"]: continue
+            ent = cseen.get(car["id"])
+            if ent is not None and ent[0] == car["ver"]: continue
+            d = ((car["x"] - vx) ** 2 + (car["z"] - vz) ** 2) ** 0.5
+            if d > WORLD_FAR: continue
+            if d > WORLD_NEAR and ent is not None and world_tick_n - ent[1] < WORLD_MID_EVERY: continue
+            cseen[car["id"]] = (car["ver"], world_tick_n)
+            cent.append(car)
+        if cent:
+            body = bytearray(struct.pack("<BH", 0x15, len(cent)))
+            for car in cent:
+                dn = car["dents"]
+                body += struct.pack("<HhhhBbBBBBBBB", car["id"], int(car["x"] * 16), int(car["y"] * 16), int(car["z"] * 16), car["yaw"], max(-127, min(127, int(car["steer"]))), CAR_IDS.index(car["m"]),
+                                    min(255, int(car["dmg"] * 2.55)), (car["flags"] & 3) | (4 if car.get("driver") is not None else 0), int(dn[0] * 255), int(dn[1] * 255), int(dn[2] * 255), int(dn[3] * 255))
+            out.append((r, bytes(body)))
     return out
 
 async def world_tick():
@@ -10238,12 +10270,14 @@ def _inv_touch():
     _inv_dirty = True
     if _inv_handle is None: _inv_handle = asyncio.get_event_loop().call_later(15, lambda: asyncio.ensure_future(_inv_save()))
 
+def _inv_car(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}).get("car") or {}).items() if v == 1 and k in CARS}
+
 def _inv_jet(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}).get("jet") or {}).items() if v == 1 and k in JETS}
 
 async def _w_send_inv(p):
     await _w_send(p, {"t": "inv", "rockets": _inv_rockets(p["name"]), "armed": bool(p.get("armed")), "price": ROCKET_PRICE, "per": ROCKETS_PER_LAUNCHER, "max": ROCKET_MAX_HELD,
                       "drone": _inv_drone(p["name"]), "dprice": DRONE_PRICE, "flying": bool(p.get("drone")),
-                      "dlevel": _inv_dlevel(p["name"]), "dupg": (_drone_upg_price(_inv_dlevel(p["name"])) if _inv_dlevel(p["name"]) < DRONE_MAX_LEVEL else None), "dmult": _drone_mult(_inv_dlevel(p["name"])), "jet": _inv_jet(p["name"]), "jp": {k: v[1] for k, v in JETS.items()}, "jfly": (p["jet"]["m"] if p.get("jet") else None), "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
+                      "car": _inv_car(p["name"]), "ccid": world_owner_car.get(p["name"].lower()), "cp": {k: v[1] for k, v in CARS.items()}, "cdrive": (world_cars[p["car"]]["m"] if p.get("car") in world_cars else None), "dlevel": _inv_dlevel(p["name"]), "dupg": (_drone_upg_price(_inv_dlevel(p["name"])) if _inv_dlevel(p["name"]) < DRONE_MAX_LEVEL else None), "dmult": _drone_mult(_inv_dlevel(p["name"])), "jet": _inv_jet(p["name"]), "jp": {k: v[1] for k, v in JETS.items()}, "jfly": (p["jet"]["m"] if p.get("jet") else None), "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
 
 async def _w_explode(cell, ex, ey, ez, by=None, radius=None, scale=None):
     """A rocket arrived: remove the blocks in a ball around it (never bedrock, never near spawn) and tell everybody nearby."""
@@ -10265,6 +10299,11 @@ async def _w_explode(cell, ex, ey, ez, by=None, radius=None, scale=None):
     msg = {"t": "bs", "e": [round(ex, 2), round(ey, 2), round(ez, 2)], "d": changed}
     if scale: msg["s"] = scale
     await _w_broadcast(msg, near=(cx, cz))
+    for car in list(world_cars.values()):                               # a blast hurts cars close to it
+        dx, dz = car["x"] - ex, car["z"] - ez
+        if dx * dx + dz * dz < 7.0 ** 2 and abs(car["y"] - ey) < 5.0:
+            ln = math.hypot(dx, dz) or 1.0
+            await _w_car_hurt(car, 38.0, -dx / ln, -dz / ln)
 
 def _w_drone_move(p, x, y, z, yaw, pitch, now):
     """Check one position report from a flying drone. Returns ("ok", None), ("reject", None) or ("crash", (x, y, z))."""
@@ -10401,6 +10440,219 @@ async def _w_jet_end(p, crashed, at=None):
     await _w_send(p, {"t": "jend", "crash": bool(crashed), "m": j["m"], "x": p["x"], "y": p["y"], "z": p["z"]})
     await _w_send_inv(p)
     await _w_broadcast({"t": "jr", "id": p["id"], "on": False}, exclude=p["id"])
+
+world_cars = {}            # car id -> car; cars stay where they are parked until they are driven, recalled or totalled
+world_owner_car = {}       # owner (lower case) -> the car id they have out
+world_car_next = 1
+
+def _w_car_dir(yawb):
+    a = yawb / 256.0 * 2 * math.pi
+    return -math.sin(a), -math.cos(a), math.cos(a), -math.sin(a)       # forward x, z and right x, z
+
+def _w_car_ground(x, y, z, depth=14):
+    """Height of the ground under a point within `depth` blocks below y+1.1 (a one block step may be driven up), or None."""
+    by = int(math.floor(y + 1.1))
+    for k in range(depth + 2):
+        if world_get(int(math.floor(x)), by - k, int(math.floor(z))): return by - k + 1.0
+    return None
+
+def _w_car_clear(x, y, z, yawb, spec):
+    """Room for the whole car: its footprint, a little taller than itself."""
+    fx, fz, rx, rz = _w_car_dir(yawb)
+    L, W, H = spec[3], spec[4], spec[5]
+    y0, y1 = int(math.floor(y + 0.05)), int(math.floor(y + H + 0.3))
+    for s in range(-int(L / 2) - 1, int(L / 2) + 2):
+        for w in range(-int(W / 2) - 1, int(W / 2) + 2):
+            bx, bz = int(math.floor(x + fx * s + rx * w)), int(math.floor(z + fz * s + rz * w))
+            if not world_in_bounds(bx, bz): return False
+            for by in range(y0, y1 + 1):
+                if world_get(bx, by, bz): return False
+    return True
+
+def _w_car_by_driver(p):
+    c = world_cars.get(p.get("car"))
+    return c if c and c.get("driver") == p["id"] else None
+
+def _w_car_pos_for(p, car):
+    p["x"], p["y"], p["z"] = car["x"], car["y"], car["z"]
+    p["q"] = (int(car["x"] * 16), int(car["y"] * 16), int(car["z"] * 16)); p["ver"] += 1       # the driver is still drawn (their picture rides in the car)
+
+async def _w_car_info(p, car):
+    await _w_send(p, {"t": "cdmg", "id": car["id"], "dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]]})
+
+async def _w_car_exit(p, forced=False, why=None):
+    """The driver leaves the car, which stays parked where it is."""
+    car = world_cars.get(p.get("car"))
+    p["car"] = None
+    if not car or car.get("driver") != p["id"]: return
+    car["driver"] = None; car["v"] = 0.0; car["flags"] &= ~5; car["ver"] += 1
+    fx, fz, rx, rz = _w_car_dir(car["yaw"])
+    spec = CARS[car["m"]]
+    spot = None
+    for side in (-1.0, 1.0, 0.0):
+        sx, sz = car["x"] + rx * side * (spec[4] / 2 + 1.1) - fx * (side == 0.0) * (spec[3] / 2 + 1.0), car["z"] + rz * side * (spec[4] / 2 + 1.1) - fz * (side == 0.0) * (spec[3] / 2 + 1.0)
+        spot = _w_find_spot(sx, car["y"], sz)
+        if spot: break
+    if not spot: spot = _w_find_spot(car["x"], car["y"], car["z"]) or (car["x"], car["y"], car["z"])
+    now = time.monotonic()
+    p["x"], p["y"], p["z"] = spot
+    p["low"] = spot[1]; p["gt"] = now; p["hb"] = 6.0; p["last_t"] = now; p["q"] = (int(spot[0] * 16), int(spot[1] * 16), int(spot[2] * 16)); p["ver"] += 1
+    await _w_send(p, {"t": "cend", "id": car["id"], "x": spot[0], "y": spot[1], "z": spot[2], "forced": bool(forced), "why": why or ""})
+    await _w_send_inv(p)
+
+async def _w_car_enter(p, car):
+    now = time.monotonic()
+    car["driver"] = p["id"]; p["car"] = car["id"]; p["armed"] = False
+    car["t"] = now; car["hb"] = CAR_BURST; car["v"] = 0.0; car["ver"] += 1
+    _w_car_pos_for(p, car)
+    await _w_send(p, {"t": "cstart", "id": car["id"], "m": car["m"], "x": car["x"], "y": car["y"], "z": car["z"], "yaw": car["yaw"], "dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]], "mine": car["owner"] == p["name"].lower()})
+    await _w_send_inv(p)
+
+def _w_car_remove(car):
+    world_cars.pop(car["id"], None)
+    if world_owner_car.get(car["owner"]) == car["id"]: world_owner_car.pop(car["owner"], None)
+
+async def _w_car_total(car, pt):
+    """Too much damage: the car is a wreck. It is deleted from its owner's inventory, the driver climbs out unhurt."""
+    px, py, pz = pt
+    drv = next((q for q in world_players.values() if q["id"] == car.get("driver")), None)
+    owner = car["owner"]; mid = car["m"]
+    _w_car_remove(car)
+    world_inv.setdefault(owner, {}).setdefault("car", {}).pop(mid, None); _inv_touch(); await _inv_save()
+    if drv:
+        drv["car"] = None
+        spot = _w_find_spot(px, py, pz) or (px, py, pz)
+        await _w_teleport(drv, spot[0], spot[1], spot[2])
+        await _w_send(drv, {"t": "cend", "id": car["id"], "x": spot[0], "y": spot[1], "z": spot[2], "forced": False, "why": "totaled"})
+        await _w_send_inv(drv)
+    await _w_broadcast({"t": "cx", "id": car["id"], "m": mid, "x": round(px, 2), "y": round(py, 2), "z": round(pz, 2), "yaw": car["yaw"], "dents": [round(c, 2) for c in car["dents"]]}, near=(int(px), int(pz)))
+    await _w_broadcast({"t": "bs", "e": [round(px, 2), round(py + 0.8, 2), round(pz, 2)], "d": [], "s": 0.9}, near=(int(px), int(pz)))
+    own = _w_find(owner)
+    if own:
+        await _w_sys(own, f"Your {CARS[mid][0]} was totaled.")
+        await _w_send_inv(own)
+    await _w_broadcast({"t": "cgone", "id": car["id"]})
+
+async def _w_car_hurt(car, dmg, dirx, dirz, pt=None):
+    """An impact: damage grows, the end of the car that took it is dented. `dir` is the way the car (or the thing that hit it) was travelling."""
+    now = time.monotonic()
+    if dmg <= 0 or now - car.get("hit_t", 0.0) < CAR_HIT_GAP: return False
+    car["hit_t"] = now
+    fx, fz, rx, rz = _w_car_dir(car["yaw"])
+    along, side = dirx * fx + dirz * fz, dirx * rx + dirz * rz
+    if abs(along) >= abs(side): car["dents"][0 if along > 0 else 1] = min(1.0, car["dents"][0 if along > 0 else 1] + dmg / 70.0)        # moving forward into something dents the front
+    else: car["dents"][3 if side > 0 else 2] = min(1.0, car["dents"][3 if side > 0 else 2] + dmg / 80.0)
+    car["dmg"] += dmg; car["ver"] += 1
+    if car["dmg"] >= 100.0:
+        await _w_car_total(car, pt or (car["x"], car["y"], car["z"])); return True
+    drv = next((q for q in world_players.values() if q["id"] == car.get("driver")), None)
+    if drv: await _w_car_info(drv, car)
+    return False
+
+def _w_car_move(p, car, x, y, z, yaw, steer, flags, now):
+    """Check one position report from a driven car. Returns ("ok", None), ("reject", None) or ("crash", (x, y, z, speed, dirx, dirz))."""
+    spec = CARS[car["m"]]
+    dt = min(max(now - car["t"], 0.0), 2.0)
+    car["hb"] = min(car["hb"] + spec[2] * 1.4 * dt, CAR_BURST)
+    fx, fz = int(math.floor(x)), int(math.floor(z))
+    if not world_in_bounds(fx, fz) or y < 0.5 or y > WORLD_HMAX: return ("reject", None)
+    dx, dy, dz = x - car["x"], y - car["y"], z - car["z"]
+    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if dist > car["hb"] + 1.0: return ("reject", None)
+    g = _w_car_ground(x, y, z)
+    if g is None or y > g + 14.0: return ("reject", None)                         # cars drive on the ground; a jump off a ramp is fine, flying is not
+    car["hb"] = max(0.0, car["hb"] - dist)
+    speed = dist / max(dt, 0.03)
+    car["t"] = now
+    hit = None
+    if dist > 1e-6: hit = _w_ray(car["x"], car["y"] + 1.25, car["z"], dx / dist, dy / dist, dz / dist, dist)      # above a one block step, below the roof
+    if hit is not None:
+        if speed >= CAR_CRASH_MIN:
+            t = max(0.0, hit[1] - 0.05)
+            return ("crash", (car["x"] + dx / dist * t, car["y"] + dy / dist * t, car["z"] + dz / dist * t, speed, dx / dist, dz / dist))
+        return ("reject", None)
+    car["x"], car["y"], car["z"], car["yaw"], car["steer"], car["flags"] = x, y, z, yaw, steer, (car["flags"] & 4) | (flags & 3)
+    car["v"] = speed; car["ver"] += 1
+    _w_car_pos_for(p, car)
+    p["last_t"] = now
+    return ("ok", None)
+
+async def _w_car_clash(p, car):
+    """Two cars that touch hurt each other: the harder the faster they meet."""
+    for oc in list(world_cars.values()):
+        if oc is car: continue
+        if (oc["x"] - car["x"]) ** 2 + (oc["z"] - car["z"]) ** 2 < 2.4 ** 2 and abs(oc["y"] - car["y"]) < 1.8:
+            rel = car.get("v", 0.0) + oc.get("v", 0.0) * 0.5
+            if rel < 3.0: continue
+            ax, az = oc["x"] - car["x"], oc["z"] - car["z"]; ln = math.hypot(ax, az) or 1.0
+            dmg = max(3.0, (rel - 4.0) * CAR_DMG_PER_SPEED)
+            await _w_car_hurt(oc, dmg, ax / ln, az / ln)
+            await _w_car_hurt(car, dmg * 0.8, ax / ln, az / ln)
+            if car["id"] in world_cars:
+                await _w_send(p, {"t": "ctp", "x": car["x"], "y": car["y"], "z": car["z"], "v": [round(-ax / ln * 6.0, 2), 0.0, round(-az / ln * 6.0, 2)]})
+            return
+
+async def _w_car_summon(me, mid):
+    """Bring the player's car of this model out next to them (or back from where it was parked) and get in."""
+    ul = me["name"].lower()
+    if mid not in CARS: return
+    if not _inv_car(me["name"]).get(mid):
+        await _w_sys(me, f"You do not own a {CARS[mid][0]}. Buy one in the shop (B)."); return
+    if me.get("car") or me.get("heli") or me.get("jet") or me.get("drone"): return
+    now = time.monotonic()
+    if now < me.get("car_ready", 0.0): await _w_sys(me, "Give the garage a second."); return
+    old = world_cars.get(world_owner_car.get(ul))
+    if old and old.get("driver") is not None:
+        await _w_sys(me, "Your car is being driven by somebody else right now."); return
+    spec = CARS[mid]
+    a = me["yaw"] / 256.0 * 2 * math.pi
+    spot = None
+    for dist in (4.5, 6.5, 9.0, 12.0):
+        sx, sz = me["x"] - math.sin(a) * dist, me["z"] - math.cos(a) * dist
+        g = _w_car_ground(sx, me["y"], sz, 6)
+        if g is not None and abs(g - me["y"]) < 2.0 and _w_car_clear(sx, g + 0.03, sz, me["yaw"], spec): spot = (sx, g + 0.03, sz); break
+    if spot is None:
+        await _w_sys(me, f"No room for a {spec[0]} here. Find some open ground."); return
+    global world_car_next
+    if old and old["m"] != mid: _w_car_remove(old); old = None
+    if old:
+        car = old; car["x"], car["y"], car["z"], car["yaw"] = spot[0], spot[1], spot[2], me["yaw"]
+    else:
+        if len(world_cars) >= CAR_MAX:
+            for cid in [c for c, v in world_cars.items() if v.get("driver") is None][:20]: _w_car_remove(world_cars[cid])
+        cid = world_car_next; world_car_next = world_car_next % 60000 + 1
+        car = {"id": cid, "owner": ul, "m": mid, "x": spot[0], "y": spot[1], "z": spot[2], "yaw": me["yaw"], "steer": 0, "flags": 0, "dmg": 0.0, "dents": [0.0, 0.0, 0.0, 0.0],
+               "driver": None, "ver": 1, "t": now, "hb": CAR_BURST, "v": 0.0, "hit_t": 0.0}
+        world_cars[cid] = car; world_owner_car[ul] = cid
+    car["ver"] += 1
+    await _w_car_enter(me, car)
+
+async def _w_car_try_enter(me, car, confirm):
+    """Get into a car: yours at once, anybody else's by hijacking it (hold F for a moment; whoever is at the wheel is pulled out)."""
+    now = time.monotonic()
+    if me.get("car") or me.get("heli") or me.get("jet") or me.get("drone"): return
+    if (car["x"] - me["x"]) ** 2 + (car["z"] - me["z"]) ** 2 > CAR_ENTER_RANGE ** 2 or abs(car["y"] - me["y"]) > 3.0:
+        await _w_sys(me, "You are too far from the car."); return
+    mine = car["owner"] == me["name"].lower()
+    if car.get("driver") is None and mine:
+        await _w_car_enter(me, car); return
+    if car.get("v", 0.0) > CAR_HIJACK_MAX_SPEED:
+        await _w_sys(me, "It is going too fast to jump in."); return
+    if not confirm:
+        me["hijack"] = (car["id"], now + CAR_HIJACK_MS / 1000.0)
+        await _w_send(me, {"t": "chj", "id": car["id"], "ms": CAR_HIJACK_MS}); return
+    hj = me.get("hijack")
+    if not hj or hj[0] != car["id"] or now < hj[1] - 0.05:
+        await _w_sys(me, "Hold F a little longer."); return
+    me["hijack"] = None
+    victim = next((q for q in world_players.values() if q["id"] == car.get("driver")), None)
+    if victim and victim is not me:
+        await _w_car_exit(victim, forced=True, why=f"{me['name']} hijacked your car!")
+        await _w_sys(victim, f"{me['name']} hijacked your {CARS[car['m']][0]}!")
+    own = _w_find(car["owner"])
+    if own and own is not me and own is not victim: await _w_sys(own, f"{me['name']} is driving your {CARS[car['m']][0]}!")
+    await _w_car_enter(me, car)
+    await _w_sys(me, f"You hijacked {car['owner']}'s {CARS[car['m']][0]}. Press F to get out.")
 
 async def _w_drone_hurt(p, dmg, pt, bounce=None, impact=True):
     """Take health off a drone. Returns True if that broke it. A drone that survives an impact is put at the point it hit (and knocked back)."""
@@ -10695,6 +10947,19 @@ async def world_ws_handler(request):
                         elif verdict == "reject":
                             hh = me["heli"]; await _w_send(me, {"t": "htp", "x": hh["x"], "y": hh["y"], "z": hh["z"]})
                     continue
+                if me is not None and len(d) == 10 and d[0] == 5:
+                    car = _w_car_by_driver(me)
+                    if car:
+                        _, qx, qy, qz, yaw, steer, flags = struct.unpack("<BhhhBbB", d)
+                        verdict, pt = _w_car_move(me, car, qx / 16.0, qy / 16.0, qz / 16.0, yaw, steer, flags, time.monotonic())
+                        if verdict == "crash":
+                            cx_, cy_, cz_, spd, ddx, ddz = pt
+                            car["x"], car["y"], car["z"] = cx_, cy_, cz_; car["v"] = 0.0; car["ver"] += 1; _w_car_pos_for(me, car)
+                            await _w_car_hurt(car, (spd - CAR_CRASH_MIN) * CAR_DMG_PER_SPEED + 2.0, ddx, ddz, (cx_, cy_, cz_))
+                            if car["id"] in world_cars: await _w_send(me, {"t": "ctp", "x": cx_, "y": cy_, "z": cz_, "v": [round(-ddx * 3.0, 2), 0.0, round(-ddz * 3.0, 2)]})
+                        elif verdict == "reject": await _w_send(me, {"t": "ctp", "x": car["x"], "y": car["y"], "z": car["z"], "v": [0.0, 0.0, 0.0]})
+                        else: await _w_car_clash(me, car)
+                    continue
                 if me is not None and len(d) == 10 and d[0] == 4:
                     if me.get("jet"):
                         _, qx, qy, qz, yaw, pitch, roll = struct.unpack("<BhhhBBB", d)
@@ -10743,11 +11008,11 @@ async def world_ws_handler(request):
                     try: await old["ws"].send_json({"t": "error", "text": "You joined EzWorld from another tab."}); await old["ws"].close()
                     except Exception: pass
                     world_players.pop(old["id"], None); world_by_name.pop(name.lower(), None)
-                    for q in world_players.values(): q["seen"].pop(old["id"], None); q.get("dseen", {}).pop(old["id"], None); q.get("hseen", {}).pop(old["id"], None); q.get("jseen", {}).pop(old["id"], None)
+                    for q in world_players.values(): q["seen"].pop(old["id"], None); q.get("dseen", {}).pop(old["id"], None); q.get("hseen", {}).pop(old["id"], None); q.get("jseen", {}).pop(old["id"], None); q.get("cseen", {}).pop(old["id"], None)
                     await _w_broadcast({"t": "leave", "id": old["id"]})
                 sx, fy, sz = _w_pick_spawn()
                 pid = world_next_id; world_next_id = world_next_id % 60000 + 1
-                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0, "armed": False, "last_fire": 0.0, "drone": None, "drone_ready": 0.0, "dseen": {}, "heli": None, "heli_ready": 0.0, "hseen": {}, "jet": None, "jet_ready": 0.0, "jseen": {},
+                me = {"id": pid, "name": name, "ws": ws, "x": sx, "y": fy, "z": sz, "yaw": 0, "pitch": 128, "ver": 1, "q": (int(sx * 16), int(fy * 16), int(sz * 16)), "seen": {}, "tick": 0, "armed": False, "last_fire": 0.0, "drone": None, "drone_ready": 0.0, "dseen": {}, "heli": None, "heli_ready": 0.0, "hseen": {}, "jet": None, "jet_ready": 0.0, "jseen": {}, "car": None, "car_ready": 0.0, "cseen": {}, "hijack": None,
                       "last_t": time.monotonic(), "low": fy, "gt": time.monotonic(), "hb": 6.0, "last_edit": 0.0, "chat_times": []}
                 world_players[pid] = me; world_by_name[name.lower()] = pid
                 await ws.send_json({"t": "hello", "id": pid, "you": name, "x": sx, "y": fy, "z": sz, "min": WORLD_MIN, "max": WORLD_MAX, "hmax": WORLD_HMAX, "total": _global_online_total(),
@@ -10768,7 +11033,7 @@ async def world_ws_handler(request):
                         if WORLD_MIN >> 4 <= cx <= (WORLD_MAX - 1) >> 4 and WORLD_MIN >> 4 <= cz <= (WORLD_MAX - 1) >> 4:
                             await ws.send_bytes(_w_chunk_frame(cx, cz))
             elif t == "edit":
-                if me.get("drone") or me.get("heli") or me.get("jet"): continue
+                if me.get("drone") or me.get("heli") or me.get("jet") or me.get("car"): continue
                 x, y, z, c = data.get("x"), data.get("y"), data.get("z"), data.get("c")
                 if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y, z, c)): continue
                 now = time.monotonic()
@@ -10818,6 +11083,16 @@ async def world_ws_handler(request):
                     await save_place_bucks(); await push_pb_update(me["name"])
                     _inv_touch(); await _inv_save(); await _w_send_inv(me)
                     await _w_sys(me, f"Drone speed level {lvl + 1}: top speed is now {round(45 * _drone_mult(lvl + 1) * 3.6)} km/h." + (" It takes effect on your next flight." if me.get("drone") else "")); continue
+                if item in CARS:
+                    spec = CARS[item]; mine = world_inv.setdefault(ul, {}).setdefault("car", {})
+                    if item in mine:
+                        await _w_sys(me, f"You already own a {spec[0]}."); continue
+                    if not spend_pb(me["name"], spec[1]):
+                        await _w_sys(me, f"A {spec[0]} costs {spec[1]:,} PlaceBux."); continue
+                    mine[item] = 1                                              # no await between paying and receiving
+                    await save_place_bucks(); await push_pb_update(me["name"])
+                    _inv_touch(); await _inv_save(); await _w_send_inv(me)
+                    await _w_sys(me, f"Bought a {spec[0]}. Press 5 to bring it out. Careful: when it is totaled it is gone."); continue
                 if item in JETS:
                     spec = JETS[item]; mine = world_inv.setdefault(ul, {}).setdefault("jet", {})
                     if item in mine:
@@ -10862,7 +11137,7 @@ async def world_ws_handler(request):
                 await _w_send_inv(me)
                 await _w_sys(me, f"Bought a rocket launcher with {ROCKETS_PER_LAUNCHER} rockets. Press 1 to equip it.")
             elif t == "equip":
-                if me.get("drone") or me.get("heli") or me.get("jet"):
+                if me.get("drone") or me.get("heli") or me.get("jet") or me.get("car"):
                     await _w_send_inv(me); continue
                 if bool(data.get("on")) and _inv_rockets(me["name"]) <= 0:
                     me["armed"] = False; await _w_sys(me, "You have no rockets. Buy a rocket launcher in the shop.")
@@ -10871,7 +11146,7 @@ async def world_ws_handler(request):
             elif t == "fire":
                 now = time.monotonic()
                 d = data.get("d")
-                if not me.get("armed") or me.get("drone") or me.get("heli") or me.get("jet") or now - me["last_fire"] < ROCKET_COOLDOWN: continue
+                if not me.get("armed") or me.get("drone") or me.get("heli") or me.get("jet") or me.get("car") or now - me["last_fire"] < ROCKET_COOLDOWN: continue
                 if _inv_rockets(me["name"]) <= 0:
                     me["armed"] = False; await _w_send_inv(me); continue
                 if not (isinstance(d, list) and len(d) == 3 and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in d)): continue
@@ -10895,7 +11170,7 @@ async def world_ws_handler(request):
                 if bool(data.get("on")):
                     if not _inv_drone(me["name"]):
                         await _w_sys(me, "You do not own an FPV drone. Buy one in the shop (B)."); continue
-                    if me.get("drone") or me.get("heli") or me.get("jet"): continue
+                    if me.get("drone") or me.get("heli") or me.get("jet") or me.get("car"): continue
                     if now < me.get("drone_ready", 0.0):
                         await _w_sys(me, "The drone is recharging."); continue
                     if not _w_supported(me["x"], me["y"], me["z"]):
@@ -10910,11 +11185,39 @@ async def world_ws_handler(request):
                     await _w_broadcast({"t": "dr", "id": me["id"], "on": True, "x": sx, "y": sy, "z": sz, "name": me["name"]}, exclude=me["id"])
                 elif me.get("drone"):
                     await _w_drone_end(me, False)
+            elif t == "car":
+                act = data.get("a")
+                if act == "summon":
+                    await _w_car_summon(me, data.get("m"))
+                elif act == "enter":
+                    cid = data.get("id")
+                    if isinstance(cid, int) and not isinstance(cid, bool) and cid in world_cars:
+                        await _w_car_try_enter(me, world_cars[cid], bool(data.get("confirm")))
+                elif act == "exit":
+                    car = _w_car_by_driver(me)
+                    if not car: continue
+                    if car.get("v", 0.0) > 6.0 and time.monotonic() - car["t"] < 0.4:
+                        await _w_sys(me, "Slow down before you get out."); await _w_send(me, {"t": "cno"}); continue
+                    await _w_car_exit(me)
+            elif t == "ccrash":
+                car = _w_car_by_driver(me)
+                if not car: continue
+                v, ddx, ddz = data.get("v"), data.get("dx", 0), data.get("dz", 0)
+                if not all(isinstance(c, (int, float)) and not isinstance(c, bool) and math.isfinite(c) for c in (v, ddx, ddz)): continue
+                v = min(float(v), CARS[car["m"]][2] * 1.3)
+                fx, fy, fz = int(math.floor(car["x"])), int(math.floor(car["y"])), int(math.floor(car["z"]))
+                if not any(world_get(fx + a, fy + b, fz + c) for b in range(0, 3) for a in range(-3, 4) for c in range(-3, 4)): continue
+                ln = math.hypot(ddx, ddz) or 1.0
+                await _w_car_hurt(car, (v - CAR_CRASH_MIN) * CAR_DMG_PER_SPEED + 2.0, ddx / ln, ddz / ln)
+            elif t == "horn":
+                car = _w_car_by_driver(me)
+                if car and check_rate_limit(me["name"], "world_horn", 6, 5):
+                    await _w_broadcast({"t": "horn", "id": car["id"]}, near=(int(car["x"]), int(car["z"])))
             elif t == "jet":
                 now = time.monotonic()
                 mid = data.get("m")
                 if bool(data.get("on")):
-                    if me.get("jet") or me.get("heli") or me.get("drone") or mid not in JETS: continue
+                    if me.get("jet") or me.get("heli") or me.get("drone") or me.get("car") or mid not in JETS: continue
                     spec = JETS[mid]
                     if not _inv_jet(me["name"]).get(mid): await _w_sys(me, f"You do not own a {spec[0]}. Buy one in the shop (B)."); continue
                     if now < me.get("jet_ready", 0.0): await _w_sys(me, "The jet is being refuelled."); continue
@@ -10949,7 +11252,7 @@ async def world_ws_handler(request):
                 now = time.monotonic()
                 mid = data.get("m")
                 if bool(data.get("on")):
-                    if me.get("heli") or me.get("drone") or me.get("jet") or mid not in HELIS: continue
+                    if me.get("heli") or me.get("drone") or me.get("jet") or me.get("car") or mid not in HELIS: continue
                     st = _inv_heli(me["name"]).get(mid)
                     spec = HELIS[mid]
                     if not st: await _w_sys(me, f"You do not own a {spec[0]}. Buy one in the shop (B)."); continue
@@ -11001,6 +11304,9 @@ async def world_ws_handler(request):
         print(f"world ws error: {type(e).__name__}: {e}")
     finally:
         _ws_release(_ip)
+        if me is not None and me.get("car"):
+            cc = world_cars.get(me["car"]); me["car"] = None
+            if cc and cc.get("driver") == me["id"]: cc["driver"] = None; cc["v"] = 0.0; cc["flags"] &= ~5; cc["ver"] += 1
         if me is not None and me.get("jet"):
             jj = me["jet"]; me["jet"] = None
             if not _w_heli_landed(jj["x"], round(jj["y"]), jj["z"]):          # leaving mid-flight is a crash
@@ -11011,7 +11317,7 @@ async def world_ws_handler(request):
                 world_inv.setdefault(me["name"].lower(), {}).setdefault("heli", {}).pop(hh["m"], None); _inv_touch()
         if me is not None and world_players.get(me["id"]) is me:
             world_players.pop(me["id"], None)
-            for q in world_players.values(): q["seen"].pop(me["id"], None); q.get("dseen", {}).pop(me["id"], None); q.get("hseen", {}).pop(me["id"], None); q.get("jseen", {}).pop(me["id"], None)
+            for q in world_players.values(): q["seen"].pop(me["id"], None); q.get("dseen", {}).pop(me["id"], None); q.get("hseen", {}).pop(me["id"], None); q.get("jseen", {}).pop(me["id"], None); q.get("cseen", {}).pop(me["id"], None)
             if world_by_name.get(me["name"].lower()) == me["id"]: world_by_name.pop(me["name"].lower(), None)
             await _w_broadcast({"t": "leave", "id": me["id"]})
             await _w_broadcast({"t": "online", "total": _global_online_total(), "here": len(world_players)})
@@ -11093,6 +11399,31 @@ async def jet_js_handler(request):
     if "gzip" in ae: return web.Response(body=_JET_GZ, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "gzip"})
     return web.Response(body=_JET_RAW, content_type="application/javascript", charset="utf-8", headers=hdr)
 
+_CAR_RAW = _CAR_BR = _CAR_GZ = b""
+_CAR_ETAG = ""
+try:
+    with open("car_gl.js", "rb") as _f: _CAR_SRC = _f.read()
+    _CAR_ETAG = hashlib.md5(_CAR_SRC).hexdigest()
+    _CAR_RAW = _CAR_SRC; _CAR_GZ = gzip.compress(_CAR_SRC, compresslevel=9)
+    try:
+        with open("car_gl.min.meta.json", "r", encoding="utf8") as _f: _m = json.load(_f)
+        if _m.get("source_md5") == _CAR_ETAG:
+            with open("car_gl.min.js", "rb") as _f: _CAR_RAW = _f.read()
+            with open("car_gl.min.js.br", "rb") as _f: _CAR_BR = _f.read()
+            _CAR_GZ = gzip.compress(_CAR_RAW, compresslevel=9)
+    except Exception: pass
+except Exception as _e:
+    print(f"car_gl.js not found ({_e}); cars will have no 3D models")
+
+async def car_js_handler(request):
+    if not _CAR_RAW: return web.Response(status=404)
+    hdr = {"Cache-Control": "no-cache, must-revalidate", "ETag": '"' + _CAR_ETAG + '"', "Vary": "Accept-Encoding"}
+    if request.headers.get("If-None-Match", "") == hdr["ETag"]: return web.Response(status=304, headers=hdr)
+    ae = request.headers.get("Accept-Encoding", "")
+    if _CAR_BR and "br" in ae: return web.Response(body=_CAR_BR, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "br"})
+    if "gzip" in ae: return web.Response(body=_CAR_GZ, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "gzip"})
+    return web.Response(body=_CAR_RAW, content_type="application/javascript", charset="utf-8", headers=hdr)
+
 async def ezworld_js_handler(request):
     if not _EZW_RAW: return web.Response(status=404)
     hdr = {"Cache-Control": "no-cache, must-revalidate", "ETag": '"' + _EZW_ETAG + '"', "Vary": "Accept-Encoding"}
@@ -11112,6 +11443,7 @@ _g("/cosmetics/{name}", cosmetic_image_handler)
 _g("/ezworld.js", ezworld_js_handler)
 _g("/heli_gl.js", heli_js_handler)
 _g("/jet_gl.js", jet_js_handler)
+_g("/car_gl.js", car_js_handler)
 _g("/ws/world", world_ws_handler)
 _p("/api/admin/emergency", admin_emergency_handler)
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
