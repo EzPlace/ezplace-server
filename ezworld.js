@@ -697,14 +697,16 @@
                facts: "America's best-selling pickup for decades. Tall, heavy and wide: it shrugs off bumps but it wallows through corners. 180 km/h and a long wheelbase." },
     c5:      { name: 'Chevrolet Corvette C5', price: 28000, vmax: 48, accel: 19, brake: 28, grip: 7.4, wb: 2.65, len: 4.56, wid: 1.87, h: 1.21, chase: 8, pitchF: 1.1,
                facts: 'The 1997 to 2004 front-engine Corvette: a V8 and a long hood in a low fibreglass body. Built to go fast in a straight line. Up to 270 km/h.' },
-    m3:      { name: 'BMW M3', price: 40000, vmax: 46, accel: 18, brake: 28, grip: 7.2, wb: 2.73, len: 4.49, wid: 1.78, h: 1.37, chase: 8, pitchF: 1.0,
-               facts: 'The E46 M3 coupe, loved for its straight-six and balance. It grips hard and turns eagerly. Electronically limited at 250 km/h.' },
+    m3:      { name: 'BMW M3 Competition', price: 65000, vmax: 52, accel: 20, brake: 30, grip: 7.8, wb: 2.86, len: 4.80, wid: 1.90, h: 1.43, chase: 8.5, pitchF: 1.0,
+               facts: 'The current M3 Competition: a 510 horsepower twin-turbo straight-six behind the biggest kidney grille BMW has ever made. It grips and rotates like a race car. Electronically limited to about 290 km/h.' },
     '911':   { name: 'Porsche 911 Carrera', price: 70000, vmax: 52, accel: 20, brake: 30, grip: 7.8, wb: 2.35, len: 4.45, wid: 1.80, h: 1.30, chase: 8, pitchF: 1.1,
                facts: 'The rear-engined icon: the engine hangs behind the axle, so it launches hard and the tail can swing. Short wheelbase, huge grip. About 285 km/h.' },
+    aventador: { name: 'Lamborghini Aventador', price: 150000, vmax: 62, accel: 24, brake: 33, grip: 8.2, wb: 2.70, len: 4.84, wid: 2.03, h: 1.14, chase: 9, pitchF: 1.2,
+               facts: 'A V12 in the middle of a carbon-fibre wedge, with a Y-shaped light signature and a 350 km/h top speed. Absurdly low, absurdly wide and absurdly loud. The fastest car here, and the hardest to keep straight.' },
     cls63:   { name: 'Mercedes-Benz CLS 63 AMG', price: 55000, vmax: 50, accel: 17, brake: 27, grip: 6.9, wb: 2.95, len: 4.99, wid: 1.88, h: 1.42, chase: 8.5, pitchF: 1.0,
                facts: 'A four-door coupe with a hand-built twin-turbo V8. Luxury on the inside, a monster on the road. Limited to about 250 km/h.' }
   };
-  var CAR_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63'];
+  var CAR_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63', 'aventador'];
   var CAR_CRASH_MIN = 8;
   function cspec(id) {
     var s = CARS[id]; if (s._r) return s;
@@ -735,18 +737,21 @@
   }
   // One physics step. inp: f throttle, b brake/reverse, l/r steer, hb handbrake. Returns null, or { res: 'crash' | 'bump' | 'land', spd, dx, dz } for something that touched.
   function stepCar(c, inp, dt, sp) {
-    var thr = !!inp.f, brk = !!inp.b, hb = !!inp.hb, ev = null;
-    var sm = 0.58 - 0.38 * Math.min(1, Math.abs(c.vf) / sp.vmax), st = ((inp.r ? 1 : 0) - (inp.l ? 1 : 0)) * sm;
+    var thr = !!inp.f, brk = !!inp.b, hb = !!inp.hb, ev = null, lost = c.lost | 0, lostW = (lost & 1) + ((lost >> 1) & 1) + ((lost >> 2) & 1) + ((lost >> 3) & 1);
+    var vm = sp.vmax * (1 - 0.17 * lostW);
+    var sm = (0.58 - 0.38 * Math.min(1, Math.abs(c.vf) / vm)) * (1 - 0.12 * lostW), st = ((inp.r ? 1 : 0) - (inp.l ? 1 : 0)) * sm;
     c.steer += (st - c.steer) * Math.min(1, dt * (st ? 6 : 10));
     if (c.onGround) {
       var acc = 0;
-      if (thr) acc = c.vf < -0.5 ? sp.brake : sp.accel * (1 - c.vf / sp.vmax);
+      if (thr) acc = c.vf < -0.5 ? sp.brake : sp.accel * (1 - c.vf / vm);
       if (brk) acc = c.vf > 0.5 ? -sp.brake : -sp.accel * 0.7 * Math.max(0, 1 + c.vf / (sp.vmax * 0.3));
       if (!thr && !brk) { var coast = 2.2 + Math.abs(c.vf) * 0.08; acc = Math.abs(c.vf) < coast * dt ? -c.vf / dt : -Math.sign(c.vf) * coast; }
       c.vf += acc * dt;
       if (hb) c.vf *= Math.exp(-0.7 * dt);
+      if (lostW && Math.abs(c.vf) > 3) c.vf *= Math.exp(-0.1 * lostW * dt);             // dragging a hub on the road
     }
     var wlim = Math.min(2.4, (9 + sp.grip) / Math.max(Math.abs(c.vf), 3)) * (hb ? 1.4 : 1), wyT = Math.max(-wlim, Math.min(wlim, -c.vf / sp.wb * Math.tan(c.steer) * (hb ? 1.4 : 1)));      // and no turn can be tighter than the tyres hold          // steering right (positive) turns the heading clockwise
+    if (lostW) wyT += (((lost & 5) ? 1 : 0) - ((lost & 10) ? 1 : 0)) * 0.22 * Math.min(1, Math.abs(c.vf) / 18);
     if (!c.onGround) wyT = c.wy;
     c.wy += (wyT - c.wy) * Math.min(1, dt * 9);
     var d0 = carDirs(c.yaw), vx = d0[0] * c.vf + d0[2] * c.vl, vz = d0[1] * c.vf + d0[3] * c.vl;     // the world velocity, then re-aimed at the new heading
@@ -765,6 +770,7 @@
       for (w = 0; w < 4; w++) {
         var wp = carWheelXZ({ x: nx, z: nz, yaw: c.yaw }, sp, sp.wheels[w]); gw = carGroundAt(wp[0], ys, wp[1]);
         if (gw === null) gw = ys - 15;
+        if (lost & (1 << w)) gw -= sp.wr;
         if (gw > ys + 1.06) hit = true;
         gsum[w] = gw; if (gw > gmax) gmax = gw;
       }
@@ -856,7 +862,7 @@
     canvas.id = 'ew-canvas'; old.parentNode.replaceChild(canvas, old);
     G = { opts: opts, view: view, canvas: canvas, ws: null, me: null, others: new Map(), keys: {}, sel: 0, lastTap: 0, sprint: false,
           raf: 0, last: 0, lastSend: 0, lastSent: '', lastEdit: 0, hover: null, handlers: [], timers: [], ready: false, closed: false, myId: -1,
-          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null, car: {}, cp: {}, ccid: null, cdrive: null }, rings: [], cars: new Map(), car: null, csel: '', cArm: '', cArmT: 0, ccam: null, carpose: null, hijack: null, mouseFly: true, mouseInv: false, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
+          compassCv: $('ew-compass-cv'), compassOff: null, lastHeading: -999, compassDirty: true, t0: performance.now(), failed: false, inv: { rockets: 0, armed: false, price: 5000, per: 5, max: 50, drone: false, dprice: 300, flying: false, heli: {}, hp: {}, hrep: 0.1, hfly: null, jet: {}, jp: {}, jfly: null, car: {}, cp: {}, ccid: null, cdrive: null }, rings: [], cars: new Map(), parts: [], sparks: [], car: null, csel: '', cArm: '', cArmT: 0, ccam: null, carpose: null, hijack: null, mouseFly: true, mouseInv: false, mstick: { x: 0, y: 0 }, jet: null, jets: new Map(), jsel: '', jArm: '', jArmT: 0, jcam: null, jpose: null, jcrashState: null, heli: null, helis: new Map(), wrecks: [], hsel: '', hArm: '', hArmT: 0, hcam: null, hpose: null, hcrashState: null, rks: [], booms: [], drone: null, drones: new Map(), dbuyArm: 0, bodyWait: false, dsent: 0, dlast: '', lastFire: -1e9, shake: 0, shaking: false, buyArm: 0, shopTimer: 0, msgEls: new Map(), typers: new Map(), replyTo: null, myTyping: false, typeTimer: 0, mention: null, hintAt: 0 };
     PAL = opts.colors.map(hexRgb);
     view.style.display = 'flex';
     document.body.classList.add('ew-open');
@@ -1137,7 +1143,8 @@
       case 'cstart': startCar(m); break;
       case 'cend': endCar(m); break;
       case 'ctp': if (G.car) { var cd = carDirs(G.car.yaw); G.car.x = m.x; G.car.y = m.y; G.car.z = m.z; G.car.vf = (m.v ? m.v[0] * cd[0] + m.v[2] * cd[1] : 0); G.car.vl = (m.v ? m.v[0] * cd[2] + m.v[2] * cd[3] : 0); G.car.vy = 0; G.car.onGround = true; } break;
-      case 'cdmg': if (G.car && G.car.id === m.id) { G.car.dmg = m.dmg; G.car.dents = (m.dents || G.car.dents).slice(); } break;
+      case 'cdmg': if (G.car && G.car.id === m.id) { G.car.dmg = m.dmg; G.car.dents = (m.dents || G.car.dents).slice(); if (m.lost !== undefined) G.car.lost = m.lost; } break;
+      case 'cpart': spawnParts(m); break;
       case 'chj': G.hijack = { id: m.id, t0: performance.now(), ms: m.ms || 1500 }; break;
       case 'cx': addCarWreck(m); break;
       case 'cgone': G.cars.delete(m.id); break;
@@ -2099,7 +2106,7 @@
 
   // ---- cars: bringing one out, getting in and out, hijacking, driving, the cameras, other people's cars, wrecks, sound and the shop cards
   var CAR_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src || '').replace(/ezworld\.js.*$/, 'car_gl.js');
-  var CTHUMBS = {}, ENG = { yaris: 1.2, civic: 1.1, f150: 0.85, c5: 0.9, m3: 1.1, '911': 1.15, cls63: 0.88 };
+  var CTHUMBS = {}, ENG = { yaris: 1.2, civic: 1.1, f150: 0.85, c5: 0.9, m3: 1.1, '911': 1.15, cls63: 0.88, aventador: 1.3 };
   function carRenderer() {                       // the car models are another separate file, fetched the first time a car matters
     if (G.cr) return G.cr;
     if (G.crFail) return null;
@@ -2152,8 +2159,8 @@
   }
   function startCar(m) {
     var sp = cspec(m.m), yaw = m.yaw / 256 * 2 * Math.PI;
-    G.car = { id: m.id, m: m.m, x: m.x, y: m.y, z: m.z, yaw: yaw, vf: 0, vl: 0, vy: 0, wy: 0, steer: 0, speed: 0, onGround: true, pitch: 0, roll: 0, wheel: 0, dmg: m.dmg || 0, dents: (m.dents || [0, 0, 0, 0]).slice(), sent: 0, lastSent: '', view: 0, head: false, gw: null };
-    G.ccam = { yaw: 0, pitch: 0, idle: 0, cyaw: yaw, dist: sp.chase };
+    G.car = { id: m.id, m: m.m, x: m.x, y: m.y, z: m.z, yaw: yaw, vf: 0, vl: 0, vy: 0, wy: 0, steer: 0, speed: 0, onGround: true, pitch: 0, roll: 0, wheel: 0, dmg: m.dmg || 0, dents: (m.dents || [0, 0, 0, 0]).slice(), lost: m.lost | 0, sent: 0, lastSent: '', view: 0, head: false, gw: null };
+    G.ccam = { yaw: 0, pitch: 0, idle: 0, cyaw: yaw, dist: sp.chase * 0.75 };
     G.carpose = { x: m.x, y: m.y + 3, z: m.z, yaw: yaw, pitch: 0, f: [-Math.sin(yaw), 0, -Math.cos(yaw)], u: [0, 1, 0] };
     G.cars.delete(m.id); G.inv.armed = false; G.csel = m.m; G.hijack = null;
     carCss(); carHud(true); $('ew-cross').style.display = 'none';
@@ -2175,6 +2182,46 @@
     var el = $('ew-chud');
     if (!el) { el = document.createElement('div'); el.id = 'ew-chud'; G.view.appendChild(el); }
     el.style.display = on ? 'flex' : 'none';
+  }
+  var SKID_CAP = 2600, SKID_LIFE = 40000;
+  function skidInit() {
+    var gl = G.gl; if (G.sk !== undefined) return G.sk;
+    G.sk = null;
+    try {
+      function sh(t, src) { var o = gl.createShader(t); gl.shaderSource(o, src); gl.compileShader(o); return o; }
+      var pr = gl.createProgram();
+      gl.attachShader(pr, sh(gl.VERTEX_SHADER, 'attribute vec4 p;uniform mat4 vp;uniform vec3 cam;varying float vt;varying float vd;void main(){vt=p.w;vd=distance(p.xyz,cam);gl_Position=vp*vec4(p.xyz,1.0);}'));
+      gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, 'precision mediump float;uniform float now;uniform vec2 fog;varying float vt;varying float vd;void main(){float a=0.62*clamp(1.0-(now-vt)/' + SKID_LIFE.toFixed(1) + ',0.0,1.0)*(1.0-smoothstep(fog.x,fog.y,vd));if(a<0.01)discard;gl_FragColor=vec4(0.03,0.03,0.035,a);}'));
+      gl.bindAttribLocation(pr, 0, 'p'); gl.linkProgram(pr);
+      G.sk = { prog: pr, buf: gl.createBuffer(), data: new Float32Array(SKID_CAP * 6 * 4), n: 0, head: 0, dirty: false, wheels: {}, uVp: gl.getUniformLocation(pr, 'vp'), uCam: gl.getUniformLocation(pr, 'cam'), uNow: gl.getUniformLocation(pr, 'now'), uFog: gl.getUniformLocation(pr, 'fog') };
+    } catch (e) { G.sk = null; }
+    return G.sk;
+  }
+  // One wheel's mark for this frame: a strip from where it was to where it is now. intensity 1 is a hard skid, less is a light braking mark; active false ends the strip.
+  function skidWheel(key, x, y, z, active, intensity, now) {
+    var sk = skidInit(); if (!sk) return;
+    var last = sk.wheels[key];
+    if (!active) { if (last) delete sk.wheels[key]; return; }
+    if (!last) { sk.wheels[key] = { x: x, y: y, z: z }; return; }
+    var dx = x - last.x, dz = z - last.z, len = Math.sqrt(dx * dx + dz * dz);
+    if (len < 0.22) return;
+    if (len > 3) { sk.wheels[key] = { x: x, y: y, z: z }; return; }
+    var px = -dz / len * 0.16, pz = dx / len * 0.16, d = sk.data, o = sk.head * 24, t = now - (1 - intensity) * SKID_LIFE * 0.55, yy0 = last.y, yy1 = y;
+    var v = [[last.x - px, yy0, last.z - pz], [last.x + px, yy0, last.z + pz], [x + px, yy1, z + pz], [last.x - px, yy0, last.z - pz], [x + px, yy1, z + pz], [x - px, yy1, z - pz]];
+    for (var i = 0; i < 6; i++) { d[o + i * 4] = v[i][0]; d[o + i * 4 + 1] = v[i][1]; d[o + i * 4 + 2] = v[i][2]; d[o + i * 4 + 3] = t; }
+    sk.head = (sk.head + 1) % SKID_CAP; if (sk.n < SKID_CAP) sk.n++; sk.dirty = true; sk.wheels[key] = { x: x, y: y, z: z };
+  }
+  function drawSkids(vp, ex, ey, ez, now, fn, ff) {
+    var sk = G.sk, gl = G.gl; if (!sk || !sk.n) return;
+    var prev = gl.getParameter(gl.CURRENT_PROGRAM);
+    gl.useProgram(sk.prog); gl.bindBuffer(gl.ARRAY_BUFFER, sk.buf);
+    if (sk.dirty) { gl.bufferData(gl.ARRAY_BUFFER, sk.data, gl.DYNAMIC_DRAW); sk.dirty = false; }
+    gl.uniformMatrix4fv(sk.uVp, false, vp); gl.uniform3f(sk.uCam, ex, ey, ez); gl.uniform1f(sk.uNow, now); gl.uniform2f(sk.uFog, fn, ff);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2, -2);
+    gl.drawArrays(gl.TRIANGLES, 0, SKID_CAP * 6);
+    gl.disable(gl.POLYGON_OFFSET_FILL); gl.depthMask(true); gl.disable(gl.BLEND);
+    gl.useProgram(prev);
   }
   function carHints(now) {                          // the prompt next to a car, and the hijack progress bar
     var pr = $('ew-carprompt');
@@ -2228,8 +2275,8 @@
     var cc = G.ccam, cp = G.carpose, b = carBasis(c);
     cc.idle += dt; if (cc.idle > 1.5 && c.view === 0) { cc.yaw *= Math.max(0, 1 - dt * 2); cc.pitch *= Math.max(0, 1 - dt * 2); }
     if (c.view === 0) {
-      cc.cyaw += angDiff(cc.cyaw, c.yaw + Math.max(-0.5, Math.min(0.5, c.vl * 0.05))) * Math.min(1, dt * 4);
-      var y0 = cc.cyaw + cc.yaw, tx = c.x, ty = c.y + sp.h * 0.7, tz = c.z, hgt = sp.chaseUp + cc.pitch * cc.dist * 0.8;
+      cc.cyaw += angDiff(cc.cyaw, c.yaw) * Math.min(1, dt * 5);
+      var y0 = cc.cyaw + cc.yaw, tx = c.x, ty = c.y + sp.h * 0.8, tz = c.z, hgt = sp.chaseUp * 0.6 + 0.4 + cc.pitch * cc.dist * 0.8;
       var ex2 = tx + Math.sin(y0) * cc.dist, ey2 = ty + hgt, ez2 = tz + Math.cos(y0) * cc.dist;
       var bx = ex2 - tx, by = ey2 - ty, bz = ez2 - tz, bl = Math.sqrt(bx * bx + by * by + bz * bz) || 1, hit = raycast(tx, ty, tz, bx / bl, by / bl, bz / bl, bl + 0.4);
       if (hit && hit.t < bl) { var cl = Math.max(1.5, hit.t - 0.4); ex2 = tx + bx / bl * cl; ey2 = ty + by / bl * cl; ez2 = tz + bz / bl * cl; }
@@ -2250,6 +2297,13 @@
       if (html !== c.hudHtml) { c.hudHtml = html; $('ew-chud').innerHTML = html; }
     }
     c.brakeL = !!((inp.b && c.vf > 0.5) || inp.hb); c.headL = c.head;
+    if ((c.lost & 15) && c.onGround && c.speed > 4) for (var sw = 0; sw < 4; sw++) if (c.lost & (1 << sw)) { var swp = carWheelXZ(c, sp, sp.wheels[sw]); spark(swp[0], (c.gw ? c.gw[sw] : c.y - 0.03) + 0.05, swp[1], c.vx0 || 0, c.vz0 || 0); }
+    var slide = (Math.abs(c.vl) > 2.2 && c.speed > 3.5) || (inp.hb && c.speed > 5), hardBrake = inp.b && c.vf > 16, burn = inp.f && c.vf < 7 && (inp.hb || (sp.accel > 17 && c.vf < 2.5)) && c.onGround;
+    for (var wi = 0; wi < 4; wi++) {
+      var wp = carWheelXZ(c, sp, sp.wheels[wi]), rear = wi >= 2, gy = (c.gw ? c.gw[wi] : c.y - 0.03) + 0.016;
+      var act = c.onGround && ((slide && (rear || Math.abs(c.vl) > 4)) || (hardBrake && true) || (burn && rear));
+      skidWheel('me' + wi, wp[0], gy, wp[1], act, slide || burn ? 1 : 0.55, now);
+    }
     ownEngine(c, inp, sp, dt);
   }
   // ---- sound: an engine that climbs through the gears, tyre squeal when it slides, a horn, and other drivers heard in 3D
@@ -2261,12 +2315,29 @@
     civic:  { cyl: 4, idle: 800, red: 7200, h: [0.45, 1, 0.3, 0.6, 0.18, 0.3, 0.1, 0.16], am: 0.1, amIrr: 0.0, sub: 0.2, intake: 0.85, whine: 0.55, crack: 0.05, turbo: 0, lp: 1.1, bov: 0, clatter: 0 },
     f150:   { cyl: 8, idle: 650, red: 5600, h: [1, 0.85, 0.55, 0.4, 0.3, 0.2, 0.15, 0.1], am: 0.5, amIrr: 0.38, sub: 0.7, intake: 0.35, whine: 0.0, crack: 0.15, turbo: 0, lp: 0.7, bov: 0, clatter: 0 },
     c5:     { cyl: 8, idle: 700, red: 6300, h: [1, 0.95, 0.65, 0.55, 0.4, 0.3, 0.22, 0.16], am: 0.46, amIrr: 0.45, sub: 0.6, intake: 0.4, whine: 0.0, crack: 0.9, turbo: 0, lp: 0.85, bov: 0, clatter: 0 },
-    m3:     { cyl: 6, idle: 850, red: 8000, h: [0.6, 1, 0.4, 0.65, 0.32, 0.45, 0.22, 0.28], am: 0.07, amIrr: 0.0, sub: 0.25, intake: 1.0, whine: 0.3, crack: 0.3, turbo: 0, lp: 1.25, bov: 0, clatter: 0 },
+    m3:     { cyl: 6, idle: 850, red: 7800, h: [0.6, 1, 0.4, 0.65, 0.32, 0.45, 0.22, 0.28], am: 0.07, amIrr: 0.0, sub: 0.25, intake: 1.0, whine: 0.0, crack: 0.5, turbo: 1, lp: 1.2, bov: 1, clatter: 0 },
+    aventador: { cyl: 12, idle: 900, red: 8500, h: [0.5, 1, 0.65, 0.75, 0.5, 0.55, 0.35, 0.35], am: 0.03, amIrr: 0.0, sub: 0.15, intake: 0.9, whine: 0.0, crack: 1.0, turbo: 0, lp: 1.35, bov: 0, clatter: 0 },
     '911':  { cyl: 6, idle: 800, red: 7600, h: [0.75, 0.95, 0.8, 0.85, 0.55, 0.6, 0.4, 0.34], am: 0.24, amIrr: 0.18, sub: 0.2, intake: 0.7, whine: 0.0, crack: 0.35, turbo: 0, lp: 1.15, bov: 0, clatter: 0.35 },
     cls63:  { cyl: 8, idle: 700, red: 6600, h: [1, 0.9, 0.62, 0.45, 0.3, 0.22, 0.16, 0.1], am: 0.36, amIrr: 0.22, sub: 0.55, intake: 0.5, whine: 0.0, crack: 0.9, turbo: 1, lp: 0.9, bov: 1, clatter: 0 }
   };
-  var HORN = { yaris: [466, 587], civic: [415, 494], f150: [311, 370], c5: [392, 311], m3: [392, 494], '911': [440, 370], cls63: [370, 466] };
+  var HORN = { yaris: [466, 587], civic: [415, 494], f150: [311, 370], c5: [392, 311], m3: [392, 494], '911': [440, 370], cls63: [370, 466], aventador: [392, 523] };
   var GEAR_TOP = [0.16, 0.31, 0.48, 0.67, 0.85, 1.0];
+  var SND_BASE = CAR_SRC.replace(/car_gl\.js.*$/, 'car_snd/');
+  var SND_CREDITS = {
+    yaris: 'Suzuki Swift (a small hatchback, as a stand-in for the Yaris) by Highr Revs', civic: 'Honda Civic Type R by Vigor', f150: 'Ford Mustang GT 5.0 V8 (the F-150 uses the same Coyote V8) by Cestni dirkac',
+    c5: 'Chevrolet Corvette C6 Z06 V8 (a stand-in for the C5) by Neighborhood Car Reviews', m3: 'BMW M3 (G80) Competition by FiExhaust', '911': 'Porsche 911 (997) by FiExhaust',
+    cls63: 'Mercedes-Benz E 63 AMG W212 (the CLS 63 has the same twin-turbo V8) by FiExhaust', aventador: 'Lamborghini Aventador by Super Cars for you' };
+  function loadCarSound(a, model) {
+    if (!a || a.snd === undefined) { if (a) a.snd = {}; }
+    if (!a || a.sndTry === undefined) { if (a) a.sndTry = {}; }
+    if (!a || a.sndTry[model] || typeof fetch !== 'function') return;
+    a.sndTry[model] = true;
+    fetch(SND_BASE + 'car_' + model + '.json').then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (man) {
+      return fetch(SND_BASE + 'car_' + model + '.ogg').then(function (r) { if (!r.ok) throw 0; return r.arrayBuffer(); }).then(function (ab) {
+        return new Promise(function (ok, bad) { a.ctx.decodeAudioData(ab, ok, bad); });
+      }).then(function (buf) { if (man.rungs && man.rungs.length >= 3) a.snd[model] = { buf: buf, rungs: man.rungs }; });
+    }).catch(function () {});
+  }
   function waveFor(ctx, h) {
     var re = new Float32Array(h.length + 1), im = new Float32Array(h.length + 1);
     for (var i = 0; i < h.length; i++) im[i + 1] = h[i] / (1 + i * 0.05);
@@ -2276,7 +2347,8 @@
     var ctx = a.ctx, ep = EP[model] || EP.civic, v = { ctx: ctx, ep: ep, model: model, gear: 0, shiftUntil: 0, boost: 0, lastThr: 0, rpmN: 0, smRpm: 0, startT: ctx.currentTime };
     var mix = ctx.createGain(); mix.gain.value = 0.3;
     var wave = waveFor(ctx, ep.h);
-    function osc(det, g, type) { var o = ctx.createOscillator(); if (type) o.type = type; else o.setPeriodicWave(wave); o.frequency.value = 60; o.detune.value = det; var gn = ctx.createGain(); gn.gain.value = g; o.connect(gn); gn.connect(v.am); o.start(); return [o, gn]; }
+    var snd = a.snd && a.snd[model]; v.samp = null;
+    function osc(det, g, type) { var o = ctx.createOscillator(); if (type) o.type = type; else o.setPeriodicWave(wave); o.frequency.value = 60; o.detune.value = det; var gn = ctx.createGain(); gn.gain.value = snd ? 0 : g; o.connect(gn); gn.connect(v.am); o.start(); return [o, gn]; }
     v.am = ctx.createGain(); v.am.gain.value = 1 - ep.am * 0.5;                                          // the cylinders: the volume pulses at the firing rate
     var o1 = osc(0, 0.6), o2 = osc(5, 0.4), o3 = osc(0, ep.sub, 'sine');
     v.o1 = o1[0]; v.o2 = o2[0]; v.o3 = o3[0];
@@ -2285,6 +2357,13 @@
     v.cut = ctx.createBiquadFilter(); v.cut.type = 'lowpass'; v.cut.frequency.value = 900; v.cut.Q.value = 0.9;
     v.res = ctx.createBiquadFilter(); v.res.type = 'peaking'; v.res.frequency.value = 140; v.res.Q.value = 2.2; v.res.gain.value = 6;       // the exhaust note
     v.am.connect(v.cut); v.cut.connect(v.res); v.res.connect(mix);
+    if (snd) {                                                           // the real engine: one looping clip per band of the rev range, all running, blended by the revs
+      v.samp = { rungs: snd.rungs, srcs: [], gains: [] };
+      snd.rungs.forEach(function (r) {
+        var src = ctx.createBufferSource(), gn = ctx.createGain(); src.buffer = snd.buf; src.loop = true; src.loopStart = r.start; src.loopEnd = r.start + r.len; gn.gain.value = 0;
+        src.connect(gn); gn.connect(v.cut); src.start(0, r.start); v.samp.srcs.push(src); v.samp.gains.push(gn);
+      });
+    }
     v.nz = ctx.createBufferSource(); v.nz.buffer = a.noise; v.nz.loop = true; v.nz.start();
     function noiseTo(type, f, q, g) { var b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; var gn = ctx.createGain(); gn.gain.value = g; v.nz.connect(b); b.connect(gn); return [b, gn]; }
     var it = noiseTo('bandpass', 1200, 1.2, 0), rd = noiseTo('lowpass', 260, 0.7, 0), wd = noiseTo('bandpass', 1500, 0.5, 0), sk = noiseTo('bandpass', 2200, 5, 0);
@@ -2317,12 +2396,12 @@
     if (starting) { var k = st / 1.0; rpmR = k < 0.55 ? 140 + 90 * Math.sin(st * 38) : 140 + (ep.idle - 140) * Math.pow((k - 0.55) / 0.45, 0.6); crank = k < 0.55 ? 0.6 + 0.4 * Math.sin(st * 70) : 1; }
     // turbo
     v.boost += ((thr && v.smRpm > 0.3 ? 1 : 0) * Math.min(1, v.smRpm * 1.3) - v.boost) * Math.min(1, dt * (thr ? 2.5 : 6));
-    if (ep.bov && v.lastThr && !thr && v.boost > 0.55 && a) { bovSound(a, v); v.boost = 0.2; }
+    if (!v.samp && ep.bov && v.lastThr && !thr && v.boost > 0.55 && a) { bovSound(a, v); v.boost = 0.2; }
     // exhaust pops when you lift off
-    if (!thr && v.smRpm > 0.5 && vfa > 8 && Math.random() < ep.crack * dt * 9 && a) popSound(a, v);
+    if (!v.samp && !thr && v.smRpm > 0.5 && vfa > 8 && Math.random() < ep.crack * dt * 9 && a) popSound(a, v);
     v.lastThr = thr ? 1 : 0;
     var f = rpmR / 60 * ep.cyl / 2;
-    return { f: f, cut: (380 + 1900 * v.smRpm) * ep.lp * (thr ? 1.15 : 0.85), res: f * 0.5, vol: (0.11 + (thr ? 0.12 : 0.03) + 0.1 * frac) * crank, am: f,
+    return { q: Math.max(0, Math.min(1, starting ? 0 : v.smRpm)), thr: thr ? 1 : 0, f: f, cut: (380 + 1900 * v.smRpm) * ep.lp * (thr ? 1.15 : 0.85), res: f * 0.5, vol: (0.11 + (thr ? 0.12 : 0.03) + 0.1 * frac) * crank, am: f,
              itK: ep.intake * (thr ? 1 : 0.25) * (0.02 + 0.07 * v.smRpm * v.smRpm), road: 0.02 + 0.12 * frac, wind: 0.2 * frac * frac, skid: slip,
              wh: ep.turbo ? 900 + 3200 * v.boost : (ep.whine && v.smRpm > 0.6 ? 1500 + 3500 * (v.smRpm - 0.6) : 0), whG: ep.turbo ? 0.025 * v.boost * (thr ? 1 : 0.4) : (ep.whine && v.smRpm > 0.6 ? ep.whine * 0.05 * (v.smRpm - 0.6) / 0.4 : 0) };
   }
@@ -2335,7 +2414,16 @@
     v.itB.frequency.setTargetAtTime(500 + f * 6, t, 0.06); v.itG.gain.setTargetAtTime(p.itK, t, 0.06);
     v.rdG.gain.setTargetAtTime(p.road, t, 0.1); v.wdG.gain.setTargetAtTime(p.wind, t, 0.1);
     v.skG.gain.setTargetAtTime(p.skid, t, 0.05); v.skB.frequency.setTargetAtTime(1500 + p.skid * 3500, t, 0.08); v.skLg.gain.setTargetAtTime(p.skid * 0.3, t, 0.08);
-    if (p.wh) v.wh.frequency.setTargetAtTime(p.wh * dp, t, 0.05); v.whG.gain.setTargetAtTime(p.whG, t, 0.05);
+    if (p.wh) v.wh.frequency.setTargetAtTime(p.wh * dp, t, 0.05); v.whG.gain.setTargetAtTime(v.samp ? 0 : p.whG, t, 0.05);
+    if (v.samp) {                                                       // blend the recordings either side of the current revs and pitch them to match
+      var rs = v.samp.rungs, q = p.q, step = 1 / Math.max(1, rs.length - 1), tot = 0, ws = [], i2;
+      for (i2 = 0; i2 < rs.length; i2++) { var w = Math.max(0, 1 - Math.abs(q - rs[i2].q) / (step * 1.1)); ws.push(w * w); tot += w * w; }
+      var loud = (0.55 + 0.75 * q) * (p.thr ? 1 : 0.7);
+      for (i2 = 0; i2 < rs.length; i2++) {
+        v.samp.gains[i2].gain.setTargetAtTime(tot > 0 ? ws[i2] / tot * loud : 0, t, 0.06);
+        v.samp.srcs[i2].playbackRate.setTargetAtTime(Math.max(0.7, Math.min(1.45, (1 + (q - rs[i2].q) * 0.6) * dp)), t, 0.06);
+      }
+    }
     if (v.pan) v.pan.pan.setTargetAtTime(p.pan || 0, t, 0.05);
   }
   function stopEngineVoice(v) {
@@ -2358,8 +2446,10 @@
   }
   function ownEngine(c, inp, sp, dt) {
     var a = G.aud; if (!a) return;
-    if (!a.ownCar || a.ownCar.model !== c.m) { if (a.ownCar) stopEngineVoice(a.ownCar); a.ownCar = makeEngineVoice(a, c.m); }
+    loadCarSound(a, c.m);
+    if (!a.ownCar || a.ownCar.model !== c.m || (!a.ownCar.samp && a.snd && a.snd[c.m])) { if (a.ownCar) stopEngineVoice(a.ownCar); a.ownCar = makeEngineVoice(a, c.m); }
     var slip = (Math.abs(c.vl) > 2.5 && c.speed > 4) || (inp.hb && c.speed > 6) ? Math.min(0.4, 0.08 + (Math.abs(c.vl) - 2) * 0.05 + (inp.hb ? 0.1 : 0)) : 0;
+    if ((c.lost & 15) && c.speed > 3) slip = Math.max(slip, 0.22);              // metal on tarmac
     setEngineVoice(a.ownCar, engineState(a.ownCar, Math.abs(c.vf), sp.vmax, !!inp.f, slip, !!inp.hb, dt, performance.now()));
   }
   function stopOwnEngine() { var a = G.aud; if (a && a.ownCar) { stopEngineVoice(a.ownCar); a.ownCar = null; } }
@@ -2382,7 +2472,7 @@
   // ---- other people's cars
   function onCarFrame(dv) {
     var n = dv.getUint16(1, true), p = 3;
-    for (var i = 0; i < n; i++, p += 17) {
+    for (var i = 0; i < n; i++, p += 19) {
       var id = dv.getUint16(p, true), o = G.cars.get(id);
       if (G.car && G.car.id === id) continue;
       if (!o) { o = { id: id, el: null, fresh: true, wheel: 0, lx: 0, lz: 0, spd: 0, pitch: 0, roll: 0, dents: [0, 0, 0, 0], x: 0, y: 0, z: 0, yaw: 0 }; G.cars.set(id, o); }
@@ -2390,15 +2480,105 @@
       o.tyaw = dv.getUint8(p + 8) / 256 * 2 * Math.PI; o.steerR = dv.getInt8(p + 9) / 127 * 0.6; o.mi = dv.getUint8(p + 10); o.m = CAR_IDS[o.mi] || 'civic';
       o.dmg = dv.getUint8(p + 11) / 2.55; o.flags = dv.getUint8(p + 12);
       for (var q = 0; q < 4; q++) o.dents[q] = dv.getUint8(p + 13 + q) / 255;
+      o.lost = dv.getUint16(p + 17, true);
       if (o.fresh) { o.x = o.tx; o.y = o.ty; o.z = o.tz; o.yaw = o.tyaw; o.lx = o.x; o.lz = o.z; o.fresh = false; }
     }
   }
-  function carDrawOpts(c, cockpit) { return { steer: c.steerR !== undefined ? c.steerR : c.steer, wheelSpin: c.wheel, damage: Math.min(1, (c.dmg || 0) / 100), dentF: c.dents[0], dentB: c.dents[1], dentL: c.dents[2], dentR: c.dents[3], brake: c.brakeL ? 1 : 0, head: c.headL ? 1 : 0, cockpit: !!cockpit, tint: 0 }; }
+  function carDrawOpts(c, cockpit) { return { steer: c.steerR !== undefined ? c.steerR : c.steer, wheelSpin: c.wheel, lost: c.lost | 0, damage: Math.min(1, (c.dmg || 0) / 100), dentF: c.dents[0], dentB: c.dents[1], dentL: c.dents[2], dentR: c.dents[3], brake: c.brakeL ? 1 : 0, head: c.headL ? 1 : 0, cockpit: !!cockpit, tint: 0 }; }
   function addCarWreck(m) {
     var w = newWreck('c', m, [0, 0, 0], { yaw: m.yaw / 256 * 2 * Math.PI, pt: 0, rl: 0 });
-    w.wy = w.wp = w.wr = 0; w.dents = m.dents || [1, 0.6, 0.4, 0.4]; w.cm = m.m;
+    w.wy = w.wp = w.wr = 0; w.dents = m.dents || [1, 0.6, 0.4, 0.4]; w.cm = m.m; w.lost = m.lost | 0;
     if (G.car && G.car.id === m.id) { /* the driver is already out */ }
     return w;
+  }
+  var PART_BITS = { wheelFL: 1, wheelFR: 2, wheelRL: 4, wheelRR: 8, hood: 16, trunk: 32, bumperF: 64, bumperB: 128, doorL: 256, doorR: 512, mirrorL: 1024, mirrorR: 2048 };
+  function partCentre(sp, name) {                  // where a part sits in the model (the models say; otherwise a sensible guess)
+    var g = typeof window !== 'undefined' && window.CarGL && window.CarGL.SPECS && window.CarGL.SPECS[sp._id] && window.CarGL.SPECS[sp._id].parts && window.CarGL.SPECS[sp._id].parts[name];
+    if (g) return g;
+    var wh = sp.wheels, h = sp.h;
+    return { wheelFL: wh[0], wheelFR: wh[1], wheelRL: wh[2], wheelRR: wh[3], hood: [0, h * 0.7, sp.noseZ * 0.5], trunk: [0, h * 0.7, sp.tailZ * 0.6], bumperF: [0, 0.5, sp.noseZ * 0.95], bumperB: [0, 0.5, sp.tailZ * 0.95],
+             doorL: [-sp.wid / 2, h * 0.5, 0], doorR: [sp.wid / 2, h * 0.5, 0], mirrorL: [-sp.wid / 2, h * 0.75, sp.noseZ * 0.3], mirrorR: [sp.wid / 2, h * 0.75, sp.noseZ * 0.3] }[name];
+  }
+  function spawnParts(m) {                         // parts knocked off a car fly away from it, bounce and come to rest on the road
+    if (!CARS[m.m]) return;
+    var sp = cspec(m.m); sp._id = m.m;
+    var own = G.car && G.car.id === m.id ? G.car : null, o = own || G.cars.get(m.id);
+    if (own) own.lost |= m.bits; else if (o) o.lost = (o.lost | 0) | m.bits;
+    var att = own ? { yaw: own.yaw, pitch: own.pitch, roll: own.roll, x: own.x, y: own.y - 0.03, z: own.z } : { yaw: m.yaw / 256 * 2 * Math.PI, pitch: 0, roll: 0, x: m.x, y: o ? o.y : m.y, z: m.z };
+    var b = jetBasis(att.yaw, att.pitch, att.roll), v = m.v || [0, 0, 0], right = jcross(b.f, b.u), n = 0;
+    Object.keys(PART_BITS).forEach(function (name) {
+      if (!(m.bits & PART_BITS[name])) return;
+      var P = partCentre(sp, name), wc = [att.x + right[0] * P[0] + b.u[0] * P[1] - b.f[0] * P[2], att.y + right[1] * P[0] + b.u[1] * P[1] - b.f[1] * P[2], att.z + right[2] * P[0] + b.u[2] * P[1] - b.f[2] * P[2]];
+      var side = P[0] < 0 ? -1 : 1, fw = P[2] < 0 ? 1 : -1, kick = name.indexOf('wheel') === 0 ? 5 : name.indexOf('door') === 0 ? 4 : name.indexOf('mirror') === 0 ? 5 : name === 'hood' ? 3 : 3;
+      var up = name === 'hood' || name === 'trunk' ? 7 + Math.random() * 5 : 3 + Math.random() * 4;
+      var vx = v[0] * 0.8 + right[0] * side * (1 + Math.random() * kick) + b.f[0] * fw * Math.random() * 3, vz = v[2] * 0.8 + right[2] * side * (1 + Math.random() * kick) + b.f[2] * fw * Math.random() * 3;
+      G.parts.push({ name: name, m: m.m, x: wc[0], y: wc[1], z: wc[2], vx: vx, vy: v[1] * 0.5 + up, vz: vz, yaw: att.yaw, pt: att.pitch, rl: att.roll, wy: (Math.random() - 0.5) * 5, wp: (Math.random() - 0.5) * 7, wr: (Math.random() - 0.5) * 7, P: P, R: name.indexOf('wheel') === 0 ? sp.wr : 0.3, t0: performance.now(), rest: false });
+      n++;
+    });
+    while (G.parts.length > 40) G.parts.shift();
+    if (G.aud && n) { crashSound(18); }
+  }
+  function stepParts(dt) {
+    for (var i = 0; i < G.parts.length; i++) {
+      var p = G.parts[i]; if (p.rest) continue;
+      p.vy -= 26 * dt; var nx = p.x + p.vx * dt, nz = p.z + p.vz * dt, ny = p.y + p.vy * dt, wheel = p.name.indexOf('wheel') === 0;
+      if (wsolid(nx, p.y, nz)) { p.vx *= -0.35; p.vz *= -0.35; } else { p.x = nx; p.z = nz; }
+      if (p.vy < 0 && wsolid(p.x, ny - p.R * 0.8, p.z)) {
+        var imp = -p.vy; p.y = Math.floor(ny - p.R * 0.8) + 1 + p.R * 0.8;
+        if (imp > 3) { p.vy = imp * (wheel ? 0.55 : 0.35); p.wp += (Math.random() - 0.5) * 3; p.wr += (Math.random() - 0.5) * 3; } else { p.vy = 0; }
+        var fr = Math.exp(-(wheel ? 0.4 : 2.2) * dt); p.vx *= fr; p.vz *= fr; p.wy *= 0.95; p.wp *= wheel ? 0.99 : 0.8; p.wr *= wheel ? 0.99 : 0.8;
+        if (p.vy === 0 && Math.hypot(p.vx, p.vz) < 0.5) p.rest = true;
+      } else p.y = ny;
+      p.yaw += p.wy * dt; p.pt += p.wp * dt; p.rl += p.wr * dt;
+      if (performance.now() - p.t0 > 90000) p.rest = true;
+    }
+    for (var j = G.parts.length - 1; j >= 0; j--) if (performance.now() - G.parts[j].t0 > 120000) G.parts.splice(j, 1);
+  }
+  function partMat(p) {                            // the part's model, spun about its own centre and put where it is now
+    var b = jetBasis(p.yaw, p.pt, p.rl), r = jcross(b.f, b.u), P = p.P;
+    var tx = p.x - (r[0] * P[0] + b.u[0] * P[1] - b.f[0] * P[2]), ty = p.y - (r[1] * P[0] + b.u[1] * P[1] - b.f[1] * P[2]), tz = p.z - (r[2] * P[0] + b.u[2] * P[1] - b.f[2] * P[2]);
+    return new Float32Array([r[0], r[1], r[2], 0, b.u[0], b.u[1], b.u[2], 0, -b.f[0], -b.f[1], -b.f[2], 0, tx, ty, tz, 1]);
+  }
+  function spark(x, y, z, vx, vz) { if (G.sparks.length < 80) G.sparks.push({ x: x, y: y, z: z, vx: vx + (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 4, vz: vz + (Math.random() - 0.5) * 4, t0: performance.now(), el: null }); }
+  function drawCarFx(vp, focal, ex, ey, ez, dt, now) {
+    var layer = $('ew-fx'), i, sp;
+    for (i = G.sparks.length - 1; i >= 0; i--) {      // sparks from bare hubs on the road
+      var s0 = G.sparks[i], a = (now - s0.t0) / 450;
+      if (a >= 1) { if (s0.el) s0.el.remove(); G.sparks.splice(i, 1); continue; }
+      s0.vy -= 22 * dt; s0.x += s0.vx * dt; s0.y += s0.vy * dt; s0.z += s0.vz * dt;
+      sp = project(vp, s0.x, s0.y, s0.z, G.cw, G.ch);
+      if (!sp || sp.w > 120) { if (s0.el) s0.el.style.display = 'none'; continue; }
+      if (!s0.el) { s0.el = document.createElement('div'); s0.el.style.cssText = 'position:absolute;left:0;top:0;border-radius:50%;background:#ffb43a;box-shadow:0 0 6px 2px rgba(255,160,40,.9);pointer-events:none'; layer.appendChild(s0.el); }
+      var ss = Math.max(2, Math.min(9, focal * 0.06 / sp.w));
+      s0.el.style.display = 'block'; s0.el.style.width = s0.el.style.height = ss.toFixed(1) + 'px'; s0.el.style.opacity = String(1 - a); s0.el.style.transform = 'translate(' + (sp.x | 0) + 'px,' + (sp.y | 0) + 'px)';
+    }
+    function engineFx(o, dmg, c, key) {                // smoke from under the hood of a badly damaged car, flames when it is nearly gone
+      var sp2 = cspec(o.m), dxo = c.x - ex, dzo = c.z - ez; if (dmg < 55 || dxo * dxo + dzo * dzo > 90 * 90) return;
+      var b = jetBasis(c.yaw, c.pitch || 0, c.roll || 0), r = jcross(b.f, b.u), hd = sp2.hood || [0, sp2.h * 0.7, sp2.noseZ * 0.6];
+      var hp = [c.x + r[0] * hd[0] + b.u[0] * hd[1] - b.f[0] * hd[2], c.y + r[1] * hd[0] + b.u[1] * hd[1] - b.f[1] * hd[2] + 0.1, c.z + r[2] * hd[0] + b.u[2] * hd[1] - b.f[2] * hd[2]];
+      if (!o.puffs) o.puffs = [];
+      if (now - (o.pfAt || 0) > (dmg > 80 ? 160 : 320) && o.puffs.length < 9) { o.pfAt = now; var pe = document.createElement('div'); pe.className = 'ew-smoke'; layer.appendChild(pe); o.puffs.push({ el: pe, t0: now, dx: (Math.random() - 0.5) * 0.6, dz: (Math.random() - 0.5) * 0.6 }); }
+      for (var k = o.puffs.length - 1; k >= 0; k--) {
+        var pf = o.puffs[k], pa = (now - pf.t0) / 2600;
+        if (pa >= 1) { pf.el.remove(); o.puffs.splice(k, 1); continue; }
+        var ps = project(vp, hp[0] + pf.dx + pa * 1.5, hp[1] + pa * 5, hp[2] + pf.dz, G.cw, G.ch);
+        if (!ps || ps.w > 110) { pf.el.style.display = 'none'; continue; }
+        var sz = Math.max(10, Math.min(260, focal * (0.9 + pa * 2.4) / ps.w));
+        pf.el.style.display = 'block'; pf.el.style.width = pf.el.style.height = sz.toFixed(0) + 'px'; pf.el.style.opacity = String((dmg > 80 ? 0.85 : 0.55) * (1 - pa));
+        pf.el.style.transform = 'translate(' + (ps.x | 0) + 'px,' + (ps.y | 0) + 'px) translate(-50%,-50%)';
+      }
+      if (dmg > 85) {
+        var fp = project(vp, hp[0], hp[1] + 0.2, hp[2], G.cw, G.ch);
+        if (fp && fp.w < 110) {
+          if (!o.fire) { o.fire = document.createElement('div'); o.fire.className = 'ew-boom'; layer.appendChild(o.fire); }
+          var fs2 = Math.max(24, Math.min(300, focal * 1.8 / fp.w));
+          o.fire.style.display = 'block'; o.fire.style.width = o.fire.style.height = fs2.toFixed(0) + 'px'; o.fire.style.setProperty('--f', String(Math.floor(now / 130) % 4)); o.fire.style.opacity = '0.9';
+          o.fire.style.transform = 'translate(' + (fp.x | 0) + 'px,' + (fp.y | 0) + 'px) translate(-50%,-70%)';
+        } else if (o.fire) o.fire.style.display = 'none';
+      } else if (o.fire) o.fire.style.display = 'none';
+    }
+    if (G.car) engineFx(G.car, G.car.dmg, G.car, 'me');
+    G.cars.forEach(function (o) { if (CARS[o.m]) engineFx(o, o.dmg || 0, o, o.id); });
   }
   function drawCars(vp, ex, ey, ez, dt, now) {
     if (!G.car && !G.cars.size && !G.wrecks.some(function (w) { return w.kind === 'c'; })) return;
@@ -2410,11 +2590,22 @@
       o.x += (o.tx - o.x) * k; o.y += (o.ty - o.y) * k; o.z += (o.tz - o.z) * k; o.yaw += angDiff(o.yaw, o.tyaw) * k;
       var sp0 = Math.hypot(o.x - o.lx, o.z - o.lz) / Math.max(dt, 0.001); o.lx = o.x; o.lz = o.z; o.spd += (sp0 - o.spd) * Math.min(1, dt * 3); o.wheel += o.spd * dt / 0.33;
       o.brakeL = !!(o.flags & 1); o.headL = !!(o.flags & 2);
+      if ((o.lost & 15) && o.spd > 4 && CARS[o.m]) { var osp = cspec(o.m); for (var ow = 0; ow < 4; ow++) if (o.lost & (1 << ow)) { var owp = carWheelXZ({ x: o.x, z: o.z, yaw: o.yaw }, osp, osp.wheels[ow]); spark(owp[0], o.y + 0.02, owp[1], 0, 0); } }
+      if (G.sk !== null && CARS[o.m]) {
+        var vxo = dt > 0 ? (o.x - (o.px === undefined ? o.x : o.px)) / dt : 0, vzo = dt > 0 ? (o.z - (o.pz === undefined ? o.z : o.pz)) / dt : 0; o.px = o.x; o.pz = o.z;
+        var fdx = -Math.sin(o.yaw), fdz = -Math.cos(o.yaw), lat = Math.abs(vxo * fdz * -1 + vzo * fdx) , spo = Math.sqrt(vxo * vxo + vzo * vzo), spq = cspec(o.m);
+        var oslide = lat > 2.6 && spo > 4, obrake = (o.flags & 1) && spo > 15;
+        if ((oslide || obrake) && (o.x - ex) * (o.x - ex) + (o.z - ez) * (o.z - ez) < 160 * 160) {
+          for (var wj = 0; wj < 4; wj++) { var wq = carWheelXZ({ x: o.x, z: o.z, yaw: o.yaw }, spq, spq.wheels[wj]); skidWheel(o.id + ':' + wj, wq[0], o.y - 0.03 + 0.016, wq[1], oslide ? wj >= 2 : true, oslide ? 1 : 0.55, now); }
+        } else for (var wk = 0; wk < 4; wk++) skidWheel(o.id + ':' + wk, 0, 0, 0, false, 0, now);
+      }
       var dx = o.x - ex, dz = o.z - ez, d2 = dx * dx + dz * dz;
       // other drivers' engines
       if (a) {
         var key = 'c' + o.id, v = a.voices.get(key);
         if ((o.flags & 4) && d2 < 110 * 110) {
+          loadCarSound(a, o.m);
+          if (v && !v.samp && a.snd && a.snd[o.m]) { stopEngineVoice(v); a.voices.delete(key); v = null; }
           if (!v) { if (a.voices.size >= 7) { v = null; } else { v = makeEngineVoice(a, o.m); v.isCar = true; a.voices.set(key, v); } }
           if (v) {
             var dist = Math.sqrt(d2), rdot = o.rd === undefined ? 0 : (dist - o.rd) / Math.max(dt, 0.001); o.rd = dist;
@@ -2428,10 +2619,14 @@
       var cb = { x: o.x, y: o.y, z: o.z, yaw: o.yaw, pitch: 0, roll: 0 };
       r.draw(o.m, carMat(cb), vp, cam, fn, ff, carDrawOpts(o, false));
     });
+    G.parts.forEach(function (p) {
+      var dxp = p.x - ex, dzp = p.z - ez; if (dxp * dxp + dzp * dzp > 200 * 200 || !CARS[p.m]) return;
+      r.draw(p.m, partMat(p), vp, cam, fn, ff, { only: p.name, steer: 0, wheelSpin: 0, damage: 0.4, tint: 0, lost: 0 });
+    });
     G.wrecks.forEach(function (w) {
       if (w.kind !== 'c' || !CARS[w.cm]) return;
       var ddx = w.x - ex, ddz = w.z - ez; if (ddx * ddx + ddz * ddz > 230 * 230) return;
-      var o2 = { steer: 0, wheel: 0, dmg: 100, dents: w.dents, brakeL: false, headL: false };
+      var o2 = { steer: 0, wheel: 0, dmg: 100, dents: w.dents, brakeL: false, headL: false, lost: w.lost };
       var opt = carDrawOpts(o2, false); opt.tint = 0.85; opt.damage = 1;
       r.draw(w.cm, carMat({ x: w.x, y: w.y - 1.07, z: w.z, yaw: w.yaw, pitch: w.pt, roll: w.rl }), vp, cam, fn, ff, opt);
     });
@@ -2446,7 +2641,7 @@
   function renderCarShop() {
     var box = $('ew-shop-cars'); if (!box) return;
     carCss(); heliCss();
-    var own = G.inv.car || {}, prices = G.inv.cp || {}, html = '<h4>Cars</h4><div class="warn">Cars take damage. Crash one until it is totaled and it is gone for good. Anyone can hijack a parked car.</div>';
+    var own = G.inv.car || {}, prices = G.inv.cp || {}, html = '<h4>Cars</h4><div class="warn">Cars take damage. Crash one until it is totaled and it is gone for good. Anyone can hijack a parked car.</div><div class="warn" style="color:var(--text-secondary)">Engine sounds are real recordings from Wikimedia Commons (CC BY 3.0): ' + CAR_IDS.map(function (k) { return CARS[k].name + ' - ' + esc(SND_CREDITS[k] || ''); }).join('; ') + '.</div>';
     CAR_IDS.forEach(function (id) {
       var sp = CARS[id], price = prices[id] || sp.price, st = own[id], img = carThumb(id);
       var btn1 = st ? '<button class="win-btn" data-c="launch" data-id="' + id + '"' + (G.car || G.drone || G.heli || G.jet ? ' disabled' : '') + '>' + (G.car && G.car.m === id ? 'Driving' : 'Bring out') + '</button>'
@@ -2728,6 +2923,8 @@
     G.wrecks.forEach(function (w) { stepWreck(w, dt); });
     drawHelis(vp, ex, ey, ez, dt, performance.now());
     drawJets(vp, ex, ey, ez, dt, performance.now());
+    drawSkids(vp, ex, ey, ez, performance.now(), RDIST * 16 - 44, RDIST * 16 - 6);
+    stepParts(dt);
     drawCars(vp, ex, ey, ez, dt, performance.now());
     // outline of what you are aiming at
     if (G.ready && !G.drone && !G.heli && !G.jet && !G.car) {
@@ -2747,6 +2944,7 @@
     drawDrones(vp, focal, ex, ey, ez, dt, performance.now());
     drawHeliFx(vp, focal, ex, ey, ez, dt, performance.now());
     drawJetFx(vp, focal, ex, ey, ez, dt, performance.now());
+    drawCarFx(vp, focal, ex, ey, ez, dt, performance.now());
     G.others.forEach(function (p) {
       if (p.hidden) { p.el.style.display = 'none'; return; }
       var k = Math.min(1, dt * 12);
@@ -2786,7 +2984,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { audState: function () { return G && G.aud; }, loadCarSound: loadCarSound, getParts: function () { return G && G.parts; }, getSkid: function () { return G && G.sk; }, EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();

@@ -9830,8 +9830,9 @@ JET_COOLDOWN = 4.0
 JET_RUNWAY = 90                       # open ground needed in front of the nose to start
 # Cars: seven real ones, bought once and kept until they are totalled. model: (name, price, top speed b/s, length, width, height)
 CARS = {"yaris": ("Toyota Yaris", 6000, 28.0, 3.95, 1.70, 1.50), "civic": ("Honda Civic", 10000, 34.0, 4.67, 1.80, 1.41), "f150": ("Ford F-150", 20000, 31.0, 5.89, 2.03, 1.97),
-        "c5": ("Chevrolet Corvette C5", 28000, 48.0, 4.56, 1.87, 1.21), "m3": ("BMW M3", 40000, 46.0, 4.49, 1.78, 1.37), "911": ("Porsche 911 Carrera", 70000, 52.0, 4.45, 1.80, 1.30),
-        "cls63": ("Mercedes-Benz CLS 63 AMG", 55000, 50.0, 4.99, 1.88, 1.42)}
+        "c5": ("Chevrolet Corvette C5", 28000, 48.0, 4.56, 1.87, 1.21), "m3": ("BMW M3 Competition", 65000, 52.0, 4.80, 1.90, 1.43), "911": ("Porsche 911 Carrera", 70000, 52.0, 4.45, 1.80, 1.30),
+        "cls63": ("Mercedes-Benz CLS 63 AMG", 55000, 50.0, 4.99, 1.88, 1.42),
+        "aventador": ("Lamborghini Aventador", 150000, 62.0, 4.84, 2.03, 1.14)}
 CAR_IDS = list(CARS)
 CAR_CRASH_MIN = 8.0               # an impact slower than this does no damage
 CAR_DMG_PER_SPEED = 2.4           # damage per block/second above that (a 25 b/s wall is about 40, a 45 b/s wall about 90)
@@ -10215,8 +10216,8 @@ def _w_tick_frames():
             body = bytearray(struct.pack("<BH", 0x15, len(cent)))
             for car in cent:
                 dn = car["dents"]
-                body += struct.pack("<HhhhBbBBBBBBB", car["id"], int(car["x"] * 16), int(car["y"] * 16), int(car["z"] * 16), car["yaw"], max(-127, min(127, int(car["steer"]))), CAR_IDS.index(car["m"]),
-                                    min(255, int(car["dmg"] * 2.55)), (car["flags"] & 3) | (4 if car.get("driver") is not None else 0), int(dn[0] * 255), int(dn[1] * 255), int(dn[2] * 255), int(dn[3] * 255))
+                body += struct.pack("<HhhhBbBBBBBBBH", car["id"], int(car["x"] * 16), int(car["y"] * 16), int(car["z"] * 16), car["yaw"], max(-127, min(127, int(car["steer"]))), CAR_IDS.index(car["m"]),
+                                    min(255, int(car["dmg"] * 2.55)), (car["flags"] & 3) | (4 if car.get("driver") is not None else 0), int(dn[0] * 255), int(dn[1] * 255), int(dn[2] * 255), int(dn[3] * 255), car.get("lost", 0))
             out.append((r, bytes(body)))
     return out
 
@@ -10477,8 +10478,28 @@ def _w_car_pos_for(p, car):
     p["x"], p["y"], p["z"] = car["x"], car["y"], car["z"]
     p["q"] = (int(car["x"] * 16), int(car["y"] * 16), int(car["z"] * 16)); p["ver"] += 1       # the driver is still drawn (their picture rides in the car)
 
+CAR_PARTS_BY_SIDE = {                     # side hit -> [(part bit, damage the hit needs, chance)]
+    "front": [(64, 9, 0.9), (1024, 14, 0.4), (2048, 14, 0.4), (16, 26, 0.55), (1, 38, 0.5), (2, 38, 0.5)],
+    "back":  [(128, 9, 0.9), (32, 26, 0.55), (4, 38, 0.5), (8, 38, 0.5)],
+    "left":  [(1024, 7, 0.85), (256, 18, 0.7), (1, 40, 0.4), (4, 40, 0.4)],
+    "right": [(2048, 7, 0.85), (512, 18, 0.7), (2, 40, 0.4), (8, 40, 0.4)]}
+
+async def _w_car_shed(car, side, dmg, pt):
+    """A hard enough hit knocks parts off the end of the car that took it (bumper, mirrors, hood, doors, wheels), and they fly away."""
+    new = 0
+    for bit, need, chance in CAR_PARTS_BY_SIDE[side]:
+        if not car.get("lost", 0) & bit and dmg >= need and random.random() < chance: new |= bit
+    if car["dmg"] > 55 and random.random() < dmg / 90.0:               # a car that is already wrecked loses more
+        extra = [b for b in (16, 32, 64, 128, 256, 512, 1, 2, 4, 8) if not (car.get("lost", 0) | new) & b]
+        if extra: new |= random.choice(extra)
+    if not new: return 0
+    car["lost"] = car.get("lost", 0) | new; car["ver"] += 1
+    await _w_broadcast({"t": "cpart", "id": car["id"], "m": car["m"], "bits": new, "x": round(pt[0], 2), "y": round(pt[1], 2), "z": round(pt[2], 2), "yaw": car["yaw"],
+                        "v": [round(car.get("vx", 0.0), 1), round(car.get("vy", 0.0), 1), round(car.get("vz", 0.0), 1)]}, near=(int(pt[0]), int(pt[2])))
+    return new
+
 async def _w_car_info(p, car):
-    await _w_send(p, {"t": "cdmg", "id": car["id"], "dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]]})
+    await _w_send(p, {"t": "cdmg", "id": car["id"], "dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]], "lost": car.get("lost", 0)})
 
 async def _w_car_exit(p, forced=False, why=None):
     """The driver leaves the car, which stays parked where it is."""
@@ -10505,7 +10526,7 @@ async def _w_car_enter(p, car):
     car["driver"] = p["id"]; p["car"] = car["id"]; p["armed"] = False
     car["t"] = now; car["hb"] = CAR_BURST; car["v"] = 0.0; car["ver"] += 1
     _w_car_pos_for(p, car)
-    await _w_send(p, {"t": "cstart", "id": car["id"], "m": car["m"], "x": car["x"], "y": car["y"], "z": car["z"], "yaw": car["yaw"], "dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]], "mine": car["owner"] == p["name"].lower()})
+    await _w_send(p, {"t": "cstart", "id": car["id"], "m": car["m"], "x": car["x"], "y": car["y"], "z": car["z"], "yaw": car["yaw"], "dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]], "lost": car.get("lost", 0), "mine": car["owner"] == p["name"].lower()})
     await _w_send_inv(p)
 
 def _w_car_remove(car):
@@ -10525,7 +10546,7 @@ async def _w_car_total(car, pt):
         await _w_teleport(drv, spot[0], spot[1], spot[2])
         await _w_send(drv, {"t": "cend", "id": car["id"], "x": spot[0], "y": spot[1], "z": spot[2], "forced": False, "why": "totaled"})
         await _w_send_inv(drv)
-    await _w_broadcast({"t": "cx", "id": car["id"], "m": mid, "x": round(px, 2), "y": round(py, 2), "z": round(pz, 2), "yaw": car["yaw"], "dents": [round(c, 2) for c in car["dents"]]}, near=(int(px), int(pz)))
+    await _w_broadcast({"t": "cx", "id": car["id"], "m": mid, "x": round(px, 2), "y": round(py, 2), "z": round(pz, 2), "yaw": car["yaw"], "dents": [round(c, 2) for c in car["dents"]], "lost": car.get("lost", 0)}, near=(int(px), int(pz)))
     await _w_broadcast({"t": "bs", "e": [round(px, 2), round(py + 0.8, 2), round(pz, 2)], "d": [], "s": 0.9}, near=(int(px), int(pz)))
     own = _w_find(owner)
     if own:
@@ -10543,8 +10564,10 @@ async def _w_car_hurt(car, dmg, dirx, dirz, pt=None):
     if abs(along) >= abs(side): car["dents"][0 if along > 0 else 1] = min(1.0, car["dents"][0 if along > 0 else 1] + dmg / 70.0)        # moving forward into something dents the front
     else: car["dents"][3 if side > 0 else 2] = min(1.0, car["dents"][3 if side > 0 else 2] + dmg / 80.0)
     car["dmg"] += dmg; car["ver"] += 1
+    side = ("front" if along > 0 else "back") if abs(along) >= abs(side) else ("right" if side > 0 else "left")
     if car["dmg"] >= 100.0:
         await _w_car_total(car, pt or (car["x"], car["y"], car["z"])); return True
+    await _w_car_shed(car, side, dmg, pt or (car["x"], car["y"], car["z"]))
     drv = next((q for q in world_players.values() if q["id"] == car.get("driver")), None)
     if drv: await _w_car_info(drv, car)
     return False
@@ -10572,7 +10595,7 @@ def _w_car_move(p, car, x, y, z, yaw, steer, flags, now):
             return ("crash", (car["x"] + dx / dist * t, car["y"] + dy / dist * t, car["z"] + dz / dist * t, speed, dx / dist, dz / dist))
         return ("reject", None)
     car["x"], car["y"], car["z"], car["yaw"], car["steer"], car["flags"] = x, y, z, yaw, steer, (car["flags"] & 4) | (flags & 3)
-    car["v"] = speed; car["ver"] += 1
+    car["v"] = speed; car["vx"], car["vy"], car["vz"] = dx / max(dt, 0.03), dy / max(dt, 0.03), dz / max(dt, 0.03); car["ver"] += 1
     _w_car_pos_for(p, car)
     p["last_t"] = now
     return ("ok", None)
@@ -10621,7 +10644,7 @@ async def _w_car_summon(me, mid):
         if len(world_cars) >= CAR_MAX:
             for cid in [c for c, v in world_cars.items() if v.get("driver") is None][:20]: _w_car_remove(world_cars[cid])
         cid = world_car_next; world_car_next = world_car_next % 60000 + 1
-        car = {"id": cid, "owner": ul, "m": mid, "x": spot[0], "y": spot[1], "z": spot[2], "yaw": me["yaw"], "steer": 0, "flags": 0, "dmg": 0.0, "dents": [0.0, 0.0, 0.0, 0.0],
+        car = {"id": cid, "owner": ul, "m": mid, "x": spot[0], "y": spot[1], "z": spot[2], "yaw": me["yaw"], "steer": 0, "flags": 0, "dmg": 0.0, "dents": [0.0, 0.0, 0.0, 0.0], "lost": 0, "vx": 0.0, "vy": 0.0, "vz": 0.0,
                "driver": None, "ver": 1, "t": now, "hb": CAR_BURST, "v": 0.0, "hit_t": 0.0}
         world_cars[cid] = car; world_owner_car[ul] = cid
     car["ver"] += 1
@@ -11424,6 +11447,21 @@ async def car_js_handler(request):
     if "gzip" in ae: return web.Response(body=_CAR_GZ, content_type="application/javascript", charset="utf-8", headers={**hdr, "Content-Encoding": "gzip"})
     return web.Response(body=_CAR_RAW, content_type="application/javascript", charset="utf-8", headers=hdr)
 
+_CARSND_CACHE = {}
+async def car_snd_handler(request):
+    """The real engine recordings: small audio files, fetched once per car and cached by the browser."""
+    name = request.match_info.get("name", "")
+    if not re.fullmatch(r"car_[a-z0-9]{2,12}\.(ogg|json)", name): return web.Response(status=404)
+    ent = _CARSND_CACHE.get(name)
+    if ent is None:
+        try:
+            with open(os.path.join("car_snd", name), "rb") as f: data = f.read()
+        except Exception: return web.Response(status=404)
+        ent = _CARSND_CACHE[name] = (data, hashlib.md5(data).hexdigest())
+    hdr = {"Cache-Control": "public, max-age=604800", "ETag": '"' + ent[1] + '"'}
+    if request.headers.get("If-None-Match", "") == hdr["ETag"]: return web.Response(status=304, headers=hdr)
+    return web.Response(body=ent[0], content_type=("audio/ogg" if name.endswith(".ogg") else "application/json"), headers=hdr)
+
 async def ezworld_js_handler(request):
     if not _EZW_RAW: return web.Response(status=404)
     hdr = {"Cache-Control": "no-cache, must-revalidate", "ETag": '"' + _EZW_ETAG + '"', "Vary": "Accept-Encoding"}
@@ -11444,6 +11482,7 @@ _g("/ezworld.js", ezworld_js_handler)
 _g("/heli_gl.js", heli_js_handler)
 _g("/jet_gl.js", jet_js_handler)
 _g("/car_gl.js", car_js_handler)
+_g("/car_snd/{name}", car_snd_handler)
 _g("/ws/world", world_ws_handler)
 _p("/api/admin/emergency", admin_emergency_handler)
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))

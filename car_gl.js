@@ -276,7 +276,7 @@ function wheel(M, x, y, z, r, wd, tyre, hub) {
 
 
 /* ---------------- car builder ---------------- */
-var ALL_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63'];
+var ALL_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63', 'aventador'];
 var SPECS = {}, CFG = {}, BUILT = {};
 var MT = { MATTE: 0, GLASS: 1, EMIT: 2, HEAD: 3, TAIL: 4, CHROME: 5, PAINT: 6, GLOW: 7, SCREEN: 9 };
 var FL_ND = 256, FL_RIG = 512, FL_LOOSE = 1024;
@@ -322,12 +322,13 @@ function lathe(M, prof, seg, colFn, mat) {
 var TYRE = [20, 20, 22, 255, 0], SIDEW = [34, 34, 37, 255, 0], DARK = [18, 18, 20, 255, 0], UNDER = [26, 26, 29, 255, 0];
 var GLASSCOL = [18, 28, 36, 150, MT.GLASS];
 
-function makeWheel(cfg, side) {
-  var R = cfg.R, hw = cfg.tw / 2, rr = R * (cfg.rimF || 0.66), M = new Mesh(), seg = 20, k;
+function makeWheel(cfg, side, twv) {
+  var R = cfg.R, hw = (twv || cfg.tw) / 2, rr = R * (cfg.rimF || 0.66), M = new Mesh(), seg = 16, k;
   var rc = cfg.rimCol || [190, 194, 202, 255, MT.CHROME];
   lathe(M, [[-hw, rr + 0.004], [-hw * 0.96, R * 0.9], [-hw * 0.78, R], [hw * 0.78, R], [hw * 0.96, R * 0.9], [hw, rr + 0.004]], seg, function (j) { return j === 2 ? TYRE : SIDEW; }, 0);
   lathe(M, [[hw * 0.45, 0], [hw * 0.45, rr * 0.97]], seg, function () { return DARK; }, 0);
-  lathe(M, [[hw * 0.6, rr * 0.3], [hw * 0.6, rr * 0.86]], seg, function () { return [118, 120, 126, 255, 0]; }, 0);
+  var K = new Mesh();
+  lathe(K, [[hw * 0.6, rr * 0.3], [hw * 0.6, rr * 0.86]], seg, function () { return [118, 120, 126, 255, 0]; }, 0);
   lathe(M, [[hw * 0.985, rr * 0.92], [hw * 0.985, rr + 0.003]], seg, function () { return rc; }, 0);
   var th = 0.012 + 0.012 * R / 0.33, xc = hw * 0.8;
   for (k = 0; k < 5; k++) {
@@ -335,11 +336,12 @@ function makeWheel(cfg, side) {
     var P = function (x, r, t) { return [x, r * cs - t * sn, r * sn + t * cs]; };
     hexa(M, [P(xc - th / 2, r0, -w0), P(xc - th / 2, r0, w0), P(xc - th / 2, r1, w1), P(xc - th / 2, r1, -w1), P(xc + th / 2, r0, -w0), P(xc + th / 2, r0, w0), P(xc + th / 2, r1, w1), P(xc + th / 2, r1, -w1)], rc, 0);
   }
+  cyl(K, [hw * 0.55, 0, 0], [hw * 0.66, 0, 0], rr * 0.2, rr * 0.2, 14, rc, 0, true);
   cyl(M, [hw * 0.78, 0, 0], [hw * 0.97, 0, 0], rr * 0.2, rr * 0.17, 14, rc, 0, true);
-  if (cfg.caliper) { var cc = cfg.caliper; box(M, hw * 0.55, -rr * 0.55, rr * 0.0, 0.03, 0.09 * rr / 0.2, 0.05, cc, 0); }
-  if (side < 0) M.apply(0, mRY(PI));
-  flagMesh(M, 0, FL_RIG);
-  return M;
+  if (cfg.caliper) { var cc = cfg.caliper; box(K, hw * 0.55, -rr * 0.55, rr * 0.0, 0.03, 0.09 * rr / 0.2, 0.05, cc, 0); }
+  if (side < 0) { M.apply(0, mRY(PI)); K.apply(0, mRY(PI)); }
+  flagMesh(M, 0, FL_RIG); flagMesh(K, 0, FL_RIG);
+  return { wheel: M, core: K };
 }
 
 function pruneMesh(M) {
@@ -359,7 +361,8 @@ function buildCar(cfg) {
   var L = cfg.L, zOff = cfg.wb / 2 + cfg.fo;
   function Z(d) { return d - zOff; }
   var B = new Mesh(), G = new Mesh(), I = new Mesh(), CK = new Mesh(), GL = new Mesh(), i, k;
-  var T = pchip(cfg.top), Bt = pchip(cfg.bot), Wd = pchip(cfg.wid), Nn = pchip(cfg.n);
+  var T = pchip(cfg.top), Bt = pchip(cfg.bot), Wd0 = pchip(cfg.wid), Nn = pchip(cfg.n);
+  function Wd(d) { return Wd0(d) + 0.02; }
   var cab = cfg.cab, nb = cfg.nb || 7.5, holeA = cab.holeA || 40;
   var belt = typeof cab.belt === 'number' ? function () { return cab.belt; } : pchip(cab.belt);
   var cw = cab.cw || 1;
@@ -375,7 +378,8 @@ function buildCar(cfg) {
 
   /* ---- body hull ---- */
   var ds = [0, 0.05, 0.12, 0.22, 0.35], dd;
-  for (dd = 0.55; dd < L - 0.5; dd += 0.24) ds.push(dd);
+  for (dd = 0.55; dd < L - 0.5; dd += 0.3) ds.push(dd);
+  [cfg.fo, cfg.fo + cfg.wb].forEach(function (w) { var r0 = cfg.R + 0.05; for (var kk = -5; kk <= 5; kk++) ds.push(w + kk * r0 / 4); });
   ds.push(L - 0.35, L - 0.22, L - 0.12, L - 0.05, L);
   ds.push(dWs, dGE); holes.forEach(function (h) { ds.push(h[0], h[1]); });
   (cfg.wheelD || []).forEach(function (d) { ds.push(d); });
@@ -386,13 +390,21 @@ function buildCar(cfg) {
     var top = T(d), bot = Bt(d);
     return { z: Z(d), y: (top + bot) / 2, t: (top - bot) / 2, b: (top - bot) / 2, w: Wd(d), n: Nn(d), nb: nb, x: 0 };
   });
-  var bang = degAngles([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300, 310, 320, 330, 340, 350]);
+  var angSet = {}, aa;
+  function addA(a) { a = ((a % 360) + 360) % 360; angSet[a] = 1; }
+  for (aa = 0; aa <= 40; aa += 5) { addA(aa); addA(180 - aa); }
+  for (aa = 300; aa < 360; aa += 5) { addA(aa); addA(180 - aa); }
+  for (aa = 50; aa <= 130; aa += 10) addA(aa);
+  for (aa = 250; aa <= 290; aa += 10) addA(aa);
+  var bang = degAngles(Object.keys(angSet).map(Number).sort(function (x, y) { return x - y; }));
+  var archR = cfg.R + (cfg.archGap || 0.05), wD = [cfg.fo, cfg.fo + cfg.wb];
   var s0 = B.vcount();
   loft(B, bsecs, {
     angles: bang, caps: true, capCol: PAINT,
     col: function (q) {
       var d = q.z + zOff, a = q.a, h;
       for (h = 0; h < holes.length; h++) if (d > holes[h][0] - 1e-4 && d < holes[h][1] + 1e-4 && a > holeA && a < 180 - holeA) return null;
+      if (!(a >= 65 && a <= 115)) for (h = 0; h < 2; h++) { var ddx = d - wD[h], ddy = q.y - cfg.R; if (ddx * ddx + ddy * ddy < archR * archR) return null; }
       if (a > 195 && a < 345) return UNDER;
       if (cfg.trim) { var tc = cfg.trim(d, q.y, a); if (tc) return tc; }
       return PAINT;
@@ -438,7 +450,7 @@ function buildCar(cfg) {
   loft(B, csecs, { angles: cang, caps: true, capCol: PAINT, G: G, glassCol: GLASSCOL, col: function (q) { return cabKind(q, GLASS, PAINT, false); } });
   // inner lining (cockpit only)
   var LIN = col3(cfg.lining || 0x6c6a66, MT.EMIT);
-  var isecs = cu.map(function (d) { return csec(d, 0.03); });
+  var isecs = cu.filter(function (d, ix) { return ix % 2 === 0 || ix === cu.length - 1; }).map(function (d) { return csec(d, 0.03); });
   loft(CK, isecs, { angles: cang, col: function (q) { var r = cabKind(q, null, LIN, true); return r === GLASS ? null : r; } });
   CK.p.length; // (glass zones return null above)
 
@@ -478,24 +490,11 @@ function buildCar(cfg) {
   decals(false, cfg.decR || []);
 
   /* ---- wheel arches, door lines, handles, mirrors ---- */
-  var wD = [cfg.fo, cfg.fo + cfg.wb];
   var archCol = [10, 10, 12, 255, 0];
+  // rocker panel (dark sill strip between the arches)
   [1, -1].forEach(function (sd) {
-    wD.forEach(function (wdm) {
-      var zc = Z(wdm), yc = cfg.R, ra = cfg.R + (cfg.archGap || 0.05), N = 22;
-      for (var j = 0; j < N; j++) {
-        var pts = [];
-        [[0, 0], [ra, j], [ra, j + 1]].forEach(function (e) {
-          var ang = e[1] * PI / N, zz = zc + e[0] * Math.cos(ang) * (e[1] >= 0 ? 1 : 1), yy = yc + e[0] * Math.sin(ang);
-          var sc = secBody(zz), yt = sc.y + sc.t - 0.02, yb = sc.y - sc.b + 0.012;
-          yy = clamp(yy, yb, yt);
-          var sf = surf(bsecs, zz, yy, sd);
-          pts.push({ p: add(sf.p, mul(sf.n, 0.003)), n: sf.n });
-        });
-        // upper half-disc: angles 0..PI covering z from zc+ra to zc-ra
-        B.v(pts[0].p, pts[0].n, archCol, 0); B.v(pts[1].p, pts[1].n, archCol, 0); B.v(pts[2].p, pts[2].n, archCol, 0);
-      }
-    });
+    var zA = Z(cfg.fo + archR + 0.04), zB = Z(cfg.fo + cfg.wb - archR - 0.04), sB = secBody((zA + zB) / 2);
+    rectPatch(B, bsecs, sd, zA, zB, sB.y - sB.b + 0.035, sB.y - sB.b + 0.13, 6, 1, [22, 22, 25, 255, 0], 0.004, 0);
   });
   var doorLow = cfg.doorLow || 0.3;
   (cfg.doors || []).forEach(function (dr) {
@@ -507,15 +506,16 @@ function buildCar(cfg) {
       box(B, sf.p[0] + sd * 0.004, yh, zh, 0.014, 0.014, 0.075, [34, 34, 38, 255, MT.CHROME], 0);
     });
   });
-  // mirrors
-  var dm0 = cab.mirD || (dWs + 0.3), wm = wcAt(dm0), ym = belt(dm0) + 0.05, mx = wm + (cab.mirOff || 0.085);
-  var m0 = B.vcount();
+  // mirrors (small, aerodynamic)
+  var dm0 = cab.mirD || (dWs + 0.25), wm = wcAt(dm0), ym = belt(dm0) + 0.035, mx = wm + (cab.mirOff || 0.07);
+  var MC = cfg.mirBlack ? [12, 12, 14, 255, MT.PAINT] : PAINT;
+  var MIRM = {};
   [1, -1].forEach(function (sd) {
-    var f0 = B.vcount(), zm = Z(dm0);
-    box(B, sd * mx, ym, zm, 0.05, 0.045, 0.09, PAINT, 0);
-    box(B, sd * mx, ym, zm + 0.092, 0.044, 0.038, 0.004, [10, 12, 16, 255, MT.CHROME], 0);
-    box(B, sd * (mx - 0.07), ym - 0.04, zm + 0.01, 0.045, 0.012, 0.025, TRIM, 0);
-    flagMesh(B, f0, FL_LOOSE);
+    var MM = MIRM[sd] = new Mesh(), f0 = 0, zm = Z(dm0);
+    ell(MM, sd * mx, ym, zm, 0.032, 0.036, 0.068, 8, 5, MC, MT.PAINT);
+    cyl(MM, [sd * (mx - 0.03), ym - 0.03, zm + 0.02], [sd * (wm - 0.01), ym - 0.05, zm + 0.05], 0.008, 0.01, 5, TRIM, 0, true);
+    box(MM, sd * mx, ym, zm + 0.066, 0.026, 0.028, 0.003, [10, 12, 16, 255, MT.CHROME], 0);
+    flagMesh(MM, f0, FL_LOOSE);
   });
 
   /* ---- lamps ---- */
@@ -545,19 +545,20 @@ function buildCar(cfg) {
   box(I, 0, floorY, (Z(dWs + 0.1) + zEnd) / 2, wcm * 0.92, 0.012, (zEnd - Z(dWs + 0.1)) / 2, col3(0x1a1a1c, 0), 0);
   // dash
   var dashZ0 = Z(dWs + 0.03), dashZ1 = Z(Math.max(hubD - 0.1, dWs + 0.22));
-  box(I, 0, belt(dWs) - 0.16, (dashZ0 + dashZ1) / 2, wcAt(dWs + 0.2) - 0.05, 0.14, (dashZ1 - dashZ0) / 2, ICOL, 0);
-  box(I, 0, belt(dWs) - 0.015, (dashZ0 + dashZ1) / 2 + 0.03, wcAt(dWs + 0.2) - 0.08, 0.012, (dashZ1 - dashZ0) / 2 - 0.04, ACC, 0);
-  var hubY = eyeY - 0.28, hubZ = Z(hubD);
+  var hubY = eyeY - (cab.hubDy || 0.33), dTop = Math.min(belt(dWs) - 0.015, hubY + 0.06);
+  box(I, 0, dTop - 0.145, (dashZ0 + dashZ1) / 2, wcAt(dWs + 0.2) - 0.05, 0.14, (dashZ1 - dashZ0) / 2, ICOL, 0);
+  box(I, 0, dTop, (dashZ0 + dashZ1) / 2 + 0.03, wcAt(dWs + 0.2) - 0.08, 0.012, (dashZ1 - dashZ0) / 2 - 0.04, ACC, 0);
+  var hubZ = Z(hubD);
   // instrument binnacle + gauges
-  box(I, xd, hubY + 0.1, hubZ - 0.14, 0.2, 0.065, 0.06, DARK, 0);
-  [-0.08, 0.08].forEach(function (dx) {
-    cyl(I, [xd + dx, hubY + 0.1, hubZ - 0.075], [xd + dx, hubY + 0.1, hubZ - 0.068], 0.05, 0.05, 12, col3(0x0c0f14, 0), 0, true);
-    cyl(I, [xd + dx, hubY + 0.1, hubZ - 0.068], [xd + dx, hubY + 0.1, hubZ - 0.066], 0.04, 0.04, 12, col3(0x35c6ff, MT.SCREEN), 0, true);
+  box(I, xd, hubY + 0.1, hubZ - 0.14, 0.15, 0.05, 0.05, DARK, 0);
+  [-0.06, 0.06].forEach(function (dx) {
+    cyl(I, [xd + dx, hubY + 0.1, hubZ - 0.075], [xd + dx, hubY + 0.1, hubZ - 0.068], 0.04, 0.04, 12, col3(0x0c0f14, 0), 0, true);
+    cyl(I, [xd + dx, hubY + 0.1, hubZ - 0.068], [xd + dx, hubY + 0.1, hubZ - 0.066], 0.032, 0.032, 12, col3(0x35c6ff, MT.SCREEN), 0, true);
     box(I, xd + dx, hubY + 0.105, hubZ - 0.064, 0.003, 0.025, 0.001, col3(0xffffff, MT.SCREEN), 0);
   });
   // centre stack / console
-  box(I, 0, belt(dWs) - 0.12, hubZ - 0.05, 0.14, 0.09, 0.05, DARK, 0);
-  box(I, 0, belt(dWs) - 0.11, hubZ - 0.0, 0.12, 0.06, 0.003, col3(0x2a6a8a, MT.SCREEN), 0);
+  box(I, 0, dTop - 0.1, hubZ - 0.05, 0.14, 0.09, 0.05, DARK, 0);
+  box(I, 0, dTop - 0.09, hubZ - 0.0, 0.12, 0.06, 0.003, col3(0x2a6a8a, MT.SCREEN), 0);
   var consZ0 = hubZ + 0.02, consZ1 = Z(eyeD + 0.3);
   box(I, 0, seatY + 0.02, (consZ0 + consZ1) / 2, 0.095, 0.1, (consZ1 - consZ0) / 2, ICOL, 0);
   ell(I, 0, seatY + 0.16, Z(eyeD - 0.15), 0.02, 0.05, 0.02, 6, 3, DARK, 0);
@@ -578,8 +579,8 @@ function buildCar(cfg) {
   if (dRear) { seat(-0.36, dRear); seat(0.36, dRear); if ((cfg.seats || 4) >= 5) seat(0, dRear); }
   // rear view mirror
   var tw = 0.82, dmr = dWs + (dHdr - dWs) * tw, ymr = yWs + (yH - yWs) * tw - 0.07;
-  box(I, 0, ymr, Z(dmr) + 0.05, 0.11, 0.025, 0.012, DARK, 0);
-  cyl(I, [0, ymr + 0.03, Z(dmr) + 0.02], [0, ymr + 0.005, Z(dmr) + 0.045], 0.008, 0.008, 5, DARK, 0, true);
+  box(I, 0, ymr, Z(dmr) + 0.03, 0.06, 0.017, 0.008, DARK, 0);
+  cyl(I, [0, ymr + 0.03, Z(dmr) + 0.012], [0, ymr + 0.005, Z(dmr) + 0.03], 0.006, 0.006, 5, DARK, 0, true);
   flagMesh(I, i0, FL_ND);
 
   /* ---- cockpit-only extras ---- */
@@ -628,18 +629,103 @@ function buildCar(cfg) {
   var order = [[0, -1], [0, 1], [1, -1], [1, 1]]; // front/rear, side(-1 left)
   var track = [0, 0];
   order.forEach(function (o) {
-    var dwh = o[0] ? cfg.fo + cfg.wb : cfg.fo, hwB = Wd(dwh), outer = hwB + 0.02, tw = cfg.tw;
+    var dwh = o[0] ? cfg.fo + cfg.wb : cfg.fo, hwB = Wd(dwh), outer = hwB - 0.03, tw = o[0] && cfg.twR ? cfg.twR : cfg.tw;
     var cx = outer - tw / 2, c = [o[1] * cx, cfg.R, Z(dwh)];
-    var wm = makeWheel(cfg, o[1]);
-    wm.apply(0, mT(c[0], c[1], c[2]));
-    wheels.push({ c: c, front: !o[0], mesh: wm });
+    var wr = makeWheel(cfg, o[1], tw), wm = wr.wheel;
+    // wheel house liner (dark half-shell behind the arch opening)
+    (function () { var ra = archR - 0.012, xin = Math.abs(c[0]) - tw / 2 - 0.03, xout = hwB, N = 14, j, sdn = o[1]; for (j = 0; j < N; j++) { var a0 = j * PI / N, a1 = (j + 1) * PI / N; var P = function (x, a) { return [sdn * x, c[1] + ra * Math.sin(a), c[2] + ra * Math.cos(a)]; }; B.quad(P(xin, a0), P(xout, a0), P(xout, a1), P(xin, a1), archCol, 0, [sdn * xin, c[1], c[2]]); B.tri([sdn * xin, c[1], c[2]], P(xin, a0), P(xin, a1), archCol, 0, [sdn, 0, 0]); } })();
+    wm.apply(0, mT(c[0], c[1], c[2])); wr.core.apply(0, mT(c[0], c[1], c[2]));
+    wheels.push({ c: c, front: !o[0], mesh: wm, core: wr.core });
     track[o[0]] = 2 * cx;
   });
   /* ---- spec ---- */
   var allm = [B, G, I, CK, GL, SW].concat(wheels.map(function (w) { return w.mesh; }));
   allm.forEach(pruneMesh);
+  /* ---- detachable parts ---- */
+  function extractTris(M, pred) {
+    var out = new Mesh(), kp = [], kn = [], kc = [], km = [], i, k, nt = M.p.length / 9;
+    for (var t = 0; t < nt; t += 2) {
+      var cnt = (t + 1 < nt) ? 2 : 1, i0 = t * 9, cx = 0, cy = 0, cz = 0, nx = 0, ny = 0, nz = 0, vv = cnt * 3;
+      for (k = 0; k < vv; k++) { cx += M.p[i0 + k * 3]; cy += M.p[i0 + k * 3 + 1]; cz += M.p[i0 + k * 3 + 2]; nx += M.n[i0 + k * 3]; ny += M.n[i0 + k * 3 + 1]; nz += M.n[i0 + k * 3 + 2]; }
+      cx /= vv; cy /= vv; cz /= vv; nx /= vv; ny /= vv; nz /= vv;
+      var take = pred(cx, cy, cz + zOff, nx, ny, nz), P = take ? out.p : kp, N = take ? out.n : kn, Cc = take ? out.c : kc, Mm = take ? out.m : km;
+      for (k = 0; k < vv * 3; k++) { P.push(M.p[i0 + k]); N.push(M.n[i0 + k]); }
+      for (k = 0; k < vv; k++) { var v = i0 / 3 + k; Cc.push(M.c[v * 4], M.c[v * 4 + 1], M.c[v * 4 + 2], M.c[v * 4 + 3]); Mm.push(M.m[v]); }
+    }
+    M.p = kp; M.n = kn; M.c = kc; M.m = km;
+    return out;
+  }
+  // back skin: copy of a panel pushed along -normal in a dark colour, so a detached panel has thickness
+  function addBack(M, off, col) {
+    var n0 = M.p.length / 3, i, k;
+    for (i = 0; i < n0; i++) { var sg = (M.n[i * 3] * M.p[i * 3] + M.n[i * 3 + 1] * (M.p[i * 3 + 1] - 0.3)) > 0 ? 1 : -1; M.p.push(M.p[i * 3] - sg * M.n[i * 3] * off, M.p[i * 3 + 1] - sg * M.n[i * 3 + 1] * off, M.p[i * 3 + 2] - sg * M.n[i * 3 + 2] * off); M.n.push(-M.n[i * 3], -M.n[i * 3 + 1], -M.n[i * 3 + 2]); M.c.push(col[0], col[1], col[2], 255); M.m.push(M.m[i] & 0xFF00); }
+  }
+  var parts = {}, PN = ['hood', 'trunk', 'bumperF', 'bumperB', 'doorL', 'doorR', 'mirrorL', 'mirrorR'];
+  PN.forEach(function (n) { parts[n] = { mesh: new Mesh(), glass: new Mesh(), filler: new Mesh() }; });
+  parts.mirrorL.mesh = MIRM[-1]; parts.mirrorR.mesh = MIRM[1];
+  var dr0 = (cfg.doors && cfg.doors[0]) ? cfg.doors[0] : [dWs + 0.2, dWs + 1.0];
+  [[-1, 'doorL'], [1, 'doorR']].forEach(function (e) {
+    var sd = e[0];
+    parts[e[1]].mesh = extractTris(B, function (x, y, d, nx, ny, nz) { return x * sd > 0 && Math.abs(nx) > 0.55 && d >= dr0[0] && d <= dr0[1] && y >= doorLow - 0.02; });
+    parts[e[1]].glass = extractTris(G, function (x, y, d, nx, ny, nz) { return x * sd > 0 && Math.abs(nx) > 0.35 && d >= dr0[0] && d <= dr0[1] && y >= doorLow - 0.02; });
+  });
+  var t0 = cfg.hatchD ? cfg.hatchD : Math.max(dGE, L - 1.0);
+  function upper(x, y, d, ny) { return ny > 0.3 && y > T(d) - 0.14 && Math.abs(x) < 0.7 * Wd(d); }
+  parts.hood.mesh = extractTris(B, function (x, y, d, nx, ny) { return d < dWs + 0.02 && upper(x, y, d, ny); });
+  if (cfg.hatchD) {
+    parts.trunk.mesh = extractTris(B, function (x, y, d) { return d >= cfg.hatchD && y > 0.62 && Math.abs(x) < 0.6 * Wd(d); });
+    parts.trunk.glass = extractTris(G, function (x, y, d) { return d >= cfg.hatchD && Math.abs(x) < 0.65 * Wd(d); });
+  } else if (cfg.tailgate) parts.trunk.mesh = extractTris(B, function (x, y, d) { return d > L - 0.16 && y > cfg.tailgate; });
+  else parts.trunk.mesh = extractTris(B, function (x, y, d, nx, ny) { return d >= t0 && upper(x, y, d, ny); });
+  var bumpEnd = cfg.bumperTop || 99;
+  parts.bumperF.mesh = extractTris(B, function (x, y, d) { return d < 0.42 && y < bumpEnd; });
+  parts.bumperB.mesh = extractTris(B, function (x, y, d) { return d > L - 0.42 && y < (cfg.tailgate ? cfg.tailgate : bumpEnd); });
+  // fillers (what is left visible when a part has come off)
+  var DK = [14, 14, 16, 255, 0], MET = [52, 54, 60, 255, MT.CHROME], STEEL = [110, 114, 122, 255, MT.CHROME], WALL = [26, 26, 30, 255, 0];
+  (function () {
+    var F = parts.hood.filler, dA = 0.46, dB = dWs - 0.12, zc = Z((dA + dB) / 2), hz = Z(dB) - Z(dA), fy = Bt(dB) + 0.16, ty = T(dB) - 0.12, wx = 0.72 * Wd(1.0);
+    box(F, 0, fy, zc, wx, 0.012, hz / 2, DK, 0);
+    [1, -1].forEach(function (sd) { box(F, sd * wx, (fy + ty) / 2, zc, 0.015, (ty - fy) / 2, hz / 2, WALL, 0); });
+    box(F, 0, (fy + ty) / 2, Z(dA), wx, (ty - fy) / 2, 0.012, WALL, 0);
+    if (cfg.engineFront === false) { box(F, 0, fy + 0.1, zc, 0.35, 0.08, hz * 0.3, [36, 38, 44, 255, 0], 0); cyl(F, [0.2, fy + 0.2, zc], [0.2, fy + 0.2, zc + 0.01], 0.12, 0.12, 10, [24, 24, 26, 255, 0], 0, true); }
+    else {
+      box(F, 0, fy + 0.2, zc + 0.04, 0.27, 0.17, hz * 0.34, [40, 42, 48, 255, 0], 0);
+      box(F, 0, fy + 0.4, zc + 0.04, 0.2, 0.025, hz * 0.28, STEEL, 0);
+      [-1, 1].forEach(function (sd) { box(F, sd * 0.15, fy + 0.38, zc + 0.04, 0.07, 0.03, hz * 0.3, [150, 30, 24, 255, 0], 0); });
+      box(F, 0, fy + 0.14, Z(dA) + 0.1, 0.4, 0.1, 0.05, MET, 0);
+    }
+  })();
+  (function () {
+    if (cfg.tailgate) return;
+    var F = parts.trunk.filler, dA = t0 + 0.02, dB = L - 0.5, zc = Z((dA + dB) / 2), hz = Z(dB) - Z(dA), fy = Math.max(Bt(dB) + 0.3, cfg.trunkFloor || 0), ty = T(dB) - 0.06, wx = 0.7 * Wd(dB);
+    if (hz < 0.1) hz = 0.1;
+    box(F, 0, fy, zc, wx, 0.012, hz / 2, DK, 0);
+    [1, -1].forEach(function (sd) { box(F, sd * wx, (fy + ty) / 2, zc, 0.015, Math.max((ty - fy) / 2, 0.02), hz / 2, WALL, 0); });
+    box(F, 0, (fy + ty) / 2, Z(dB), wx, Math.max((ty - fy) / 2, 0.02), 0.012, WALL, 0);
+    if (cfg.engineRear) { box(F, 0, fy + 0.16, zc, 0.3, 0.15, hz * 0.4, [40, 42, 48, 255, 0], 0); box(F, 0, fy + 0.33, zc, 0.22, 0.03, hz * 0.34, STEEL, 0); [-1, 1].forEach(function (sd) { box(F, sd * 0.2, fy + 0.2, zc, 0.06, 0.04, hz * 0.4, [150, 30, 24, 255, 0], 0); }); }
+    else cyl(F, [0, fy + 0.012, zc], [0, fy + 0.03, zc], 0.3, 0.3, 14, [30, 30, 33, 255, 0], 0, true);
+  })();
+  [[true, 'bumperF'], [false, 'bumperB']].forEach(function (e) {
+    var F = parts[e[1]].filler, fr = e[0], d0 = fr ? 0.42 : L - 0.42, z0 = Z(d0), wx = 0.8 * Wd(d0), yb = Bt(d0) + 0.06, yt = (cfg.bumperTop && cfg.bumperTop < 90 ? cfg.bumperTop : T(d0) - 0.2);
+    box(F, 0, (yb + yt) / 2, z0, wx, Math.max((yt - yb) / 2, 0.03), 0.01, DK, 0);
+    var zb = z0 + (fr ? -0.07 : 0.07);
+    box(F, 0, yb + (yt - yb) * 0.55, zb, wx * 0.92, 0.045, 0.035, STEEL, 0);
+    [1, -1].forEach(function (sd) { box(F, sd * wx * 0.7, yb + (yt - yb) * 0.55, (zb + z0) / 2, 0.04, 0.04, 0.05, MET, 0); });
+  });
+  [[-1, 'doorL'], [1, 'doorR']].forEach(function (e) {
+    var sd = e[0], F = parts[e[1]].filler, dm = (dr0[0] + dr0[1]) / 2, sc = secBody(Z(dm)), yHi = sc.y + sc.t * Math.pow(Math.sin(holeA * PI / 180), 2 / sc.n) - 0.035, xw = Wd(dm) - 0.1;
+    box(F, sd * xw, (doorLow + yHi) / 2, Z(dm), 0.02, (yHi - doorLow) / 2, (Z(dr0[1]) - Z(dr0[0])) / 2, [44, 44, 50, 255, 0], 0);
+    box(F, sd * (xw + 0.04), doorLow + 0.02, Z(dm), 0.06, 0.02, (Z(dr0[1]) - Z(dr0[0])) / 2, [20, 20, 22, 255, 0], 0);
+    box(F, sd * xw, yHi - 0.03, Z(dm), 0.03, 0.025, (Z(dr0[1]) - Z(dr0[0])) / 2, [60, 60, 66, 255, 0], 0);
+  });
+  addBack(parts.hood.mesh, 0.03, [34, 34, 38, 255]); addBack(parts.trunk.mesh, 0.03, [34, 34, 38, 255]); addBack(parts.doorL.mesh, 0.07, [46, 46, 52, 255]); addBack(parts.doorR.mesh, 0.07, [46, 46, 52, 255]);
+  var pc = {};
+  PN.forEach(function (n) { [parts[n].mesh, parts[n].glass, parts[n].filler].forEach(pruneMesh); allm.push(parts[n].mesh, parts[n].glass, parts[n].filler); });
+  wheels.forEach(function (w) { allm.push(w.core); });
+  PN.forEach(function (n) { var b = parts[n].mesh.bbox(); pc[n] = parts[n].mesh.vcount() ? [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2] : [0, 0, 0]; });
+  ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'].forEach(function (n, i) { pc[n] = wheels[i].c.slice(); });
   var mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
-  [B, G].concat(wheels.map(function (w) { return w.mesh; })).forEach(function (M) { var b = M.bbox(); for (var j = 0; j < 3; j++) { mn[j] = Math.min(mn[j], b.min[j]); mx[j] = Math.max(mx[j], b.max[j]); } });
+  [B, G].concat(wheels.map(function (w) { return w.mesh; }), PN.map(function (n) { return parts[n].mesh; }), PN.map(function (n) { return parts[n].glass; })).forEach(function (M) { var b = M.bbox(); for (var j = 0; j < 3; j++) { mn[j] = Math.min(mn[j], b.min[j]); mx[j] = Math.max(mx[j], b.max[j]); } });
   var eye = [xd, eyeY, Z(eyeD)];
   var hoodD = cab.hoodD || dWs * 0.55;
   var sp = {
@@ -649,10 +735,10 @@ function buildCar(cfg) {
     noseZ: mn[2], tailZ: mx[2], halfWidth: Math.max(mx[0], -mn[0]), height: mx[1],
     eye: eye, chaseDist: Math.round((cfg.L * 1.7) * 10) / 10, chaseUp: Math.round((cfg.H * 1.2 + 0.6) * 10) / 10,
     hood: [0, T(hoodD) + 0.01, Z(hoodD)],
-    lights: { front: hlSpec, tail: tlSpec },
+    lights: { front: hlSpec, tail: tlSpec }, parts: pc, partRadius: cfg.R,
     seats: cfg.seats, drive: cfg.drive, engine: cfg.engine, topSpeedKph: cfg.topSpeedKph
   };
-  return { body: B, glass: G, interior: I, cockpit: CK, glow: GL, steer: { mesh: SW, pivot: hub, axis: nrm }, wheels: wheels, spec: sp, all: allm };
+  return { body: B, glass: G, interior: I, cockpit: CK, glow: GL, steer: { mesh: SW, pivot: hub, axis: nrm }, wheels: wheels, spec: sp, all: allm, parts: parts, partNames: PN };
 }
 function buildModel(id) {
   if (BUILT[id]) return BUILT[id];
@@ -695,13 +781,14 @@ function lowerTrim(cfg, yF, yR) {
 }
 
 CFG.yaris = {
+  hatchD: 3.3,
   id: 'yaris', name: 'Toyota Yaris', maker: 'Toyota', year: 2020, L: 3.95, W: 1.70, H: 1.50, wb: 2.55, fo: 0.82, R: 0.30, tw: 0.185, rimF: 0.70,
   color: 0xc61a2b, seats: 5, drive: 'FWD', engine: '1.5 L 3-cyl hybrid, 85 kW', topSpeedKph: 175,
   intCol: 0x2a2b2f, seatCol: 0x45464c,
   top: [[0, 0.70], [0.12, 0.77], [0.5, 0.83], [0.95, 0.88], [1.4, 0.95], [2.0, 0.96], [3.0, 0.965], [3.7, 0.97], [3.88, 0.96], [3.95, 0.92]],
   bot: [[0, 0.33], [0.15, 0.26], [0.5, 0.19], [1.0, 0.16], [3.0, 0.16], [3.6, 0.2], [3.95, 0.34]],
   wid: [[0, 0.70], [0.1, 0.77], [0.4, 0.815], [1.0, 0.83], [3.2, 0.83], [3.7, 0.80], [3.95, 0.72]],
-  n: [[0,4.2],[1,4.4],[1.6,5],[3.2,5],[3.95,4.4]],
+  n: [[0,5],[1,5.2],[1.6,5.8],[3.2,5.8],[3.95,5.2]],
   cab: { dWs: 1.4, yWs: 0.995, dHdr: 2.15, roof: [[2.15, 1.455], [2.4, 1.488], [2.9, 1.495], [3.3, 1.45], [3.6, 1.30], [3.88, 1.0]], dRoofR: 3.3, dGlassEnd: 3.88, dEnd: 3.88,
     belt: 0.97, depth: 0.45, n: 2.5, pillars: [[2.62, 2.74]], seatY: 0.5, eyeD: 2.3, eyeY: 1.18, hubD: 1.78, rearD: 3.15, mirD: 1.7 },
   doors: [[1.6, 2.68], [2.68, 3.4]],
@@ -722,7 +809,7 @@ CFG.civic = {
   top: [[0, 0.64], [0.15, 0.71], [0.55, 0.78], [1.1, 0.84], [1.7, 0.935], [2.5, 0.945], [3.8, 0.955], [4.3, 0.965], [4.5, 0.97], [4.67, 0.92]],
   bot: [[0, 0.32], [0.15, 0.25], [0.5, 0.18], [1.0, 0.15], [3.6, 0.15], [4.2, 0.2], [4.67, 0.33]],
   wid: [[0, 0.72], [0.1, 0.80], [0.4, 0.86], [1.0, 0.88], [3.8, 0.88], [4.3, 0.85], [4.67, 0.78]],
-  n: [[0,4.2],[1,4.4],[1.8,5],[4.67,4.6]],
+  n: [[0,5],[1,5.2],[1.8,5.8],[4.67,5.4]],
   cab: { dWs: 1.7, yWs: 0.985, dHdr: 2.45, roof: [[2.45, 1.385], [2.7, 1.408], [3.3, 1.41], [3.65, 1.37], [3.98, 1.24], [4.3, 0.99]], dRoofR: 3.65, dGlassEnd: 4.3, dEnd: 4.3,
     belt: 0.95, depth: 0.45, n: 2.5, pillars: [[3.02, 3.14]], seatY: 0.46, eyeD: 2.65, eyeY: 1.14, hubD: 2.1, rearD: 3.5, mirD: 1.95 },
   doors: [[1.9, 3.08], [3.08, 4.0]],
@@ -738,13 +825,14 @@ CFG.civic = {
 };
 
 CFG.f150 = {
+  tailgate: 0.66,
   id: 'f150', name: 'Ford F-150', maker: 'Ford', year: 2021, L: 5.89, W: 2.03, H: 1.97, wb: 3.68, fo: 0.98, R: 0.375, tw: 0.27, rimF: 0.64, archGap: 0.06,
   color: 0xe8e9ec, seats: 5, drive: 'RWD', engine: '3.5 L EcoBoost twin-turbo V6, 298 kW', topSpeedKph: 180,
   intCol: 0x232427, seatCol: 0x3a3b3f, nb: 9,
   top: [[0, 1.14], [0.12, 1.22], [0.5, 1.29], [1.0, 1.33], [1.8, 1.37], [2.0, 1.40], [3.9, 1.41], [4.0, 1.41], [5.7, 1.41], [5.89, 1.38]],
   bot: [[0, 0.40], [0.2, 0.32], [0.6, 0.27], [1.2, 0.26], [4.7, 0.26], [5.5, 0.30], [5.89, 0.40]],
   wid: [[0, 0.90], [0.1, 0.96], [0.4, 0.99], [1.0, 0.995], [5.5, 0.995], [5.89, 0.94]],
-  n: [[0,5.2],[1,5.7],[2,6.2],[5.89,6.2]],
+  n: [[0,6],[1,6.5],[2,7],[5.89,7]],
   holes: [[2.0, 3.96], [4.08, 5.76]],
   cab: { dWs: 2.0, yWs: 1.45, dHdr: 2.75, roof: [[2.75, 1.93], [2.95, 1.965], [3.7, 1.97], [3.88, 1.96], [3.92, 1.52], [3.96, 1.43]], dRoofR: 3.88, dGlassEnd: 3.92, dEnd: 3.96, holeA: 40,
     belt: 1.42, depth: 0.5, n: 3.0, cw: 1.0, pillars: [[2.98, 3.12]], seatY: 0.74, eyeD: 3.1, eyeY: 1.52, hubD: 2.55, rearD: 3.75, mirD: 2.2, mirOff: 0.1 },
@@ -767,7 +855,7 @@ CFG.c5 = {
   top: [[0, 0.50], [0.15, 0.57], [0.5, 0.66], [1.0, 0.75], [1.5, 0.83], [1.75, 0.865], [2.5, 0.89], [3.2, 0.91], [3.9, 0.925], [4.3, 0.935], [4.56, 0.88]],
   bot: [[0, 0.27], [0.15, 0.2], [0.5, 0.14], [1.0, 0.12], [3.6, 0.12], [4.1, 0.15], [4.56, 0.28]],
   wid: [[0, 0.76], [0.1, 0.83], [0.4, 0.88], [1.0, 0.90], [2.0, 0.905], [2.7, 0.915], [3.4, 0.915], [4.0, 0.9], [4.4, 0.85], [4.56, 0.8]],
-  n: [[0,4.2],[1.5,4.4],[2.5,4.8],[4.56,4.4]],
+  n: [[0,5],[1.5,5.2],[2.5,5.6],[4.56,5.2]],
   cab: { dWs: 1.78, yWs: 0.885, dHdr: 2.78, roof: [[2.78, 1.185], [2.95, 1.205], [3.4, 1.2], [3.75, 1.15], [4.1, 1.03], [4.35, 0.945]], dRoofR: 3.55, dGlassEnd: 4.35, dEnd: 4.35, targa: [2.95, 3.55],
     belt: 0.85, depth: 0.4, n: 2.6, pillars: [], seatY: 0.34, eyeD: 2.62, eyeY: 1.0, hubD: 2.05, mirD: 2.0, cw: 0.99 },
   doors: [[2.0, 3.15]], doorLow: 0.26,
@@ -786,34 +874,38 @@ CFG.c5 = {
 };
 
 CFG.m3 = {
-  id: 'm3', name: 'BMW M3 (E46)', maker: 'BMW', year: 2003, L: 4.49, W: 1.78, H: 1.37, wb: 2.73, fo: 0.86, R: 0.325, tw: 0.235, rimF: 0.68,
-  color: 0x9ca1aa, seats: 4, drive: 'RWD', engine: '3.2 L S54 I6, 252 kW', topSpeedKph: 250, intCol: 0x1d1d20, seatCol: 0x2f3036,
-  top: [[0, 0.62], [0.15, 0.70], [0.5, 0.77], [1.0, 0.83], [1.5, 0.88], [1.7, 0.915], [2.3, 0.93], [3.5, 0.95], [3.95, 0.97], [4.3, 0.975], [4.49, 0.92]],
-  bot: [[0, 0.30], [0.15, 0.22], [0.5, 0.15], [1.0, 0.13], [3.5, 0.13], [4.0, 0.17], [4.49, 0.30]],
-  wid: [[0, 0.72], [0.1, 0.79], [0.4, 0.85], [1.0, 0.87], [3.6, 0.87], [4.1, 0.84], [4.49, 0.77]],
-  n: [[0,4.2],[1,4.4],[1.8,5],[4.49,4.5]],
-  cab: { dWs: 1.7, yWs: 0.985, dHdr: 2.4, roof: [[2.4, 1.35], [2.65, 1.368], [3.1, 1.365], [3.45, 1.31], [3.75, 1.15], [3.98, 0.995]], dRoofR: 3.45, dGlassEnd: 3.98, dEnd: 3.98,
-    belt: 0.955, depth: 0.45, n: 2.5, pillars: [], seatY: 0.43, eyeD: 2.5, eyeY: 1.12, hubD: 2.0, rearD: 3.3, mirD: 1.95 },
-  doors: [[1.8, 3.2]],
-  decF: [[0.055, 0.265, 0.40, 0.55, 0xc4c8ce, MT.CHROME, 1], [0.075, 0.245, 0.415, 0.535, 0x0c0c0e, 0, 1], [-0.55, 0.55, 0.31, 0.42, 0x0c0c0e, 0], [0.55, 0.7, 0.34, 0.41, 0x0c0c0e, 0, 1]],
-  hl: [[0.36, 0.78, 0.46, 0.58, 0xdfe6ee, 0.2]],
-  decR: [[-0.26, 0.26, 0.55, 0.67, 0xdddddd, 0], [-0.62, 0.62, 0.3, 0.38, 0x1a1a1c, 0]],
-  tl: [[0.5, 0.84, 0.68, 0.85, 0x6a0c10, 0.18]],
+  id: 'm3', name: 'BMW M3 Competition', maker: 'BMW', year: 2021, L: 4.80, W: 1.90, H: 1.43, wb: 2.86, fo: 0.93, R: 0.34, tw: 0.25, twR: 0.285, rimF: 0.68, mirBlack: true,
+  color: 0x1c7048, seats: 5, drive: 'RWD', engine: '3.0 L twin-turbo straight-six, 375 kW (510 hp)', topSpeedKph: 290, intCol: 0x1d1d20, seatCol: 0x2f3036, accent: 0x4a1a12, caliper: [200, 30, 30, 255, 0],
+  top: [[0, 0.68], [0.15, 0.78], [0.5, 0.84], [1.0, 0.88], [1.7, 0.925], [1.9, 0.945], [3.0, 0.975], [4.3, 1.0], [4.5, 1.01], [4.7, 1.02], [4.8, 0.97]],
+  bot: [[0, 0.30], [0.15, 0.22], [0.5, 0.15], [1.0, 0.13], [3.7, 0.13], [4.3, 0.17], [4.8, 0.30]],
+  wid: [[0, 0.76], [0.1, 0.84], [0.4, 0.90], [0.93, 0.93], [1.5, 0.915], [2.4, 0.90], [3.4, 0.92], [3.79, 0.935], [4.3, 0.9], [4.8, 0.80]],
+  n: [[0, 5], [1, 5.2], [1.9, 5.8], [4.8, 5.4]],
+  cab: { dWs: 1.85, yWs: 1.0, dHdr: 2.6, roof: [[2.6, 1.40], [2.85, 1.425], [3.4, 1.425], [3.8, 1.38], [4.15, 1.24], [4.5, 1.02]], dRoofR: 3.85, dGlassEnd: 4.5, dEnd: 4.5,
+    belt: 0.97, depth: 0.45, n: 2.5, pillars: [[3.12, 3.26]], seatY: 0.46, eyeD: 2.72, eyeY: 1.15, hubD: 2.2, rearD: 3.65, mirD: 2.05 },
+  doors: [[1.95, 3.2], [3.2, 4.1]],
+  decF: [[0.04, 0.31, 0.37, 0.67, 0x151517, 0, 1], [0.065, 0.285, 0.395, 0.65, 0x040405, 0, 1],
+    [0.07, 0.28, 0.44, 0.452, 0x3a3a3f, 0, 1], [0.07, 0.28, 0.49, 0.502, 0x3a3a3f, 0, 1], [0.07, 0.28, 0.54, 0.552, 0x3a3a3f, 0, 1], [0.07, 0.28, 0.59, 0.602, 0x3a3a3f, 0, 1],
+    [-0.62, 0.62, 0.31, 0.43, 0x0c0c0e, 0], [0.66, 0.9, 0.34, 0.5, 0x0c0c0e, 0, 1]],
+  hl: [[0.40, 0.93, 0.60, 0.675, 0xdfe6ee, 0.26]],
+  decR: [[-0.26, 0.26, 0.6, 0.72, 0xdddddd, 0], [-0.8, 0.8, 0.3, 0.42, 0x1a1a1c, 0]],
+  tl: [[0.5, 0.93, 0.74, 0.9, 0x6a0c10, 0.2]],
   trim: function (d, y, a) { return lowerTrim(CFG.m3, 0.38, 0.36)(d, y, a); },
   extra: function (c) {
-    ribbon(c, 0.24, 0.085, 0.35, 1.65, 0.028, c.PAINT); ribbon(c, -0.24, 0.085, 0.35, 1.65, 0.028, c.PAINT);
-    [0.42, 0.56, -0.42, -0.56].forEach(function (x) { pipe(c, x, 0.235, 0.034, 0.05); });
-    [0.46, 0.64].forEach(function (x) { [1, -1].forEach(function (s) { discZ(c, s * x, 0.52, c.zF - 0.004, 0.034, [200, 210, 220], MT.CHROME, true, 0.006); }); });
+    ribbon(c, 0.22, 0.07, 0.3, 1.75, 0.022, c.PAINT); ribbon(c, -0.22, 0.07, 0.3, 1.75, 0.022, c.PAINT);
+    box(c.B, 0, 1.035, c.Z(4.68), 0.62, 0.012, 0.06, [12, 12, 14, 255, MT.PAINT], 0);
+    [0.5, 0.64, -0.5, -0.64].forEach(function (x) { pipe(c, x, 0.25, 0.036, 0.05); });
+    [0.58, -0.58].forEach(function (x) { discZ(c, x, 0.64, c.zF - 0.004, 0.03, [210, 220, 235], MT.CHROME, true, 0.006); });
   }
 };
 
 CFG['911'] = {
+  engineFront: false, engineRear: true,
   id: '911', name: 'Porsche 911 Carrera (997)', maker: 'Porsche', year: 2006, L: 4.45, W: 1.80, H: 1.30, wb: 2.35, fo: 0.93, R: 0.33, tw: 0.245, rimF: 0.69,
   color: 0x16161a, seats: 4, drive: 'RWD', engine: '3.6 L flat-6, 239 kW (rear)', topSpeedKph: 285, intCol: 0x232326, seatCol: 0x34343a, rimCol: [200, 204, 210, 255, MT.CHROME],
   top: [[0, 0.58], [0.2, 0.655], [0.6, 0.715], [1.0, 0.75], [1.42, 0.79], [2.5, 0.85], [3.4, 0.86], [3.6, 0.80], [4.0, 0.78], [4.3, 0.76], [4.45, 0.72]],
   bot: [[0, 0.25], [0.15, 0.19], [0.5, 0.13], [1.0, 0.12], [3.4, 0.12], [4.0, 0.16], [4.45, 0.28]],
   wid: [[0, 0.70], [0.1, 0.77], [0.4, 0.82], [1.0, 0.83], [1.8, 0.84], [2.5, 0.87], [3.1, 0.88], [3.8, 0.875], [4.2, 0.84], [4.45, 0.76]],
-  n: [[0,4.2],[1,4.2],[2,4.6],[4.45,4.4]],
+  n: [[0,5],[1,5],[2,5.4],[4.45,5.2]],
   cab: { dWs: 1.42, yWs: 0.85, dHdr: 2.12, roof: [[2.12, 1.285], [2.4, 1.30], [2.85, 1.28], [3.2, 1.2], [3.6, 1.07], [4.0, 0.95], [4.4, 0.86]], dRoofR: 3.0, dGlassEnd: 3.55, dEnd: 4.4, extraD: [3.9],
     belt: 0.82, depth: 0.4, n: 2.6, pillars: [], seatY: 0.33, eyeD: 2.22, eyeY: 1.0, hubD: 1.72, rearD: 2.95, mirD: 1.62, cw: 0.97 },
   holes: [[1.42, 3.55]],
@@ -842,7 +934,7 @@ CFG.cls63 = {
   top: [[0, 0.64], [0.15, 0.72], [0.6, 0.80], [1.2, 0.86], [1.7, 0.92], [1.85, 0.94], [3.0, 0.96], [4.4, 1.0], [4.7, 1.0], [4.99, 0.95]],
   bot: [[0, 0.32], [0.15, 0.24], [0.5, 0.16], [1.0, 0.14], [3.8, 0.14], [4.4, 0.18], [4.99, 0.32]],
   wid: [[0, 0.72], [0.1, 0.80], [0.4, 0.88], [1.0, 0.92], [4.0, 0.92], [4.6, 0.88], [4.99, 0.80]],
-  n: [[0,4.2],[1,4.4],[1.8,5],[4.99,4.6]],
+  n: [[0,5],[1,5.2],[1.8,5.8],[4.99,5.4]],
   cab: { dWs: 1.8, yWs: 0.975, dHdr: 2.55, roof: [[2.55, 1.395], [2.8, 1.418], [3.25, 1.415], [3.65, 1.345], [4.0, 1.2], [4.25, 1.07], [4.45, 1.005]], dRoofR: 3.7, dGlassEnd: 4.45, dEnd: 4.45,
     belt: [[1.8, 0.945], [3.0, 0.97], [4.4, 1.0]], depth: 0.45, n: 2.5, pillars: [[3.0, 3.12]], seatY: 0.45, eyeD: 2.62, eyeY: 1.13, hubD: 2.1, rearD: 3.45, mirD: 2.05 },
   doors: [[1.92, 3.04], [3.04, 3.95]],
@@ -861,6 +953,45 @@ CFG.cls63 = {
       c.B.tri(p0, p1, p2, [210, 214, 220, 255, MT.CHROME], 0, [0, 0, -1]);
     });
     [0.5, 0.68, -0.5, -0.68].forEach(function (x) { pipe(c, x, 0.25, 0.04, 0.06); });
+  }
+};
+
+CFG.aventador = {
+  engineFront: false, engineRear: true,
+  id: 'aventador', name: 'Lamborghini Aventador', maker: 'Lamborghini', year: 2011, L: 4.84, W: 2.03, H: 1.14, wb: 2.70, fo: 1.0, R: 0.35, tw: 0.255, twR: 0.35, rimF: 0.66, mirBlack: true,
+  color: 0xf26a0f, seats: 2, drive: 'AWD', engine: '6.5 L V12, 544 kW (740 hp)', topSpeedKph: 350, intCol: 0x18181a, seatCol: 0x2a2a2e, accent: 0x55555a, caliper: [230, 200, 30, 255, 0],
+  top: [[0, 0.40], [0.2, 0.50], [0.6, 0.62], [1.2, 0.72], [1.55, 0.78], [3.3, 0.80], [4.0, 0.78], [4.5, 0.78], [4.84, 0.76]],
+  bot: [[0, 0.17], [0.2, 0.12], [0.6, 0.10], [1.0, 0.10], [4.0, 0.10], [4.5, 0.13], [4.84, 0.24]],
+  wid: [[0, 0.78], [0.15, 0.88], [0.5, 0.95], [1.0, 0.99], [2.0, 0.985], [2.9, 0.995], [3.6, 0.99], [4.2, 0.95], [4.84, 0.80]],
+  n: [[0, 5.5], [1, 6], [4.84, 6]], nb: 9,
+  cab: { dWs: 1.5, yWs: 0.80, dHdr: 2.25, roof: [[2.25, 1.115], [2.5, 1.14], [2.9, 1.13], [3.3, 1.07], [3.8, 0.97], [4.5, 0.88]], dRoofR: 3.05, dGlassEnd: 3.3, dEnd: 4.5,
+    belt: 0.76, depth: 0.4, n: 2.6, cw: 0.98, pillars: [], seatY: 0.30, eyeD: 2.2, eyeY: 0.93, hubD: 1.72, mirD: 1.75, mirOff: 0.05, hubDy: 0.2 },
+  holes: [[1.5, 3.3]],
+  doors: [[1.7, 2.85]], doorLow: 0.22,
+  decF: [[-0.75, 0.75, 0.19, 0.27, 0x0c0c0e, 0], [-0.3, 0.3, 0.3, 0.34, 0x101012, 0]],
+  hl: [[0.40, 0.96, 0.345, 0.385, 0xdfe6ee, 0.28], [0.40, 0.56, 0.30, 0.345, 0xdfe6ee, 0.18]],
+  decR: [[-0.26, 0.26, 0.32, 0.4, 0xdddddd, 0], [-0.9, 0.9, 0.25, 0.3, 0x141416, 0]],
+  tl: [[0.55, 0.95, 0.62, 0.68, 0x6a0c10, 0.2], [0.55, 0.7, 0.56, 0.62, 0x6a0c10, 0.12]],
+  trim: function (d, y, a) { return lowerTrim(CFG.aventador, 0.3, 0.3)(d, y, a); },
+  extra: function (c) {
+    var Z = c.Z;
+    // hexagonal side intakes behind the doors
+    [1, -1].forEach(function (sd) {
+      var K = [10, 10, 12, 255, 0];
+      patch(c.B, c.bsecs, sd, [[Z(2.9), 0.36], [Z(3.35), 0.30], [Z(3.35), 0.5], [Z(2.9), 0.56]], 3, 2, K, 0.006, 0);
+      patch(c.B, c.bsecs, sd, [[Z(2.9), 0.56], [Z(3.35), 0.5], [Z(3.5), 0.52], [Z(3.0), 0.66]], 3, 2, K, 0.006, 0);
+    });
+    // engine-cover vents
+    [0.2, -0.2].forEach(function (x) { box(c.B, x, 0.95, Z(3.85), 0.11, 0.004, 0.45, [8, 8, 10, 255, 0], 0); });
+    // huge hexagonal exhaust, top centre rear
+    cyl(c.B, [0, 0.62, c.zR - 0.02], [0, 0.62, c.zR + 0.04], 0.12, 0.12, 6, [60, 62, 68, 255, MT.CHROME], 0, true);
+    cyl(c.B, [0, 0.62, c.zR + 0.039], [0, 0.62, c.zR + 0.042], 0.085, 0.085, 6, [6, 6, 6, 255, 0], 0, true);
+    // rear wing
+    box(c.B, 0, 1.06, Z(4.76), 0.82, 0.012, 0.13, [14, 14, 16, 255, MT.PAINT], 0);
+    [0.32, -0.32].forEach(function (x) { box(c.B, x, 0.97, Z(4.7), 0.02, 0.1, 0.035, [14, 14, 16, 255, MT.PAINT], 0); });
+    [0.84, -0.84].forEach(function (x) { box(c.B, x, 1.06, Z(4.76), 0.008, 0.045, 0.14, [14, 14, 16, 255, MT.PAINT], 0); });
+    // splitter
+    box(c.B, 0, 0.115, c.zF + 0.1, 0.82, 0.008, 0.12, [10, 10, 12, 255, 0], 0);
   }
 };
 
@@ -908,7 +1039,7 @@ var VS = [
 '   p.x -= k*0.34*(0.5+nz)+k*0.12*hy*nr; p.y -= k*(0.05+0.14*nz2)*hy*nr; p.z += (nz2-0.5)*k*0.2*nr;',
 '   amt = max(amt,k*nr); }',
 '  if (uDam > 0.001 && stat < 0.5) { vec3 j = vec3(vn(q*6.0),vn(q*6.0+vec3(5.0,1.0,3.0)),vn(q*6.0+vec3(9.0,4.0,2.0)))-0.5;',
-'   p += j*0.05*uDam; amt = max(amt, uDam*0.55*vn(q*2.2+vec3(3.0))); }',
+'   p += j*0.008*uDam; }',
 ' }',
 ' if (loo > 0.5) { p.y -= uDam*0.13*(0.35+0.65*step(0.0,aPos.x)); p.x += uDam*0.035*(aPos.x < 0.0 ? -1.0 : 1.0); }',
 ' vec4 w = uCar * vec4(p,1.0); vRel = w.xyz - uCam;',
@@ -934,18 +1065,15 @@ var FS = [
 ' float nd = max(dot(n,sun),0.0);',
 ' vec3 amb = mix(vec3(0.40,0.37,0.33), vec3(0.60,0.70,0.86), n.y*0.5+0.5);',
 ' vec3 base = vC.rgb; float mt = vM;',
-' float soot = uDam * smoothstep(0.30,0.80, vn(vObj*1.9+vec3(3.0)) + 0.5*(1.0-clamp(vObj.y,0.0,1.4)/1.4));',
-' float streak = smoothstep(0.64,0.70, vn(vObj*vec3(36.0,5.0,9.0)+vec3(2.0))) * max(dm, uDam*0.7);',
+' float scr = smoothstep(0.0,0.5,uDam); float streak = smoothstep(0.74,0.78, vn(vObj*vec3(44.0,4.0,11.0)+vec3(2.0))) * max(dm, scr*0.8);',
 ' if (mt < 7.5 || mt > 8.5) {',
-'  base = mix(base, vec3(0.52,0.49,0.45), streak*0.6);',
+'  base = mix(base, vec3(0.62,0.6,0.57), streak*0.55);',
 '  base *= 1.0 - 0.45*dm*(0.5+0.5*vn(vObj*5.0));',
-'  base = mix(base, vec3(0.045,0.04,0.035), soot*0.85);',
-'  base *= 1.0 - 0.25*uDam*vn(vObj*3.3);',
 ' }',
 ' base = mix(base, vec3(0.035,0.032,0.03) + base*0.10, uTint);',
 ' vec3 col = base * (amb*0.92 + nd*vec3(1.0,0.96,0.88)*0.78);',
 ' vec3 h = normalize(sun+v); float ndh = max(dot(n,h),0.0);',
-' float dull = (1.0-uTint)*(1.0-0.75*max(dm,uDam));',
+' float dull = (1.0-uTint)*(1.0-0.6*dm);',
 ' vec3 r = reflect(-v,n); float fr = pow(1.0-max(dot(n,v),0.0),4.0);',
 ' float a = vC.a * uAlpha;',
 ' if (mt > 5.5 && mt < 6.5) { col += pow(ndh,60.0)*0.55*dull + envc(r)*(0.05+0.35*fr)*dull; }',
@@ -953,7 +1081,7 @@ var FS = [
 ' else if (mt > 0.5 && mt < 1.5) {',
 '  float cr = max(smoothstep(0.975,0.99,sin(vObj.x*23.0+vObj.z*17.0+3.0*vn(vObj*4.0))), smoothstep(0.975,0.99,sin(vObj.y*29.0-vObj.z*13.0+2.5*vn(vObj*5.0+vec3(2.0)))));',
 '  col = base*0.55 + envc(r)*(0.10+0.55*fr) + vec3(1.0,0.97,0.9)*pow(ndh,70.0)*1.2*(1.0-uTint);',
-'  col = mix(col, vec3(0.7,0.74,0.78), cr*uDam*0.6); a = clamp(a + cr*uDam*0.3 + uDam*0.15 + uTint*0.25, 0.0, 1.0);',
+'  float ck = smoothstep(0.35,0.9,uDam); col = mix(col, vec3(0.7,0.74,0.78), cr*ck*0.6); a = clamp(a + cr*ck*0.3 + uTint*0.25, 0.0, 1.0);',
 ' }',
 ' else if (mt > 1.5 && mt < 2.5) { col = base*1.1; }',
 ' else if (mt > 2.5 && mt < 3.5) {',
@@ -1021,7 +1149,8 @@ function create(gl) {
   function getModel(id) {
     if (cache[id]) return cache[id];
     var m = buildModel(id);
-    var list = [m.body, m.interior, m.cockpit, m.glass, m.glow, m.steer.mesh].concat(m.wheels.map(function (w) { return w.mesh; }));
+    var list = [m.body, m.interior, m.cockpit, m.glass, m.glow, m.steer.mesh].concat(m.wheels.map(function (w) { return w.mesh; }), m.wheels.map(function (w) { return w.core; }));
+    m.partNames.forEach(function (n) { list.push(m.parts[n].mesh, m.parts[n].glass, m.parts[n].filler); });
     var pk = pack(list);
     cache[id] = { m: m, buf: pk.buf, ranges: pk.ranges };
     return cache[id];
@@ -1034,7 +1163,8 @@ function create(gl) {
     var steer = +p.steer || 0, spin = +p.wheelSpin || 0, dam = clamp(+p.damage || 0, 0, 1);
     var dF = clamp(+p.dentF || 0, 0, 1), dB = clamp(+p.dentB || 0, 0, 1), dL = clamp(+p.dentL || 0, 0, 1), dR = clamp(+p.dentR || 0, 0, 1);
     var tint = clamp(+p.tint || 0, 0, 1), brake = p.brake ? clamp(+p.brake, 0, 1) : 0, head = p.head ? clamp(+p.head, 0, 1) : 0;
-    var cock = !!p.cockpit;
+    var cock = !!p.cockpit, lost = (+p.lost) | 0, only = (typeof p.only === 'string' && p.only) ? p.only : null;
+    if (only) { dF = dB = dL = dR = 0; dam = 0; lost = 0; }
     if (!(fogFar > fogNear)) { fogNear = 1e8; fogFar = 2e8; }
     var T = (typeof CarGL !== 'undefined' && CarGL.time !== null && CarGL.time !== undefined) ? CarGL.time : (Date.now() / 1000) % 1000;
     var st = {
@@ -1070,28 +1200,37 @@ function create(gl) {
     function setPart(mat) { for (var i = 0; i < 16; i++) pf[i] = mat[i]; gl.uniformMatrix4fv(U.uPart, false, pf); }
     function drawRange(k, alpha) { if (!R[k][1]) return; gl.uniform1f(U.uAlpha, alpha); gl.drawArrays(gl.TRIANGLES, R[k][0], R[k][1]); }
     gl.uniformMatrix4fv(U.uPart, false, IDM);
-    drawRange(0, 1);       // body
-    drawRange(1, 1);       // interior
-    if (cock) drawRange(2, 1);
-    // steering wheel (turns ~12x the road-wheel angle)
-    var sw = m.steer, pv = sw.pivot;
-    setPart(mMul(mT(pv[0], pv[1], pv[2]), mMul(rotAxis(sw.axis, -steer * 12), mT(-pv[0], -pv[1], -pv[2]))));
-    drawRange(5, 1);
-    // road wheels
-    m.wheels.forEach(function (w, k) {
-      var c = w.c, pm = mMul(w.front ? mRY(-steer) : mIdent(), mRX(-spin));
-      setPart(mMul(mT(c[0], c[1], c[2]), mMul(pm, mT(-c[0], -c[1], -c[2]))));
-      gl.uniform3f(U.uWC, c[0], c[1], c[2]);
-      drawRange(6 + k, 1);
-    });
-    gl.uniform3f(U.uWC, 0, 0, 0);
-    gl.uniformMatrix4fv(U.uPart, false, IDM);
-    // glass
-    gl.enable(gl.BLEND); gl.depthMask(false);
-    drawRange(3, cock ? 0.55 : 1);
-    if (head * (1 - tint) > 0.02) {
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      drawRange(4, 1);
+    var PB = { hood: 16, trunk: 32, bumperF: 64, bumperB: 128, doorL: 256, doorR: 512, mirrorL: 1024, mirrorR: 2048 };
+    var WN = ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
+    function partIdx(n) { return 14 + 3 * m.partNames.indexOf(n); }
+    if (only) {
+      var wi = WN.indexOf(only);
+      if (wi >= 0) { gl.uniform3f(U.uWC, 0, 0, 0); drawRange(6 + wi, 1); }
+      else if (m.parts[only]) {
+        var pi0 = partIdx(only); drawRange(pi0, 1);
+        gl.enable(gl.BLEND); gl.depthMask(false); drawRange(pi0 + 1, 1);
+      }
+    } else {
+      drawRange(0, 1);       // body
+      drawRange(1, 1);       // interior
+      if (cock) drawRange(2, 1);
+      var sw = m.steer, pv = sw.pivot;
+      setPart(mMul(mT(pv[0], pv[1], pv[2]), mMul(rotAxis(sw.axis, -steer * 12), mT(-pv[0], -pv[1], -pv[2]))));
+      drawRange(5, 1);
+      m.wheels.forEach(function (w, k) {
+        var c = w.c, pm = mMul(w.front ? mRY(-steer) : mIdent(), mRX(-spin));
+        setPart(mMul(mT(c[0], c[1], c[2]), mMul(pm, mT(-c[0], -c[1], -c[2]))));
+        gl.uniform3f(U.uWC, c[0], c[1], c[2]);
+        if (!(lost & (1 << k))) drawRange(6 + k, 1);
+        drawRange(10 + k, 1);
+      });
+      gl.uniform3f(U.uWC, 0, 0, 0);
+      gl.uniformMatrix4fv(U.uPart, false, IDM);
+      m.partNames.forEach(function (n) { var i0 = partIdx(n); if (lost & PB[n]) drawRange(i0 + 2, 1); else drawRange(i0, 1); });
+      gl.enable(gl.BLEND); gl.depthMask(false);
+      drawRange(3, cock ? 0.55 : 1);
+      m.partNames.forEach(function (n) { if (!(lost & PB[n])) drawRange(partIdx(n) + 1, cock ? 0.55 : 1); });
+      if (head * (1 - tint) > 0.02) { gl.blendFunc(gl.SRC_ALPHA, gl.ONE); drawRange(4, 1); }
     }
     // ---- restore
     [ATT.pos, ATT.nrm, ATT.col, ATT.mat].forEach(function (i) { if (!st.en[i]) gl.disableVertexAttribArray(i); else gl.enableVertexAttribArray(i); });
@@ -1164,7 +1303,7 @@ var CarGL = {
   _buildForTest: function (id) {
     var m = buildModel(id), tris = 0;
     m.all.forEach(function (M) { tris += M.tcount(); });
-    return { body: m.body, glass: m.glass, interior: m.interior, cockpit: m.cockpit, glow: m.glow, steer: m.steer, wheels: m.wheels, triangles: tris, all: m.all };
+    return { body: m.body, glass: m.glass, interior: m.interior, cockpit: m.cockpit, glow: m.glow, steer: m.steer, wheels: m.wheels, triangles: tris, all: m.all, parts: m.parts, partNames: m.partNames };
   }
 };
 if (typeof window !== 'undefined') window.CarGL = CarGL;
