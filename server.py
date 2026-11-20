@@ -9829,7 +9829,7 @@ JET_MAX_Y = 430.0
 JET_COOLDOWN = 4.0
 JET_RUNWAY = 90                       # open ground needed in front of the nose to start
 # Cars: seven real ones, bought once and kept until they are totalled. model: (name, price, top speed b/s, length, width, height)
-CARS = {"yaris": ("Toyota GR Yaris", 6000, 28.0, 3.95, 1.70, 1.50), "civic": ("Honda Civic", 10000, 34.0, 4.67, 1.80, 1.41), "f150": ("Ford F-150 Raptor", 20000, 31.0, 5.89, 2.03, 1.97),
+CARS = {"yaris": ("Toyota GR Yaris", 6000, 28.0, 3.95, 1.70, 1.50), "civic": ("Honda Civic EG6", 10000, 34.0, 4.40, 1.80, 1.41), "f150": ("Ford F-150 Raptor", 20000, 31.0, 5.89, 2.03, 1.97),
         "c5": ("Chevrolet Corvette C5", 28000, 48.0, 4.56, 1.87, 1.21), "m3": ("BMW M3 Competition", 65000, 52.0, 4.80, 1.90, 1.43), "911": ("Porsche 911 Carrera S", 70000, 52.0, 4.45, 1.80, 1.30),
         "cls63": ("Mercedes-Benz CLS 63 AMG", 55000, 50.0, 4.99, 1.88, 1.42),
         "aventador": ("Lamborghini Aventador", 150000, 62.0, 4.84, 2.03, 1.14)}

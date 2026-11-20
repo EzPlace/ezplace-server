@@ -586,7 +586,7 @@
     s.body = pts; s.vrot = s.stall * 1.12;
     if (rm) {                                       // the real model knows where its wheels and ends are
       var w = rm.wheels; s.wheels = [w.FL, w.FR, w.RL, w.RR]; s.noseZ = rm.noseZ; s.tailZ = rm.tailZ; s.wr = w.FL[1];
-      var wb2 = (w.RL[2] - w.FL[2]) * 0.5; s.eye = REAL_EYE[id] || [-0.36, rm.height * 0.78, w.FL[2] + wb2 * 0.85];
+      var wb2 = (w.RL[2] - w.FL[2]) * 0.5; var re = REAL_EYE[id]; s.eye = re ? [re[0], re[1], w.FL[2] + re[2]] : [-0.36, rm.height * 0.78, w.FL[2] + wb2 * 0.7];
       hl = Math.max(Math.abs(s.noseZ), Math.abs(s.tailZ)) * 0.98; s.pts = [[-hwid, -hl], [hwid, -hl], [-hwid, hl], [hwid, hl], [0, -hl], [0, hl], [-hwid, 0], [hwid, 0]]; s._r = true; s._real = true;
     } else if (g) s._r = true;
     return s;
@@ -695,8 +695,8 @@
   var CARS = {
     yaris:   { name: 'Toyota GR Yaris', price: 6000, vmax: 28, accel: 11, brake: 22, grip: 6.5, wb: 2.55, len: 3.95, wid: 1.70, h: 1.50, chase: 7.5, pitchF: 1.0,
                facts: 'The small Toyota hatchback: light, cheap and tough. Easy to park and quick to turn, but the slowest of the lot. 175 km/h in real life.' },
-    civic:   { name: 'Honda Civic', price: 10000, vmax: 34, accel: 12, brake: 24, grip: 6.8, wb: 2.70, len: 4.67, wid: 1.80, h: 1.41, chase: 8, pitchF: 1.0,
-               facts: 'The compact sedan that put Honda on the map. Sharp steering and plenty of grip for the money. Around 200 km/h.' },
+    civic:   { name: 'Honda Civic EG6', price: 10000, vmax: 34, accel: 12, brake: 24, grip: 6.8, wb: 2.57, len: 4.40, wid: 1.80, h: 1.41, chase: 8, pitchF: 1.0,
+               facts: 'The 1990s hatchback that put Honda on the map. Sharp steering and plenty of grip for the money. Around 200 km/h.' },
     f150:    { name: 'Ford F-150 Raptor', price: 20000, vmax: 31, accel: 10, brake: 20, grip: 5.6, wb: 3.69, len: 5.89, wid: 2.03, h: 1.97, chase: 10, pitchF: 0.8,
                facts: "America's best-selling pickup for decades. Tall, heavy and wide: it shrugs off bumps but it wallows through corners. 180 km/h and a long wheelbase." },
     c5:      { name: 'Chevrolet Corvette C5', price: 28000, vmax: 48, accel: 19, brake: 28, grip: 7.4, wb: 2.65, len: 4.56, wid: 1.87, h: 1.21, chase: 8, pitchF: 1.1,
@@ -712,7 +712,7 @@
   };
   var CAR_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63', 'aventador'];
   var CAR_CRASH_MIN = 8;
-  var REAL_EYE = {};
+  var REAL_EYE = { yaris: [-0.34, 1.15, 1.15], civic: [-0.33, 1.05, 1.2], f150: [-0.38, 1.72, 1.6], c5: [-0.34, 0.98, 1.2], m3: [-0.36, 1.2, 1.4], '911': [-0.34, 1.08, 1.2], cls63: [-0.36, 1.18, 1.45], aventador: [-0.35, 0.92, 1.5] };      // driver's eye: x, height, and how far behind the front axle
   function cspec(id) {
     var s = CARS[id]; if (s._r && (s._real || !(typeof window !== 'undefined' && window.CarReal && window.CarReal.meta(id)))) return s;
     var g = typeof window !== 'undefined' && window.CarGL && window.CarGL.SPECS && window.CarGL.SPECS[id], hw = s.wid / 2, wbh = s.wb / 2, rm = typeof window !== 'undefined' && window.CarReal && window.CarReal.meta(id);
@@ -2111,7 +2111,7 @@
 
   // ---- cars: bringing one out, getting in and out, hijacking, driving, the cameras, other people's cars, wrecks, sound and the shop cards
   var CAR_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src || '').replace(/ezworld\.js.*$/, 'car_gl.js');
-  var CAR_CREDITS = { yaris: ['2020 Toyota GR Yaris', 'DisneyCars', '2020-toyota-gr-yaris-44cb958908b94aa5aad0d856994f35a3'], civic: ['Honda Civic 2022', 'Ricy', 'honda-civic-2022-free-download-d5ca29a5d2f341b691118ffb5560b19b'], f150: ['2018 Ford F-150 Raptor', 'Galaxy Car Showroom', '2018-ford-f-150-raptor-096aa1ba46984eeeb196b75f4d213a0a'], c5: ['Chevrolet Corvette C5', 'Randomness', 'chevrolet-corvette-c5-blue-283f9ddde44f4caeacb544d4057dcd3d'], m3: ['2021 BMW M3 Competition (G80)', 'DisneyCars', '2021-bmw-m3-competition-g80-a9027a26b7ee4da4b564d939b6c27559'], '911': ['Porsche 911 Carrera S (991)', 'Mona x Supercars', 'porsche-911-carrera-s-991-97785983d3a949cf87e9ee6bf49f4032'], cls63: ['2013 Mercedes-Benz CLS 63 AMG (W218)', 'DisneyCars', '2013-mercedes-benz-cls-63-amg-tuned-w218-4ed156b0405e4e529d193ab1ccc11da9'], aventador: ['Lamborghini Aventador LP750-4 SV', 'Hari Prasath R', 'lamborghini-aventador-lp750-4-sv-fec3fec276d240f6b8a660e2a7874435'] };
+  var CAR_CREDITS = { yaris: ['2020 Toyota GR Yaris', 'DisneyCars', '2020-toyota-gr-yaris-44cb958908b94aa5aad0d856994f35a3'], civic: ['1991 Honda Civic EG6', 'rifdanzz', '1991-honda-civic-eg6-f81da34570b145deb463fa091604d251'], f150: ['2018 Ford F-150 Raptor', 'Galaxy Car Showroom', '2018-ford-f-150-raptor-096aa1ba46984eeeb196b75f4d213a0a'], c5: ['Chevrolet Corvette C5', 'Randomness', 'chevrolet-corvette-c5-blue-283f9ddde44f4caeacb544d4057dcd3d'], m3: ['Low Poly BMW G80 M3', 'SharkyStudios', 'low-poly-bmw-g80-m3-ea3e807ff69e40fe82c5577ee9f0a2f4'], '911': ['Porsche 911 Carrera S (991)', 'Mona x Supercars', 'porsche-911-carrera-s-991-97785983d3a949cf87e9ee6bf49f4032'], cls63: ['2008 Mercedes-Benz CLS 63 AMG (W219)', 'DisneyCars', '2008-mercedes-benz-cls-63-amg-w219-205671638afb4c4aa679fa4acc488915'], aventador: ['Lamborghini Aventador', 'Arion Digital', 'lamborghini-aventador-888e37a3641d4f7b94bc1a39396e2441'] };
   var CTHUMBS = {}, ENG = { yaris: 1.2, civic: 1.1, f150: 0.85, c5: 0.9, m3: 1.1, '911': 1.15, cls63: 0.88, aventador: 1.3 };
   function wrapCarRenderer(proc, real) {          // the real models draw when they have loaded; the hand-built ones stand in until then (or if a download fails)
     if (!real) return proc;
