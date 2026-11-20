@@ -9829,8 +9829,8 @@ JET_MAX_Y = 430.0
 JET_COOLDOWN = 4.0
 JET_RUNWAY = 90                       # open ground needed in front of the nose to start
 # Cars: seven real ones, bought once and kept until they are totalled. model: (name, price, top speed b/s, length, width, height)
-CARS = {"yaris": ("Toyota Yaris", 6000, 28.0, 3.95, 1.70, 1.50), "civic": ("Honda Civic", 10000, 34.0, 4.67, 1.80, 1.41), "f150": ("Ford F-150", 20000, 31.0, 5.89, 2.03, 1.97),
-        "c5": ("Chevrolet Corvette C5", 28000, 48.0, 4.56, 1.87, 1.21), "m3": ("BMW M3 Competition", 65000, 52.0, 4.80, 1.90, 1.43), "911": ("Porsche 911 Carrera", 70000, 52.0, 4.45, 1.80, 1.30),
+CARS = {"yaris": ("Toyota GR Yaris", 6000, 28.0, 3.95, 1.70, 1.50), "civic": ("Honda Civic", 10000, 34.0, 4.67, 1.80, 1.41), "f150": ("Ford F-150 Raptor", 20000, 31.0, 5.89, 2.03, 1.97),
+        "c5": ("Chevrolet Corvette C5", 28000, 48.0, 4.56, 1.87, 1.21), "m3": ("BMW M3 Competition", 65000, 52.0, 4.80, 1.90, 1.43), "911": ("Porsche 911 Carrera S", 70000, 52.0, 4.45, 1.80, 1.30),
         "cls63": ("Mercedes-Benz CLS 63 AMG", 55000, 50.0, 4.99, 1.88, 1.42),
         "aventador": ("Lamborghini Aventador", 150000, 62.0, 4.84, 2.03, 1.14)}
 CAR_IDS = list(CARS)
@@ -11451,16 +11451,18 @@ _CARSND_CACHE = {}
 async def car_snd_handler(request):
     """The real engine recordings: small audio files, fetched once per car and cached by the browser."""
     name = request.match_info.get("name", "")
-    if not re.fullmatch(r"car_[a-z0-9]{2,12}\.(ogg|json)", name): return web.Response(status=404)
+    if not re.fullmatch(r"(car_[a-z0-9]{2,12}\.(ogg|json)|[a-z0-9]{2,12}\.(bin|jpg))", name): return web.Response(status=404)
     ent = _CARSND_CACHE.get(name)
     if ent is None:
         try:
             with open(os.path.join("car_snd", name), "rb") as f: data = f.read()
         except Exception: return web.Response(status=404)
-        ent = _CARSND_CACHE[name] = (data, hashlib.md5(data).hexdigest())
-    hdr = {"Cache-Control": "public, max-age=604800", "ETag": '"' + ent[1] + '"'}
+        ent = _CARSND_CACHE[name] = (data, hashlib.md5(data).hexdigest(), gzip.compress(data, compresslevel=9) if name.endswith(".bin") else None)
+    hdr = {"Cache-Control": "public, max-age=604800", "ETag": '"' + ent[1] + '"', "Vary": "Accept-Encoding"}
     if request.headers.get("If-None-Match", "") == hdr["ETag"]: return web.Response(status=304, headers=hdr)
-    return web.Response(body=ent[0], content_type=("audio/ogg" if name.endswith(".ogg") else "application/json"), headers=hdr)
+    ct = "audio/ogg" if name.endswith(".ogg") else "image/jpeg" if name.endswith(".jpg") else "application/octet-stream" if name.endswith(".bin") else "application/json"
+    if ent[2] and "gzip" in request.headers.get("Accept-Encoding", ""): return web.Response(body=ent[2], content_type=ct, headers={**hdr, "Content-Encoding": "gzip"})
+    return web.Response(body=ent[0], content_type=ct, headers=hdr)
 
 async def ezworld_js_handler(request):
     if not _EZW_RAW: return web.Response(status=404)

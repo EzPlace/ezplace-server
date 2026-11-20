@@ -584,7 +584,11 @@
     pts.push(s.tips[0], s.tips[1]);
     for (var z = s.noseZ + 2; z < s.tailZ - 1; z += 2.5) pts.push([0, 1.3, z]);
     s.body = pts; s.vrot = s.stall * 1.12;
-    if (g) s._r = true;
+    if (rm) {                                       // the real model knows where its wheels and ends are
+      var w = rm.wheels; s.wheels = [w.FL, w.FR, w.RL, w.RR]; s.noseZ = rm.noseZ; s.tailZ = rm.tailZ; s.wr = w.FL[1];
+      var wb2 = (w.RL[2] - w.FL[2]) * 0.5; s.eye = REAL_EYE[id] || [-0.36, rm.height * 0.78, w.FL[2] + wb2 * 0.85];
+      hl = Math.max(Math.abs(s.noseZ), Math.abs(s.tailZ)) * 0.98; s.pts = [[-hwid, -hl], [hwid, -hl], [-hwid, hl], [hwid, hl], [0, -hl], [0, hl], [-hwid, 0], [hwid, 0]]; s._r = true; s._real = true;
+    } else if (g) s._r = true;
     return s;
   }
   function jv(x, y, z) { return [x, y, z]; }
@@ -689,17 +693,17 @@
   // vmax: top speed in blocks per second (about 3.6 km/h each); accel: how hard it pulls from a standstill; grip: how quickly sideways sliding dies away;
   // wb: wheelbase; len / wid / h: real size; chase: camera distance
   var CARS = {
-    yaris:   { name: 'Toyota Yaris', price: 6000, vmax: 28, accel: 11, brake: 22, grip: 6.5, wb: 2.55, len: 3.95, wid: 1.70, h: 1.50, chase: 7.5, pitchF: 1.0,
+    yaris:   { name: 'Toyota GR Yaris', price: 6000, vmax: 28, accel: 11, brake: 22, grip: 6.5, wb: 2.55, len: 3.95, wid: 1.70, h: 1.50, chase: 7.5, pitchF: 1.0,
                facts: 'The small Toyota hatchback: light, cheap and tough. Easy to park and quick to turn, but the slowest of the lot. 175 km/h in real life.' },
     civic:   { name: 'Honda Civic', price: 10000, vmax: 34, accel: 12, brake: 24, grip: 6.8, wb: 2.70, len: 4.67, wid: 1.80, h: 1.41, chase: 8, pitchF: 1.0,
                facts: 'The compact sedan that put Honda on the map. Sharp steering and plenty of grip for the money. Around 200 km/h.' },
-    f150:    { name: 'Ford F-150', price: 20000, vmax: 31, accel: 10, brake: 20, grip: 5.6, wb: 3.69, len: 5.89, wid: 2.03, h: 1.97, chase: 10, pitchF: 0.8,
+    f150:    { name: 'Ford F-150 Raptor', price: 20000, vmax: 31, accel: 10, brake: 20, grip: 5.6, wb: 3.69, len: 5.89, wid: 2.03, h: 1.97, chase: 10, pitchF: 0.8,
                facts: "America's best-selling pickup for decades. Tall, heavy and wide: it shrugs off bumps but it wallows through corners. 180 km/h and a long wheelbase." },
     c5:      { name: 'Chevrolet Corvette C5', price: 28000, vmax: 48, accel: 19, brake: 28, grip: 7.4, wb: 2.65, len: 4.56, wid: 1.87, h: 1.21, chase: 8, pitchF: 1.1,
                facts: 'The 1997 to 2004 front-engine Corvette: a V8 and a long hood in a low fibreglass body. Built to go fast in a straight line. Up to 270 km/h.' },
     m3:      { name: 'BMW M3 Competition', price: 65000, vmax: 52, accel: 20, brake: 30, grip: 7.8, wb: 2.86, len: 4.80, wid: 1.90, h: 1.43, chase: 8.5, pitchF: 1.0,
                facts: 'The current M3 Competition: a 510 horsepower twin-turbo straight-six behind the biggest kidney grille BMW has ever made. It grips and rotates like a race car. Electronically limited to about 290 km/h.' },
-    '911':   { name: 'Porsche 911 Carrera', price: 70000, vmax: 52, accel: 20, brake: 30, grip: 7.8, wb: 2.35, len: 4.45, wid: 1.80, h: 1.30, chase: 8, pitchF: 1.1,
+    '911':   { name: 'Porsche 911 Carrera S', price: 70000, vmax: 52, accel: 20, brake: 30, grip: 7.8, wb: 2.35, len: 4.45, wid: 1.80, h: 1.30, chase: 8, pitchF: 1.1,
                facts: 'The rear-engined icon: the engine hangs behind the axle, so it launches hard and the tail can swing. Short wheelbase, huge grip. About 285 km/h.' },
     aventador: { name: 'Lamborghini Aventador', price: 150000, vmax: 62, accel: 24, brake: 33, grip: 8.2, wb: 2.70, len: 4.84, wid: 2.03, h: 1.14, chase: 9, pitchF: 1.2,
                facts: 'A V12 in the middle of a carbon-fibre wedge, with a Y-shaped light signature and a 350 km/h top speed. Absurdly low, absurdly wide and absurdly loud. The fastest car here, and the hardest to keep straight.' },
@@ -708,9 +712,10 @@
   };
   var CAR_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63', 'aventador'];
   var CAR_CRASH_MIN = 8;
+  var REAL_EYE = {};
   function cspec(id) {
-    var s = CARS[id]; if (s._r) return s;
-    var g = typeof window !== 'undefined' && window.CarGL && window.CarGL.SPECS && window.CarGL.SPECS[id], hw = s.wid / 2, wbh = s.wb / 2;
+    var s = CARS[id]; if (s._r && (s._real || !(typeof window !== 'undefined' && window.CarReal && window.CarReal.meta(id)))) return s;
+    var g = typeof window !== 'undefined' && window.CarGL && window.CarGL.SPECS && window.CarGL.SPECS[id], hw = s.wid / 2, wbh = s.wb / 2, rm = typeof window !== 'undefined' && window.CarReal && window.CarReal.meta(id);
     s.wheels = g && g.wheels || [[-hw * 0.85, 0.32, -wbh], [hw * 0.85, 0.32, -wbh], [-hw * 0.85, 0.32, wbh], [hw * 0.85, 0.32, wbh]];
     s.eye = g && g.eye || [-0.35, 1.15, -0.2]; s.noseZ = g && g.noseZ || -s.len / 2; s.tailZ = g && g.tailZ || s.len / 2;
     s.wr = g && g.wheelRadius || 0.32;
@@ -2106,12 +2111,18 @@
 
   // ---- cars: bringing one out, getting in and out, hijacking, driving, the cameras, other people's cars, wrecks, sound and the shop cards
   var CAR_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src || '').replace(/ezworld\.js.*$/, 'car_gl.js');
+  var CAR_CREDITS = { yaris: ['2020 Toyota GR Yaris', 'DisneyCars', '2020-toyota-gr-yaris-44cb958908b94aa5aad0d856994f35a3'], civic: ['Honda Civic 2022', 'Ricy', 'honda-civic-2022-free-download-d5ca29a5d2f341b691118ffb5560b19b'], f150: ['2018 Ford F-150 Raptor', 'Galaxy Car Showroom', '2018-ford-f-150-raptor-096aa1ba46984eeeb196b75f4d213a0a'], c5: ['Chevrolet Corvette C5', 'Randomness', 'chevrolet-corvette-c5-blue-283f9ddde44f4caeacb544d4057dcd3d'], m3: ['2021 BMW M3 Competition (G80)', 'DisneyCars', '2021-bmw-m3-competition-g80-a9027a26b7ee4da4b564d939b6c27559'], '911': ['Porsche 911 Carrera S (991)', 'Mona x Supercars', 'porsche-911-carrera-s-991-97785983d3a949cf87e9ee6bf49f4032'], cls63: ['2013 Mercedes-Benz CLS 63 AMG (W218)', 'DisneyCars', '2013-mercedes-benz-cls-63-amg-tuned-w218-4ed156b0405e4e529d193ab1ccc11da9'], aventador: ['Lamborghini Aventador LP750-4 SV', 'Hari Prasath R', 'lamborghini-aventador-lp750-4-sv-fec3fec276d240f6b8a660e2a7874435'] };
   var CTHUMBS = {}, ENG = { yaris: 1.2, civic: 1.1, f150: 0.85, c5: 0.9, m3: 1.1, '911': 1.15, cls63: 0.88, aventador: 1.3 };
+  function wrapCarRenderer(proc, real) {          // the real models draw when they have loaded; the hand-built ones stand in until then (or if a download fails)
+    if (!real) return proc;
+    return { thumbnail: proc.thumbnail, dispose: function () { proc.dispose(); real.dispose(); }, real: real,
+      draw: function (id, model, vp, cam, fn, ff, p) { if (real.has(id)) return real.draw(id, model, vp, cam, fn, ff, p); real.want(id); return proc.draw(id, model, vp, cam, fn, ff, p); } };
+  }
   function carRenderer() {                       // the car models are another separate file, fetched the first time a car matters
     if (G.cr) return G.cr;
     if (G.crFail) return null;
     if (window.CarGL) {
-      try { G.cr = window.CarGL.create(G.gl); } catch (e) { G.cr = null; G.crFail = true; }
+      try { G.cr = wrapCarRenderer(window.CarGL.create(G.gl), window.CarReal ? window.CarReal.create(G.gl) : null); } catch (e) { G.cr = null; G.crFail = true; }
       return G.cr;
     }
     if (!G.crLoading && CAR_SRC) {
@@ -2504,7 +2515,7 @@
   }
   var PART_BITS = { wheelFL: 1, wheelFR: 2, wheelRL: 4, wheelRR: 8, hood: 16, trunk: 32, bumperF: 64, bumperB: 128, doorL: 256, doorR: 512, mirrorL: 1024, mirrorR: 2048 };
   function partCentre(sp, name) {                  // where a part sits in the model (the models say; otherwise a sensible guess)
-    var g = typeof window !== 'undefined' && window.CarGL && window.CarGL.SPECS && window.CarGL.SPECS[sp._id] && window.CarGL.SPECS[sp._id].parts && window.CarGL.SPECS[sp._id].parts[name];
+    var rm = typeof window !== 'undefined' && window.CarReal && window.CarReal.meta(sp._id), g = rm && rm.parts && rm.parts[name] || typeof window !== 'undefined' && window.CarGL && window.CarGL.SPECS && window.CarGL.SPECS[sp._id] && window.CarGL.SPECS[sp._id].parts && window.CarGL.SPECS[sp._id].parts[name];
     if (g) return g;
     var wh = sp.wheels, h = sp.h;
     return { wheelFL: wh[0], wheelFR: wh[1], wheelRL: wh[2], wheelRR: wh[3], hood: [0, h * 0.7, sp.noseZ * 0.5], trunk: [0, h * 0.7, sp.tailZ * 0.6], bumperF: [0, 0.5, sp.noseZ * 0.95], bumperB: [0, 0.5, sp.tailZ * 0.95],
@@ -2645,9 +2656,12 @@
   // ---- shop cards
   function carThumb(id) {
     if (CTHUMBS[id]) return CTHUMBS[id];
-    var r = carRenderer(); if (!r || !r.thumbnail) return '';
-    try { var u = r.thumbnail(id, 150, 80); if (u) CTHUMBS[id] = u; } catch (e) {}
-    return CTHUMBS[id] || '';
+    CTHUMBS[id] = SND_BASE + id + '.jpg';           // a small picture of the real model, rendered ahead of time
+    return CTHUMBS[id];
+  }
+  function carCredit(id) {                         // the models are CC BY: say who made them
+    var c = CAR_CREDITS[id]; if (!c) return '';
+    return '<small style="opacity:.6;font-size:10px">3D model: ' + esc(c[0]) + ' by <a href="https://sketchfab.com/3d-models/' + c[2] + '" target="_blank" rel="noopener noreferrer" style="color:inherit">' + esc(c[1]) + '</a> (CC BY 4.0)</small>';
   }
   function renderCarShop() {
     var box = $('ew-shop-cars'); if (!box) return;
@@ -2657,7 +2671,7 @@
       var sp = CARS[id], price = prices[id] || sp.price, st = own[id], img = carThumb(id);
       var btn1 = st ? '<button class="win-btn" data-c="launch" data-id="' + id + '"' + (G.car || G.drone || G.heli || G.jet ? ' disabled' : '') + '>' + (G.car && G.car.m === id ? 'Driving' : 'Bring out') + '</button>'
         : '<button class="win-btn" data-c="buy" data-id="' + id + '">' + (G.cArm === id ? 'Click again to confirm' : 'Buy') + '</button>';
-      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st ? ' · owned' : '') + ' · top speed ' + Math.round(sp.vmax * 3.6) + ' km/h</span></div><div class="act">' + btn1 + '</div></div>';
+      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st ? ' · owned' : '') + ' · top speed ' + Math.round(sp.vmax * 3.6) + ' km/h</span>' + carCredit(id) + '</div><div class="act">' + btn1 + '</div></div>';
     });
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
   }

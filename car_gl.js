@@ -1310,3 +1310,132 @@ if (typeof window !== 'undefined') window.CarGL = CarGL;
 if (typeof module !== 'undefined' && module.exports) module.exports = CarGL;
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') globalThis.CarGL = CarGL;
 })(typeof window !== 'undefined' ? window : this);
+
+/* Real car models (CC BY, from Sketchfab, converted offline to a small binary): loading and drawing.
+   CarReal.create(gl) -> { draw, thumbnail, dispose, has(id), want(id) }.  Same draw options as the hand-built models.  */
+(function (root) {
+  'use strict';
+  var BASE = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src || '').replace(/car_gl\.js.*$/, 'car_snd/');
+  var cache = {};          // id -> { meta, data (ArrayBuffer), state }
+  var listeners = [];
+  var VS = 'attribute vec3 aPos;attribute vec3 aNrm;attribute float aPart;attribute vec4 aCol;' +
+    'uniform mat4 uVP;uniform mat4 uModel;uniform vec3 uMin;uniform vec3 uExt;uniform vec3 uWC0;uniform vec3 uWC1;uniform vec3 uWC2;uniform vec3 uWC3;uniform float uSteer;uniform float uSpin;uniform float uLost;uniform float uOnly;uniform vec4 uDent;uniform vec2 uHalf;' +
+    'varying vec3 vN;varying vec3 vW;varying vec4 vC;varying float vDent;varying float vCls;' +
+    'float hash(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}' +
+    'void main(){' +
+    ' vec3 p=uMin+aPos/65535.0*uExt; vec3 n=aNrm; float part=aPart; float dent=0.0;' +
+    ' float bit=floor(uLost/pow(2.0,part-1.0));float gone=(part>0.5&&mod(bit,2.0)>0.5)?1.0:0.0;' +
+    ' if(uOnly>0.5&&abs(part-uOnly)>0.5)gone=1.0;' +
+    ' if(uOnly<-0.5&&false)gone=0.0;' +
+    ' if(part>0.5&&part<4.5){vec3 c=part<1.5?uWC0:part<2.5?uWC1:part<3.5?uWC2:uWC3;vec3 l=p-c;vec3 ln=n;' +
+    '  if(part<2.5&&uOnly<0.5){float cs=cos(uSteer),sn=sin(uSteer);l=vec3(cs*l.x+sn*l.z,l.y,-sn*l.x+cs*l.z);ln=vec3(cs*ln.x+sn*ln.z,ln.y,-sn*ln.x+cs*ln.z);}' +
+    '  float cr=cos(uSpin),sr=sin(uSpin);l=vec3(l.x,cr*l.y-sr*l.z,sr*l.y+cr*l.z);ln=vec3(ln.x,cr*ln.y-sr*ln.z,sr*ln.y+cr*ln.z);' +
+    '  p=c+l;n=ln;' +
+    ' } else if(uOnly<0.5){' +
+    '  float hl=uHalf.x,hw=uHalf.y;float nz=hash(floor(p*4.0));' +
+    '  float ff=smoothstep(hl*0.30,hl*1.0,-p.z)*uDent.x;float fb=smoothstep(hl*0.30,hl*1.0,p.z)*uDent.y;' +
+    '  float fl=smoothstep(hw*0.55,hw,-p.x)*uDent.z;float fr=smoothstep(hw*0.55,hw,p.x)*uDent.w;' +
+    '  p.z+=ff*(1.1+0.6*nz);p.y-=ff*(0.18+0.12*nz)*smoothstep(0.4,1.0,p.y/1.4);p.x*=1.0-ff*0.10*nz;' +
+    '  p.z-=fb*(1.0+0.6*nz);p.y-=fb*(0.14+0.1*nz);p.x*=1.0-fb*0.08*nz;' +
+    '  p.x+=fl*(0.42+0.25*nz);p.y-=fl*0.10*nz;p.x-=fr*(0.42+0.25*nz);p.y-=fr*0.10*nz;' +
+    '  dent=max(max(ff,fb),max(fl,fr));' +
+    ' }' +
+    ' vec4 w=uModel*vec4(p,1.0);vW=w.xyz;vN=normalize(mat3(uModel)*n);vC=aCol;vDent=dent;vCls=aCol.w;' +
+    ' gl_Position=gone>0.5?vec4(2.0,2.0,2.0,1.0):uVP*w;}';
+  var FS = 'precision mediump float;varying vec3 vN;varying vec3 vW;varying vec4 vC;varying float vDent;varying float vCls;' +
+    'uniform vec3 uCam;uniform vec2 uFog;uniform vec3 uSky;uniform float uHead;uniform float uBrake;uniform float uTint;uniform float uCockpit;uniform float uGlassPass;uniform float uDamage;' +
+    'void main(){' +
+    ' float cls=floor(vCls+0.5);bool glass=cls>0.5&&cls<1.5;' +
+    ' if(glass!=(uGlassPass>0.5))discard;' +
+    ' vec3 N=normalize(vN);float back=gl_FrontFacing?1.0:0.0;if(back<0.5)N=-N;' +
+    ' vec3 col=vC.rgb/255.0;' +
+    ' vec3 sun=normalize(vec3(0.5,0.85,0.35));float d=max(dot(N,sun),0.0);float hemi=0.5+0.5*N.y;' +
+    ' vec3 V=normalize(uCam-vW);vec3 H=normalize(sun+V);' +
+    ' float lit=0.45+0.5*hemi*0.6+0.62*d;vec3 c=col*lit;' +
+    ' float spec=0.0;' +
+    ' if(cls>4.5&&cls<5.5)spec=pow(max(dot(N,H),0.0),24.0)*0.7;else if(cls<0.5)spec=pow(max(dot(N,H),0.0),48.0)*0.28;else if(glass)spec=pow(max(dot(N,H),0.0),64.0)*0.9;' +
+    ' c+=vec3(spec);' +
+    ' if(cls>1.5&&cls<2.5&&uHead>0.5)c=mix(c,vec3(1.0,0.97,0.82),0.85);' +
+    ' if(cls>2.5&&cls<3.5)c=mix(c*0.8,vec3(0.45,0.02,0.02),0.55)+vec3(uBrake*0.7,uBrake*0.05,uBrake*0.05);' +
+    ' if(cls>5.5&&cls<6.5)c*=0.8;' +
+    ' if(back<0.5)c=mix(c,vec3(0.07,0.07,0.08),0.7);' +
+    ' c=mix(c,vec3(0.08,0.07,0.07),clamp(vDent*0.55,0.0,0.7));' +
+    ' c=mix(c,vec3(0.1,0.09,0.08)*(0.5+0.5*lit),uTint);' +
+    ' float dist=distance(uCam,vW);float f=smoothstep(uFog.x,uFog.y,dist);c=mix(c,uSky,f);' +
+    ' float a=1.0;if(glass){a=0.30+0.25*(1.0-abs(dot(N,V)));c=mix(c*0.35,c,0.4);}' +
+    ' gl_FragColor=vec4(c,a*(1.0-f*0.0));}';
+
+  function parse(buf) {
+    var dv = new DataView(buf); if (dv.getUint32(0, true) !== 0x4D444C31) throw new Error('bad model');
+    var jl = dv.getUint32(4, true), meta = JSON.parse(typeof TextDecoder !== 'undefined' ? new TextDecoder().decode(new Uint8Array(buf, 8, jl)) : String.fromCharCode.apply(null, new Uint8Array(buf, 8, jl)));
+    var off = 8 + jl; off += (4 - off % 4) % 4;
+    return { meta: meta, vbytes: new Uint8Array(buf, off, meta.verts * 16), idx: new Uint16Array(buf.slice(off + meta.verts * 16, off + meta.verts * 16 + meta.tris * 6)) };
+  }
+  function want(id) {
+    var e = cache[id]; if (e) return e;
+    e = cache[id] = { state: 'loading', meta: null };
+    if (typeof fetch !== 'function') { e.state = 'failed'; return e; }
+    fetch(BASE + id + '.bin').then(function (r) { if (!r.ok) throw 0; return r.arrayBuffer(); }).then(function (ab) {
+      var m = parse(ab); e.meta = m.meta; e.parsed = m; e.state = 'ready'; listeners.forEach(function (f) { try { f(id); } catch (x) {} });
+    }).catch(function () { e.state = 'failed'; });
+    return e;
+  }
+  function create(gl) {
+    var prog = null, U = {}, A = {}, gpu = {};
+    function sh(t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; }
+    function init() {
+      if (prog) return;
+      prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+      gl.bindAttribLocation(prog, 2, 'aPos'); gl.bindAttribLocation(prog, 3, 'aNrm'); gl.bindAttribLocation(prog, 4, 'aPart'); gl.bindAttribLocation(prog, 5, 'aCol'); gl.linkProgram(prog);
+      ['uVP', 'uModel', 'uMin', 'uExt', 'uWC0', 'uWC1', 'uWC2', 'uWC3', 'uSteer', 'uSpin', 'uLost', 'uOnly', 'uDent', 'uHalf', 'uCam', 'uFog', 'uSky', 'uHead', 'uBrake', 'uTint', 'uCockpit', 'uGlassPass', 'uDamage'].forEach(function (n) { U[n] = gl.getUniformLocation(prog, n); });
+    }
+    function upload(id) {
+      var e = cache[id]; if (!e || e.state !== 'ready') return null;
+      var g = gpu[id]; if (g) return g;
+      var vb = gl.createBuffer(), ib = gl.createBuffer(), m = e.parsed;
+      gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, m.vbytes, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
+      var firstGlass = m.meta.tris * 3, ranges = m.meta.ranges;
+      for (var i = 0; i < ranges.length; i++) if (ranges[i].cls === 1) { firstGlass = ranges[i].first; break; }
+      return (gpu[id] = { vb: vb, ib: ib, firstGlass: firstGlass, total: m.meta.tris * 3 });
+    }
+    function bindAttrs(g) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, g.vb); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.ib);
+      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.UNSIGNED_SHORT, false, 16, 0);
+      gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.BYTE, true, 16, 6);
+      gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 1, gl.UNSIGNED_BYTE, false, 16, 9);
+      gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 4, gl.UNSIGNED_BYTE, false, 16, 10);
+    }
+    function draw(id, model, vp, cam, fogN, fogF, p) {
+      p = p || {}; var e = cache[id]; if (!e || e.state !== 'ready') { want(id); return false; }
+      init(); var g = upload(id); if (!g) return false; var meta = e.meta;
+      var st = { prog: gl.getParameter(gl.CURRENT_PROGRAM), ab: gl.getParameter(gl.ARRAY_BUFFER_BINDING), eb: gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING), blend: gl.isEnabled(gl.BLEND), depth: gl.isEnabled(gl.DEPTH_TEST), cull: gl.isEnabled(gl.CULL_FACE), dm: gl.getParameter(gl.DEPTH_WRITEMASK),
+        en: [0, 1, 2, 3, 4, 5].map(function (i) { return gl.getVertexAttrib(i, gl.VERTEX_ATTRIB_ARRAY_ENABLED); }) };
+      gl.useProgram(prog); bindAttrs(g);
+      var ext = [meta.max[0] - meta.min[0] + 1e-4, meta.max[1] - meta.min[1] + 1e-4, meta.max[2] - meta.min[2] + 1e-4], w = meta.wheels;
+      gl.uniformMatrix4fv(U.uVP, false, vp); gl.uniformMatrix4fv(U.uModel, false, model);
+      gl.uniform3f(U.uMin, meta.min[0], meta.min[1], meta.min[2]); gl.uniform3f(U.uExt, ext[0], ext[1], ext[2]);
+      gl.uniform3fv(U.uWC0, w.FL); gl.uniform3fv(U.uWC1, w.FR); gl.uniform3fv(U.uWC2, w.RL); gl.uniform3fv(U.uWC3, w.RR);
+      gl.uniform1f(U.uSteer, p.steer || 0); gl.uniform1f(U.uSpin, p.wheelSpin || 0); gl.uniform1f(U.uLost, p.lost || 0);
+      var only = 0; if (p.only) only = ['', 'wheelFL', 'wheelFR', 'wheelRL', 'wheelRR', 'hood', 'trunk', 'bumperF', 'bumperB', 'doorL', 'doorR', 'mirrorL', 'mirrorR'].indexOf(p.only); if (only < 0) only = 0;
+      gl.uniform1f(U.uOnly, only);
+      gl.uniform4f(U.uDent, p.dentF || 0, p.dentB || 0, p.dentL || 0, p.dentR || 0); gl.uniform2f(U.uHalf, (meta.tailZ - meta.noseZ) / 2, meta.width / 2);
+      gl.uniform3f(U.uCam, cam[0], cam[1], cam[2]); gl.uniform2f(U.uFog, fogN, fogF); gl.uniform3f(U.uSky, 0.56, 0.75, 0.94);
+      gl.uniform1f(U.uHead, p.head ? 1 : 0); gl.uniform1f(U.uBrake, p.brake ? 1 : 0); gl.uniform1f(U.uTint, p.tint || 0); gl.uniform1f(U.uCockpit, p.cockpit ? 1 : 0); gl.uniform1f(U.uDamage, p.damage || 0);
+      gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.disable(gl.BLEND);
+      if (p.cockpit) gl.disable(gl.CULL_FACE); else { gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); }
+      gl.uniform1f(U.uGlassPass, 0); gl.drawElements(gl.TRIANGLES, g.firstGlass, gl.UNSIGNED_SHORT, 0);
+      if (g.total > g.firstGlass) {
+        gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); gl.disable(gl.CULL_FACE);
+        gl.uniform1f(U.uGlassPass, 1); gl.drawElements(gl.TRIANGLES, g.total - g.firstGlass, gl.UNSIGNED_SHORT, g.firstGlass * 2);
+      }
+      gl.depthMask(st.dm); if (!st.blend) gl.disable(gl.BLEND); else gl.enable(gl.BLEND); if (st.cull) gl.enable(gl.CULL_FACE); else gl.disable(gl.CULL_FACE); if (!st.depth) gl.disable(gl.DEPTH_TEST);
+      for (var i = 0; i < 6; i++) { if (st.en[i]) gl.enableVertexAttribArray(i); else gl.disableVertexAttribArray(i); }
+      gl.bindBuffer(gl.ARRAY_BUFFER, st.ab); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, st.eb); gl.useProgram(st.prog);
+      return true;
+    }
+    function dispose() { Object.keys(gpu).forEach(function (k) { gl.deleteBuffer(gpu[k].vb); gl.deleteBuffer(gpu[k].ib); }); gpu = {}; if (prog) gl.deleteProgram(prog); prog = null; }
+    return { draw: draw, dispose: dispose, has: function (id) { return !!cache[id] && cache[id].state === 'ready'; }, want: want, meta: function (id) { return cache[id] && cache[id].meta; } };
+  }
+  root.CarReal = { setBase: function (b) { BASE = b; }, create: create, want: want, meta: function (id) { return cache[id] && cache[id].meta; }, onReady: function (f) { listeners.push(f); }, BASE: BASE };
+})(typeof window !== 'undefined' ? window : this);
