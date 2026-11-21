@@ -708,18 +708,24 @@
     aventador: { name: 'Lamborghini Aventador', price: 150000, vmax: 62, accel: 24, brake: 33, grip: 8.2, wb: 2.70, len: 4.84, wid: 2.03, h: 1.14, chase: 9, pitchF: 1.2,
                facts: 'A V12 in the middle of a carbon-fibre wedge, with a Y-shaped light signature and a 350 km/h top speed. Absurdly low, absurdly wide and absurdly loud. The fastest car here, and the hardest to keep straight.' },
     cls63:   { name: 'Mercedes-Benz CLS 63 AMG', price: 55000, vmax: 50, accel: 17, brake: 27, grip: 6.9, wb: 2.95, len: 4.99, wid: 1.88, h: 1.42, chase: 8.5, pitchF: 1.0,
-               facts: 'A four-door coupe with a hand-built twin-turbo V8. Luxury on the inside, a monster on the road. Limited to about 250 km/h.' }
+               facts: 'A four-door coupe with a hand-built twin-turbo V8. Luxury on the inside, a monster on the road. Limited to about 250 km/h.' },
+    yozma: { name: 'Yozma IN10', price: 2500, vmax: 15, accel: 7, brake: 16, grip: 5.2, wb: 0.92, len: 1.3, wid: 0.52, h: 1.32, chase: 3.0, pitchF: 0.6, facts: 'A commuter e-scooter: quiet, light and cheap. Stand on the deck and twist the throttle. About 55 km/h.' },
+    eride: { name: 'EridePro SS 3.0', price: 3000, vmax: 17, accel: 8, brake: 17, grip: 5.4, wb: 0.92, len: 1.3, wid: 0.57, h: 1.4, chase: 3.0, pitchF: 0.6, facts: 'A dual-motor folding scooter that pulls hard from a standstill for its size. Around 60 km/h.' },
+    kukirin: { name: 'Kukirin G4', price: 3500, vmax: 18, accel: 9, brake: 18, grip: 5.6, wb: 0.92, len: 1.3, wid: 0.6, h: 1.36, chase: 3.1, pitchF: 0.6, facts: 'A powerful stand-up scooter with big air tyres and strong brakes. Around 65 km/h.' },
+    macfox: { name: 'Macfox X1S', price: 4500, vmax: 19, accel: 10, brake: 19, grip: 6.2, wb: 0.92, len: 1.3, wid: 0.48, h: 0.79, chase: 3.1, pitchF: 0.6, facts: 'A fat-tyre seated scooter: low, stable and easy to ride on rough ground. About 70 km/h.' },
+    razor: { name: '72V Modded Razor', price: 9000, vmax: 30, accel: 16, brake: 24, grip: 6, wb: 1.1, len: 1.75, wid: 0.53, h: 0.96, chase: 3.5, pitchF: 0.6, facts: 'A small dirt bike pushed hard with a 72 volt battery: it is light, twitchy and very quick. About 110 km/h.' },
+    surron: { name: 'Sur-Ron Light Bee X', price: 15000, vmax: 24, accel: 14, brake: 22, grip: 6.6, wb: 1.28, len: 1.9, wid: 0.81, h: 1.11, chase: 3.8, pitchF: 0.6, facts: 'The electric dirt bike everyone wants. Silent, light and instant torque, with grip to spare. About 85 km/h.' }
   };
-  var CAR_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63', 'aventador'];
+  var CAR_IDS = ['yaris', 'civic', 'f150', 'c5', 'm3', '911', 'cls63', 'aventador', 'yozma', 'eride', 'kukirin', 'macfox', 'razor', 'surron'];
   var CAR_CRASH_MIN = 8;
-  var REAL_EYE = { yaris: [-0.34, 1.15, 1.15], civic: [-0.33, 1.05, 1.2], f150: [-0.38, 1.72, 1.6], c5: [-0.34, 0.98, 1.2], m3: [-0.36, 1.2, 1.4], '911': [-0.34, 1.08, 1.2], cls63: [-0.36, 1.18, 1.45], aventador: [-0.35, 0.92, 1.5] };      // driver's eye: x, height, and how far behind the front axle
+  var REAL_EYE = { yaris: [-0.34, 1.15, 1.15], civic: [-0.33, 1.05, 1.2], f150: [-0.38, 1.72, 1.6], c5: [-0.34, 0.98, 1.2], m3: [-0.36, 1.2, 1.4], '911': [-0.34, 1.08, 1.2], cls63: [-0.36, 1.18, 1.45], aventador: [-0.35, 0.92, 1.5], yozma: [0, 1.62, 0.6], eride: [0, 1.62, 0.6], kukirin: [0, 1.62, 0.6], macfox: [0, 1.4, 0.7], razor: [0, 1.5, 0.85], surron: [0, 1.5, 0.8] };      // driver's eye: x, height, and how far behind the front axle
   function cspec(id) {
     var s = CARS[id]; if (s._r && (s._real || !(typeof window !== 'undefined' && window.CarReal && window.CarReal.meta(id)))) return s;
     var g = typeof window !== 'undefined' && window.CarGL && window.CarGL.SPECS && window.CarGL.SPECS[id], hw = s.wid / 2, wbh = s.wb / 2, rm = typeof window !== 'undefined' && window.CarReal && window.CarReal.meta(id);
     s.wheels = g && g.wheels || [[-hw * 0.85, 0.32, -wbh], [hw * 0.85, 0.32, -wbh], [-hw * 0.85, 0.32, wbh], [hw * 0.85, 0.32, wbh]];
     s.eye = g && g.eye || [-0.35, 1.15, -0.2]; s.noseZ = g && g.noseZ || -s.len / 2; s.tailZ = g && g.tailZ || s.len / 2;
     s.wr = g && g.wheelRadius || 0.32;
-    if (g && g.chaseDist) s.chase = g.chaseDist; s.chaseUp = g && g.chaseUp || 2.4;
+    if (g && g.chaseDist) s.chase = g.chaseDist; s.chaseUp = g && g.chaseUp || (s.len < 2.2 ? 1.5 : 2.4);
     var hl = Math.max(Math.abs(s.noseZ), Math.abs(s.tailZ)) * 0.98, hwid = s.wid / 2 * 0.98;
     s.pts = [[-hwid, -hl], [hwid, -hl], [-hwid, hl], [hwid, hl], [0, -hl], [0, hl], [-hwid, 0], [hwid, 0]];
     if (g) s._r = true;
@@ -2126,12 +2132,15 @@
 
   // ---- cars: bringing one out, getting in and out, hijacking, driving, the cameras, other people's cars, wrecks, sound and the shop cards
   var CAR_SRC = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src || '').replace(/ezworld\.js.*$/, 'car_gl.js');
-  var CAR_CREDITS = { yaris: ['2020 Toyota GR Yaris', 'DisneyCars', '2020-toyota-gr-yaris-44cb958908b94aa5aad0d856994f35a3'], civic: ['1991 Honda Civic EG6', 'rifdanzz', '1991-honda-civic-eg6-f81da34570b145deb463fa091604d251'], f150: ['2018 Ford F-150 Raptor', 'Galaxy Car Showroom', '2018-ford-f-150-raptor-096aa1ba46984eeeb196b75f4d213a0a'], c5: ['Chevrolet Corvette C5', 'Randomness', 'chevrolet-corvette-c5-blue-283f9ddde44f4caeacb544d4057dcd3d'], m3: ['Low Poly BMW G80 M3', 'SharkyStudios', 'low-poly-bmw-g80-m3-ea3e807ff69e40fe82c5577ee9f0a2f4'], '911': ['Porsche 911 Carrera S (991)', 'Mona x Supercars', 'porsche-911-carrera-s-991-97785983d3a949cf87e9ee6bf49f4032'], cls63: ['2008 Mercedes-Benz CLS 63 AMG (W219)', 'DisneyCars', '2008-mercedes-benz-cls-63-amg-w219-205671638afb4c4aa679fa4acc488915'], aventador: ['Lamborghini Aventador', 'Arion Digital', 'lamborghini-aventador-888e37a3641d4f7b94bc1a39396e2441'] };
-  var CTHUMBS = {}, ENG = { yaris: 1.2, civic: 1.1, f150: 0.85, c5: 0.9, m3: 1.1, '911': 1.15, cls63: 0.88, aventador: 1.3 };
+  var CAR_CREDITS = { yaris: ['2020 Toyota GR Yaris', 'DisneyCars', '2020-toyota-gr-yaris-44cb958908b94aa5aad0d856994f35a3'], civic: ['1991 Honda Civic EG6', 'rifdanzz', '1991-honda-civic-eg6-f81da34570b145deb463fa091604d251'], f150: ['2018 Ford F-150 Raptor', 'Galaxy Car Showroom', '2018-ford-f-150-raptor-096aa1ba46984eeeb196b75f4d213a0a'], c5: ['Chevrolet Corvette C5', 'Randomness', 'chevrolet-corvette-c5-blue-283f9ddde44f4caeacb544d4057dcd3d'], m3: ['Low Poly BMW G80 M3', 'SharkyStudios', 'low-poly-bmw-g80-m3-ea3e807ff69e40fe82c5577ee9f0a2f4'], '911': ['Porsche 911 Carrera S (991)', 'Mona x Supercars', 'porsche-911-carrera-s-991-97785983d3a949cf87e9ee6bf49f4032'], cls63: ['2008 Mercedes-Benz CLS 63 AMG (W219)', 'DisneyCars', '2008-mercedes-benz-cls-63-amg-w219-205671638afb4c4aa679fa4acc488915'], aventador: ['Lamborghini Aventador', 'Arion Digital', 'lamborghini-aventador-888e37a3641d4f7b94bc1a39396e2441'],
+    yozma: ['Electric scooter (stand-in for the IN10)', 'Res1n', 'electric-scooter-8f69080a75264007b026d98c69cc963d'], eride: ['Electric Scooter (stand-in for the SS 3.0)', 'Gest.lt', 'electric-scooter-f3785071e9244d83ba311b7da48a1085'],
+    kukirin: ['Electric Scooter (stand-in for the G4)', 'Delandi', 'electric-scooter-low-poly-game-ready-e22bffc784b04a93acc83599fa7a81c0'], macfox: ['E-Scooter (stand-in for the X1S)', 'rollthebryce', 'e-scooter-ff44e222b5f943548a59d1a929664a57'],
+    razor: ['Yz250 dirt bike (stand-in for the modded Razor)', 'e-restrepo1114', 'yz250-127c9d767260468f821da3cba9d7db7e'], surron: ['Electric dirt bike (stand-in for the Light Bee X)', 'nabeelashrafphotography', 'dirt-bike-off-road-bike-low-poly-dbcca404b21348c69938207d265b6035'] };
+  var CTHUMBS = {}, ENG = { yaris: 1.2, civic: 1.1, f150: 0.85, c5: 0.9, m3: 1.1, '911': 1.15, cls63: 0.88, aventador: 1.3, yozma: 1, eride: 1, kukirin: 1, macfox: 1, razor: 1, surron: 1 };
   function wrapCarRenderer(proc, real) {          // the real models draw when they have loaded; the hand-built ones stand in until then (or if a download fails)
     if (!real) return proc;
     return { thumbnail: proc.thumbnail, dispose: function () { proc.dispose(); real.dispose(); }, real: real,
-      draw: function (id, model, vp, cam, fn, ff, p) { if (real.has(id)) return real.draw(id, model, vp, cam, fn, ff, p); real.want(id); return proc.draw(id, model, vp, cam, fn, ff, p); } };
+      draw: function (id, model, vp, cam, fn, ff, p) { if (real.has(id)) return real.draw(id, model, vp, cam, fn, ff, p); real.want(id); if (window.CarGL.IDS && window.CarGL.IDS.indexOf(id) < 0) return false; return proc.draw(id, model, vp, cam, fn, ff, p); } };
   }
   function carRenderer() {                       // the car models are another separate file, fetched the first time a car matters
     if (G.cr) return G.cr;
@@ -2348,10 +2357,11 @@
     c5:     { cyl: 8, idle: 700, red: 6300, h: [1, 0.95, 0.65, 0.55, 0.4, 0.3, 0.22, 0.16], am: 0.46, amIrr: 0.45, sub: 0.6, intake: 0.4, whine: 0.0, crack: 0.9, turbo: 0, lp: 0.85, bov: 0, clatter: 0 },
     m3:     { cyl: 6, idle: 850, red: 7800, h: [0.6, 1, 0.4, 0.65, 0.32, 0.45, 0.22, 0.28], am: 0.07, amIrr: 0.0, sub: 0.25, intake: 1.0, whine: 0.0, crack: 0.5, turbo: 1, lp: 1.2, bov: 1, clatter: 0 },
     aventador: { cyl: 12, idle: 900, red: 8500, h: [0.5, 1, 0.65, 0.75, 0.5, 0.55, 0.35, 0.35], am: 0.03, amIrr: 0.0, sub: 0.15, intake: 0.9, whine: 0.0, crack: 1.0, turbo: 0, lp: 1.35, bov: 0, clatter: 0 },
+    yozma: { cyl: 12, idle: 700, red: 12500, h: [1, 0.35, 0.18, 0.1, 0.06, 0.04, 0.03, 0.02], am: 0.0, amIrr: 0.0, sub: 0.0, intake: 0.1, whine: 1.3, crack: 0.0, turbo: 0, lp: 1.6, bov: 0, clatter: 0 }, eride: { cyl: 12, idle: 700, red: 12500, h: [1, 0.35, 0.18, 0.1, 0.06, 0.04, 0.03, 0.02], am: 0.0, amIrr: 0.0, sub: 0.0, intake: 0.1, whine: 1.3, crack: 0.0, turbo: 0, lp: 1.6, bov: 0, clatter: 0 }, kukirin: { cyl: 12, idle: 700, red: 12500, h: [1, 0.35, 0.18, 0.1, 0.06, 0.04, 0.03, 0.02], am: 0.0, amIrr: 0.0, sub: 0.0, intake: 0.1, whine: 1.3, crack: 0.0, turbo: 0, lp: 1.6, bov: 0, clatter: 0 }, macfox: { cyl: 12, idle: 700, red: 12500, h: [1, 0.35, 0.18, 0.1, 0.06, 0.04, 0.03, 0.02], am: 0.0, amIrr: 0.0, sub: 0.0, intake: 0.1, whine: 1.3, crack: 0.0, turbo: 0, lp: 1.6, bov: 0, clatter: 0 }, razor: { cyl: 12, idle: 700, red: 12500, h: [1, 0.35, 0.18, 0.1, 0.06, 0.04, 0.03, 0.02], am: 0.0, amIrr: 0.0, sub: 0.0, intake: 0.1, whine: 1.3, crack: 0.0, turbo: 0, lp: 1.6, bov: 0, clatter: 0 }, surron: { cyl: 12, idle: 700, red: 12500, h: [1, 0.35, 0.18, 0.1, 0.06, 0.04, 0.03, 0.02], am: 0.0, amIrr: 0.0, sub: 0.0, intake: 0.1, whine: 1.3, crack: 0.0, turbo: 0, lp: 1.6, bov: 0, clatter: 0 },
     '911':  { cyl: 6, idle: 800, red: 7600, h: [0.75, 0.95, 0.8, 0.85, 0.55, 0.6, 0.4, 0.34], am: 0.24, amIrr: 0.18, sub: 0.2, intake: 0.7, whine: 0.0, crack: 0.35, turbo: 0, lp: 1.15, bov: 0, clatter: 0.35 },
     cls63:  { cyl: 8, idle: 700, red: 6600, h: [1, 0.9, 0.62, 0.45, 0.3, 0.22, 0.16, 0.1], am: 0.36, amIrr: 0.22, sub: 0.55, intake: 0.5, whine: 0.0, crack: 0.9, turbo: 1, lp: 0.9, bov: 1, clatter: 0 }
   };
-  var HORN = { yaris: [466, 587], civic: [415, 494], f150: [311, 370], c5: [392, 311], m3: [392, 494], '911': [440, 370], cls63: [370, 466], aventador: [392, 523] };
+  var HORN = { yaris: [466, 587], civic: [415, 494], f150: [311, 370], c5: [392, 311], m3: [392, 494], '911': [440, 370], cls63: [370, 466], aventador: [392, 523], yozma: [880, 1175], eride: [880, 1175], kukirin: [784, 1047], macfox: [784, 1047], razor: [698, 932], surron: [698, 932] };
   var GEAR_TOP = [0.16, 0.31, 0.48, 0.67, 0.85, 1.0];
   var SND_BASE = CAR_SRC.replace(/car_gl\.js.*$/, 'car_snd/');
   var SND_CREDITS = {

@@ -9832,7 +9832,10 @@ JET_RUNWAY = 90                       # open ground needed in front of the nose 
 CARS = {"yaris": ("Toyota GR Yaris", 6000, 28.0, 3.95, 1.70, 1.50), "civic": ("Honda Civic EG6", 10000, 34.0, 4.40, 1.80, 1.41), "f150": ("Ford F-150 Raptor", 20000, 31.0, 5.89, 2.03, 1.97),
         "c5": ("Chevrolet Corvette C5", 28000, 48.0, 4.56, 1.87, 1.21), "m3": ("BMW M3 Competition", 65000, 52.0, 4.80, 1.90, 1.43), "911": ("Porsche 911 Carrera S", 70000, 52.0, 4.45, 1.80, 1.30),
         "cls63": ("Mercedes-Benz CLS 63 AMG", 55000, 50.0, 4.99, 1.88, 1.42),
-        "aventador": ("Lamborghini Aventador", 150000, 62.0, 4.84, 2.03, 1.14)}
+        "aventador": ("Lamborghini Aventador", 150000, 62.0, 4.84, 2.03, 1.14),
+        # electric bikes and scooters ride on the same driving rules as the cars
+        "yozma": ("Yozma IN10", 2500, 15.0, 1.30, 0.52, 1.32), "eride": ("EridePro SS 3.0", 3000, 17.0, 1.30, 0.57, 1.40), "kukirin": ("Kukirin G4", 3500, 18.0, 1.30, 0.60, 1.36),
+        "macfox": ("Macfox X1S", 4500, 19.0, 1.30, 0.48, 0.79), "razor": ("72V Modded Razor", 9000, 30.0, 1.75, 0.53, 0.96), "surron": ("Sur-Ron Light Bee X", 15000, 24.0, 1.90, 0.81, 1.11)}
 CAR_IDS = list(CARS)
 CAR_CRASH_MIN = 8.0               # an impact slower than this does no damage
 CAR_DMG_PER_SPEED = 2.4           # damage per block/second above that (a 25 b/s wall is about 40, a 45 b/s wall about 90)
