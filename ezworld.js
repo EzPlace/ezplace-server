@@ -2226,7 +2226,7 @@
     'void main(){vec3 l=aP*uSize+uOff;vec3 w=vec3(l.x*uRot.x+l.z*uRot.y,l.y,-l.x*uRot.y+l.z*uRot.x)+uPos;vN=vec3(aN.x*uRot.x+aN.z*uRot.y,aN.y,-aN.x*uRot.y+aN.z*uRot.x);vT=aT;vF=aN.z>0.5?1.0:0.0;vD=distance(w,uCam);gl_Position=uVP*vec4(w,1.0);}';
   var SIGN_FS = 'precision mediump float;uniform sampler2D uTex;uniform vec3 uCol;uniform float uUseTex;uniform vec2 uFog;uniform vec3 uSky;varying vec3 vN;varying vec2 vT;varying float vF;varying float vD;' +
     'void main(){vec3 c=(uUseTex>0.5&&vF>0.5)?texture2D(uTex,vT).rgb:uCol;vec3 n=normalize(vN);float l=0.62+0.38*max(dot(n,normalize(vec3(0.5,0.85,0.35))),0.0);c*=l;c=mix(c,uSky,smoothstep(uFog.x,uFog.y,vD));gl_FragColor=vec4(c,1.0);}';
-  var SIGN_RANGE = 70, SIGN_TEXT_RANGE = 40;
+  var SIGN_RANGE = 60, SIGN_TEXT_RANGE = 28, SIGN_MAX_DRAWN = 40;
   function signInit() {
     var gl = G.gl; if (G.sg !== undefined) return G.sg;
     G.sg = null;
@@ -2248,10 +2248,10 @@
   function addSign(m) {
     if (!m || typeof m.id !== 'number' || typeof m.text !== 'string') return;
     G.signs = G.signs || new Map();
-    var old = G.signs.get(m.id); if (old && old.tex && G.sg) G.gl.deleteTexture(old.tex);
+    var old = G.signs.get(m.id); if (old && old.tex && G.sg) { G.gl.deleteTexture(old.tex); G.sg.texN--; }
     G.signs.set(m.id, { id: m.id, x: +m.x || 0, y: +m.y || 0, z: +m.z || 0, yaw: +m.yaw || 0, text: m.text.slice(0, 90), by: String(m.by || '').slice(0, 30), tex: null });
   }
-  function dropSign(id) { if (!G.signs) return; var s0 = G.signs.get(id); if (s0 && s0.tex && G.sg) G.gl.deleteTexture(s0.tex); G.signs.delete(id); }
+  function dropSign(id) { if (!G.signs) return; var s0 = G.signs.get(id); if (s0 && s0.tex && G.sg) { G.gl.deleteTexture(s0.tex); G.sg.texN--; } G.signs.delete(id); }
   function signTexture(sg) {                       // the board with the words, wrapped to fit
     var gl = G.gl, cv = document.createElement('canvas'); cv.width = 256; cv.height = 128;
     var c = cv.getContext('2d'); if (!c) return null;
@@ -2280,30 +2280,36 @@
   }
   function drawSigns(vp, ex, ey, ez, fn, ff) {
     if (!G.signs || !G.signs.size) return;
-    var sg = signInit(); if (!sg) return;
-    var gl = G.gl, prev = gl.getParameter(gl.CURRENT_PROGRAM), U = sg.U, cull = gl.isEnabled(gl.CULL_FACE), en = [0, 1, 2].map(function (i) { return gl.getVertexAttrib(i, gl.VERTEX_ATTRIB_ARRAY_ENABLED); }), ab = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
-    var act = gl.getParameter(gl.ACTIVE_TEXTURE), began = false;
+    // first a cheap pass with no GPU calls: which signs are close enough and in front of you
+    var vis = G.sgVis || (G.sgVis = []), n = 0, made = 0;
     G.signs.forEach(function (s0) {
       var dx = s0.x - ex, dz = s0.z - ez, d2 = dx * dx + dz * dz;
-      if (d2 > SIGN_RANGE * SIGN_RANGE) { if (s0.tex) { gl.deleteTexture(s0.tex); s0.tex = null; sg.texN--; } return; }
-      var w = vp[3] * s0.x + vp[7] * (s0.y + 1) + vp[11] * s0.z + vp[15]; if (w < -2) return;           // behind you
-      if (!s0.tex && d2 < SIGN_TEXT_RANGE * SIGN_TEXT_RANGE && sg.texN < 90) { s0.tex = signTexture(s0); if (s0.tex) sg.texN++; }
-      if (!began) {
-        began = true; gl.useProgram(sg.prog); gl.bindBuffer(gl.ARRAY_BUFFER, sg.buf);
-        gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
-        gl.uniformMatrix4fv(U.uVP, false, vp); gl.uniform3f(U.uCam, ex, ey, ez); gl.uniform2f(U.uFog, fn, ff); gl.uniform3f(U.uSky, 0.56, 0.75, 0.94); gl.uniform1i(U.uTex, 3); gl.activeTexture(gl.TEXTURE3); gl.disable(gl.CULL_FACE);
-      }
-      gl.uniform3f(U.uPos, s0.x, s0.y, s0.z); gl.uniform2f(U.uRot, Math.cos(s0.yaw), Math.sin(s0.yaw));
-      gl.uniform1f(U.uUseTex, 0); gl.uniform3f(U.uCol, 0.45, 0.3, 0.17);                                                                // the post
-      gl.uniform3f(U.uSize, 0.11, 1.15, 0.11); gl.uniform3f(U.uOff, 0, 0.575, 0); gl.drawArrays(gl.TRIANGLES, 0, sg.n);
-      gl.uniform3f(U.uSize, 1.0, 0.5, 0.07); gl.uniform3f(U.uOff, 0, 1.28, 0.05); gl.uniform3f(U.uCol, 0.7, 0.55, 0.33);                    // the board
-      if (s0.tex) { gl.bindTexture(gl.TEXTURE_2D, s0.tex); gl.uniform1f(U.uUseTex, 1); }
-      gl.drawArrays(gl.TRIANGLES, 0, sg.n);
+      if (d2 > SIGN_RANGE * SIGN_RANGE) { if (s0.tex && G.sg) { G.gl.deleteTexture(s0.tex); s0.tex = null; G.sg.texN--; } return; }
+      if (vp[3] * s0.x + vp[7] * (s0.y + 1) + vp[11] * s0.z + vp[15] < -2) return;                       // behind you
+      s0.d2 = d2; vis[n++] = s0;
     });
-    if (began) {
-      if (cull) gl.enable(gl.CULL_FACE); for (var i = 0; i < 3; i++) { if (en[i]) gl.enableVertexAttribArray(i); else gl.disableVertexAttribArray(i); }
-      gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(act); gl.bindBuffer(gl.ARRAY_BUFFER, ab); gl.useProgram(prev);
+    vis.length = n;
+    if (!n) return;
+    if (n > SIGN_MAX_DRAWN) { vis.sort(function (p, q) { return p.d2 - q.d2; }); n = vis.length = SIGN_MAX_DRAWN; }
+    var sg = signInit(); if (!sg) { vis.length = 0; return; }
+    var gl = G.gl, U = sg.U, i, s1;
+    for (i = 0; i < n && made < 1; i++) { s1 = vis[i]; if (!s1.tex && s1.d2 < SIGN_TEXT_RANGE * SIGN_TEXT_RANGE && sg.texN < 60) { s1.tex = signTexture(s1); if (s1.tex) sg.texN++; made++; } }   // one new board a frame at most
+    var prev = gl.getParameter(gl.CURRENT_PROGRAM), cull = gl.isEnabled(gl.CULL_FACE), en = [0, 1, 2].map(function (k) { return gl.getVertexAttrib(k, gl.VERTEX_ATTRIB_ARRAY_ENABLED); }), ab = gl.getParameter(gl.ARRAY_BUFFER_BINDING), act = gl.getParameter(gl.ACTIVE_TEXTURE);
+    gl.useProgram(sg.prog); gl.bindBuffer(gl.ARRAY_BUFFER, sg.buf);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+    gl.uniformMatrix4fv(U.uVP, false, vp); gl.uniform3f(U.uCam, ex, ey, ez); gl.uniform2f(U.uFog, fn, ff); gl.uniform3f(U.uSky, 0.56, 0.75, 0.94); gl.uniform1i(U.uTex, 3); gl.activeTexture(gl.TEXTURE3); gl.disable(gl.CULL_FACE);
+    gl.uniform1f(U.uUseTex, 0); gl.uniform3f(U.uCol, 0.45, 0.3, 0.17); gl.uniform3f(U.uSize, 0.11, 1.15, 0.11); gl.uniform3f(U.uOff, 0, 0.575, 0);      // all the posts, set up once
+    for (i = 0; i < n; i++) { s1 = vis[i]; gl.uniform3f(U.uPos, s1.x, s1.y, s1.z); gl.uniform2f(U.uRot, Math.cos(s1.yaw), Math.sin(s1.yaw)); gl.drawArrays(gl.TRIANGLES, 0, sg.n); }
+    gl.uniform3f(U.uSize, 1.0, 0.5, 0.07); gl.uniform3f(U.uOff, 0, 1.28, 0.05); gl.uniform3f(U.uCol, 0.7, 0.55, 0.33);                                   // then all the boards
+    var texOn = 0;
+    for (i = 0; i < n; i++) {
+      s1 = vis[i]; gl.uniform3f(U.uPos, s1.x, s1.y, s1.z); gl.uniform2f(U.uRot, Math.cos(s1.yaw), Math.sin(s1.yaw));
+      if (s1.tex) { gl.bindTexture(gl.TEXTURE_2D, s1.tex); if (!texOn) { gl.uniform1f(U.uUseTex, 1); texOn = 1; } } else if (texOn) { gl.uniform1f(U.uUseTex, 0); texOn = 0; }
+      gl.drawArrays(gl.TRIANGLES, 0, sg.n);
     }
+    vis.length = 0;
+    if (cull) gl.enable(gl.CULL_FACE); for (i = 0; i < 3; i++) { if (en[i]) gl.enableVertexAttribArray(i); else gl.disableVertexAttribArray(i); }
+    gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(act); gl.bindBuffer(gl.ARRAY_BUFFER, ab); gl.useProgram(prev);
   }
   function skidInit() {
     var gl = G.gl; if (G.sk !== undefined) return G.sk;
