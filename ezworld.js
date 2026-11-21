@@ -996,9 +996,9 @@
         if (e.code === 'Escape') { $('ew-chat-input').blur(); e.preventDefault(); }
         return;
       }
-      if (e.code === 'Enter' || e.code === 'KeyT' || e.code === 'Slash') {
+      if (e.code === 'Enter' || e.code === 'KeyT' || e.code === 'Slash' || e.code === 'KeyG') {
         e.preventDefault(); if (document.exitPointerLock) document.exitPointerLock();
-        var inp = $('ew-chat-input'); inp.focus(); if (e.code === 'Slash') inp.value = '/';
+        var inp = $('ew-chat-input'); inp.focus(); if (e.code === 'Slash') inp.value = '/'; else if (e.code === 'KeyG') inp.value = '/sign ';
         return;
       }
       if (!locked()) return;
@@ -1168,6 +1168,9 @@
       case 'chj': G.hijack = { id: m.id, t0: performance.now(), ms: m.ms || 1500 }; break;
       case 'cx': addCarWreck(m); break;
       case 'cgone': carFxClear(G.cars.get(m.id)); G.cars.delete(m.id); break;
+      case 'signs': (m.list || []).forEach(addSign); break;
+      case 'sign': addSign(m); break;
+      case 'signdel': dropSign(m.id); break;
       case 'horn': { var hc = G.cars.get(m.id), cmv = G.drone || G.heli || G.jet || G.car || G.me; if (hc && cmv) hornSound(1 / (1 + Math.hypot(hc.x - cmv.x, hc.z - cmv.z) / 15), 0, hc.m); break; }
       case 'cno': break;
       case 'jstart': startJet(m); break;
@@ -1277,6 +1280,9 @@
     var inp = $('ew-chat-input'), t = inp.value.trim(); inp.value = '';
     hideMention(); stopTyping();
     if (!t) return;
+    var sm = /^\/sign(?:\s+([\s\S]*))?$/i.exec(t);
+    if (sm) { var st = (sm[1] || '').trim(); if (!st) sys('Usage: /sign [what the sign says]. It stands in front of you for everyone to read; /unsign picks up the nearest of yours.'); else send({ t: 'sign', text: st.slice(0, 90), yaw: G.me.yaw }); clearReply(); return; }
+    if (/^\/unsign\s*$/i.test(t)) { send({ t: 'unsign' }); clearReply(); return; }
     var p = { t: 'chat', text: t };
     if (G.replyTo && t.charAt(0) !== '/') p.reply_to = { from: G.replyTo.from, text: G.replyTo.text.slice(0, 120) };
     send(p); clearReply();
@@ -2215,6 +2221,90 @@
     el.style.display = on ? 'flex' : 'none';
   }
   var SKID_CAP = 2600, SKID_LIFE = 40000;
+  // ---- signs: a post and a board standing in the world, with a short message on it. The words are drawn onto a small canvas texture, only for signs near you.
+  var SIGN_VS = 'attribute vec3 aP;attribute vec3 aN;attribute vec2 aT;uniform mat4 uVP;uniform vec3 uPos;uniform vec2 uRot;uniform vec3 uSize;uniform vec3 uOff;varying vec3 vN;varying vec2 vT;varying float vF;varying float vD;uniform vec3 uCam;' +
+    'void main(){vec3 l=aP*uSize+uOff;vec3 w=vec3(l.x*uRot.x+l.z*uRot.y,l.y,-l.x*uRot.y+l.z*uRot.x)+uPos;vN=vec3(aN.x*uRot.x+aN.z*uRot.y,aN.y,-aN.x*uRot.y+aN.z*uRot.x);vT=aT;vF=aN.z>0.5?1.0:0.0;vD=distance(w,uCam);gl_Position=uVP*vec4(w,1.0);}';
+  var SIGN_FS = 'precision mediump float;uniform sampler2D uTex;uniform vec3 uCol;uniform float uUseTex;uniform vec2 uFog;uniform vec3 uSky;varying vec3 vN;varying vec2 vT;varying float vF;varying float vD;' +
+    'void main(){vec3 c=(uUseTex>0.5&&vF>0.5)?texture2D(uTex,vT).rgb:uCol;vec3 n=normalize(vN);float l=0.62+0.38*max(dot(n,normalize(vec3(0.5,0.85,0.35))),0.0);c*=l;c=mix(c,uSky,smoothstep(uFog.x,uFog.y,vD));gl_FragColor=vec4(c,1.0);}';
+  var SIGN_RANGE = 70, SIGN_TEXT_RANGE = 40;
+  function signInit() {
+    var gl = G.gl; if (G.sg !== undefined) return G.sg;
+    G.sg = null;
+    try {
+      function sh(t, src) { var o = gl.createShader(t); gl.shaderSource(o, src); gl.compileShader(o); return o; }
+      var pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, SIGN_VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, SIGN_FS));
+      gl.bindAttribLocation(pr, 0, 'aP'); gl.bindAttribLocation(pr, 1, 'aN'); gl.bindAttribLocation(pr, 2, 'aT'); gl.linkProgram(pr);
+      var faces = [[[0, 0, 1], [[-1, -1, 1, 0, 0], [1, -1, 1, 1, 0], [1, 1, 1, 1, 1], [-1, 1, 1, 0, 1]]], [[0, 0, -1], [[1, -1, -1, 0, 0], [-1, -1, -1, 1, 0], [-1, 1, -1, 1, 1], [1, 1, -1, 0, 1]]],
+        [[1, 0, 0], [[1, -1, 1, 0, 0], [1, -1, -1, 1, 0], [1, 1, -1, 1, 1], [1, 1, 1, 0, 1]]], [[-1, 0, 0], [[-1, -1, -1, 0, 0], [-1, -1, 1, 1, 0], [-1, 1, 1, 1, 1], [-1, 1, -1, 0, 1]]],
+        [[0, 1, 0], [[-1, 1, 1, 0, 0], [1, 1, 1, 1, 0], [1, 1, -1, 1, 1], [-1, 1, -1, 0, 1]]], [[0, -1, 0], [[-1, -1, -1, 0, 0], [1, -1, -1, 1, 0], [1, -1, 1, 1, 1], [-1, -1, 1, 0, 1]]]];
+      var d = [];
+      faces.forEach(function (f) { var q = f[1], n = f[0]; [0, 1, 2, 0, 2, 3].forEach(function (i) { d.push(q[i][0] * 0.5, q[i][1] * 0.5, q[i][2] * 0.5, n[0], n[1], n[2], q[i][3], q[i][4]); }); });
+      var buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(d), gl.STATIC_DRAW);
+      var U = {}; ['uVP', 'uPos', 'uRot', 'uSize', 'uOff', 'uCam', 'uTex', 'uCol', 'uUseTex', 'uFog', 'uSky'].forEach(function (n) { U[n] = gl.getUniformLocation(pr, n); });
+      G.sg = { prog: pr, buf: buf, n: 36, U: U, texN: 0 };
+    } catch (e) { G.sg = null; }
+    return G.sg;
+  }
+  function addSign(m) {
+    if (!m || typeof m.id !== 'number' || typeof m.text !== 'string') return;
+    G.signs = G.signs || new Map();
+    var old = G.signs.get(m.id); if (old && old.tex && G.sg) G.gl.deleteTexture(old.tex);
+    G.signs.set(m.id, { id: m.id, x: +m.x || 0, y: +m.y || 0, z: +m.z || 0, yaw: +m.yaw || 0, text: m.text.slice(0, 90), by: String(m.by || '').slice(0, 30), tex: null });
+  }
+  function dropSign(id) { if (!G.signs) return; var s0 = G.signs.get(id); if (s0 && s0.tex && G.sg) G.gl.deleteTexture(s0.tex); G.signs.delete(id); }
+  function signTexture(sg) {                       // the board with the words, wrapped to fit
+    var gl = G.gl, cv = document.createElement('canvas'); cv.width = 256; cv.height = 128;
+    var c = cv.getContext('2d'); if (!c) return null;
+    c.fillStyle = '#e4c892'; c.fillRect(0, 0, 256, 128);
+    c.strokeStyle = '#8a5a2b'; c.lineWidth = 6; c.strokeRect(3, 3, 250, 122);
+    var text = sg.text; try { if (typeof window.filterText === 'function') text = window.filterText(text); } catch (e) {}
+    var size = 34, lines;
+    for (; size >= 14; size -= 2) {
+      c.font = '700 ' + size + 'px sans-serif'; lines = []; var cur = '';
+      text.split(' ').forEach(function (w) { var t2 = cur ? cur + ' ' + w : w; if (c.measureText(t2).width <= 226 || !cur) cur = t2; else { lines.push(cur); cur = w; } });
+      lines.push(cur);
+      var ok = lines.length * size * 1.15 <= 92; for (var i = 0; i < lines.length; i++) if (c.measureText(lines[i]).width > 226) ok = false;
+      if (ok) break;
+    }
+    c.fillStyle = '#3a2410'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    var lh = size * 1.15, y0 = 56 - (lines.length - 1) * lh / 2;
+    lines.forEach(function (l, i) { c.fillText(l, 128, y0 + i * lh); });
+    c.font = '600 12px sans-serif'; c.fillStyle = 'rgba(58,36,16,.6)'; c.fillText('- ' + sg.by, 128, 116);
+    var act0 = gl.getParameter(gl.ACTIVE_TEXTURE); gl.activeTexture(gl.TEXTURE3);                  // unit 3 is ours, so the world's texture on unit 0 is left alone
+    var tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.generateMipmap(gl.TEXTURE_2D); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(act0);
+    return tex;
+  }
+  function drawSigns(vp, ex, ey, ez, fn, ff) {
+    if (!G.signs || !G.signs.size) return;
+    var sg = signInit(); if (!sg) return;
+    var gl = G.gl, prev = gl.getParameter(gl.CURRENT_PROGRAM), U = sg.U, cull = gl.isEnabled(gl.CULL_FACE), en = [0, 1, 2].map(function (i) { return gl.getVertexAttrib(i, gl.VERTEX_ATTRIB_ARRAY_ENABLED); }), ab = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+    var act = gl.getParameter(gl.ACTIVE_TEXTURE), began = false;
+    G.signs.forEach(function (s0) {
+      var dx = s0.x - ex, dz = s0.z - ez, d2 = dx * dx + dz * dz;
+      if (d2 > SIGN_RANGE * SIGN_RANGE) { if (s0.tex) { gl.deleteTexture(s0.tex); s0.tex = null; sg.texN--; } return; }
+      var w = vp[3] * s0.x + vp[7] * (s0.y + 1) + vp[11] * s0.z + vp[15]; if (w < -2) return;           // behind you
+      if (!s0.tex && d2 < SIGN_TEXT_RANGE * SIGN_TEXT_RANGE && sg.texN < 90) { s0.tex = signTexture(s0); if (s0.tex) sg.texN++; }
+      if (!began) {
+        began = true; gl.useProgram(sg.prog); gl.bindBuffer(gl.ARRAY_BUFFER, sg.buf);
+        gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+        gl.uniformMatrix4fv(U.uVP, false, vp); gl.uniform3f(U.uCam, ex, ey, ez); gl.uniform2f(U.uFog, fn, ff); gl.uniform3f(U.uSky, 0.56, 0.75, 0.94); gl.uniform1i(U.uTex, 3); gl.activeTexture(gl.TEXTURE3); gl.disable(gl.CULL_FACE);
+      }
+      gl.uniform3f(U.uPos, s0.x, s0.y, s0.z); gl.uniform2f(U.uRot, Math.cos(s0.yaw), Math.sin(s0.yaw));
+      gl.uniform1f(U.uUseTex, 0); gl.uniform3f(U.uCol, 0.45, 0.3, 0.17);                                                                // the post
+      gl.uniform3f(U.uSize, 0.11, 1.15, 0.11); gl.uniform3f(U.uOff, 0, 0.575, 0); gl.drawArrays(gl.TRIANGLES, 0, sg.n);
+      gl.uniform3f(U.uSize, 1.0, 0.5, 0.07); gl.uniform3f(U.uOff, 0, 1.28, 0.05); gl.uniform3f(U.uCol, 0.7, 0.55, 0.33);                    // the board
+      if (s0.tex) { gl.bindTexture(gl.TEXTURE_2D, s0.tex); gl.uniform1f(U.uUseTex, 1); }
+      gl.drawArrays(gl.TRIANGLES, 0, sg.n);
+    });
+    if (began) {
+      if (cull) gl.enable(gl.CULL_FACE); for (var i = 0; i < 3; i++) { if (en[i]) gl.enableVertexAttribArray(i); else gl.disableVertexAttribArray(i); }
+      gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(act); gl.bindBuffer(gl.ARRAY_BUFFER, ab); gl.useProgram(prev);
+    }
+  }
   function skidInit() {
     var gl = G.gl; if (G.sk !== undefined) return G.sk;
     G.sk = null;
@@ -2969,6 +3059,7 @@
     drawHelis(vp, ex, ey, ez, dt, performance.now());
     drawJets(vp, ex, ey, ez, dt, performance.now());
     drawSkids(vp, ex, ey, ez, performance.now(), RDIST * 16 - 44, RDIST * 16 - 6);
+    drawSigns(vp, ex, ey, ez, RDIST * 16 - 44, RDIST * 16 - 6);
     stepParts(dt);
     drawCars(vp, ex, ey, ez, dt, performance.now());
     // outline of what you are aiming at

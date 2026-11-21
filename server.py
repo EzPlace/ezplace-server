@@ -9911,6 +9911,11 @@ async def world_load():
         if world_loaded: return
         await _world_load_inner()                   # if this raises, the world stays closed: saving now could overwrite what is stored
         world_inv.update(await db_load("store", "world_inv") or {})
+        try:
+            for s in (await db_load("store", "world_signs") or []):
+                if isinstance(s, dict) and isinstance(s.get("id"), int) and isinstance(s.get("text"), str): world_signs[s["id"]] = s
+            world_sign_next[0] = max([0] + list(world_signs)) + 1
+        except Exception as e: print(f"signs not loaded: {e}")
         world_loaded = True
 
 def _world_absorb(raw, rx, rz, size):
@@ -10874,11 +10879,53 @@ def _w_pick_spawn():
         if _w_supported(*spot): break
     return best if best is not None else (cx, cy, cz)
 
+# Signs: anyone can leave a short message standing in the world. Free, saved, at most WORLD_SIGNS_EACH per person and WORLD_SIGNS_MAX overall (the oldest go first).
+WORLD_SIGNS_EACH = 8
+WORLD_SIGNS_MAX = 400
+world_signs = {}                      # id -> {"id", "x", "y", "z", "yaw", "text", "by" (display name), "own" (lower case)}
+world_sign_next = [1]
+async def _w_sign_save():
+    try: await db_save("store", "world_signs", list(world_signs.values()))
+    except Exception as e: print(f"signs save failed: {e}")
+def _w_sign_public(s): return {"id": s["id"], "x": s["x"], "y": s["y"], "z": s["z"], "yaw": s["yaw"], "text": s["text"], "by": s["by"]}
+async def _w_sign_place(me, data):
+    if me.get("car") or me.get("heli") or me.get("jet") or me.get("drone"): return await _w_sys(me, "Get out of your vehicle to leave a sign.")
+    if not check_rate_limit(me["name"], "world_sign", 4, 30): return await _w_sys(me, "Slow down: you are placing signs too fast.")
+    text = re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", str(data.get("text") or ""))).strip()[:90]
+    if not text: return await _w_sys(me, "Usage: /sign [what the sign says]")
+    try: yaw = float(data.get("yaw") or 0.0)
+    except (TypeError, ValueError): yaw = 0.0
+    if not math.isfinite(yaw): yaw = 0.0
+    ul = me["name"].lower(); mine = [s for s in world_signs.values() if s["own"] == ul]
+    if len(mine) >= WORLD_SIGNS_EACH: return await _w_sys(me, f"You already have {WORLD_SIGNS_EACH} signs standing. Use /unsign next to one to pick it up.")
+    sx, sz = me["x"] - math.sin(yaw) * 1.5, me["z"] - math.cos(yaw) * 1.5
+    fy = _w_free_y(sx, me["y"], sz)
+    if fy is None or abs(fy - me["y"]) > 3: sx, sz, fy = me["x"], me["z"], me["y"]
+    while len(world_signs) >= WORLD_SIGNS_MAX:
+        oldest = min(world_signs); world_signs.pop(oldest); await _w_broadcast({"t": "signdel", "id": oldest})
+    sid = world_sign_next[0]; world_sign_next[0] += 1
+    s = world_signs[sid] = {"id": sid, "x": round(sx, 2), "y": round(float(fy), 2), "z": round(sz, 2), "yaw": round(yaw, 3), "text": text, "by": me["name"], "own": ul}
+    await _w_broadcast(dict(_w_sign_public(s), t="sign"))
+    await _w_sign_save()
+    await _w_sys(me, f"Sign placed ({len(mine) + 1}/{WORLD_SIGNS_EACH}). Type /unsign next to it to pick it up.")
+async def _w_sign_remove(me):
+    near, bd = None, 8.0 * 8.0
+    for s in world_signs.values():
+        d = (s["x"] - me["x"]) ** 2 + (s["z"] - me["z"]) ** 2 + (s["y"] - me["y"]) ** 2
+        if d < bd and (s["own"] == me["name"].lower() or is_admin(me["name"]) or is_moderator(me["name"])): near, bd = s, d
+    if near is None: return await _w_sys(me, "None of your signs is within 8 blocks.")
+    world_signs.pop(near["id"], None)
+    await _w_broadcast({"t": "signdel", "id": near["id"]})
+    await _w_sign_save()
+    await _w_sys(me, "Sign picked up.")
+
 async def _w_command(p, text):
     parts = text[1:].split()
     cmd = parts[0].lower() if parts else ""
     args = parts[1:]
     now = time.time()
+    if cmd == "sign": return await _w_sign_place(p, {"text": " ".join(args), "yaw": 0.0})
+    if cmd == "unsign": return await _w_sign_remove(p)
     if cmd == "tpa":
         if not args: return await _w_sys(p, "Usage: /tpa [player name]")
         t = _w_find(args[0])
@@ -10921,7 +10968,7 @@ async def _w_command(p, text):
         await _w_teleport(p, spot[0], spot[1], spot[2])
         await _w_sys(p, "Moved you to the nearest free spot.")
     elif cmd == "help":
-        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z], /unstuck")
+        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z], /unstuck, /sign [text] (or press G) to leave a sign, /unsign to pick one up")
     else:
         await _w_sys(p, "Unknown command. Try /help.")
 
@@ -11042,6 +11089,7 @@ async def world_ws_handler(request):
                                     "players": [[q["id"], q["name"], q["x"], q["y"], q["z"]] for q in world_players.values() if q is not me]})
                 await _w_sys(me, "Welcome to EzWorld! This is a shared 3D world where everyone builds together. Left click breaks a block, right click places one, and you can use all the colors from the 2D canvas. Press W twice quickly to sprint. Type /help to see the chat commands (/unstuck if you ever get stuck). The world is 2000 by 2000 blocks, so /goto is handy for getting around. Anyone can change anything, so build nicely.")
                 await _w_send_inv(me)
+                if world_signs: await ws.send_json({"t": "signs", "list": [_w_sign_public(s) for s in world_signs.values()]})
                 await _w_broadcast({"t": "join", "id": pid, "name": name, "x": sx, "y": fy, "z": sz}, exclude=pid)
                 await _w_broadcast({"t": "online", "total": _global_online_total(), "here": len(world_players)})
                 discord_forward_event("world", name, "joined", "EzWorld")
@@ -11092,6 +11140,8 @@ async def world_ws_handler(request):
                     if reply: payload["reply_to"] = reply
                     await _w_broadcast(payload)
                     discord_forward("world", nm, text, reply)
+            elif t == "sign": await _w_sign_place(me, data)
+            elif t == "unsign": await _w_sign_remove(me)
             elif t == "buy":
                 ul = me["name"].lower()
                 item = data.get("item")
