@@ -740,6 +740,18 @@
     }
     return false;
   }
+  function carBlocked(c, sp, x, z) {                 // a wheel or the body would be inside a wall at this spot (and heading)
+    for (var w = 0; w < 4; w++) { var wp = carWheelXZ({ x: x, z: z, yaw: c.yaw }, sp, sp.wheels[w]), gw = carGroundAt(wp[0], c.y, wp[1]); if (gw !== null && gw > c.y + 1.06) return true; }
+    return carBodyHit(c, sp, x, z);
+  }
+  function carUnstick(c, sp) {                      // wedged in a wall: slide out to the nearest free spot, or hop up onto it
+    var rs = [0.15, 0.3, 0.5, 0.8, 1.2, 1.8, 2.6], r, a, ang, nx, nz;
+    for (r = 0; r < rs.length; r++) for (a = 0; a < 16; a++) {
+      ang = a * Math.PI / 8; nx = c.x + Math.cos(ang) * rs[r]; nz = c.z + Math.sin(ang) * rs[r];
+      if (!carBlocked(c, sp, nx, nz)) { c.x = nx; c.z = nz; c.vf *= 0.3; c.vl *= 0.3; return true; }
+    }
+    c.y += 1.6; c.onGround = false; c.vy = 0; return false;
+  }
   // One physics step. inp: f throttle, b brake/reverse, l/r steer, hb handbrake. Returns null, or { res: 'crash' | 'bump' | 'land', spd, dx, dz } for something that touched.
   function stepCar(c, inp, dt, sp) {
     var thr = !!inp.f, brk = !!inp.b, hb = !!inp.hb, ev = null, lost = c.lost | 0, lostW = (lost & 1) + ((lost >> 1) & 1) + ((lost >> 2) & 1) + ((lost >> 3) & 1);
@@ -760,7 +772,9 @@
     if (!c.onGround) wyT = c.wy;
     c.wy += (wyT - c.wy) * Math.min(1, dt * 9);
     var d0 = carDirs(c.yaw), vx = d0[0] * c.vf + d0[2] * c.vl, vz = d0[1] * c.vf + d0[3] * c.vl;     // the world velocity, then re-aimed at the new heading
+    var yawWas = c.yaw, freeBefore = !carBlocked(c, sp, c.x, c.z);
     c.yaw += c.wy * dt;
+    if (freeBefore && c.wy && carBlocked(c, sp, c.x, c.z)) { c.yaw = yawWas; c.wy *= -0.2; }      // it cannot swing its tail into a wall
     var d1 = carDirs(c.yaw);
     c.vf = vx * d1[0] + vz * d1[1]; c.vl = vx * d1[2] + vz * d1[3];
     if (c.onGround) { c.vl *= Math.exp(-(hb ? 1.3 : sp.grip) * dt); c.vf *= Math.exp(-Math.abs(c.vl) * 0.012 * dt); }
@@ -781,6 +795,7 @@
       }
       if (!hit && carBodyHit(c, sp, nx, nz)) hit = true;
       if (hit) {
+        if (carBlocked(c, sp, c.x, c.z)) { carUnstick(c, sp); break; }
         var spd = Math.sqrt(vx * vx + vz * vz) || 1;
         ev = { res: spd >= CAR_CRASH_MIN ? 'crash' : 'bump', spd: spd, dx: vx / spd, dz: vz / spd };
         vx *= -0.28; vz *= -0.28;                                         // it bounces back off what it hit
@@ -1152,7 +1167,7 @@
       case 'cpart': spawnParts(m); break;
       case 'chj': G.hijack = { id: m.id, t0: performance.now(), ms: m.ms || 1500 }; break;
       case 'cx': addCarWreck(m); break;
-      case 'cgone': G.cars.delete(m.id); break;
+      case 'cgone': carFxClear(G.cars.get(m.id)); G.cars.delete(m.id); break;
       case 'horn': { var hc = G.cars.get(m.id), cmv = G.drone || G.heli || G.jet || G.car || G.me; if (hc && cmv) hornSound(1 / (1 + Math.hypot(hc.x - cmv.x, hc.z - cmv.z) / 15), 0, hc.m); break; }
       case 'cno': break;
       case 'jstart': startJet(m); break;
@@ -2173,14 +2188,19 @@
     G.car = { id: m.id, m: m.m, x: m.x, y: m.y, z: m.z, yaw: yaw, vf: 0, vl: 0, vy: 0, wy: 0, steer: 0, speed: 0, onGround: true, pitch: 0, roll: 0, wheel: 0, dmg: m.dmg || 0, dents: (m.dents || [0, 0, 0, 0]).slice(), lost: m.lost | 0, sent: 0, lastSent: '', view: 0, head: false, gw: null };
     G.ccam = { yaw: 0, pitch: 0, idle: 0, cyaw: yaw, dist: sp.chase * 0.9 };
     G.carpose = { x: m.x, y: m.y + 3, z: m.z, yaw: yaw, pitch: 0, f: [-Math.sin(yaw), 0, -Math.cos(yaw)], u: [0, 1, 0] };
-    G.cars.delete(m.id); G.inv.armed = false; G.csel = m.m; G.hijack = null;
+    carFxClear(G.cars.get(m.id)); G.cars.delete(m.id); G.inv.armed = false; G.csel = m.m; G.hijack = null;
     carCss(); carHud(true); $('ew-cross').style.display = 'none';
     sys('Driving the ' + sp.name + '. W gas, S brake and reverse, A/D steer, Space handbrake, V camera, H horn, L lights, F get out.' + (m.mine ? '' : ' (Hijacked!)'));
     doorSound();
     renderInv();
   }
+  function carFxClear(o) {                         // the flames and smoke of a car that is gone must go with it, or they hang on the screen
+    if (!o) return;
+    if (o.fire) { o.fire.remove(); o.fire = null; }
+    if (o.puffs) { o.puffs.forEach(function (p) { p.el.remove(); }); o.puffs = []; }
+  }
   function endCar(m) {
-    var c = G.car, eye0 = G.carpose ? [G.carpose.x, G.carpose.y, G.carpose.z] : null; G.car = null; G.carpose = null;
+    var c = G.car, eye0 = G.carpose ? [G.carpose.x, G.carpose.y, G.carpose.z] : null; carFxClear(c); G.car = null; G.carpose = null;
     carHud(false); $('ew-cross').style.display = '';
     stopOwnEngine(); doorSound();
     if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
