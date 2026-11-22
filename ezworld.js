@@ -773,47 +773,63 @@
     c.wy += (wyT - c.wy) * Math.min(1, dt * 9);
     var d0 = carDirs(c.yaw), vx = d0[0] * c.vf + d0[2] * c.vl, vz = d0[1] * c.vf + d0[3] * c.vl;     // the world velocity, then re-aimed at the new heading
     var yawWas = c.yaw, freeBefore = !carBlocked(c, sp, c.x, c.z);
-    c.yaw += c.wy * dt;
-    if (freeBefore && c.wy && carBlocked(c, sp, c.x, c.z)) { c.yaw = yawWas; c.wy *= -0.2; }      // it cannot swing its tail into a wall
+    c.spin = (c.spin || 0) * Math.exp(-(c.onGround ? 1.9 : 0.15) * dt);
+    if (Math.abs(c.spin) < 0.01) c.spin = 0;
+    c.yaw += (c.wy + c.spin) * dt;
+    if (freeBefore && (c.wy || c.spin) && carBlocked(c, sp, c.x, c.z)) { c.yaw = yawWas; c.wy *= -0.2; c.spin *= -0.3; }      // it cannot swing its tail into a wall
     var d1 = carDirs(c.yaw);
     c.vf = vx * d1[0] + vz * d1[1]; c.vl = vx * d1[2] + vz * d1[3];
     if (c.onGround) { c.vl *= Math.exp(-(hb ? 1.3 : sp.grip) * dt); c.vf *= Math.exp(-Math.abs(c.vl) * 0.012 * dt); }
     vx = d1[0] * c.vf + d1[2] * c.vl; vz = d1[1] * c.vf + d1[3] * c.vl;
     c.speed = Math.sqrt(vx * vx + vz * vz);
-    var steps = Math.max(1, Math.ceil(c.speed * dt / 0.35)), h = dt / steps, i;
-    for (i = 0; i < steps; i++) {
-      var nx = c.x + vx * h, nz = c.z + vz * h, hit = false;
-      var ys = c.y;
-      // the wheels: a step up of a block or less is driven over, anything taller is a wall
-      var gmax = -1e9, gsum = [0, 0, 0, 0], w, gw;
+    var steps = Math.max(1, Math.ceil(c.speed * dt / 0.35)), h = dt / steps, i, pa = { gsum: [0, 0, 0, 0], gmax: 0 }, pbx = { gsum: [0, 0, 0, 0], gmax: 0 }, pbz = { gsum: [0, 0, 0, 0], gmax: 0 }, k2 = (sp.len * sp.len + sp.wid * sp.wid) / 12;
+    function probe(px, pz, o) {                      // would the car be inside something here? Fills in how high each wheel's ground is
+      var gmax = -1e9, hitW = false, w, wp, gw;
       for (w = 0; w < 4; w++) {
-        var wp = carWheelXZ({ x: nx, z: nz, yaw: c.yaw }, sp, sp.wheels[w]); gw = carGroundAt(wp[0], ys, wp[1]);
-        if (gw === null) gw = ys - 15;
+        wp = carWheelXZ({ x: px, z: pz, yaw: c.yaw }, sp, sp.wheels[w]); gw = carGroundAt(wp[0], c.y, wp[1]);
+        if (gw === null) gw = c.y - 15;
         if (lost & (1 << w)) gw -= sp.wr;
-        if (gw > ys + 1.06) hit = true;
-        gsum[w] = gw; if (gw > gmax) gmax = gw;
+        if (gw > c.y + 1.06) hitW = true;            // a step up of a block or less is driven over, anything taller is a wall
+        o.gsum[w] = gw; if (gw > gmax) gmax = gw;
       }
-      if (!hit && carBodyHit(c, sp, nx, nz)) hit = true;
-      if (hit) {
+      o.gmax = gmax; return hitW || carBodyHit(c, sp, px, pz);
+    }
+    function contactAt(px, pz) {                     // where on the car it touched: the average of the body points that are in a wall, relative to the middle of the car
+      var d = carDirs(c.yaw), yy = Math.floor(c.y + 1.2), sx = 0, sz = 0, n = 0, k, p, qx, qz;
+      for (k = 0; k < sp.pts.length; k++) { p = sp.pts[k]; qx = px + d[2] * p[0] - d[0] * p[1]; qz = pz + d[3] * p[0] - d[1] * p[1]; if (getBlock(Math.floor(qx), yy, Math.floor(qz)) !== 0) { sx += qx - px; sz += qz - pz; n++; } }
+      return n ? [sx / n, sz / n] : null;
+    }
+    for (i = 0; i < steps; i++) {
+      var nx = c.x + vx * h, nz = c.z + vz * h, pr = pa;
+      if (!probe(nx, nz, pa)) { c.x = nx; c.z = nz; }
+      else {
         if (carBlocked(c, sp, c.x, c.z)) { carUnstick(c, sp); break; }
-        var spd = Math.sqrt(vx * vx + vz * vz) || 1;
-        ev = { res: spd >= CAR_CRASH_MIN ? 'crash' : 'bump', spd: spd, dx: vx / spd, dz: vz / spd };
-        vx *= -0.28; vz *= -0.28;                                         // it bounces back off what it hit
-        c.vf = vx * d1[0] + vz * d1[1]; c.vl = vx * d1[2] + vz * d1[3]; c.wy += (c.vf > 0 ? -1 : 1) * (Math.random() - 0.3) * Math.min(2.5, spd * 0.08);
-        break;
+        // which way does the wall face? try moving along each axis alone: the free one is the way it can slide
+        var okX = Math.abs(vx * h) > 1e-9 && !probe(c.x + vx * h, c.z, pbx), okZ = Math.abs(vz * h) > 1e-9 && !probe(c.x, c.z + vz * h, pbz), nxn, nzn, slide = 0;
+        if (okX && (!okZ || Math.abs(vx) >= Math.abs(vz))) { slide = 1; nxn = 0; nzn = vz > 0 ? 1 : -1; }
+        else if (okZ) { slide = 2; nxn = vx > 0 ? 1 : -1; nzn = 0; }
+        else { var sv = Math.sqrt(vx * vx + vz * vz) || 1; nxn = vx / sv; nzn = vz / sv; }            // head on, or into a corner: the wall faces the way it came from
+        var vn = vx * nxn + vz * nzn;                                                                 // how fast it was going into the wall
+        if (vn > 0.01) {
+          var ct = contactAt(nx, nz), jn = 1.28 * vn, tvx = vx - vn * nxn, tvz = vz - vn * nzn, fr = Math.exp(-2.5 * h) * (1 - Math.min(0.35, vn * 0.012));
+          vx = tvx * fr - 0.28 * vn * nxn; vz = tvz * fr - 0.28 * vn * nzn;                         // slide along it, losing a little to scraping; bounce back off it a little
+          if (ct) c.spin = Math.max(-4.5, Math.min(4.5, (c.spin || 0) + 0.45 * (ct[1] * (-nxn * jn) - ct[0] * (-nzn * jn)) / k2));       // hit with the left front and the nose is pushed round to the left
+          if (!ev || vn > ev.spd) ev = { res: vn >= CAR_CRASH_MIN ? 'crash' : 'bump', spd: vn, dx: nxn, dz: nzn };
+          c.vf = vx * d1[0] + vz * d1[1]; c.vl = vx * d1[2] + vz * d1[3];
+        }
+        if (slide === 1) { c.x += vx * h; pr = pbx; } else if (slide === 2) { c.z += vz * h; pr = pbz; } else probe(c.x, c.z, pa);
       }
-      c.x = nx; c.z = nz;
       // the height: ride on the highest wheel, fall when there is nothing under them
-      var gt = gmax;
+      var gt = pr.gmax;
       if (c.y < gt + 0.03 - 1e-6 || (c.onGround && c.y - gt < 0.4)) {
         c.y += Math.min(gt + 0.03 - c.y, 9 * h + 0.05); if (c.y > gt + 0.03) c.y = gt + 0.03;
         if (!c.onGround && c.y >= gt + 0.03 - 1e-6) { c.onGround = true; if (c.vy < -9) ev = ev || { res: 'crash', spd: -c.vy * 0.7, dx: 0, dz: 0 }; else if (c.vy < -3) ev = ev || { res: 'land', spd: -c.vy, dx: 0, dz: 0 }; c.vy = 0; }
         else if (c.onGround) c.vy = 0;
-        c.gw = gsum;
+        c.gw = pr.gsum.slice();
       } else {
         c.onGround = false; c.vy = Math.max(c.vy - 28 * h, -60); c.y += c.vy * h;
         if (c.y <= gt + 0.03) { c.y = gt + 0.03; c.onGround = true; if (c.vy < -9) ev = ev || { res: 'crash', spd: -c.vy * 0.7, dx: 0, dz: 0 }; else if (c.vy < -3) ev = ev || { res: 'land', spd: -c.vy, dx: 0, dz: 0 }; c.vy = 0; }
-        c.gw = gsum;
+        c.gw = pr.gsum.slice();
       }
     }
     // body attitude from how high the four wheels sit: nose up or down on a slope, one side up on a kerb
@@ -2388,10 +2404,39 @@
     G.shake = performance.now() + Math.min(600, 150 + ev.spd * 10);
     crashSound(ev.spd);
   }
+  function carCircles(o, sp2) {                    // a car as two circles, one towards each end
+    var d = carDirs(o.yaw), r = sp2.wid * 0.5 + 0.12, off = Math.max(0, sp2.len * 0.5 - r - 0.05);
+    return [[o.x + d[0] * off, o.z + d[1] * off, r], [o.x - d[0] * off, o.z - d[1] * off, r]];
+  }
+  function carVsCars(c, sp, now) {                 // push off other people's cars (and parked ones), swap a bit of speed and get spun by the touch
+    var me = carCircles(c, sp), hit = null, hd = 0;
+    G.cars.forEach(function (o) {
+      if (!CARS[o.m] || Math.abs(o.y - c.y) > 1.6) return;
+      var ddx = o.x - c.x, ddz = o.z - c.z; if (ddx * ddx + ddz * ddz > 36) return;
+      var sp2 = cspec(o.m), oc = carCircles(o, sp2), a, b;
+      for (a = 0; a < 2; a++) for (b = 0; b < 2; b++) {
+        var dx = me[a][0] - oc[b][0], dz = me[a][1] - oc[b][1], dist = Math.sqrt(dx * dx + dz * dz), pen = me[a][2] + oc[b][2] - dist;
+        if (pen > hd) { hd = pen; hit = { o: o, nx: dist > 1e-4 ? dx / dist : 1, nz: dist > 1e-4 ? dz / dist : 0, pen: pen, px: (me[a][0] + oc[b][0]) / 2, pz: (me[a][1] + oc[b][1]) / 2 }; }
+      }
+    });
+    if (!hit) return false;
+    var o = hit.o, moving = (o.spd || 0) > 1.5, share = moving ? 0.5 : 1, d0 = carDirs(c.yaw), vx = d0[0] * c.vf + d0[2] * c.vl, vz = d0[1] * c.vf + d0[3] * c.vl, od = carDirs(o.yaw), ovx = moving ? od[0] * o.spd : 0, ovz = moving ? od[1] * o.spd : 0;
+    c.x += hit.nx * hit.pen * share; c.z += hit.nz * hit.pen * share;
+    var vr = (vx - ovx) * hit.nx + (vz - ovz) * hit.nz;
+    if (vr < 0) {
+      var jn = -(1.3) * vr * share, k2 = (sp.len * sp.len + sp.wid * sp.wid) / 12;
+      vx += hit.nx * jn; vz += hit.nz * jn;
+      c.vf = vx * d0[0] + vz * d0[1]; c.vl = vx * d0[2] + vz * d0[3];
+      c.spin = Math.max(-4.5, Math.min(4.5, (c.spin || 0) + 0.45 * ((hit.pz - c.z) * hit.nx * jn - (hit.px - c.x) * hit.nz * jn) / k2));
+      if (now - (c.carHitT || 0) > 300 && -vr > 2) { c.carHitT = now; if (G.aud) noiseHit(G.aud, Math.min(0.5, 0.1 + -vr * 0.02), 0.2, 800, 150, 0); G.shake = Math.max(G.shake || 0, now + Math.min(400, 100 + -vr * 12)); }
+    }
+    return true;
+  }
   function driveCar(dt) {
     var c = G.car, k = G.keys, now = performance.now(), sp = cspec(c.m), me = G.me;
     var inp = locked() ? { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, hb: k.Space } : {};
     var ev = stepCar(c, inp, dt, sp);
+    if (G.cars.size && carVsCars(c, sp, now) && !ev) sendCarPos(inp, true);
     if (ev) {
       if (ev.res === 'crash') carImpact(c, ev, sp);
       else if (ev.res === 'bump' && G.aud && ev.spd > 2) noiseHit(G.aud, 0.15, 0.15, 900, 200, 0);
