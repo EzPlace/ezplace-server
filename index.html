@@ -5911,6 +5911,7 @@ function updateLevelPill() {
   t.textContent = 'LEVEL ' + lvl;
   b.style.width = (into / 10) + '%';
 }
+window.ezPixels = n => { if (n > myPixels) { myPixels = n; updateLevelPill(); } };     // EzWorld tells us how many blocks and pixels you have placed in total
 function fmtMMSS(s) { const m = Math.floor(s / 60), sec = s % 60; return m + ':' + String(sec).padStart(2, '0'); }
 function fmtRelTime(unixSec) {
   if (!unixSec) return 'never';

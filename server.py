@@ -9802,7 +9802,8 @@ DRONE_MAX_LEVEL = 100             # speed upgrades: as many as you can pay for, 
 def _drone_mult(level):
     level = max(0, min(int(level), DRONE_MAX_LEVEL))
     return 1.0 + 0.1 * min(level, 20) + 0.03 * max(0, level - 20)     # +10% top speed per level up to 20, then +3%
-def _drone_upg_price(level): return int(round(250 * 1.22 ** level))     # each level costs 22% more than the last
+DRONE_UPG_PRICE = 50
+def _drone_upg_price(level): return DRONE_UPG_PRICE                       # every speed upgrade costs the same
 DRONE_HIT_GAP = 0.5               # seconds before another impact can hurt again (one hit is reported by both the page and the server)
 
 # Helicopters: five real ones at real size (1 block = 1 metre), bought once and kept.
@@ -10935,6 +10936,22 @@ WORLD_SIGNS_EACH = 8
 WORLD_SIGNS_MAX = 400
 world_signs = {}                      # id -> {"id", "x", "y", "z", "yaw", "text", "by" (display name), "own" (lower case)}
 world_sign_next = [1]
+async def _w_earn_for_block(me, x, y, z, prev, c):
+    """Placing a block in EzWorld counts like placing a pixel in a lobby: it adds to the lifetime count (levels) and earns PlaceBux. Only a block put in empty space counts, and the same
+    spot does not count again for 30 seconds, so breaking and re-placing one block over and over earns nothing."""
+    if c == 0 or prev != 0: return
+    now = time.monotonic(); cells = me.setdefault("earn_cells", {}); key = (x, y, z)
+    if now - cells.get(key, -1e9) < 30.0: return
+    cells[key] = now
+    if len(cells) > 600:
+        for k in [k for k, t in cells.items() if now - t > 30.0]: del cells[k]
+    ul = me["name"].lower(); old = int(lifetime_pixels.get(ul, 0))
+    await award_pixel_placement(me["name"], 1)
+    new = int(lifetime_pixels.get(ul, 0))
+    if now - me.get("earn_sent", 0.0) >= 2.0 or new // 1000 != old // 1000:      # tell the page now and then, and at once on a new level
+        me["earn_sent"] = now
+        await _w_send(me, {"t": "earn", "px": new})
+
 async def _w_sign_save():
     try: await db_save("store", "world_signs", list(world_signs.values()))
     except Exception as e: print(f"signs save failed: {e}")
@@ -11168,11 +11185,14 @@ async def world_ws_handler(request):
                 if now - me["last_edit"] < WORLD_EDIT_GAP: why = "too fast"
                 else:
                     why = _w_edit_ok(me, x, y, z, c)
+                prev = world_get(x, y, z) if (why is None and world_in_bounds(x, z) and 0 <= y < WORLD_HMAX) else 0
                 if why is None and not world_set(x, y, z, c): why = "the world is full"
                 if why is None:
                     me["last_edit"] = now
                     world_schedule_save()
                     await _w_broadcast({"t": "b", "d": [x, y, z, c]}, near=(x, z))
+                    try: await _w_earn_for_block(me, x, y, z, prev, c)
+                    except Exception as e: print(f"ezworld earn failed: {e}")
                 else:
                     if why == "the world is full": await _w_sys(me, "The world has reached its block limit.")
                     cur = world_get(x, y, z) if (world_in_bounds(x, z) and 0 <= y < WORLD_HMAX) else 0

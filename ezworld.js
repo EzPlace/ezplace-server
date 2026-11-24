@@ -1184,6 +1184,7 @@
       case 'chj': G.hijack = { id: m.id, t0: performance.now(), ms: m.ms || 1500 }; break;
       case 'cx': addCarWreck(m); break;
       case 'cgone': carFxClear(G.cars.get(m.id)); G.cars.delete(m.id); break;
+      case 'earn': if (typeof window.ezPixels === 'function') window.ezPixels(m.px | 0); break;       // blocks placed count towards your level, like pixels in a lobby
       case 'signs': (m.list || []).forEach(addSign); break;
       case 'sign': addSign(m); break;
       case 'signdel': dropSign(m.id); break;
