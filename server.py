@@ -10391,6 +10391,13 @@ def _w_jet_clear(x, y, z, yawb, spec):
                 if world_get(bx, by, bz): return False
     return True
 
+def _w_jet_heading(x, y, z, yawb, spec):
+    """The heading (yaw byte) closest to the one asked for that has a clear runway, or None. Tries the way you face first, then turns in steps of 45 degrees."""
+    for off in (0, 32, -32, 64, -64, 96, -96, 128):
+        h = (yawb + off) & 255
+        if _w_jet_clear(x, y, z, h, spec): return h
+    return None
+
 def _w_jet_move(p, x, y, z, yaw, pitch, roll, now):
     """One position report from a flying jet. Returns ("ok", None), ("reject", None) or ("crash", (x, y, z))."""
     j = p["jet"]; spec = JETS[j["m"]]
@@ -10617,20 +10624,47 @@ def _w_car_move(p, car, x, y, z, yaw, steer, flags, now):
     p["last_t"] = now
     return ("ok", None)
 
+CAR_RUNOVER_SPEED = 9.0             # a car this fast (b/s) that touches somebody on foot runs them over
+def _w_car_circles(car):
+    """A car as two circles, one towards each end (the page uses the same shape to push cars apart)."""
+    spec = CARS[car["m"]]; fx, fz, rx, rz = _w_car_dir(car["yaw"])
+    r = spec[4] * 0.5 + 0.12; off = max(0.0, spec[3] * 0.5 - r - 0.05)
+    return [(car["x"] + fx * off, car["z"] + fz * off, r), (car["x"] - fx * off, car["z"] - fz * off, r)]
+
 async def _w_car_clash(p, car):
-    """Two cars that touch hurt each other: the harder the faster they meet."""
+    """Two cars that touch hurt each other, the harder the faster they close in on each other; a fast car that touches somebody on foot runs them over."""
+    mine = _w_car_circles(car); vx, vz = car.get("vx", 0.0), car.get("vz", 0.0)
     for oc in list(world_cars.values()):
-        if oc is car: continue
-        if (oc["x"] - car["x"]) ** 2 + (oc["z"] - car["z"]) ** 2 < 2.4 ** 2 and abs(oc["y"] - car["y"]) < 1.8:
-            rel = car.get("v", 0.0) + oc.get("v", 0.0) * 0.5
-            if rel < 3.0: continue
-            ax, az = oc["x"] - car["x"], oc["z"] - car["z"]; ln = math.hypot(ax, az) or 1.0
-            dmg = max(3.0, (rel - 4.0) * CAR_DMG_PER_SPEED)
-            await _w_car_hurt(oc, dmg, ax / ln, az / ln)
-            await _w_car_hurt(car, dmg * 0.8, ax / ln, az / ln)
-            if car["id"] in world_cars:
-                await _w_send(p, {"t": "ctp", "x": car["x"], "y": car["y"], "z": car["z"], "v": [round(-ax / ln * 6.0, 2), 0.0, round(-az / ln * 6.0, 2)]})
-            return
+        if oc is car or abs(oc["y"] - car["y"]) > 1.8: continue
+        if (oc["x"] - car["x"]) ** 2 + (oc["z"] - car["z"]) ** 2 > 36.0: continue
+        best = None
+        for a_ in mine:
+            for b_ in _w_car_circles(oc):
+                dx, dz = b_[0] - a_[0], b_[1] - a_[1]; d = math.hypot(dx, dz); gap = d - (a_[2] + b_[2])
+                if gap < 0.35 and (best is None or gap < best[0]): best = (gap, dx / d if d > 1e-4 else 1.0, dz / d if d > 1e-4 else 0.0)
+        if best is None: continue
+        cdx, cdz = oc["x"] - car["x"], oc["z"] - car["z"]; cdl = math.hypot(cdx, cdz)
+        nx, nz = (cdx / cdl, cdz / cdl) if cdl > 1e-4 else (best[1], best[2])     # from the middle of this car towards the middle of the other
+        ovx, ovz = (oc.get("vx", 0.0), oc.get("vz", 0.0)) if oc.get("driver") is not None else (0.0, 0.0)
+        approach = (vx - ovx) * nx + (vz - ovz) * nz                          # how fast they are closing in on each other
+        if approach < 3.0: continue
+        dmg = max(3.0, (approach - 4.0) * CAR_DMG_PER_SPEED)
+        await _w_car_hurt(oc, dmg, nx, nz)
+        await _w_car_hurt(car, dmg * 0.8, nx, nz)
+        break
+    spd = car.get("v", 0.0)
+    if spd >= CAR_RUNOVER_SPEED:
+        now = time.monotonic()
+        for v in list(world_players.values()):
+            if v is p or v.get("car") or v.get("heli") or v.get("jet") or v.get("drone") or now < v.get("protect", 0.0) or abs(v["y"] - car["y"]) > 1.8: continue
+            if (v["x"] - car["x"]) ** 2 + (v["z"] - car["z"]) ** 2 > 36.0: continue
+            if not any(math.hypot(v["x"] - c[0], v["z"] - c[1]) < c[2] + 0.45 for c in mine): continue
+            v["protect"] = now + DRONE_PROTECT
+            spot = _w_pick_spawn()
+            await _w_teleport(v, spot[0], spot[1], spot[2])
+            await _w_sys(v, f"{p['name']} ran you over.")
+            await _w_sys(p, f"You ran {v['name']} over.")
+            await _w_broadcast({"t": "sys", "text": f"{v['name']} was run over by {p['name']}."}, exclude=v["id"])
 
 async def _w_car_summon(me, mid):
     """Bring the player's car of this model out next to them (or back from where it was parked) and get in."""
@@ -11322,11 +11356,13 @@ async def world_ws_handler(request):
                     if not _w_supported(me["x"], me["y"], me["z"]):
                         await _w_sys(me, "Stand on the ground to get into a jet."); continue
                     sx, sy, sz = me["x"], me["y"], me["z"]
-                    if not _w_jet_clear(sx, sy, sz, me["yaw"], spec):
-                        await _w_sys(me, f"A {spec[0]} needs a clear strip of ground {JET_RUNWAY} blocks long and as wide as its wings, in the direction you are facing."); continue
+                    hd = _w_jet_heading(sx, sy, sz, me["yaw"], spec)
+                    if hd is None:
+                        await _w_sys(me, f"No room for a {spec[0]} here: it needs a clear strip of flat ground {JET_RUNWAY} blocks long and as wide as its wings, with nothing built on it. Try an open area (/spawn, or /goto somewhere empty)."); continue
                     me["armed"] = False
-                    me["jet"] = {"m": mid, "x": sx, "y": sy, "z": sz, "yaw": me["yaw"], "pitch": 128, "roll": 128, "t": now, "hb": JET_BURST, "v": 0.0, "ver": 1}
-                    await _w_send(me, {"t": "jstart", "m": mid, "x": sx, "y": sy, "z": sz})
+                    me["jet"] = {"m": mid, "x": sx, "y": sy, "z": sz, "yaw": hd, "pitch": 128, "roll": 128, "t": now, "hb": JET_BURST, "v": 0.0, "ver": 1}
+                    if hd != me["yaw"]: await _w_sys(me, "The way you were facing was blocked, so the jet is lined up along the nearest clear strip.")
+                    await _w_send(me, {"t": "jstart", "m": mid, "x": sx, "y": sy, "z": sz, "yaw": hd})
                     await _w_send_inv(me)
                     await _w_broadcast({"t": "jr", "id": me["id"], "on": True, "m": mid, "name": me["name"], "x": sx, "y": sy, "z": sz}, exclude=me["id"])
                 elif me.get("jet"):

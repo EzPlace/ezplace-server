@@ -1857,7 +1857,7 @@
     G.jsel = id; send({ t: 'jet', on: true, m: id });
   }
   function startJet(m) {
-    var sp = jspec(m.m), yaw = G.me.yaw;
+    var sp = jspec(m.m), yaw = m.yaw !== undefined ? m.yaw / 256 * 2 * Math.PI : G.me.yaw;
     G.jet = { m: m.m, x: m.x, y: m.y + 0.03, z: m.z, f: [-Math.sin(yaw), 0, -Math.cos(yaw)], u: [0, 1, 0], speed: 0, thr: 0, sink: 0, vx: 0, vy: 0, vz: 0, rp: 0, rr: 0, ry: 0, onGround: true, crashAt: 0, why: '', lastSent: '', sent: 0, view: 0, gear: 1, yaw: yaw, tries: 0 };
     G.jcam = { yaw: 0, pitch: 0, dist: sp.chase, idle: 0, cf: [-Math.sin(yaw), 0, -Math.cos(yaw)], cu: [0, 1, 0] };
     G.jpose = { x: m.x, y: m.y + 3, z: m.z, yaw: yaw, pitch: 0, f: G.jet.f.slice(), u: [0, 1, 0] };
