@@ -9802,7 +9802,7 @@ DRONE_MAX_LEVEL = 100             # speed upgrades: as many as you can pay for, 
 def _drone_mult(level):
     level = max(0, min(int(level), DRONE_MAX_LEVEL))
     return 1.0 + 0.1 * min(level, 20) + 0.03 * max(0, level - 20)     # +10% top speed per level up to 20, then +3%
-DRONE_UPG_PRICE = 50
+DRONE_UPG_PRICE = 500
 def _drone_upg_price(level): return DRONE_UPG_PRICE                       # every speed upgrade costs the same
 DRONE_HIT_GAP = 0.5               # seconds before another impact can hurt again (one hit is reported by both the page and the server)
 
@@ -10069,6 +10069,7 @@ def _w_clamp_pos(x, y, z):
     return (min(max(x, WORLD_MIN + 0.5), WORLD_MAX - 0.5), min(max(y, 1.0), WORLD_HMAX + 5.0), min(max(z, WORLD_MIN + 0.5), WORLD_MAX - 0.5))
 
 async def _w_teleport(p, x, y, z):
+    p["grap"] = None; p["grap_grace"] = 0.0
     if p.get("drone"): await _w_drone_end(p, False)
     if p.get("heli"):
         p["heli"] = None
@@ -10118,12 +10119,17 @@ def _w_move_check(p, x, y, z, now):
     """Plausibility check for a position report: speed, flying and hovering. Returns True if accepted (and records it)."""
     # Distance allowance builds up with real time (up to 6 blocks) and is spent by movement, so a slow or bursty connection that
     # delivers several reports at once is fine, while a speed hack drains the allowance and is refused.
-    p["hb"] = min(p["hb"] + WORLD_MAX_HSPEED * min(max(now - p["last_t"], 0.0), 3.0), 6.0)
+    g = p.get("grap")
+    if g and now > g["until"] + 0.5: p["grap"] = g = None
+    loose = bool(g) or now < p.get("grap_grace", 0.0)                       # hooked, or still flying after letting go: fast and high movement is fine until they land
+    p["hb"] = min(p["hb"] + (GRAPPLE_SPEED if loose else WORLD_MAX_HSPEED) * min(max(now - p["last_t"], 0.0), 3.0), 18.0 if loose else 6.0)
     if not world_in_bounds(int(x // 1), int(z // 1)) or y < 0 or y > WORLD_HMAX + 8: return False
     dh = ((x - p["x"]) ** 2 + (z - p["z"]) ** 2) ** 0.5
     if dh > p["hb"] + 0.5: return False
+    if loose: p["low"] = max(p["low"], y); p["gt"] = now
     if y > p["low"] + WORLD_JUMP_BUDGET: return False                       # higher than any jump from the last place you stood
     grounded = _w_supported(x, y, z)
+    if grounded and not g: p["grap_grace"] = 0.0
     if not grounded and now - p["gt"] > 2.0 and y >= p["y"] - 0.01: return False   # a jump lasts under a second; staying up for two is hovering
     p["hb"] -= dh
     p["low"] = y if grounded else min(p["low"], y)
@@ -10260,7 +10266,18 @@ def _w_ray(ox, oy, oz, dx, dy, dz, maxd):
 def _inv_rockets(name): return int((world_inv.get(name.lower()) or {}).get("rockets", 0))
 def _inv_drone(name): return bool((world_inv.get(name.lower()) or {}).get("drone"))
 def _inv_dlevel(name): return int((world_inv.get(name.lower()) or {}).get("dlevel", 0))
-def _inv_heli(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}).get("heli") or {}).items() if v == 1 and k in HELIS}     # model -> 1 (owned); crashed ones are deleted
+INV_MAX_COPIES = 5                     # how many of one model a person can own
+def _inv_count(ul, kind, mid):
+    v = ((world_inv.get(ul) or {}).get(kind) or {}).get(mid, 0)
+    if isinstance(v, bool): return 1 if v else 0
+    return max(0, min(INV_MAX_COPIES, int(v))) if isinstance(v, (int, float)) else 0
+def _inv_give(ul, kind, mid): world_inv.setdefault(ul, {}).setdefault(kind, {})[mid] = _inv_count(ul, kind, mid) + 1
+def _inv_take(ul, kind, mid):          # one copy is lost (crashed, totaled)
+    n = _inv_count(ul, kind, mid) - 1; d = world_inv.setdefault(ul, {}).setdefault(kind, {})
+    if n <= 0: d.pop(mid, None)
+    else: d[mid] = n
+def _inv_kind(name, kind, table): return {k: _inv_count(name.lower(), kind, k) for k in table if _inv_count(name.lower(), kind, k) > 0}     # model -> how many you own
+def _inv_heli(name): return _inv_kind(name, "heli", HELIS)
 
 async def _inv_save():
     global _inv_dirty, _inv_handle
@@ -10277,14 +10294,28 @@ def _inv_touch():
     _inv_dirty = True
     if _inv_handle is None: _inv_handle = asyncio.get_event_loop().call_later(15, lambda: asyncio.ensure_future(_inv_save()))
 
-def _inv_car(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}).get("car") or {}).items() if v == 1 and k in CARS}
+def _inv_car(name): return _inv_kind(name, "car", CARS)
 
-def _inv_jet(name): return {k: 1 for k, v in ((world_inv.get(name.lower()) or {}).get("jet") or {}).items() if v == 1 and k in JETS}
+def _inv_jet(name): return _inv_kind(name, "jet", JETS)
+GRAPPLE_PRICE = 4000
+def _inv_grapple(name): return bool((world_inv.get(name.lower()) or {}).get("grapple"))
+SLOT_COUNT = 9
+def _inv_slots(name):
+    """The hotbar arrangement the player chose: SLOT_COUNT entries, each "" or an item: rocket, drone, grapple, or heli / jet / car (the one you picked last) or heli:r22 etc. for one model."""
+    raw = (world_inv.get(name.lower()) or {}).get("slots")
+    return [_slot_clean(s) for s in (list(raw) if isinstance(raw, list) else [])[:SLOT_COUNT]] + [""] * max(0, SLOT_COUNT - len(raw if isinstance(raw, list) else []))
+def _slot_clean(s):
+    if not isinstance(s, str): return ""
+    if s in ("rocket", "drone", "grapple", "heli", "jet", "car"): return s
+    k, _, m = s.partition(":")
+    if (k == "heli" and m in HELIS) or (k == "jet" and m in JETS) or (k == "car" and m in CARS): return s
+    return ""
 
 async def _w_send_inv(p):
     await _w_send(p, {"t": "inv", "rockets": _inv_rockets(p["name"]), "armed": bool(p.get("armed")), "price": ROCKET_PRICE, "per": ROCKETS_PER_LAUNCHER, "max": ROCKET_MAX_HELD,
                       "drone": _inv_drone(p["name"]), "dprice": DRONE_PRICE, "flying": bool(p.get("drone")),
-                      "car": _inv_car(p["name"]), "ccid": world_owner_car.get(p["name"].lower()), "cp": {k: v[1] for k, v in CARS.items()}, "cdrive": (world_cars[p["car"]]["m"] if p.get("car") in world_cars else None), "dlevel": _inv_dlevel(p["name"]), "dupg": (_drone_upg_price(_inv_dlevel(p["name"])) if _inv_dlevel(p["name"]) < DRONE_MAX_LEVEL else None), "dmult": _drone_mult(_inv_dlevel(p["name"])), "jet": _inv_jet(p["name"]), "jp": {k: v[1] for k, v in JETS.items()}, "jfly": (p["jet"]["m"] if p.get("jet") else None), "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None)})
+                      "car": _inv_car(p["name"]), "ccid": world_owner_car.get(p["name"].lower()), "cp": {k: v[1] for k, v in CARS.items()}, "cdrive": (world_cars[p["car"]]["m"] if p.get("car") in world_cars else None), "dlevel": _inv_dlevel(p["name"]), "dupg": (_drone_upg_price(_inv_dlevel(p["name"])) if _inv_dlevel(p["name"]) < DRONE_MAX_LEVEL else None), "dmult": _drone_mult(_inv_dlevel(p["name"])), "jet": _inv_jet(p["name"]), "jp": {k: v[1] for k, v in JETS.items()}, "jfly": (p["jet"]["m"] if p.get("jet") else None), "heli": _inv_heli(p["name"]), "hp": {k: v[1] for k, v in HELIS.items()}, "hfly": (p["heli"]["m"] if p.get("heli") else None),
+                      "grapple": _inv_grapple(p["name"]), "gprice": GRAPPLE_PRICE, "slots": _inv_slots(p["name"])})
 
 async def _w_explode(cell, ex, ey, ez, by=None, radius=None, scale=None):
     """A rocket arrived: remove the blocks in a ball around it (never bedrock, never near spawn) and tell everybody nearby."""
@@ -10437,7 +10468,7 @@ async def _w_jet_end(p, crashed, at=None):
     p["jet_ready"] = now + JET_COOLDOWN
     px, py, pz = (at if at else (j["x"], j["y"], j["z"]))
     if crashed:
-        world_inv.setdefault(p["name"].lower(), {}).setdefault("jet", {}).pop(j["m"], None); _inv_touch(); await _inv_save()
+        _inv_take(p["name"].lower(), "jet", j["m"]); _inv_touch(); await _inv_save()
         spot = _w_find_spot(px, py, pz) or _w_pick_spawn()
         await _w_teleport(p, spot[0], spot[1], spot[2])
         if "vx" in j: vel = [j["vx"], j["vy"], j["vz"]]
@@ -10534,13 +10565,22 @@ async def _w_car_exit(p, forced=False, why=None):
     await _w_send(p, {"t": "cend", "id": car["id"], "x": spot[0], "y": spot[1], "z": spot[2], "forced": bool(forced), "why": why or ""})
     await _w_send_inv(p)
 
+def _w_car_wear_list(ul, mid):
+    """The damaged copies of this model waiting in the garage (each a dict of dmg / dents / lost). Older saves kept a single one."""
+    wear = world_inv.setdefault(ul, {}).setdefault("cwear", {}); v = wear.get(mid)
+    if isinstance(v, dict): v = [v]
+    if not isinstance(v, list): v = []
+    v = [w for w in v if isinstance(w, dict)][:INV_MAX_COPIES]
+    wear[mid] = v; return v
+
+def _w_car_wear_store(car):
+    if car["dmg"] > 0.5 or any(car["dents"]) or car.get("lost", 0):
+        _w_car_wear_list(car["owner"], car["m"]).append({"dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]], "lost": int(car.get("lost", 0))})
+        _inv_touch()
+
 async def _w_car_stow(me, car):
     """Put the player's own car back in their inventory: it leaves the world, but keeps its damage until they bring it out again."""
-    ul = car["owner"]
-    wear = world_inv.setdefault(ul, {}).setdefault("cwear", {})
-    if car["dmg"] > 0.5 or any(car["dents"]) or car.get("lost", 0): wear[car["m"]] = {"dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]], "lost": int(car.get("lost", 0))}
-    else: wear.pop(car["m"], None)
-    _inv_touch()
+    _w_car_wear_store(car)
     _w_car_remove(car)
     await _w_broadcast({"t": "cgone", "id": car["id"]})
     await _w_send_inv(me)
@@ -10564,7 +10604,7 @@ async def _w_car_total(car, pt):
     drv = next((q for q in world_players.values() if q["id"] == car.get("driver")), None)
     owner = car["owner"]; mid = car["m"]
     _w_car_remove(car)
-    world_inv.setdefault(owner, {}).setdefault("car", {}).pop(mid, None); (world_inv[owner].get("cwear") or {}).pop(mid, None); _inv_touch(); await _inv_save()
+    _inv_take(owner, "car", mid); _inv_touch(); await _inv_save()                       # one copy is gone; any others (and their damage) stay
     if drv:
         drv["car"] = None
         spot = _w_find_spot(px, py, pz) or (px, py, pz)
@@ -10689,7 +10729,7 @@ async def _w_car_summon(me, mid):
     if spot is None:
         await _w_sys(me, f"No room for a {spec[0]} here. Find some open ground."); return
     global world_car_next
-    if old and old["m"] != mid: _w_car_remove(old); old = None
+    if old and old["m"] != mid: _w_car_wear_store(old); _w_car_remove(old); old = None
     if old:
         car = old; car["x"], car["y"], car["z"], car["yaw"] = spot[0], spot[1], spot[2], me["yaw"]
     else:
@@ -10699,7 +10739,10 @@ async def _w_car_summon(me, mid):
         car = {"id": cid, "owner": ul, "m": mid, "x": spot[0], "y": spot[1], "z": spot[2], "yaw": me["yaw"], "steer": 0, "flags": 0, "dmg": 0.0, "dents": [0.0, 0.0, 0.0, 0.0], "lost": 0, "vx": 0.0, "vy": 0.0, "vz": 0.0,
                "driver": None, "ver": 1, "t": now, "hb": CAR_BURST, "v": 0.0, "hit_t": 0.0}
         world_cars[cid] = car; world_owner_car[ul] = cid
-        w = ((world_inv.get(ul) or {}).get("cwear") or {}).get(mid)
+        wl = _w_car_wear_list(ul, mid); out_n = 0
+        fresh = _inv_count(ul, "car", mid) - len(wl)                           # copies that have no damage
+        w = None
+        if wl and fresh <= 0: w = min(wl, key=lambda q: q.get("dmg", 0.0)); wl.remove(w)       # only damaged ones left: the least damaged comes out
         if isinstance(w, dict):
             try:
                 car["dmg"] = min(99.0, max(0.0, float(w.get("dmg", 0.0)))); car["dents"] = [min(1.0, max(0.0, float(c))) for c in (list(w.get("dents") or [0, 0, 0, 0]) + [0, 0, 0, 0])[:4]]; car["lost"] = int(w.get("lost", 0)) & 0xFFF
@@ -10897,7 +10940,7 @@ async def _w_heli_end(p, crashed, wreck_at=None):
     p["heli_ready"] = now + HELI_COOLDOWN
     px, py, pz = (wreck_at if wreck_at else (h["x"], h["y"], h["z"]))
     if crashed:
-        world_inv.setdefault(p["name"].lower(), {}).setdefault("heli", {}).pop(h["m"], None); _inv_touch(); await _inv_save()      # destroyed: gone from the inventory
+        _inv_take(p["name"].lower(), "heli", h["m"]); _inv_touch(); await _inv_save()      # destroyed: one copy is gone from the inventory
         spot = _w_find_spot(px, py, pz) or _w_pick_spawn()
         await _w_teleport(p, spot[0], spot[1], spot[2])
         await _w_broadcast({"t": "hx", "id": p["id"], "m": h["m"], "x": round(px, 2), "y": round(py, 2), "z": round(pz, 2)}, near=(int(px), int(pz)))
@@ -10951,6 +10994,31 @@ async def _w_earn_for_block(me, x, y, z, prev, c):
     if now - me.get("earn_sent", 0.0) >= 2.0 or new // 1000 != old // 1000:      # tell the page now and then, and at once on a new level
         me["earn_sent"] = now
         await _w_send(me, {"t": "earn", "px": new})
+
+GRAPPLE_RANGE = 70.0
+GRAPPLE_SPEED = 36.0                  # b/s the movement check allows while hooked
+GRAPPLE_MAX_TIME = 9.0
+async def _w_grapple(me, data):
+    """Hook on (the player says where, the server checks there is a block there in reach and in sight) or hook off. While hooked the movement check allows fast, high movement, and
+    for a few seconds after, until they are standing again, because a swing ends in the air."""
+    now = time.monotonic()
+    if not bool(data.get("on")):
+        if me.get("grap"): me["grap"] = None; me["grap_grace"] = now + 8.0
+        return
+    if not _inv_grapple(me["name"]): return await _w_sys(me, "You do not own a grappling hook. Buy one in the shop (B).")
+    if me.get("car") or me.get("heli") or me.get("jet") or me.get("drone"): return
+    if not check_rate_limit(me["name"], "world_grap", 8, 10): return
+    try: ax, ay, az = float(data.get("x")), float(data.get("y")), float(data.get("z"))
+    except (TypeError, ValueError): return
+    if not all(math.isfinite(v) for v in (ax, ay, az)): return
+    ex, ey, ez = me["x"], me["y"] + 1.6, me["z"]
+    d = math.sqrt((ax - ex) ** 2 + (ay - ey) ** 2 + (az - ez) ** 2)
+    if d > GRAPPLE_RANGE + 2.0 or d < 1.0: return await _w_send(me, {"t": "gno"})
+    if not world_get(int(math.floor(ax)), int(math.floor(ay)), int(math.floor(az))): return await _w_send(me, {"t": "gno"})
+    hit = _w_ray(ex, ey, ez, (ax - ex) / d, (ay - ey) / d, (az - ez) / d, d + 0.2)
+    if hit is not None and hit[1] < d - 1.6: return await _w_send(me, {"t": "gno"})      # something is in the way
+    me["grap"] = {"x": ax, "y": ay, "z": az, "until": now + GRAPPLE_MAX_TIME}
+    me["grap_grace"] = now + GRAPPLE_MAX_TIME + 8.0
 
 async def _w_sign_save():
     try: await db_save("store", "world_signs", list(world_signs.values()))
@@ -11216,6 +11284,12 @@ async def world_ws_handler(request):
                     if reply: payload["reply_to"] = reply
                     await _w_broadcast(payload)
                     discord_forward("world", nm, text, reply)
+            elif t == "slots":
+                lst = data.get("list")
+                if isinstance(lst, list) and check_rate_limit(me["name"], "world_slots", 20, 10):
+                    world_inv.setdefault(me["name"].lower(), {})["slots"] = ([_slot_clean(s) for s in lst[:SLOT_COUNT]] + [""] * SLOT_COUNT)[:SLOT_COUNT]
+                    _inv_touch()
+            elif t == "grap": await _w_grapple(me, data)
             elif t == "sign": await _w_sign_place(me, data)
             elif t == "unsign": await _w_sign_remove(me)
             elif t == "buy":
@@ -11233,36 +11307,45 @@ async def world_ws_handler(request):
                     _inv_touch(); await _inv_save(); await _w_send_inv(me)
                     await _w_sys(me, f"Drone speed level {lvl + 1}: top speed is now {round(45 * _drone_mult(lvl + 1) * 3.6)} km/h." + (" It takes effect on your next flight." if me.get("drone") else "")); continue
                 if item in CARS:
-                    spec = CARS[item]; mine = world_inv.setdefault(ul, {}).setdefault("car", {})
-                    if item in mine:
-                        await _w_sys(me, f"You already own a {spec[0]}."); continue
+                    spec = CARS[item]
+                    if _inv_count(ul, "car", item) >= INV_MAX_COPIES:
+                        await _w_sys(me, f"You already own {INV_MAX_COPIES} of the {spec[0]}, the most you can carry."); continue
                     if not spend_pb(me["name"], spec[1]):
                         await _w_sys(me, f"A {spec[0]} costs {spec[1]:,} PlaceBux."); continue
-                    mine[item] = 1                                              # no await between paying and receiving
+                    _inv_give(ul, "car", item)                                  # no await between paying and receiving
                     await save_place_bucks(); await push_pb_update(me["name"])
                     _inv_touch(); await _inv_save(); await _w_send_inv(me)
                     await _w_sys(me, f"Bought a {spec[0]}. Press 5 to bring it out. Careful: when it is totaled it is gone."); continue
                 if item in JETS:
-                    spec = JETS[item]; mine = world_inv.setdefault(ul, {}).setdefault("jet", {})
-                    if item in mine:
-                        await _w_sys(me, f"You already own a {spec[0]}."); continue
+                    spec = JETS[item]
+                    if _inv_count(ul, "jet", item) >= INV_MAX_COPIES:
+                        await _w_sys(me, f"You already own {INV_MAX_COPIES} of the {spec[0]}, the most you can carry."); continue
                     if not spend_pb(me["name"], spec[1]):
                         await _w_sys(me, f"A {spec[0]} costs {spec[1]:,} PlaceBux."); continue
-                    mine[item] = 1                                              # no await between paying and receiving
+                    _inv_give(ul, "jet", item)                                  # no await between paying and receiving
                     await save_place_bucks(); await push_pb_update(me["name"])
                     _inv_touch(); await _inv_save(); await _w_send_inv(me)
                     await _w_sys(me, f"Bought a {spec[0]}. Press 4 to get in; it needs {JET_RUNWAY} blocks of open ground to take off."); continue
                 if item in HELIS:
                     mid = item
-                    spec = HELIS[mid]; mine = world_inv.setdefault(ul, {}).setdefault("heli", {})
-                    if mid in mine:
-                        await _w_sys(me, f"You already own a {spec[0]}."); continue
+                    spec = HELIS[mid]
+                    if _inv_count(ul, "heli", mid) >= INV_MAX_COPIES:
+                        await _w_sys(me, f"You already own {INV_MAX_COPIES} of the {spec[0]}, the most you can carry."); continue
                     if not spend_pb(me["name"], spec[1]):
                         await _w_sys(me, f"A {spec[0]} costs {spec[1]:,} PlaceBux."); continue
-                    mine[mid] = 1                                               # no await between paying and receiving
+                    _inv_give(ul, "heli", mid)                                  # no await between paying and receiving
                     await save_place_bucks(); await push_pb_update(me["name"])
                     _inv_touch(); await _inv_save(); await _w_send_inv(me)
                     await _w_sys(me, f"Bought a {spec[0]}. Press 3 to start flying it."); continue
+                if item == "grapple":
+                    if _inv_grapple(me["name"]):
+                        await _w_sys(me, "You already own a grappling hook."); continue
+                    if not spend_pb(me["name"], GRAPPLE_PRICE):
+                        await _w_sys(me, f"A grappling hook costs {GRAPPLE_PRICE:,} PlaceBux."); continue
+                    world_inv.setdefault(ul, {})["grapple"] = True               # no await between paying and receiving
+                    await save_place_bucks(); await push_pb_update(me["name"])
+                    _inv_touch(); await _inv_save(); await _w_send_inv(me)
+                    await _w_sys(me, "Bought a grappling hook. Put it on your hotbar, equip it, then hold left click on a block to be pulled to it."); continue
                 if item not in ("launcher", "drone"): continue
                 if item == "drone":
                     if _inv_drone(me["name"]):
@@ -11464,11 +11547,11 @@ async def world_ws_handler(request):
         if me is not None and me.get("jet"):
             jj = me["jet"]; me["jet"] = None
             if not _w_heli_landed(jj["x"], round(jj["y"]), jj["z"]):          # leaving mid-flight is a crash
-                world_inv.setdefault(me["name"].lower(), {}).setdefault("jet", {}).pop(jj["m"], None); _inv_touch()
+                _inv_take(me["name"].lower(), "jet", jj["m"]); _inv_touch()
         if me is not None and me.get("heli"):
             hh = me["heli"]; me["heli"] = None
             if not _w_supported(hh["x"], hh["y"], hh["z"]):                 # leaving mid-flight is a crash
-                world_inv.setdefault(me["name"].lower(), {}).setdefault("heli", {}).pop(hh["m"], None); _inv_touch()
+                _inv_take(me["name"].lower(), "heli", hh["m"]); _inv_touch()
         if me is not None and world_players.get(me["id"]) is me:
             world_players.pop(me["id"], None)
             for q in world_players.values(): q["seen"].pop(me["id"], None); q.get("dseen", {}).pop(me["id"], None); q.get("hseen", {}).pop(me["id"], None); q.get("jseen", {}).pop(me["id"], None); q.get("cseen", {}).pop(me["id"], None)

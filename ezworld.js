@@ -175,6 +175,16 @@
   }
   function stepPlayer(pl, inp, dt) {
     if (collidesAt(pl.x, pl.y, pl.z)) { if (escapeBlocks(pl)) { pl.vy = 0; pl.stuck = 0; } else pl.stuck = (pl.stuck || 0) + dt; } else pl.stuck = 0;
+    var gAct = false;
+    if (pl.gr) {
+      var ggx = pl.gr.x - pl.x, ggy = pl.gr.y - (pl.y + 1.4), ggz = pl.gr.z - pl.z, ggd = Math.sqrt(ggx * ggx + ggy * ggy + ggz * ggz) || 1;
+      if (ggd < 2.4) { pl.gr = null; pl.gFly = 3; }                                                       // you have arrived
+      else {
+        var ga = 55 * dt; pl.vx += ggx / ggd * ga; pl.vy += ggy / ggd * ga; pl.vz += ggz / ggd * ga;
+        var gsp = Math.sqrt(pl.vx * pl.vx + pl.vy * pl.vy + pl.vz * pl.vz); if (gsp > 30) { var gk = 30 / gsp; pl.vx *= gk; pl.vy *= gk; pl.vz *= gk; }
+        gAct = true; pl.gFly = 3;
+      }
+    } else if (pl.gFly > 0) { pl.gFly -= dt; if (pl.onGround) pl.gFly = 0; }
     var speed = inp.sprint ? SPRINT : WALK;
     var fwd = (inp.f ? 1 : 0) - (inp.b ? 1 : 0), side = (inp.r ? 1 : 0) - (inp.l ? 1 : 0);
     var len = Math.sqrt(fwd * fwd + side * side);
@@ -184,10 +194,10 @@
       tx = (-Math.sin(pl.yaw) * fwd + Math.cos(pl.yaw) * side) * speed;
       tz = (-Math.cos(pl.yaw) * fwd - Math.sin(pl.yaw) * side) * speed;
     }
-    var k = Math.min(1, dt * (pl.onGround ? 14 : 4));
+    var k = Math.min(1, dt * (gAct ? 0.35 : pl.onGround ? 14 : pl.gFly > 0 ? 1.0 : 4));
     pl.vx += (tx - pl.vx) * k; pl.vz += (tz - pl.vz) * k;
     if (inp.jump && pl.onGround) { pl.vy = JUMP_V; pl.onGround = false; }
-    pl.vy = Math.max(-TERMINAL, pl.vy - GRAV * dt);
+    pl.vy = Math.max(-TERMINAL, pl.vy - GRAV * (gAct ? 0.35 : 1) * dt);                 // the rope takes most of your weight while it pulls
     moveAxis(pl, 0, pl.vx * dt);
     moveAxis(pl, 2, pl.vz * dt);
     var wasGround = pl.onGround;
@@ -1001,13 +1011,16 @@
       if (!locked() || !G.ready) return;
       e.preventDefault();
       if (G.drone || G.heli || G.jet || G.car) return;           // no placing, breaking or rockets while flying
-      if (e.button === 0) { if (G.inv.armed) fireRocket(); else doBreak(); } else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
+      if (e.button === 0) { if (G.grapEq && G.inv.grapple) startGrapple(); else if (G.inv.armed) fireRocket(); else doBreak(); } else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
     });
+    on(window, 'mouseup', function (e) { if (e.button === 0 && G && G.gr) endGrapple(true); });
     on(canvas, 'wheel', function (e) { e.preventDefault(); if (G.car) { G.ccam.dist = Math.max(3, Math.min(30, G.ccam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } if (G.jet) { G.jcam.dist = Math.max(6, Math.min(120, G.jcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } if (G.heli) { G.hcam.dist = Math.max(4, Math.min(80, G.hcam.dist * (e.deltaY > 0 ? 1.1 : 0.9))); return; } selectColor(G.sel + (e.deltaY > 0 ? 1 : -1)); }, { passive: false });
     on(window, 'keydown', function (e) {
       if (!G || menuOpen() || typingElsewhere()) return;
       audio();                                                                  // browsers only allow sound after a key press or click
       if (shopOpen()) { if (e.code === 'Escape' || e.code === 'KeyB') { closeShop(); e.preventDefault(); } return; }
+      if (invOpen()) { if (e.code === 'Escape' || e.code === 'Tab' || e.code === 'KeyE') { closeInv(); e.preventDefault(); } return; }
+      if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) openInv(); return; }
       if (chatFocused()) {
         if (e.code === 'Escape') { $('ew-chat-input').blur(); e.preventDefault(); }
         return;
@@ -1023,11 +1036,7 @@
         if (now - G.lastTap < 320) G.sprint = true;
         G.lastTap = now;
       }
-      if (e.code === 'Digit1' && !G.drone && !G.heli && !G.jet && !G.car) setArmed(!G.inv.armed);
-      if (e.code === 'Digit2') toggleDrone();
-      if (e.code === 'Digit3' && !e.repeat) toggleHeli();
-      if (e.code === 'Digit4' && !e.repeat) toggleJet();
-      if (e.code === 'Digit5' && !e.repeat) { if (G.car) send({ t: 'car', a: 'stow' }); else summonCar(); }       // 5 brings your car out, and again while driving puts it back in your inventory
+      if (/^Digit[1-9]$/.test(e.code) && !e.repeat) useSlot(+e.code.charAt(5) - 1);       // 1 to 9 use what is in that hotbar slot (Tab to arrange them)
       if (e.code === 'KeyF' && !e.repeat) carUse();
       if (e.code === 'KeyH' && G.car && !e.repeat) { send({ t: 'horn' }); hornSound(1, 0, G.car.m); }
       if (e.code === 'KeyL' && G.car && !e.repeat) { G.car.head = !G.car.head; }
@@ -1185,6 +1194,7 @@
       case 'cx': addCarWreck(m); break;
       case 'cgone': carFxClear(G.cars.get(m.id)); G.cars.delete(m.id); break;
       case 'earn': if (typeof window.ezPixels === 'function') window.ezPixels(m.px | 0); break;       // blocks placed count towards your level, like pixels in a lobby
+      case 'gno': endGrapple(false); sys('The hook would not hold there. Aim at a block you can see, within ' + GRAPPLE_RANGE + ' blocks.'); break;
       case 'signs': (m.list || []).forEach(addSign); break;
       case 'sign': addSign(m); break;
       case 'signdel': dropSign(m.id); break;
@@ -1212,7 +1222,7 @@
         if (ch) meshNow(ch, x & 15, z & 15);
         break;
       }
-      case 'tp': if (G.me) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; sendPos(true); } break;
+      case 'tp': endGrapple(false); if (G.me) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; sendPos(true); } break;
       case 'error': sys(m.text || 'Error'); G.ready = false; G.failed = true; $('ew-load').style.display = 'flex'; $('ew-load').textContent = m.text || 'Error'; break;
     }
   }
@@ -1351,6 +1361,168 @@
     hideMention(); inp.focus();
   }
 
+  // ---- the hotbar (nine slots, keys 1 to 9) and the inventory screen (Tab): every item you own can be put in any slot
+  var SLOT_N = 9, SLOT_DEFAULT = ['rocket', 'drone', 'heli', 'jet', 'car', 'grapple', '', '', ''], GRAPPLE_RANGE = 70;
+  function slotList() {
+    var sl = G.inv.slots, custom = Array.isArray(sl) && sl.some(function (x) { return x; }), l = (custom ? sl : SLOT_DEFAULT).slice(0, SLOT_N);
+    while (l.length < SLOT_N) l.push('');
+    return l;
+  }
+  function slotItem(str) {                         // what a slot holds right now: { k, m, name, n, owned, active }
+    if (!str) return null;
+    var i = G.inv, k = str.split(':')[0], m = str.split(':')[1] || '';
+    if (k === 'rocket') return { k: k, name: 'Rockets', n: i.rockets, owned: i.rockets > 0, active: !!i.armed };
+    if (k === 'drone') return { k: k, name: 'FPV drone', n: 0, owned: !!i.drone, active: !!G.drone };
+    if (k === 'grapple') return { k: k, name: 'Grappling hook', n: 0, owned: !!i.grapple, active: !!G.grapEq };
+    var tab = k === 'heli' ? i.heli : k === 'jet' ? i.jet : k === 'car' ? i.car : null; if (!tab) return null;
+    var specs = k === 'heli' ? HELIS : k === 'jet' ? JETS : CARS, ids = k === 'heli' ? HELI_IDS : k === 'jet' ? JET_IDS : CAR_IDS;
+    if (!m) { var sel = k === 'heli' ? G.hsel : k === 'jet' ? G.jsel : G.csel; m = sel && tab[sel] ? sel : (ids.filter(function (q) { return tab[q]; }).pop() || ''); }      // "a helicopter": the one you used last
+    if (!m || !specs[m]) return { k: k, m: '', name: k === 'heli' ? 'Helicopter' : k === 'jet' ? 'Fighter jet' : 'Car', n: 0, owned: false, active: false };
+    var act = k === 'heli' ? G.heli && G.heli.m === m : k === 'jet' ? G.jet && G.jet.m === m : G.car && G.car.m === m;
+    return { k: k, m: m, name: specs[m].name, n: tab[m] || 0, owned: (tab[m] || 0) > 0, active: !!act };
+  }
+  function slotCss() {
+    if (document.getElementById('ew-slot-css')) return;
+    var st = document.createElement('style'); st.id = 'ew-slot-css';
+    st.textContent = '#ew-hotbar,#ew-hotbar2,#ew-hotbar3,#ew-hotbar4,#ew-hotbar5{display:none!important}' +
+      '#ew-slots{display:none;gap:5px;align-items:stretch}#ew-slots .sl,#ew-inv .sl{position:relative;min-width:64px;max-width:92px;height:42px;padding:3px 6px;background:rgba(12,12,16,.62);border:2px solid rgba(255,255,255,.18);border-radius:8px;color:#fff;font:700 11px/1.15 sans-serif;display:flex;flex-direction:column;justify-content:center;cursor:default;user-select:none}' +
+      '#ew-slots .sl.empty,#ew-inv .sl.empty{opacity:.45}#ew-slots .sl.sel,#ew-inv .sl.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}#ew-slots .sl .key,#ew-inv .sl .key{position:absolute;top:1px;left:4px;font-size:9px;opacity:.65}' +
+      '#ew-slots .sl .nm,#ew-inv .sl .nm,#ew-inv .tile .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-top:7px}#ew-slots .sl .ct,#ew-inv .sl .ct,#ew-inv .tile .ct{position:absolute;right:4px;bottom:2px;font-size:10px;color:var(--accent)}' +
+      '#ew-inv{display:none;position:absolute;inset:0;z-index:9;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}#ew-inv .box{width:min(720px,94%);max-height:88%;overflow:auto;background:var(--bg-panel,#1c1a17);border:1px solid var(--border,#3f3b34);border-radius:12px;padding:14px 16px;color:#fff}' +
+      '#ew-inv .hd{display:flex;align-items:center;gap:10px;margin-bottom:8px}#ew-inv .hd small{opacity:.7;flex:1;font-weight:500;font-size:11px}#ew-inv h5{margin:12px 0 6px;font-size:12px;opacity:.8}' +
+      '#ew-inv .row{display:flex;flex-wrap:wrap;gap:6px}#ew-inv .row .sl{cursor:pointer}#ew-inv .tile{position:relative;min-width:110px;padding:8px 10px;background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.14);border-radius:8px;font:700 12px sans-serif;cursor:pointer}' +
+      '#ew-inv .tile.pick{border-color:var(--accent);background:var(--accent-dim)}#ew-inv .tile small{display:block;font-weight:500;opacity:.65;font-size:10px;margin-top:2px}';
+    document.head.appendChild(st);
+  }
+  function renderSlots() {
+    slotCss();
+    var bar = $('ew-bars'); if (!bar) return;
+    var box = $('ew-slots');
+    if (!box) { box = document.createElement('div'); box.id = 'ew-slots'; bar.appendChild(box); }
+    var l = slotList(), html = '', any = false;
+    for (var q = 0; q < SLOT_N; q++) {
+      var it = slotItem(l[q]), has = it && it.owned; if (has) any = true;
+      html += '<div class="sl' + (has ? '' : ' empty') + (it && it.active ? ' sel' : '') + '"><span class="key">' + (q + 1) + '</span>' + (it ? '<span class="nm">' + esc(it.name) + '</span>' + (it.n > 1 || (it.k === 'rocket' && has) ? '<span class="ct">' + (it.k === 'rocket' ? it.n : '×' + it.n) + '</span>' : '') : '') + '</div>';
+    }
+    box.style.display = any || invOpen() ? 'flex' : 'none';
+    if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
+  }
+  function useSlot(q) {
+    var it = slotItem(slotList()[q]);
+    if (!it || !it.owned) { sys(!it ? 'Slot ' + (q + 1) + ' is empty. Press Tab to put an item in it.' : it.k === 'rocket' ? 'You have no rockets. Buy a rocket launcher in the shop (B).' : 'You do not own that yet. Buy it in the shop (B).'); return; }
+    var free = !G.drone && !G.heli && !G.jet && !G.car;
+    if (it.k === 'rocket') { if (free) setArmed(!G.inv.armed); }
+    else if (it.k === 'drone') toggleDrone();
+    else if (it.k === 'grapple') { if (!free) return; G.grapEq = !G.grapEq; if (G.grapEq && G.inv.armed) setArmed(false); if (!G.grapEq) endGrapple(true); sys(G.grapEq ? 'Grappling hook ready: hold left click on a block to be pulled to it.' : 'Grappling hook put away.'); renderInv(); }
+    else if (it.k === 'heli') { if (!G.heli) G.hsel = it.m; toggleHeli(); }
+    else if (it.k === 'jet') { if (!G.jet) G.jsel = it.m; toggleJet(); }
+    else if (it.k === 'car') { if (G.car) send({ t: 'car', a: 'stow' }); else { G.csel = it.m; summonCar(); } }
+  }
+  function invOpen() { var e = $('ew-inv'); return !!e && e.style.display === 'flex'; }
+  function openInv() {
+    slotCss();
+    var e = $('ew-inv');
+    if (!e) {
+      e = document.createElement('div'); e.id = 'ew-inv';
+      e.innerHTML = '<div class="box"><div class="hd"><b>Inventory</b><small>Click an item, then click a hotbar slot (or drag it there). Click a slot to pick it back up and swap. Right-click a slot to empty it.</small><button class="win-btn" id="ew-inv-x">Close (Tab)</button></div>' +
+        '<h5>Hotbar: keys 1 to 9</h5><div class="row" id="ew-inv-slots"></div><h5>Your items</h5><div class="row" id="ew-inv-items"></div></div>';
+      ($('ew-stage') || G.view).appendChild(e);
+      on($('ew-inv-x'), 'click', closeInv);
+      on(e, 'mousedown', function (ev) { if (ev.target === e) closeInv(); });
+    }
+    if (document.exitPointerLock) document.exitPointerLock();
+    G.inSel = ''; G.inSrc = -1; e.style.display = 'flex'; renderInvPanel(); renderSlots();
+  }
+  function closeInv() { var e = $('ew-inv'); if (e) e.style.display = 'none'; G.inSel = ''; G.inSrc = -1; renderSlots(); }
+  function ownedItems() {                          // everything that can go on the hotbar
+    var i = G.inv, out = [];
+    if (i.rockets > 0) out.push({ s: 'rocket', name: 'Rocket launcher', sub: i.rockets + ' rockets' });
+    if (i.drone) out.push({ s: 'drone', name: 'FPV drone', sub: 'speed level ' + (i.dlevel | 0) });
+    if (i.grapple) out.push({ s: 'grapple', name: 'Grappling hook', sub: 'hold left click to reel in' });
+    HELI_IDS.forEach(function (m) { if ((i.heli || {})[m] > 0) out.push({ s: 'heli:' + m, name: HELIS[m].name, sub: 'helicopter' + (i.heli[m] > 1 ? ' ×' + i.heli[m] : '') }); });
+    JET_IDS.forEach(function (m) { if ((i.jet || {})[m] > 0) out.push({ s: 'jet:' + m, name: JETS[m].name, sub: 'fighter jet' + (i.jet[m] > 1 ? ' ×' + i.jet[m] : '') }); });
+    CAR_IDS.forEach(function (m) { if ((i.car || {})[m] > 0) out.push({ s: 'car:' + m, name: CARS[m].name, sub: 'car' + (i.car[m] > 1 ? ' ×' + i.car[m] : '') }); });
+    return out;
+  }
+  function saveSlots(list) { G.inv.slots = list.slice(0, SLOT_N); send({ t: 'slots', list: G.inv.slots }); G.inSel = ''; G.inSrc = -1; renderInvPanel(); renderSlots(); }
+  function placeInSlot(q, src, from) {             // src: an item string; from: the slot it came from (swap) or -1 (from the item list)
+    var l = slotList();
+    if (from >= 0) { var t = l[q]; l[q] = l[from]; l[from] = t; }
+    else { for (var j = 0; j < SLOT_N; j++) if (l[j] === src) l[j] = ''; l[q] = src; }
+    saveSlots(l);
+  }
+  function renderInvPanel() {
+    var sl = $('ew-inv-slots'), it = $('ew-inv-items'); if (!sl || !it) return;
+    var l = slotList(), q, html = '';
+    for (q = 0; q < SLOT_N; q++) {
+      var x = slotItem(l[q]), has = x && x.owned;
+      html += '<div class="sl' + (has ? '' : ' empty') + (G.inSrc === q ? ' sel' : '') + '" draggable="' + (l[q] ? 'true' : 'false') + '" data-slot="' + q + '"><span class="key">' + (q + 1) + '</span>' + (x ? '<span class="nm">' + esc(x.name) + '</span>' : '') + '</div>';
+    }
+    sl.innerHTML = html;
+    var items = ownedItems(); html = '';
+    items.forEach(function (o) { html += '<div class="tile' + (G.inSel === o.s && G.inSrc < 0 ? ' pick' : '') + '" draggable="true" data-item="' + o.s + '"><div class="nm">' + esc(o.name) + '</div><small>' + esc(o.sub) + '</small></div>'; });
+    it.innerHTML = html || '<small style="opacity:.7">You own nothing yet. Press B for the shop.</small>';
+    Array.prototype.forEach.call(sl.querySelectorAll('.sl'), function (el) {
+      var qi = +el.getAttribute('data-slot');
+      el.onclick = function () {
+        var cur = slotList();
+        if (G.inSel) { if (G.inSrc >= 0) { if (G.inSrc !== qi) placeInSlot(qi, G.inSel, G.inSrc); else { G.inSel = ''; G.inSrc = -1; renderInvPanel(); } } else placeInSlot(qi, G.inSel, -1); }
+        else if (cur[qi]) { G.inSel = cur[qi]; G.inSrc = qi; renderInvPanel(); }
+      };
+      el.oncontextmenu = function (ev) { ev.preventDefault(); var cur = slotList(); cur[qi] = ''; saveSlots(cur); };
+      el.ondragstart = function (ev) { ev.dataTransfer.setData('text/plain', 'slot:' + qi); };
+      el.ondragover = function (ev) { ev.preventDefault(); };
+      el.ondrop = function (ev) { ev.preventDefault(); var d = ev.dataTransfer.getData('text/plain') || ''; if (d.indexOf('slot:') === 0) { var fr = +d.slice(5); if (fr !== qi) placeInSlot(qi, '', fr); } else if (d) placeInSlot(qi, d, -1); };
+    });
+    Array.prototype.forEach.call(it.querySelectorAll('.tile'), function (el) {
+      var sv = el.getAttribute('data-item');
+      el.onclick = function () { if (G.inSel === sv && G.inSrc < 0) { G.inSel = ''; } else { G.inSel = sv; G.inSrc = -1; } renderInvPanel(); };
+      el.ondragstart = function (ev) { ev.dataTransfer.setData('text/plain', sv); };
+    });
+  }
+  // ---- the grappling hook: equip it, hold left click on a block and you are reeled in; let go to fly on with your speed
+  function startGrapple() {
+    if (G.gr || !G.me || !G.inv.grapple) return;
+    var m = G.me, cp = Math.cos(m.pitch), dx = -Math.sin(m.yaw) * cp, dy = Math.sin(m.pitch), dz = -Math.cos(m.yaw) * cp;
+    var h = raycast(m.x, m.y + EYE, m.z, dx, dy, dz, GRAPPLE_RANGE);
+    if (!h) { sys('Nothing to hook there. Aim at a block within ' + GRAPPLE_RANGE + ' blocks.'); return; }
+    var ax = m.x + dx * (h.t + 0.05), ay = m.y + EYE + dy * (h.t + 0.05), az = m.z + dz * (h.t + 0.05);
+    G.gr = { x: ax, y: ay, z: az, t0: performance.now() }; m.gr = G.gr;
+    send({ t: 'grap', on: true, x: ax, y: ay, z: az });
+    if (G.aud) noiseHit(G.aud, 0.12, 0.12, 1400, 500, 0);
+  }
+  function endGrapple(tell) {
+    if (!G || !G.gr) return;
+    G.gr = null; if (G.me) G.me.gr = null;
+    if (tell) send({ t: 'grap', on: false });
+  }
+  function drawRope(vp) {
+    var el = document.getElementById('ew-rope');
+    if (!G.gr || !G.me) { if (el) el.style.display = 'none'; return; }
+    if (!el) { el = document.createElement('div'); el.id = 'ew-rope'; el.style.cssText = 'position:absolute;left:0;top:0;height:3px;background:#7a5a36;box-shadow:0 0 0 1px rgba(0,0,0,.5);transform-origin:0 50%;pointer-events:none;z-index:3'; $('ew-fx').appendChild(el); }
+    var me = G.me, cp = Math.cos(me.pitch), fx = -Math.sin(me.yaw) * cp, fy = Math.sin(me.pitch), fz = -Math.cos(me.yaw) * cp, rx = Math.cos(me.yaw), rz = -Math.sin(me.yaw);
+    var a = project(vp, me.x + fx * 0.5 + rx * 0.28, me.y + EYE - 0.28 + fy * 0.5, me.z + fz * 0.5 + rz * 0.28, G.cw, G.ch), b = project(vp, G.gr.x, G.gr.y, G.gr.z, G.cw, G.ch);
+    if (!a || !b) { el.style.display = 'none'; return; }
+    var dx = b.x - a.x, dy = b.y - a.y;
+    el.style.display = 'block'; el.style.width = Math.sqrt(dx * dx + dy * dy).toFixed(1) + 'px'; el.style.transform = 'translate(' + a.x.toFixed(1) + 'px,' + a.y.toFixed(1) + 'px) rotate(' + Math.atan2(dy, dx).toFixed(4) + 'rad)';
+  }
+  function renderGrappleShop() {
+    var box = $('ew-shop-grapple');
+    if (!box) { var anchor = $('ew-shop-helis'); if (!anchor || !anchor.parentNode) return; box = document.createElement('div'); box.id = 'ew-shop-grapple'; anchor.parentNode.insertBefore(box, anchor); }
+    carCss(); heliCss();
+    var i = G.inv, price = i.gprice || 4000;
+    var html = '<h4>Grappling hook</h4><div class="ew-hcard"><div class="nfo"><b>Grappling hook</b><small>Equip it from your hotbar, aim at any block within ' + GRAPPLE_RANGE + ' blocks and hold left click: you are reeled in. Let go to keep your speed and fly. Climb cliffs, swing between towers, cross gaps.</small><span>' + fmt(price) + ' PlaceBux' + (i.grapple ? ' · owned' : '') + '</span></div><div class="act">' +
+      (i.grapple ? '<button class="win-btn" disabled>Owned</button>' : '<button class="win-btn" data-g="buy">' + (G.gArm && performance.now() < G.gArmT ? 'Click again to confirm' : 'Buy') + '</button>') + '</div></div>';
+    if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
+    if (!box.dataset.wired) { box.dataset.wired = '1'; on(box, 'click', function (e) {
+      var t = e.target; if (!t || !t.getAttribute || t.getAttribute('data-g') !== 'buy') return;
+      var now = performance.now(), pr = G.inv.gprice || 4000;
+      if (G.gArm && now < G.gArmT) { G.gArm = 0; send({ t: 'buy', item: 'grapple' }); return; }
+      if (balance() < pr) { $('ew-shop-note').textContent = 'You need ' + fmt(pr) + ' PlaceBux (you have ' + fmt(balance()) + ').'; return; }
+      $('ew-shop-note').textContent = ''; G.gArm = 1; G.gArmT = now + 3000; renderGrappleShop(); setTimeout(function () { if (G && shopOpen()) renderGrappleShop(); }, 3100);
+    }); }
+  }
+
   // ---- rocket launcher: the shop, equipping, firing, and drawing rockets and explosions. The server owns the money, the ammo and the damage.
   function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function setTotal(n) { $('ew-online-total').textContent = String(n); }
@@ -1362,6 +1534,8 @@
     i.heli = m.heli || {}; if (m.hp) i.hp = m.hp; i.hfly = m.hfly || null;
     i.jet = m.jet || {}; if (m.jp) i.jp = m.jp; i.jfly = m.jfly || null;
     i.car = m.car || {}; if (m.cp) i.cp = m.cp; i.ccid = m.ccid === undefined ? null : m.ccid; i.cdrive = m.cdrive || null;
+    i.grapple = !!m.grapple; if (m.gprice) i.gprice = m.gprice; if (Array.isArray(m.slots)) i.slots = m.slots.slice(0, SLOT_N);
+    if (!i.grapple && G.grapEq) { G.grapEq = false; endGrapple(false); }
     renderInv();
   }
   function renderInv() {
@@ -1407,7 +1581,8 @@
       hb5.style.display = cid ? 'flex' : 'none'; hb5.classList.toggle('sel', !!G.car);
       $('ew-hotbar5-name').textContent = cid ? CARS[cid].name : '';
     }
-    if (shopOpen()) { renderHeliShop(); renderJetShop(); renderCarShop(); }
+    if (shopOpen()) { renderHeliShop(); renderJetShop(); renderCarShop(); renderGrappleShop(); }
+    renderSlots(); if (invOpen()) renderInvPanel();
   }
   function balance() { try { return typeof myBalance !== 'undefined' ? myBalance : 0; } catch (e) { return 0; } }
   function shopOpen() { return $('ew-shop').style.display === 'flex'; }
@@ -1562,13 +1737,13 @@
   }
   function myHeliBest() {                       // the one the 3 key starts when you have not picked another
     var own = G.inv.heli || {}, best = null;
-    HELI_IDS.forEach(function (id) { if (own[id] === 1) best = id; });
+    HELI_IDS.forEach(function (id) { if (own[id] > 0) best = id; });
     return best;
   }
   function toggleHeli() {
     if (G.heli) { if (!G.heli.onGround) { sys('Land the helicopter first, then press 3 to get out.'); return; } send({ t: 'heli', on: false }); return; }
     if (G.drone || G.jet || G.car) return;
-    var own = G.inv.heli || {}, id = G.hsel && own[G.hsel] === 1 ? G.hsel : myHeliBest();
+    var own = G.inv.heli || {}, id = G.hsel && own[G.hsel] > 0 ? G.hsel : myHeliBest();
     if (!id) { sys('You do not own a helicopter. Buy one in the shop (B).'); return; }
     if (!G.me || !G.me.onGround) { sys('Stand on the ground to start a helicopter.'); return; }
     G.hsel = id; send({ t: 'heli', on: true, m: id });
@@ -1815,9 +1990,9 @@
     var own = G.inv.heli || {}, prices = G.inv.hp || {}, html = '<h4>Helicopters</h4>';
     HELI_IDS.forEach(function (id) {
       var sp = HELIS[id], price = prices[id] || sp.price, st = own[id], img = heliThumb(id);
-      var btn1 = st === 1 ? '<button class="win-btn" data-h="launch" data-id="' + id + '"' + (G.heli ? ' disabled' : '') + '>' + (G.heli && G.heli.m === id ? 'Flying' : 'Launch') + '</button>'
+      var btn1 = st > 0 ? '<button class="win-btn" data-h="launch" data-id="' + id + '"' + (G.heli ? ' disabled' : '') + '>' + (G.heli && G.heli.m === id ? 'Flying' : 'Launch') + '</button>'
         : '<button class="win-btn" data-h="buy" data-id="' + id + '">' + (G.hArm === id ? 'Click again to confirm' : 'Buy') + '</button>';
-      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st === 1 ? ' · owned' : '') + ' · top speed ' + sp.vmax + ' b/s</span></div><div class="act">' + btn1 + '</div></div>';
+      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st > 0 ? ' · owned' + (st > 1 ? ' ×' + st : '') : '') + ' · top speed ' + sp.vmax + ' b/s</span></div><div class="act">' + btn1 + (st > 0 && st < 5 ? '<button class="win-btn" data-h="buy" data-id="' + id + '">' + (G.hArm === id ? 'Click again to confirm' : 'Buy another') + '</button>' : '') + '</div></div>';
     });
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
   }
@@ -2039,7 +2214,7 @@
       var sp = JETS[id], price = prices[id] || sp.price, st = own[id], img = jetThumb(id);
       var btn1 = st ? '<button class="win-btn" data-j="launch" data-id="' + id + '"' + (G.jet || G.heli || G.drone ? ' disabled' : '') + '>' + (G.jet && G.jet.m === id ? 'Flying' : 'Get in') + '</button>'
         : '<button class="win-btn" data-j="buy" data-id="' + id + '">' + (G.jArm === id ? 'Click again to confirm' : 'Buy') + '</button>';
-      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st ? ' · owned' : '') + ' · top speed ' + Math.round(sp.vmax * 3.6) + ' km/h (Mach ' + sp.mach + ' real)</span></div><div class="act">' + btn1 + '</div></div>';
+      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st ? ' · owned' + (st > 1 ? ' ×' + st : '') : '') + ' · top speed ' + Math.round(sp.vmax * 3.6) + ' km/h (Mach ' + sp.mach + ' real)</span></div><div class="act">' + btn1 + (st > 0 && st < 5 ? '<button class="win-btn" data-j="buy" data-id="' + id + '">' + (G.jArm === id ? 'Click again to confirm' : 'Buy another') + '</button>' : '') + '</div></div>';
     });
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
   }
@@ -2833,7 +3008,7 @@
       var sp = CARS[id], price = prices[id] || sp.price, st = own[id], img = carThumb(id);
       var btn1 = st ? '<button class="win-btn" data-c="launch" data-id="' + id + '"' + (G.car || G.drone || G.heli || G.jet ? ' disabled' : '') + '>' + (G.car && G.car.m === id ? 'Driving' : 'Bring out') + '</button>'
         : '<button class="win-btn" data-c="buy" data-id="' + id + '">' + (G.cArm === id ? 'Click again to confirm' : 'Buy') + '</button>';
-      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st ? ' · owned' : '') + ' · top speed ' + Math.round(sp.vmax * 3.6) + ' km/h</span>' + carCredit(id) + '</div><div class="act">' + btn1 + '</div></div>';
+      html += '<div class="ew-hcard">' + (img ? '<img alt="" src="' + img + '">' : '<img alt="">') + '<div class="nfo"><b>' + esc(sp.name) + '</b><small>' + esc(sp.facts) + '</small><span>' + fmt(price) + ' PlaceBux' + (st ? ' · owned' + (st > 1 ? ' ×' + st : '') : '') + ' · top speed ' + Math.round(sp.vmax * 3.6) + ' km/h</span>' + carCredit(id) + '</div><div class="act">' + btn1 + (st > 0 && st < 5 ? '<button class="win-btn" data-c="buy" data-id="' + id + '">' + (G.cArm === id ? 'Click again to confirm' : 'Buy another') + '</button>' : '') + '</div></div>';
     });
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
   }
@@ -3058,7 +3233,7 @@
         else if (G.heli) flyHeli(dt);
         else if (G.drone) flyDrone(dt);                                    // the body stands still while the drone flies
         else if (G.bodyWait) { var bu = chunks.get(ckey(Math.floor(me.x) >> 4, Math.floor(me.z) >> 4)); if (bu && bu.loaded) G.bodyWait = false; }
-        else changed = stepPlayer(me, inp, dt);
+        else { if (G.gr && !me.gr) endGrapple(true); else if (G.gr && performance.now() - G.gr.t0 > 8500) endGrapple(true); changed = stepPlayer(me, inp, dt); }
         if (me.stuck > 1.5) { me.stuck = -4; send({ t: 'chat', text: '/unstuck' }); }       // could not push out on our own: ask the server for the nearest free spot
         sendPos(changed);
         $('ew-coords').textContent = 'X ' + me.x.toFixed(1) + '  Y ' + me.y.toFixed(1) + '  Z ' + me.z.toFixed(1);
@@ -3112,6 +3287,7 @@
     drawJets(vp, ex, ey, ez, dt, performance.now());
     drawSkids(vp, ex, ey, ez, performance.now(), RDIST * 16 - 44, RDIST * 16 - 6);
     drawSigns(vp, ex, ey, ez, RDIST * 16 - 44, RDIST * 16 - 6);
+    drawRope(vp);
     stepParts(dt);
     drawCars(vp, ex, ey, ez, dt, performance.now());
     // outline of what you are aiming at
@@ -3172,7 +3348,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { carState: function () { return G && G.car; }, audState: function () { return G && G.aud; }, loadCarSound: loadCarSound, getParts: function () { return G && G.parts; }, getSkid: function () { return G && G.sk; }, EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer,
+  window.EzWorld._t = { carState: function () { return G && G.car; }, audState: function () { return G && G.aud; }, loadCarSound: loadCarSound, getParts: function () { return G && G.parts; }, getSkid: function () { return G && G.sk; }, EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer, getMe: function () { return G && G.me; }, getGr: function () { return G && G.gr; },
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();
