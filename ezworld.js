@@ -3,7 +3,7 @@
    this file draws the world, moves your camera and sends clicks. */
 (function () {
   'use strict';
-  var HMAX = 400, WMIN = -1000, WMAX = 1000, GROUND = 40;
+  var HMAX = 400, WMIN = -2000, WMAX = 2000, GROUND = 40;
   var REACH = 6, HALF = 0.3, PH = 1.8, EYE = 1.62;
   var WALK = 4.4, SPRINT = 6.9, JUMP_V = 8.6, GRAV = 28, TERMINAL = 55;
   var RDIST = 7;                       // chunks drawn in every direction

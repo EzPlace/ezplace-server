@@ -9764,8 +9764,8 @@ def react_toggle(store, emoji, user):
     users.append(user)
     return True
 
-WORLD_MIN = -1000                 # blocks span x,z in [WORLD_MIN, WORLD_MAX): a 2000 x 2000 world
-WORLD_MAX = 1000
+WORLD_MIN = -2000                 # blocks span x,z in [WORLD_MIN, WORLD_MAX): 2000 blocks out from the middle in every direction (4000 across).
+WORLD_MAX = 2000                  # Do not go past 2047: positions travel as 16-bit numbers in sixteenths of a block.
 WORLD_HMAX = 400                  # build height limit: y in [0, 400)
 WORLD_GROUND_TOP = 40             # base terrain: bedrock at y=0, solid up to and including y=40
 WORLD_MAX_PLAYERS = 40
@@ -10978,6 +10978,11 @@ async def _w_command(p, text):
         if fy is None: return await _w_sys(p, "There is no free space at that spot.")
         await _w_teleport(p, gx, fy, gz)
         await _w_sys(p, f"Teleported to {gx:.1f} {fy:.1f} {gz:.1f}.")
+    elif cmd == "spawn":
+        if not check_rate_limit(p["name"], "world_spawn", 3, 10): return await _w_sys(p, "Slow down.")
+        spot = _w_pick_spawn()
+        await _w_teleport(p, spot[0], spot[1], spot[2])
+        await _w_sys(p, "Teleported to spawn.")
     elif cmd == "unstuck":
         if not check_rate_limit(p["name"], "world_unstuck", 3, 10): return await _w_sys(p, "Slow down.")
         spot = _w_find_spot(p["x"], p["y"], p["z"])
@@ -10985,7 +10990,7 @@ async def _w_command(p, text):
         await _w_teleport(p, spot[0], spot[1], spot[2])
         await _w_sys(p, "Moved you to the nearest free spot.")
     elif cmd == "help":
-        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z], /unstuck, /sign [text] (or press G) to leave a sign, /unsign to pick one up")
+        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z], /spawn, /unstuck, /sign [text] (or press G) to leave a sign, /unsign to pick one up")
     else:
         await _w_sys(p, "Unknown command. Try /help.")
 
