@@ -584,11 +584,7 @@
     pts.push(s.tips[0], s.tips[1]);
     for (var z = s.noseZ + 2; z < s.tailZ - 1; z += 2.5) pts.push([0, 1.3, z]);
     s.body = pts; s.vrot = s.stall * 1.12;
-    if (rm) {                                       // the real model knows where its wheels and ends are
-      var w = rm.wheels; s.wheels = [w.FL, w.FR, w.RL, w.RR]; s.noseZ = rm.noseZ; s.tailZ = rm.tailZ; s.wr = w.FL[1];
-      var wb2 = (w.RL[2] - w.FL[2]) * 0.5; var re = REAL_EYE[id]; s.eye = re ? [re[0], re[1], w.FL[2] + re[2]] : [-0.36, rm.height * 0.78, w.FL[2] + wb2 * 0.7];
-      hl = Math.max(Math.abs(s.noseZ), Math.abs(s.tailZ)) * 0.98; s.pts = [[-hwid, -hl], [hwid, -hl], [-hwid, hl], [hwid, hl], [0, -hl], [0, hl], [-hwid, 0], [hwid, 0]]; s._r = true; s._real = true;
-    } else if (g) s._r = true;
+    if (g) s._r = true;
     return s;
   }
   function jv(x, y, z) { return [x, y, z]; }
@@ -722,7 +718,11 @@
     if (g && g.chaseDist) s.chase = g.chaseDist; s.chaseUp = g && g.chaseUp || (s.len < 2.2 ? 1.5 : 2.4);
     var hl = Math.max(Math.abs(s.noseZ), Math.abs(s.tailZ)) * 0.98, hwid = s.wid / 2 * 0.98;
     s.pts = [[-hwid, -hl], [hwid, -hl], [-hwid, hl], [hwid, hl], [0, -hl], [0, hl], [-hwid, 0], [hwid, 0]];
-    if (g) s._r = true;
+    if (rm) {                                       // the real model knows where its wheels and ends are
+      var w = rm.wheels; s.wheels = [w.FL, w.FR, w.RL, w.RR]; s.noseZ = rm.noseZ; s.tailZ = rm.tailZ; s.wr = w.FL[1];
+      var wb2 = (w.RL[2] - w.FL[2]) * 0.5; var re = REAL_EYE[id]; s.eye = re ? [re[0], re[1], w.FL[2] + re[2]] : [-0.36, rm.height * 0.78, w.FL[2] + wb2 * 0.7];
+      hl = Math.max(Math.abs(s.noseZ), Math.abs(s.tailZ)) * 0.98; s.pts = [[-hwid, -hl], [hwid, -hl], [-hwid, hl], [hwid, hl], [0, -hl], [0, hl], [-hwid, 0], [hwid, 0]]; s._r = true; s._real = true;
+    } else if (g) s._r = true;
     return s;
   }
   function carGroundAt(x, y, z) {                  // the top of the ground under a point, looking down from just above y; null when there is nothing for 14 blocks
