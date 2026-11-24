@@ -1027,7 +1027,7 @@
       if (e.code === 'Digit2') toggleDrone();
       if (e.code === 'Digit3' && !e.repeat) toggleHeli();
       if (e.code === 'Digit4' && !e.repeat) toggleJet();
-      if (e.code === 'Digit5' && !e.repeat) summonCar();
+      if (e.code === 'Digit5' && !e.repeat) { if (G.car) send({ t: 'car', a: 'stow' }); else summonCar(); }       // 5 brings your car out, and again while driving puts it back in your inventory
       if (e.code === 'KeyF' && !e.repeat) carUse();
       if (e.code === 'KeyH' && G.car && !e.repeat) { send({ t: 'horn' }); hornSound(1, 0, G.car.m); }
       if (e.code === 'KeyL' && G.car && !e.repeat) { G.car.head = !G.car.head; }

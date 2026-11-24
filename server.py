@@ -10526,6 +10526,18 @@ async def _w_car_exit(p, forced=False, why=None):
     await _w_send(p, {"t": "cend", "id": car["id"], "x": spot[0], "y": spot[1], "z": spot[2], "forced": bool(forced), "why": why or ""})
     await _w_send_inv(p)
 
+async def _w_car_stow(me, car):
+    """Put the player's own car back in their inventory: it leaves the world, but keeps its damage until they bring it out again."""
+    ul = car["owner"]
+    wear = world_inv.setdefault(ul, {}).setdefault("cwear", {})
+    if car["dmg"] > 0.5 or any(car["dents"]) or car.get("lost", 0): wear[car["m"]] = {"dmg": round(car["dmg"], 1), "dents": [round(c, 2) for c in car["dents"]], "lost": int(car.get("lost", 0))}
+    else: wear.pop(car["m"], None)
+    _inv_touch()
+    _w_car_remove(car)
+    await _w_broadcast({"t": "cgone", "id": car["id"]})
+    await _w_send_inv(me)
+    await _w_sys(me, f"Your {CARS[car['m']][0]} is back in your inventory. Press 5 to bring it out again.")
+
 async def _w_car_enter(p, car):
     now = time.monotonic()
     car["driver"] = p["id"]; p["car"] = car["id"]; p["armed"] = False
@@ -10544,7 +10556,7 @@ async def _w_car_total(car, pt):
     drv = next((q for q in world_players.values() if q["id"] == car.get("driver")), None)
     owner = car["owner"]; mid = car["m"]
     _w_car_remove(car)
-    world_inv.setdefault(owner, {}).setdefault("car", {}).pop(mid, None); _inv_touch(); await _inv_save()
+    world_inv.setdefault(owner, {}).setdefault("car", {}).pop(mid, None); (world_inv[owner].get("cwear") or {}).pop(mid, None); _inv_touch(); await _inv_save()
     if drv:
         drv["car"] = None
         spot = _w_find_spot(px, py, pz) or (px, py, pz)
@@ -10652,6 +10664,11 @@ async def _w_car_summon(me, mid):
         car = {"id": cid, "owner": ul, "m": mid, "x": spot[0], "y": spot[1], "z": spot[2], "yaw": me["yaw"], "steer": 0, "flags": 0, "dmg": 0.0, "dents": [0.0, 0.0, 0.0, 0.0], "lost": 0, "vx": 0.0, "vy": 0.0, "vz": 0.0,
                "driver": None, "ver": 1, "t": now, "hb": CAR_BURST, "v": 0.0, "hit_t": 0.0}
         world_cars[cid] = car; world_owner_car[ul] = cid
+        w = ((world_inv.get(ul) or {}).get("cwear") or {}).get(mid)
+        if isinstance(w, dict):
+            try:
+                car["dmg"] = min(99.0, max(0.0, float(w.get("dmg", 0.0)))); car["dents"] = [min(1.0, max(0.0, float(c))) for c in (list(w.get("dents") or [0, 0, 0, 0]) + [0, 0, 0, 0])[:4]]; car["lost"] = int(w.get("lost", 0)) & 0xFFF
+            except (TypeError, ValueError): pass
     car["ver"] += 1
     await _w_car_enter(me, car)
 
@@ -11266,12 +11283,15 @@ async def world_ws_handler(request):
                     cid = data.get("id")
                     if isinstance(cid, int) and not isinstance(cid, bool) and cid in world_cars:
                         await _w_car_try_enter(me, world_cars[cid], bool(data.get("confirm")))
-                elif act == "exit":
+                elif act in ("exit", "stow"):
                     car = _w_car_by_driver(me)
                     if not car: continue
                     if car.get("v", 0.0) > 6.0 and time.monotonic() - car["t"] < 0.4:
-                        await _w_sys(me, "Slow down before you get out."); await _w_send(me, {"t": "cno"}); continue
+                        await _w_sys(me, "Slow down before you stop." if act == "stow" else "Slow down before you get out."); await _w_send(me, {"t": "cno"}); continue
+                    if act == "stow" and car["owner"] != me["name"].lower():
+                        await _w_sys(me, "That is not your car, so it cannot go in your inventory. Press F to get out."); await _w_send(me, {"t": "cno"}); continue
                     await _w_car_exit(me)
+                    if act == "stow": await _w_car_stow(me, car)
             elif t == "ccrash":
                 car = _w_car_by_driver(me)
                 if not car: continue

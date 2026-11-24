@@ -4537,6 +4537,14 @@ cvs.addEventListener('mousedown', e => {
   resetPixelOwnerLookup();
   const rect = cvs.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  if (e.button === 1 && isOverGrid(sx, sy)) {                           // middle click: pick up the colour of the pixel under the cursor
+    const g = screenToGrid(sx, sy);
+    if (g.x >= 0 && g.x < GRID_W && g.y >= 0 && g.y < GRID_H) {
+      const hex = COLORS[grid[g.y * GRID_W + g.x]];
+      if (hex && setPickFromHex(hex)) { addRecentColor(); updatePaletteSelection(); }
+      e.preventDefault(); return;
+    }
+  }
   const wantPan = (e.button === 1 || e.button === 2 || (e.button === 0 && (!isOverGrid(sx, sy) || forcePanMode)));
   if (wantPan) {
     isPanning = true; userHasInteracted = true; panStartX = e.clientX; panStartY = e.clientY; camStartX = camX; camStartY = camY;
