@@ -10078,6 +10078,7 @@ async def _w_teleport(p, x, y, z):
         p["jet"] = None
         await _w_send(p, {"t": "jend", "crash": False, "m": "", "x": x, "y": y, "z": z}); await _w_broadcast({"t": "jr", "id": p["id"], "on": False}, exclude=p["id"])
     if p.get("car"): await _w_car_exit(p)
+    if p.get("ride"): await _w_car_unride(p, True)
     x, y, z = _w_clamp_pos(x, y, z)
     p["x"], p["y"], p["z"] = x, y, z
     p["last_t"] = time.monotonic(); p["low"] = y; p["gt"] = time.monotonic(); p["hb"] = 6.0; p["q"] = (int(x * 16), int(y * 16), int(z * 16)); p["ver"] += 1
@@ -10521,6 +10522,7 @@ def _w_car_by_driver(p):
 def _w_car_pos_for(p, car):
     p["x"], p["y"], p["z"] = car["x"], car["y"], car["z"]
     p["q"] = (int(car["x"] * 16), int(car["y"] * 16), int(car["z"] * 16)); p["ver"] += 1       # the driver is still drawn (their picture rides in the car)
+    if car.get("pass"): _w_car_riders_place(car)
 
 CAR_PARTS_BY_SIDE = {                     # side hit -> [(part bit, damage the hit needs, chance)]
     "front": [(64, 9, 0.9), (1024, 14, 0.4), (2048, 14, 0.4), (16, 26, 0.55), (1, 38, 0.5), (2, 38, 0.5)],
@@ -10551,6 +10553,7 @@ async def _w_car_exit(p, forced=False, why=None):
     p["car"] = None
     if not car or car.get("driver") != p["id"]: return
     car["driver"] = None; car["v"] = 0.0; car["flags"] &= ~5; car["ver"] += 1
+    if car.get("pass"): await _w_car_riders_out(car, "The driver got out.")
     fx, fz, rx, rz = _w_car_dir(car["yaw"])
     spec = CARS[car["m"]]
     spot = None
@@ -10603,6 +10606,7 @@ async def _w_car_total(car, pt):
     px, py, pz = pt
     drv = next((q for q in world_players.values() if q["id"] == car.get("driver")), None)
     owner = car["owner"]; mid = car["m"]
+    if car.get("pass"): await _w_car_riders_out(car, "The car was totaled.")
     _w_car_remove(car)
     _inv_take(owner, "car", mid); _inv_touch(); await _inv_save()                       # one copy is gone; any others (and their damage) stay
     if drv:
@@ -10713,7 +10717,7 @@ async def _w_car_summon(me, mid):
     if mid not in CARS: return
     if not _inv_car(me["name"]).get(mid):
         await _w_sys(me, f"You do not own a {CARS[mid][0]}. Buy one in the shop (B)."); return
-    if me.get("car") or me.get("heli") or me.get("jet") or me.get("drone"): return
+    if (me.get("car") or me.get("ride")) or me.get("heli") or me.get("jet") or me.get("drone"): return
     now = time.monotonic()
     if now < me.get("car_ready", 0.0): await _w_sys(me, "Give the garage a second."); return
     old = world_cars.get(world_owner_car.get(ul))
@@ -10750,10 +10754,63 @@ async def _w_car_summon(me, mid):
     car["ver"] += 1
     await _w_car_enter(me, car)
 
+CAR_SEATS = {"yaris": 4, "civic": 4, "f150": 5, "c5": 2, "m3": 4, "911": 4, "cls63": 4, "aventador": 2}     # seats in each model, the driver's included
+SEAT_SPOTS = [(0.55, 0.0), (-0.55, -1.0), (0.55, -1.0), (0.0, -1.0)]                                       # where each passenger's picture sits in the car (right, forward)
+def _w_car_seats(car): return CAR_SEATS.get(car["m"], 4)
+def _w_car_riders(car): return [q for q in (world_players.get(i) for i in car.get("pass", [])) if q is not None]
+def _w_car_riders_place(car):
+    fx, fz, rx, rz = _w_car_dir(car["yaw"])
+    for n, q in enumerate(_w_car_riders(car)):
+        sr, sf = SEAT_SPOTS[n % len(SEAT_SPOTS)]
+        q["x"], q["y"], q["z"] = car["x"] + rx * sr + fx * sf, car["y"], car["z"] + rz * sr + fz * sf
+        q["q"] = (int(q["x"] * 16), int(q["y"] * 16), int(q["z"] * 16)); q["ver"] += 1; q["last_t"] = time.monotonic(); q["hb"] = 6.0; q["low"] = q["y"]; q["gt"] = q["last_t"]
+
+def _w_car_exit_spot(car):
+    fx, fz, rx, rz = _w_car_dir(car["yaw"]); spec = CARS[car["m"]]
+    for side in (1.0, -1.0, 0.0):
+        sx, sz = car["x"] + rx * side * (spec[4] / 2 + 1.1) - fx * (side == 0.0) * (spec[3] / 2 + 1.0), car["z"] + rz * side * (spec[4] / 2 + 1.1) - fz * (side == 0.0) * (spec[3] / 2 + 1.0)
+        spot = _w_find_spot(sx, car["y"], sz)
+        if spot: return spot
+    return _w_find_spot(car["x"], car["y"], car["z"]) or (car["x"], car["y"], car["z"])
+
+async def _w_car_ride(me, car):
+    """Get in a car somebody else is driving, as a passenger (a short tap of F; holding F hijacks the car instead)."""
+    if me.get("car") or me.get("ride") or me.get("heli") or me.get("jet") or me.get("drone"): return
+    if (car["x"] - me["x"]) ** 2 + (car["z"] - me["z"]) ** 2 > CAR_ENTER_RANGE ** 2 or abs(car["y"] - me["y"]) > 3.0:
+        await _w_sys(me, "You are too far from the car."); return
+    drv = next((q for q in world_players.values() if q["id"] == car.get("driver")), None)
+    if drv is None:
+        await _w_sys(me, "Nobody is driving that car. Hold F to take it."); return
+    if car.get("v", 0.0) > CAR_HIJACK_MAX_SPEED:
+        await _w_sys(me, "It is going too fast to jump in."); return
+    riders = car.setdefault("pass", [])
+    if len(riders) + 1 >= _w_car_seats(car):
+        await _w_sys(me, "That car is full."); return
+    riders.append(me["id"]); me["ride"] = car["id"]; me["armed"] = False; me["grap"] = None
+    _w_car_riders_place(car)
+    await _w_send(me, {"t": "rstart", "id": car["id"], "m": car["m"], "seat": len(riders), "by": drv["name"]})
+    await _w_send_inv(me)
+    await _w_sys(me, f"You are riding in {drv['name']}'s {CARS[car['m']][0]}. Press F to get out.")
+    await _w_sys(drv, f"{me['name']} got in your car ({len(riders) + 1}/{_w_car_seats(car)} seats).")
+
+async def _w_car_unride(me, forced=False, why=""):
+    car = world_cars.get(me.get("ride")); me["ride"] = None
+    if car and me["id"] in car.get("pass", []): car["pass"].remove(me["id"])
+    spot = _w_car_exit_spot(car) if car else (me["x"], me["y"], me["z"])
+    now = time.monotonic()
+    me["x"], me["y"], me["z"] = spot
+    me["low"] = spot[1]; me["gt"] = now; me["hb"] = 6.0; me["last_t"] = now; me["q"] = (int(spot[0] * 16), int(spot[1] * 16), int(spot[2] * 16)); me["ver"] += 1
+    await _w_send(me, {"t": "rend", "x": spot[0], "y": spot[1], "z": spot[2], "forced": bool(forced), "why": why or ""})
+    await _w_send_inv(me)
+
+async def _w_car_riders_out(car, why=""):
+    for q in list(_w_car_riders(car)): await _w_car_unride(q, True, why)
+    car["pass"] = []
+
 async def _w_car_try_enter(me, car, confirm):
     """Get into a car: yours at once, anybody else's by hijacking it (hold F for a moment; whoever is at the wheel is pulled out)."""
     now = time.monotonic()
-    if me.get("car") or me.get("heli") or me.get("jet") or me.get("drone"): return
+    if (me.get("car") or me.get("ride")) or me.get("heli") or me.get("jet") or me.get("drone"): return
     if (car["x"] - me["x"]) ** 2 + (car["z"] - me["z"]) ** 2 > CAR_ENTER_RANGE ** 2 or abs(car["y"] - me["y"]) > 3.0:
         await _w_sys(me, "You are too far from the car."); return
     mine = car["owner"] == me["name"].lower()
@@ -11006,7 +11063,7 @@ async def _w_grapple(me, data):
         if me.get("grap"): me["grap"] = None; me["grap_grace"] = now + 8.0
         return
     if not _inv_grapple(me["name"]): return await _w_sys(me, "You do not own a grappling hook. Buy one in the shop (B).")
-    if me.get("car") or me.get("heli") or me.get("jet") or me.get("drone"): return
+    if (me.get("car") or me.get("ride")) or me.get("heli") or me.get("jet") or me.get("drone"): return
     if not check_rate_limit(me["name"], "world_grap", 8, 10): return
     try: ax, ay, az = float(data.get("x")), float(data.get("y")), float(data.get("z"))
     except (TypeError, ValueError): return
@@ -11025,7 +11082,7 @@ async def _w_sign_save():
     except Exception as e: print(f"signs save failed: {e}")
 def _w_sign_public(s): return {"id": s["id"], "x": s["x"], "y": s["y"], "z": s["z"], "yaw": s["yaw"], "text": s["text"], "by": s["by"]}
 async def _w_sign_place(me, data):
-    if me.get("car") or me.get("heli") or me.get("jet") or me.get("drone"): return await _w_sys(me, "Get out of your vehicle to leave a sign.")
+    if (me.get("car") or me.get("ride")) or me.get("heli") or me.get("jet") or me.get("drone"): return await _w_sys(me, "Get out of your vehicle to leave a sign.")
     if not check_rate_limit(me["name"], "world_sign", 4, 30): return await _w_sys(me, "Slow down: you are placing signs too fast.")
     text = re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", str(data.get("text") or ""))).strip()[:90]
     if not text: return await _w_sys(me, "Usage: /sign [what the sign says]")
@@ -11181,7 +11238,7 @@ async def world_ws_handler(request):
                         elif verdict == "reject":
                             jj = me["jet"]; await _w_send(me, {"t": "jtp", "x": jj["x"], "y": jj["y"], "z": jj["z"]})
                     continue
-                if me is not None and len(d) == 9 and d[0] == 1 and not me.get("heli") and not me.get("jet"):
+                if me is not None and len(d) == 9 and d[0] == 1 and not me.get("heli") and not me.get("jet") and not me.get("ride"):
                     _, qx, qy, qz, yaw, pitch = struct.unpack("<BhhhBB", d)
                     now = time.monotonic()
                     x, y, z = qx / 16.0, qy / 16.0, qz / 16.0
@@ -11245,7 +11302,7 @@ async def world_ws_handler(request):
                         if WORLD_MIN >> 4 <= cx <= (WORLD_MAX - 1) >> 4 and WORLD_MIN >> 4 <= cz <= (WORLD_MAX - 1) >> 4:
                             await ws.send_bytes(_w_chunk_frame(cx, cz))
             elif t == "edit":
-                if me.get("drone") or me.get("heli") or me.get("jet") or me.get("car"): continue
+                if me.get("drone") or me.get("heli") or me.get("jet") or (me.get("car") or me.get("ride")): continue
                 x, y, z, c = data.get("x"), data.get("y"), data.get("z"), data.get("c")
                 if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y, z, c)): continue
                 now = time.monotonic()
@@ -11369,7 +11426,7 @@ async def world_ws_handler(request):
                 await _w_send_inv(me)
                 await _w_sys(me, f"Bought a rocket launcher with {ROCKETS_PER_LAUNCHER} rockets. Press 1 to equip it.")
             elif t == "equip":
-                if me.get("drone") or me.get("heli") or me.get("jet") or me.get("car"):
+                if me.get("drone") or me.get("heli") or me.get("jet") or (me.get("car") or me.get("ride")):
                     await _w_send_inv(me); continue
                 if bool(data.get("on")) and _inv_rockets(me["name"]) <= 0:
                     me["armed"] = False; await _w_sys(me, "You have no rockets. Buy a rocket launcher in the shop.")
@@ -11378,7 +11435,7 @@ async def world_ws_handler(request):
             elif t == "fire":
                 now = time.monotonic()
                 d = data.get("d")
-                if not me.get("armed") or me.get("drone") or me.get("heli") or me.get("jet") or me.get("car") or now - me["last_fire"] < ROCKET_COOLDOWN: continue
+                if not me.get("armed") or me.get("drone") or me.get("heli") or me.get("jet") or (me.get("car") or me.get("ride")) or now - me["last_fire"] < ROCKET_COOLDOWN: continue
                 if _inv_rockets(me["name"]) <= 0:
                     me["armed"] = False; await _w_send_inv(me); continue
                 if not (isinstance(d, list) and len(d) == 3 and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in d)): continue
@@ -11402,7 +11459,7 @@ async def world_ws_handler(request):
                 if bool(data.get("on")):
                     if not _inv_drone(me["name"]):
                         await _w_sys(me, "You do not own an FPV drone. Buy one in the shop (B)."); continue
-                    if me.get("drone") or me.get("heli") or me.get("jet") or me.get("car"): continue
+                    if me.get("drone") or me.get("heli") or me.get("jet") or (me.get("car") or me.get("ride")): continue
                     if now < me.get("drone_ready", 0.0):
                         await _w_sys(me, "The drone is recharging."); continue
                     if not _w_supported(me["x"], me["y"], me["z"]):
@@ -11425,6 +11482,15 @@ async def world_ws_handler(request):
                     cid = data.get("id")
                     if isinstance(cid, int) and not isinstance(cid, bool) and cid in world_cars:
                         await _w_car_try_enter(me, world_cars[cid], bool(data.get("confirm")))
+                elif act == "ride":
+                    cid = data.get("id")
+                    if isinstance(cid, int) and not isinstance(cid, bool) and cid in world_cars:
+                        await _w_car_ride(me, world_cars[cid])
+                elif act in ("exit", "stow") and me.get("ride"):
+                    rc = world_cars.get(me["ride"])
+                    if rc and rc.get("v", 0.0) > 6.0 and time.monotonic() - rc["t"] < 0.4:
+                        await _w_sys(me, "Wait until the car slows down."); continue
+                    await _w_car_unride(me)
                 elif act in ("exit", "stow"):
                     car = _w_car_by_driver(me)
                     if not car: continue
@@ -11452,7 +11518,7 @@ async def world_ws_handler(request):
                 now = time.monotonic()
                 mid = data.get("m")
                 if bool(data.get("on")):
-                    if me.get("jet") or me.get("heli") or me.get("drone") or me.get("car") or mid not in JETS: continue
+                    if me.get("jet") or me.get("heli") or me.get("drone") or (me.get("car") or me.get("ride")) or mid not in JETS: continue
                     spec = JETS[mid]
                     if not _inv_jet(me["name"]).get(mid): await _w_sys(me, f"You do not own a {spec[0]}. Buy one in the shop (B)."); continue
                     if now < me.get("jet_ready", 0.0): await _w_sys(me, "The jet is being refuelled."); continue
@@ -11489,7 +11555,7 @@ async def world_ws_handler(request):
                 now = time.monotonic()
                 mid = data.get("m")
                 if bool(data.get("on")):
-                    if me.get("heli") or me.get("drone") or me.get("jet") or me.get("car") or mid not in HELIS: continue
+                    if me.get("heli") or me.get("drone") or me.get("jet") or (me.get("car") or me.get("ride")) or mid not in HELIS: continue
                     st = _inv_heli(me["name"]).get(mid)
                     spec = HELIS[mid]
                     if not st: await _w_sys(me, f"You do not own a {spec[0]}. Buy one in the shop (B)."); continue
@@ -11541,9 +11607,14 @@ async def world_ws_handler(request):
         print(f"world ws error: {type(e).__name__}: {e}")
     finally:
         _ws_release(_ip)
+        if me is not None and me.get("ride"):
+            rc = world_cars.get(me["ride"]); me["ride"] = None
+            if rc and me["id"] in rc.get("pass", []): rc["pass"].remove(me["id"])
         if me is not None and me.get("car"):
             cc = world_cars.get(me["car"]); me["car"] = None
-            if cc and cc.get("driver") == me["id"]: cc["driver"] = None; cc["v"] = 0.0; cc["flags"] &= ~5; cc["ver"] += 1
+            if cc and cc.get("driver") == me["id"]:
+                cc["driver"] = None; cc["v"] = 0.0; cc["flags"] &= ~5; cc["ver"] += 1
+                if cc.get("pass"): await _w_car_riders_out(cc, "The driver left.")
         if me is not None and me.get("jet"):
             jj = me["jet"]; me["jet"] = None
             if not _w_heli_landed(jj["x"], round(jj["y"]), jj["z"]):          # leaving mid-flight is a crash

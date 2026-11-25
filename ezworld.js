@@ -177,12 +177,17 @@
     if (collidesAt(pl.x, pl.y, pl.z)) { if (escapeBlocks(pl)) { pl.vy = 0; pl.stuck = 0; } else pl.stuck = (pl.stuck || 0) + dt; } else pl.stuck = 0;
     var gAct = false;
     if (pl.gr) {
-      var ggx = pl.gr.x - pl.x, ggy = pl.gr.y - (pl.y + 1.4), ggz = pl.gr.z - pl.z, ggd = Math.sqrt(ggx * ggx + ggy * ggy + ggz * ggz) || 1;
-      if (ggd < 2.4) { pl.gr = null; pl.gFly = 3; }                                                       // you have arrived
-      else {
-        var ga = 55 * dt; pl.vx += ggx / ggd * ga; pl.vy += ggy / ggd * ga; pl.vz += ggz / ggd * ga;
-        var gsp = Math.sqrt(pl.vx * pl.vx + pl.vy * pl.vy + pl.vz * pl.vz); if (gsp > 30) { var gk = 30 / gsp; pl.vx *= gk; pl.vy *= gk; pl.vz *= gk; }
-        gAct = true; pl.gFly = 3;
+      var g = pl.gr;
+      if (g.delay > 0) { g.delay -= dt; pl.gFly = 3; }                                                   // the hook is still flying out
+      else if (inp.jump && !pl.onGround) {                                                                // Space: launch off the rope with a bit of extra speed and a hop
+        pl.gr = null; pl.gFly = 4; pl.vy = Math.max(pl.vy, 0) + 7.5; pl.vx *= 1.15; pl.vz *= 1.15; pl.gLaunch = 1;
+      } else {
+        var gx = g.x - pl.x, gy = g.y - (pl.y + 1.2), gz = g.z - pl.z, gd = Math.sqrt(gx * gx + gy * gy + gz * gz) || 1, nx0 = gx / gd, ny0 = gy / gd, nz0 = gz / gd;
+        if (g.len === undefined) { g.len = gd; pl.vx += nx0 * 14; pl.vy += ny0 * 14; pl.vz += nz0 * 14; }       // the rope starts straight, and the first yank pulls you towards the hook
+        if (inp.f) g.len = Math.max(2.6, g.len - 16 * dt); else if (inp.b) g.len = Math.min(gd + 3, g.len + 12 * dt); else g.len = Math.max(2.6, g.len - 3 * dt);
+        var gsp = Math.sqrt(pl.vx * pl.vx + pl.vy * pl.vy + pl.vz * pl.vz); if (gsp > 34) { var gk = 34 / gsp; pl.vx *= gk; pl.vy *= gk; pl.vz *= gk; }
+        if (gd < 3.0 && g.len <= 2.7) { pl.gr = null; pl.gFly = 3; }                                       // reeled all the way in
+        else { gAct = true; pl.gFly = 3; }
       }
     } else if (pl.gFly > 0) { pl.gFly -= dt; if (pl.onGround) pl.gFly = 0; }
     var speed = inp.sprint ? SPRINT : WALK;
@@ -194,15 +199,24 @@
       tx = (-Math.sin(pl.yaw) * fwd + Math.cos(pl.yaw) * side) * speed;
       tz = (-Math.cos(pl.yaw) * fwd - Math.sin(pl.yaw) * side) * speed;
     }
-    var k = Math.min(1, dt * (gAct ? 0.35 : pl.onGround ? 14 : pl.gFly > 0 ? 1.0 : 4));
+    var k = Math.min(1, dt * (gAct ? 0 : pl.onGround ? 14 : pl.gFly > 0 ? 0.8 : 4));
     pl.vx += (tx - pl.vx) * k; pl.vz += (tz - pl.vz) * k;
+    if (gAct) { pl.vx += tx * 3 * dt; pl.vz += tz * 3 * dt; }                                            // steer the swing a little with the movement keys
     if (inp.jump && pl.onGround) { pl.vy = JUMP_V; pl.onGround = false; }
-    pl.vy = Math.max(-TERMINAL, pl.vy - GRAV * (gAct ? 0.35 : 1) * dt);                 // the rope takes most of your weight while it pulls
+    pl.vy = Math.max(-TERMINAL, pl.vy - GRAV * (gAct ? 0.85 : 1) * dt);
     moveAxis(pl, 0, pl.vx * dt);
     moveAxis(pl, 2, pl.vz * dt);
     var wasGround = pl.onGround;
     var hit = moveAxis(pl, 1, pl.vy * dt);
     if (hit) { pl.onGround = pl.vy < 0; pl.vy = 0; } else pl.onGround = false;
+    if (gAct && pl.gr) {                                                                                  // the rope holds its length: pull back onto it and lose the speed that was taking you away
+      var rx = pl.gr.x - pl.x, ry = pl.gr.y - (pl.y + 1.2), rz = pl.gr.z - pl.z, rd = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
+      if (rd > pl.gr.len) {
+        var ux = rx / rd, uy = ry / rd, uz = rz / rd, ov = rd - pl.gr.len;
+        moveAxis(pl, 0, ux * ov); moveAxis(pl, 2, uz * ov); if (moveAxis(pl, 1, uy * ov)) { pl.onGround = uy < 0; }
+        var vo = -(pl.vx * ux + pl.vy * uy + pl.vz * uz); if (vo > 0) { pl.vx += ux * vo; pl.vy += uy * vo; pl.vz += uz * vo; }
+      }
+    }
     pl.x = Math.min(Math.max(pl.x, WMIN + HALF), WMAX - HALF);
     pl.z = Math.min(Math.max(pl.z, WMIN + HALF), WMAX - HALF);
     if (pl.y > HMAX + 6) { pl.y = HMAX + 6; if (pl.vy > 0) pl.vy = 0; }
@@ -991,6 +1005,10 @@
         ms.x = Math.max(-1, Math.min(1, ms.x + (e.movementX || 0) * 0.0042)); ms.y = Math.max(-1, Math.min(1, ms.y - (e.movementY || 0) * 0.0042));
         return;
       }
+      if (G.ride) {
+        var rl = G.rlook; rl.yaw = Math.max(-2.3, Math.min(2.3, rl.yaw - (e.movementX || 0) * 0.0023)); rl.pitch = Math.max(-1.0, Math.min(0.9, rl.pitch - (e.movementY || 0) * 0.0023));
+        return;
+      }
       if (G.jet) {
         var jc0 = G.jcam, cock0 = G.jet.view === 1;
         jc0.yaw -= (e.movementX || 0) * 0.0023; jc0.pitch = Math.max(-1.2, Math.min(1.2, jc0.pitch - (e.movementY || 0) * 0.0023)); jc0.idle = 0;
@@ -1010,7 +1028,7 @@
     on(canvas, 'mousedown', function (e) {            // one action per click: holding the button does nothing
       if (!locked() || !G.ready) return;
       e.preventDefault();
-      if (G.drone || G.heli || G.jet || G.car) return;           // no placing, breaking or rockets while flying
+      if (G.drone || G.heli || G.jet || G.car || G.ride) return;           // no placing, breaking or rockets while flying
       if (e.button === 0) { if (G.grapEq && G.inv.grapple) startGrapple(); else if (G.inv.armed) fireRocket(); else doBreak(); } else if (e.button === 2) doPlace(); else if (e.button === 1) doPick();
     });
     on(window, 'mouseup', function (e) { if (e.button === 0 && G && G.gr) endGrapple(true); });
@@ -1040,6 +1058,7 @@
       if (e.code === 'KeyF' && !e.repeat) carUse();
       if (e.code === 'KeyH' && G.car && !e.repeat) { send({ t: 'horn' }); hornSound(1, 0, G.car.m); }
       if (e.code === 'KeyL' && G.car && !e.repeat) { G.car.head = !G.car.head; }
+      if (e.code === 'KeyV' && G.ride && !e.repeat) { G.rlook.view = 1 - G.rlook.view; G.rlook.yaw = 0; G.rlook.pitch = 0; }
       if (e.code === 'KeyV' && G.car && !e.repeat) { G.car.view = 1 - G.car.view; G.ccam.yaw = 0; G.ccam.pitch = 0; }
       if (e.code === 'KeyN' && !e.repeat) toggleMute();
       if (e.code === 'KeyI' && G.jet && !e.repeat) { G.mouseInv = !G.mouseInv; sys(G.mouseInv ? 'Mouse up now pulls the nose up (inverted).' : 'Mouse up now pushes the nose down, like a flight stick.'); }
@@ -1056,6 +1075,7 @@
       if (!G) return;
       G.keys[e.code] = false;
       if (e.code === 'KeyW') G.sprint = false;
+      if (e.code === 'KeyF' && G.fTap) { clearTimeout(G.fTapT); var rid = G.fTap.id; G.fTap = null; send({ t: 'car', a: 'ride', id: rid }); }          // a short tap on a car that somebody is driving: get in as a passenger
     });
     on(window, 'blur', function () { if (G) { G.keys = {}; G.sprint = false; } });
     var inp = $('ew-chat-input');
@@ -1187,6 +1207,8 @@
       case 'hx': addWreck(m); break;
       case 'cstart': startCar(m); break;
       case 'cend': endCar(m); break;
+      case 'rstart': startRide(m); break;
+      case 'rend': endRide(m); break;
       case 'ctp': if (G.car) { var cd = carDirs(G.car.yaw); G.car.x = m.x; G.car.y = m.y; G.car.z = m.z; G.car.vf = (m.v ? m.v[0] * cd[0] + m.v[2] * cd[1] : 0); G.car.vl = (m.v ? m.v[0] * cd[2] + m.v[2] * cd[3] : 0); G.car.vy = 0; G.car.onGround = true; } break;
       case 'cdmg': if (G.car && G.car.id === m.id) { G.car.dmg = m.dmg; G.car.dents = (m.dents || G.car.dents).slice(); if (m.lost !== undefined) G.car.lost = m.lost; } break;
       case 'cpart': spawnParts(m); break;
@@ -1408,12 +1430,13 @@
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
   }
   function useSlot(q) {
+    if (G.ride) { sys('Press F to get out of the car first.'); return; }
     var it = slotItem(slotList()[q]);
     if (!it || !it.owned) { sys(!it ? 'Slot ' + (q + 1) + ' is empty. Press Tab to put an item in it.' : it.k === 'rocket' ? 'You have no rockets. Buy a rocket launcher in the shop (B).' : 'You do not own that yet. Buy it in the shop (B).'); return; }
     var free = !G.drone && !G.heli && !G.jet && !G.car;
     if (it.k === 'rocket') { if (free) setArmed(!G.inv.armed); }
     else if (it.k === 'drone') toggleDrone();
-    else if (it.k === 'grapple') { if (!free) return; G.grapEq = !G.grapEq; if (G.grapEq && G.inv.armed) setArmed(false); if (!G.grapEq) endGrapple(true); sys(G.grapEq ? 'Grappling hook ready: hold left click on a block to be pulled to it.' : 'Grappling hook put away.'); renderInv(); }
+    else if (it.k === 'grapple') { if (!free) return; G.grapEq = !G.grapEq; if (G.grapEq && G.inv.armed) setArmed(false); if (!G.grapEq) endGrapple(true); sys(G.grapEq ? 'Grappling hook ready. Hold left click on a block to swing from it: W reels in, S lets rope out, Space launches you off it, let go of the button to fly.' : 'Grappling hook put away.'); renderInv(); }
     else if (it.k === 'heli') { if (!G.heli) G.hsel = it.m; toggleHeli(); }
     else if (it.k === 'jet') { if (!G.jet) G.jsel = it.m; toggleJet(); }
     else if (it.k === 'car') { if (G.car) send({ t: 'car', a: 'stow' }); else { G.csel = it.m; summonCar(); } }
@@ -1487,31 +1510,39 @@
     var h = raycast(m.x, m.y + EYE, m.z, dx, dy, dz, GRAPPLE_RANGE);
     if (!h) { sys('Nothing to hook there. Aim at a block within ' + GRAPPLE_RANGE + ' blocks.'); return; }
     var ax = m.x + dx * (h.t + 0.05), ay = m.y + EYE + dy * (h.t + 0.05), az = m.z + dz * (h.t + 0.05);
-    G.gr = { x: ax, y: ay, z: az, t0: performance.now() }; m.gr = G.gr;
+    G.gr = { x: ax, y: ay, z: az, t0: performance.now(), delay: Math.min(0.28, 0.04 + h.t / 260) }; m.gr = G.gr;     // the hook takes a moment to fly out
     send({ t: 'grap', on: true, x: ax, y: ay, z: az });
-    if (G.aud) noiseHit(G.aud, 0.12, 0.12, 1400, 500, 0);
+    if (G.aud) { noiseHit(G.aud, 0.1, 0.1, 2600, 900, 0); var gg = G; setTimeout(function () { if (G === gg && G.gr && G.aud) noiseHit(G.aud, 0.3, 0.07, 700, 160, 1); }, G.gr.delay * 1000); }
   }
   function endGrapple(tell) {
     if (!G || !G.gr) return;
+    var spd = G.me ? Math.sqrt(G.me.vx * G.me.vx + G.me.vy * G.me.vy + G.me.vz * G.me.vz) : 0;
     G.gr = null; if (G.me) G.me.gr = null;
     if (tell) send({ t: 'grap', on: false });
+    if (G.aud && spd > 6) noiseHit(G.aud, Math.min(0.35, 0.08 + spd * 0.007), 0.35, 1800, 400, 0);       // a whoosh as you let go at speed
   }
   function drawRope(vp) {
     var el = document.getElementById('ew-rope');
-    if (!G.gr || !G.me) { if (el) el.style.display = 'none'; return; }
+    if (!G.gr || !G.me) { if (el) el.style.display = 'none'; var hk = document.getElementById('ew-hook'); if (hk) hk.style.display = 'none'; return; }
     if (!el) { el = document.createElement('div'); el.id = 'ew-rope'; el.style.cssText = 'position:absolute;left:0;top:0;height:3px;background:#7a5a36;box-shadow:0 0 0 1px rgba(0,0,0,.5);transform-origin:0 50%;pointer-events:none;z-index:3'; $('ew-fx').appendChild(el); }
     var me = G.me, cp = Math.cos(me.pitch), fx = -Math.sin(me.yaw) * cp, fy = Math.sin(me.pitch), fz = -Math.cos(me.yaw) * cp, rx = Math.cos(me.yaw), rz = -Math.sin(me.yaw);
-    var a = project(vp, me.x + fx * 0.5 + rx * 0.28, me.y + EYE - 0.28 + fy * 0.5, me.z + fz * 0.5 + rz * 0.28, G.cw, G.ch), b = project(vp, G.gr.x, G.gr.y, G.gr.z, G.cw, G.ch);
-    if (!a || !b) { el.style.display = 'none'; return; }
-    var dx = b.x - a.x, dy = b.y - a.y;
-    el.style.display = 'block'; el.style.width = Math.sqrt(dx * dx + dy * dy).toFixed(1) + 'px'; el.style.transform = 'translate(' + a.x.toFixed(1) + 'px,' + a.y.toFixed(1) + 'px) rotate(' + Math.atan2(dy, dx).toFixed(4) + 'rad)';
+    var hx = me.x + fx * 0.5 + rx * 0.28, hy = me.y + EYE - 0.28 + fy * 0.5, hz = me.z + fz * 0.5 + rz * 0.28;
+    var fl = Math.min(1, (performance.now() - G.gr.t0) / (Math.max(60, (G.gr.delay || 0) * 1000))), ex2 = hx + (G.gr.x - hx) * fl, ey2 = hy + (G.gr.y - hy) * fl, ez2 = hz + (G.gr.z - hz) * fl;
+    var a = project(vp, hx, hy, hz, G.cw, G.ch), b = project(vp, ex2, ey2, ez2, G.cw, G.ch);
+    var dot = document.getElementById('ew-hook');
+    if (!dot) { dot = document.createElement('div'); dot.id = 'ew-hook'; dot.style.cssText = 'position:absolute;left:0;top:0;width:11px;height:11px;margin:-5px 0 0 -5px;border-radius:50%;background:#e9b44c;border:2px solid #3a2a12;pointer-events:none;z-index:3'; $('ew-fx').appendChild(dot); }
+    if (!a || !b) { el.style.display = 'none'; dot.style.display = 'none'; return; }
+    var dx = b.x - a.x, dy = b.y - a.y, taut = G.gr.len !== undefined && Math.hypot(me.x - G.gr.x, me.y + 1.2 - G.gr.y, me.z - G.gr.z) > G.gr.len + 0.4;
+    el.style.display = 'block'; el.style.height = taut ? '3px' : '2px'; el.style.background = taut ? '#d9b878' : '#8a6a42';
+    el.style.width = Math.sqrt(dx * dx + dy * dy).toFixed(1) + 'px'; el.style.transform = 'translate(' + a.x.toFixed(1) + 'px,' + a.y.toFixed(1) + 'px) rotate(' + Math.atan2(dy, dx).toFixed(4) + 'rad)';
+    dot.style.display = 'block'; dot.style.transform = 'translate(' + b.x.toFixed(1) + 'px,' + b.y.toFixed(1) + 'px)';
   }
   function renderGrappleShop() {
     var box = $('ew-shop-grapple');
     if (!box) { var anchor = $('ew-shop-helis'); if (!anchor || !anchor.parentNode) return; box = document.createElement('div'); box.id = 'ew-shop-grapple'; anchor.parentNode.insertBefore(box, anchor); }
     carCss(); heliCss();
     var i = G.inv, price = i.gprice || 4000;
-    var html = '<h4>Grappling hook</h4><div class="ew-hcard"><div class="nfo"><b>Grappling hook</b><small>Equip it from your hotbar, aim at any block within ' + GRAPPLE_RANGE + ' blocks and hold left click: you are reeled in. Let go to keep your speed and fly. Climb cliffs, swing between towers, cross gaps.</small><span>' + fmt(price) + ' PlaceBux' + (i.grapple ? ' · owned' : '') + '</span></div><div class="act">' +
+    var html = '<h4>Grappling hook</h4><div class="ew-hcard"><div class="nfo"><b>Grappling hook</b><small>Equip it from your hotbar, aim at any block within ' + GRAPPLE_RANGE + ' blocks and hold left click: you swing on the rope. W reels in, S lets rope out, A/D steers the swing, Space launches you off it, and letting go flings you on with your speed. Climb cliffs, swing between towers, cross gaps.</small><span>' + fmt(price) + ' PlaceBux' + (i.grapple ? ' · owned' : '') + '</span></div><div class="act">' +
       (i.grapple ? '<button class="win-btn" disabled>Owned</button>' : '<button class="win-btn" data-g="buy">' + (G.gArm && performance.now() < G.gArmT ? 'Click again to confirm' : 'Buy') + '</button>') + '</div></div>';
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
     if (!box.dataset.wired) { box.dataset.wired = '1'; on(box, 'click', function (e) {
@@ -2373,13 +2404,48 @@
     G.csel = id; send({ t: 'car', a: 'summon', m: id });
   }
   function carUse() {                              // F: get out of your car, or into the nearest one (somebody else's: hold F to hijack it)
+    if (G.ride) { send({ t: 'car', a: 'exit' }); return; }
     if (G.car) {
       if (Math.abs(G.car.vf) > 6) { sys('Slow down before you get out.'); return; }
       send({ t: 'car', a: 'exit' }); return;
     }
     if (G.drone || G.heli || G.jet) return;
     var o = nearestCar(); if (!o) return;
+    if (o.flags & 4) {                              // somebody is driving it: a quick tap rides along, holding F takes it from them
+      clearTimeout(G.fTapT); G.fTap = { id: o.id }; var gg = G;
+      G.fTapT = setTimeout(function () { if (G === gg && G.fTap) { var id = G.fTap.id; G.fTap = null; if (G.keys.KeyF) send({ t: 'car', a: 'enter', id: id }); } }, 260);
+      return;
+    }
     send({ t: 'car', a: 'enter', id: o.id });
+  }
+  // ---- riding along in somebody else's car
+  function startRide(m) {
+    var sp = cspec(m.m);
+    G.ride = { id: m.id, m: m.m, seat: m.seat | 0, by: m.by || '', last: null }; G.rlook = { yaw: 0, pitch: 0, view: 0 };
+    G.inv.armed = false; G.grapEq = false; endGrapple(false); G.hijack = null;
+    $('ew-cross').style.display = 'none'; carCss();
+    sys('Riding in ' + (m.by ? m.by + "'s " : 'the ') + sp.name + '. Look around with the mouse, V changes the camera, F gets you out.');
+    doorSound(); renderInv();
+  }
+  function endRide(m) {
+    var r = G.ride; G.ride = null; G.rpose = null; G.fTap = null;
+    $('ew-cross').style.display = '';
+    if (G.me && m) { G.me.x = m.x; G.me.y = m.y; G.me.z = m.z; G.me.vx = G.me.vy = G.me.vz = 0; G.me.onGround = false; }
+    G.bodyWait = true;
+    if (m && m.forced && m.why) sys(m.why);
+    if (r) doorSound(); renderInv();
+  }
+  function rideStep(dt) {                          // the camera sits in the seat and turns with the car; the body goes where the car goes
+    var r = G.ride, me = G.me, o = G.cars.get(r.id); if (o) r.last = o; o = o || r.last; if (!o) return;
+    var sp = cspec(o.m), d = carDirs(o.yaw), seat = r.seat, look = G.rlook;
+    me.x = o.x; me.y = o.y; me.z = o.z; me.vx = me.vy = me.vz = 0;
+    if (look.view === 1) {                         // from behind the car
+      var y0 = o.yaw + look.yaw;
+      G.rpose = { x: o.x + Math.sin(y0) * sp.chase * 0.9, y: o.y + sp.h * 0.8 + sp.chaseUp * 0.6, z: o.z + Math.cos(y0) * sp.chase * 0.9, yaw: y0, pitch: -0.2 + look.pitch };
+    } else {
+      var ex = Math.abs(sp.eye[0]) * (seat % 2 === 1 ? 1 : -1), ez = sp.eye[2] + (seat >= 2 ? 1.1 : 0), ey = sp.eye[1] - 0.05;
+      G.rpose = { x: o.x + d[2] * ex - d[0] * ez, y: o.y + ey, z: o.z + d[3] * ex - d[1] * ez, yaw: o.yaw + look.yaw, pitch: look.pitch };
+    }
   }
   function startCar(m) {
     var sp = cspec(m.m), yaw = m.yaw / 256 * 2 * Math.PI;
@@ -2545,7 +2611,7 @@
   function carHints(now) {                          // the prompt next to a car, and the hijack progress bar
     var pr = $('ew-carprompt');
     if (!pr) { carCss(); pr = document.createElement('div'); pr.id = 'ew-carprompt'; pr.innerHTML = '<span class="tx"></span><div class="pb"><i></i></div>'; G.view.appendChild(pr); }
-    if (G.car || G.drone || G.heli || G.jet || !G.ready) { pr.style.display = 'none'; return; }
+    if (G.car || G.ride || G.drone || G.heli || G.jet || !G.ready) { pr.style.display = 'none'; return; }
     var hj = G.hijack;
     if (hj) {
       var f = Math.min(1, (now - hj.t0) / hj.ms);
@@ -2559,7 +2625,7 @@
     if (!o) { pr.style.display = 'none'; return; }
     var mine = o.id === G.inv.ccid;
     pr.style.display = 'block'; pr.querySelector('.pb').style.display = 'none';
-    pr.querySelector('.tx').textContent = (CARS[CAR_IDS[o.mi]] ? CARS[CAR_IDS[o.mi]].name : 'Car') + (o.flags & 4 ? ' (somebody is driving)' : '') + ': ' + (mine && !(o.flags & 4) ? 'press F to get in' : 'hold F to hijack');
+    pr.querySelector('.tx').textContent = (CARS[CAR_IDS[o.mi]] ? CARS[CAR_IDS[o.mi]].name : 'Car') + (o.flags & 4 ? ' (somebody is driving)' : '') + ': ' + (o.flags & 4 ? 'tap F to ride along, hold F to hijack' : mine ? 'press F to get in' : 'hold F to hijack');
   }
   function sendCarPos(inp, force) {
     var c = G.car; if (!c || !G.ws || G.ws.readyState !== 1) return;
@@ -2976,7 +3042,7 @@
       }
       if (d2 > 230 * 230 || !CARS[o.m]) return;
       var cb = { x: o.x, y: o.y, z: o.z, yaw: o.yaw, pitch: 0, roll: 0 };
-      r.draw(o.m, carMat(cb), vp, cam, fn, ff, carDrawOpts(o, false));
+      r.draw(o.m, carMat(cb), vp, cam, fn, ff, carDrawOpts(o, !!(G.ride && G.ride.id === o.id && G.rlook && G.rlook.view === 0)));
     });
     G.parts.forEach(function (p) {
       var dxp = p.x - ex, dzp = p.z - ez; if (dxp * dxp + dzp * dzp > 200 * 200 || !CARS[p.m]) return;
@@ -3229,13 +3295,18 @@
         var k = G.keys, inp = { f: k.KeyW || k.ArrowUp, b: k.KeyS || k.ArrowDown, l: k.KeyA || k.ArrowLeft, r: k.KeyD || k.ArrowRight, jump: k.Space, sprint: G.sprint && (k.KeyW || k.ArrowUp) };
         var changed = false;
         if (G.car) driveCar(dt);
+        else if (G.ride) rideStep(dt);
         else if (G.jet) flyJet(dt);
         else if (G.heli) flyHeli(dt);
         else if (G.drone) flyDrone(dt);                                    // the body stands still while the drone flies
         else if (G.bodyWait) { var bu = chunks.get(ckey(Math.floor(me.x) >> 4, Math.floor(me.z) >> 4)); if (bu && bu.loaded) G.bodyWait = false; }
-        else { if (G.gr && !me.gr) endGrapple(true); else if (G.gr && performance.now() - G.gr.t0 > 8500) endGrapple(true); changed = stepPlayer(me, inp, dt); }
+        else {
+          if (G.gr && !me.gr) endGrapple(true);
+          else if (G.gr && (performance.now() - G.gr.t0 > 20000 || Math.hypot(G.gr.x - me.x, G.gr.z - me.z) > 95)) endGrapple(true);       // a rope can be held for a long swing, but not across the map
+          changed = stepPlayer(me, inp, dt);
+        }
         if (me.stuck > 1.5) { me.stuck = -4; send({ t: 'chat', text: '/unstuck' }); }       // could not push out on our own: ask the server for the nearest free spot
-        sendPos(changed);
+        if (!G.ride) sendPos(changed);
         $('ew-coords').textContent = 'X ' + me.x.toFixed(1) + '  Y ' + me.y.toFixed(1) + '  Z ' + me.z.toFixed(1);
       }
     }
@@ -3261,7 +3332,7 @@
       if (!fe) { fe = document.createElement('div'); fe.id = 'ew-flash'; fe.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;opacity:0;background:radial-gradient(circle,#fff6d0 0%,#ff9a3a 55%,#a01000 100%)'; G.view.appendChild(fe); }
       var fa = 1 - (performance.now() - G.flash) / 700; fe.style.opacity = fa > 0 ? (fa * 0.85).toFixed(2) : '0'; if (fa <= 0) G.flash = 0;
     } else if (fe && fe.style.opacity !== '0') fe.style.opacity = '0';
-    var cam = G.drone || G.hpose || G.jpose || G.carpose || G.cpose, fovNow = G.drone ? FOV + 0.68 : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.carpose ? FOV + (G.car && G.car.view === 1 ? 0.2 : 0.04 + Math.min(0.12, G.car ? Math.abs(G.car.vf) / cspec(G.car.m).vmax * 0.12 : 0)) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
+    var cam = G.drone || G.hpose || G.jpose || G.carpose || G.rpose || G.cpose, fovNow = G.drone ? FOV + 0.68 : (!G.jpose && !G.carpose && !G.hpose && G.me && (G.me.gr || G.me.gFly > 0)) ? FOV + Math.min(0.32, Math.sqrt(G.me.vx * G.me.vx + G.me.vy * G.me.vy + G.me.vz * G.me.vz) * 0.011) : G.jpose ? FOV + 0.1 + Math.min(0.3, G.jet ? G.jet.speed / 330 : 0) : G.carpose ? FOV + (G.car && G.car.view === 1 ? 0.2 : 0.04 + Math.min(0.12, G.car ? Math.abs(G.car.vf) / cspec(G.car.m).vmax * 0.12 : 0)) : G.hpose || G.cpose ? FOV + 0.1 : FOV + (G.sprint && G.keys.KeyW ? 0.12 : 0);        // a wide lens while flying
     var ex = cam ? cam.x : me.x, ey = cam ? cam.y : me.y + EYE, ez = cam ? cam.z : me.z;
     var vp = mul(perspective(fovNow, G.cw / G.ch, 0.1, 600), (cam && cam.f ? viewLook(ex, ey, ez, cam.f, cam.u) : viewMatrix(ex, ey, ez, cam ? cam.yaw : me.yaw, cam ? cam.pitch : me.pitch)));
     G.vp = vp;
@@ -3348,7 +3419,7 @@
   }
 
   window.EzWorld = { open: open, close: function () { close(false); } };
-  window.EzWorld._t = { carState: function () { return G && G.car; }, audState: function () { return G && G.aud; }, loadCarSound: loadCarSound, getParts: function () { return G && G.parts; }, getSkid: function () { return G && G.sk; }, EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer, getMe: function () { return G && G.me; }, getGr: function () { return G && G.gr; },
+  window.EzWorld._t = { carState: function () { return G && G.car; }, audState: function () { return G && G.aud; }, loadCarSound: loadCarSound, getParts: function () { return G && G.parts; }, getSkid: function () { return G && G.sk; }, EP: EP, engineState: engineState, stepCar: stepCar, CARS: CARS, cspec: cspec, carGroundAt: carGroundAt, stepWreck: stepWreck, stepJet: stepJet, jetHit: jetHit, JETS: JETS, jspec: jspec, jetBasis: jetBasis, jetAngles: jetAngles, jetMat: jetMat, stepHeli: stepHeli, heliHit: heliHit, HELIS: HELIS, heliModelMat: heliModelMat, stepDrone: stepDrone, droneHits: droneHits, escapeBlocks: escapeBlocks, headingOf: headingOf, windName: windName, drawCompass: drawCompass, getBlock: getBlock, setBlock: setBlock, loadChunkFrame: loadChunkFrame, meshChunk: meshChunk, raycast: raycast, stepPlayer: stepPlayer, getCars: function () { return G && G.cars; }, getRide: function () { return G && G.ride; }, getRpose: function () { return G && G.rpose; }, getMe: function () { return G && G.me; }, getGr: function () { return G && G.gr; },
                         collidesAt: collidesAt, perspective: perspective, viewMatrix: viewMatrix, mul: mul, project: project, chunks: chunks, ckey: ckey, setPal: function (p) { PAL = p; },
                         newChunk: newChunk, overlapsPlayer: overlapsPlayer };
 })();
