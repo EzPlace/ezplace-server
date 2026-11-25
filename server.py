@@ -1378,12 +1378,24 @@ async def captcha_handler(request):
     svg_b64 = base64.b64encode(generate_captcha_svg(text).encode()).decode()
     return web.json_response({"id": cid, "image": f"data:image/svg+xml;base64,{svg_b64}"})
 
+def alt_suspect(request, device_id):
+    """Does this look like somebody making another account? Returns why ("device" or "ip"), or None for a first account from a normal connection.
+    A device that already has an account is an alt; so is a connection with several accounts, or with several new ones in a day (a school or a family can share one, so they get a captcha, not a ban)."""
+    now = time.time()
+    if device_id and any(d == device_id for d in user_devices.values()): return "device"
+    ip = get_client_ip(request)
+    if ip:
+        mine = [u for u, i in user_ips.items() if i == ip]
+        if len(mine) >= 4: return "ip"
+        if sum(1 for u in mine if float((accounts.get(u) or {}).get("created", 0) or 0) > now - 86400) >= 2: return "ip"
+    return None
+
 async def register_handler(request):
     data = await request.json()
     if not check_rate_limit(get_client_ip(request), "register", 5, 600):
         return web.json_response({"error": "Too many registration attempts - try again later."}, status=429)
     uname, pwd = str(data.get("username") or "").strip(), data.get("password", "")
-    not_robot = bool(data.get("not_robot"))
+    device_id = str(data.get("device_id") or "").strip()[:64]
     try: time_on_page = int(data.get("time_on_page", 0))
     except: time_on_page = 0
     if not uname or not pwd:
@@ -1398,14 +1410,17 @@ async def register_handler(request):
         return web.json_response({"error": f"Password must be at most {MAX_PASSWORD_LEN} characters"}, status=400)
     if is_banned(uname) or is_ip_banned(request):
         return web.json_response({"error": "This account is banned"}, status=403)
-    if not not_robot:
-        return web.json_response({"error": "Please check the 'I'm not a robot' box"}, status=400)
     if time_on_page < 1500:
         return web.json_response({"error": "Please wait a moment before submitting"}, status=400)
-    clean_captchas()
-    cap = captchas.pop(str(data.get("captcha_id") or ""), None)
-    if not cap or str(data.get("captcha_answer") or "").strip().upper() != cap["answer"]:
-        return web.json_response({"error": "Wrong captcha - try the new one"}, status=400)
+    why = alt_suspect(request, device_id)
+    if why:                                                         # looks like an alt: only then is a captcha needed
+        clean_captchas()
+        cid = str(data.get("captcha_id") or "")
+        if not cid:
+            return web.json_response({"error": "We noticed other accounts from this " + ("device" if why == "device" else "connection") + ". Please solve the captcha to make another one.", "captcha_required": True}, status=400)
+        cap = captchas.pop(cid, None)
+        if not cap or str(data.get("captcha_answer") or "").strip().upper() != cap["answer"]:
+            return web.json_response({"error": "Wrong captcha - try the new one", "captcha_required": True}, status=400)
     if uname.lower() in {u.lower() for u in accounts}:
         return web.json_response({"error": "Username already taken"}, status=400)
     pw_hash, salt = await ahash_password(pwd)
@@ -1413,87 +1428,8 @@ async def register_handler(request):
     await save_account_one(uname)
     token = new_session(uname)
     await track_ip(uname, request)
-    return web.json_response({"ok": True, "token": token, "username": uname})
-
-# ---- Sign in with Google. The page shows Google's button, Google hands back a signed token, and we ask Google whether it is real and was made for this site. A Google account that is new
-# here then picks a username (no password and no captcha). Turned on by setting the GOOGLE_CLIENT_ID environment variable; with it unset the old username + password + captcha signup is used.
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
-GOOGLE_TICKET_TTL = 600
-google_tickets = {}                    # one-time ticket -> {"sub": the Google account's id, "exp": time}
-
-async def google_verify(credential):
-    """Returns the Google account id (sub) for a genuine sign-in token made for this site, or None."""
-    if not GOOGLE_CLIENT_ID or not isinstance(credential, str) or not (20 < len(credential) < 4096): return None
-    try:
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get("https://oauth2.googleapis.com/tokeninfo", params={"id_token": credential}) as r:
-                if r.status != 200: return None
-                info = await r.json()
-    except Exception as e:
-        print(f"[google] could not check a token: {type(e).__name__}", flush=True); return None
-    if not isinstance(info, dict): return None
-    if info.get("aud") != GOOGLE_CLIENT_ID or info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"): return None
-    if str(info.get("email_verified")).lower() != "true": return None
-    try:
-        if int(info.get("exp", 0)) < time.time(): return None
-    except (TypeError, ValueError): return None
-    sub = str(info.get("sub") or "")
-    return sub if 0 < len(sub) <= 64 else None
-
-def google_find_user(sub):
-    for u, a in accounts.items():
-        if isinstance(a, dict) and a.get("google") == sub: return u
-    return None
-
-async def auth_config_handler(request):
-    return web.json_response({"google_client_id": GOOGLE_CLIENT_ID})
-
-async def google_auth_handler(request):
-    data = await request.json()
-    ip = get_client_ip(request)
-    if not check_rate_limit(ip, "google_auth", 15, 300):
-        return web.json_response({"error": "Too many attempts - try again in a few minutes."}, status=429)
-    if is_ip_banned(request): return web.json_response({"error": "This account is banned"}, status=403)
-    sub = await google_verify(data.get("credential"))
-    if not sub: return web.json_response({"error": "Google sign-in did not check out. Please try again."}, status=400)
-    user = google_find_user(sub)
-    if user:
-        if is_banned(user): return web.json_response({"error": "This account is banned"}, status=403)
-        token = new_session(user)
-        await track_ip(user, request)
-        return web.json_response({"ok": True, "token": token, "username": user})
-    now = time.time()
-    for k in [k for k, v in google_tickets.items() if v["exp"] < now]: google_tickets.pop(k, None)
-    if len(google_tickets) > 5000: return web.json_response({"error": "Busy - try again in a minute."}, status=503)
-    ticket = secrets.token_urlsafe(24)
-    google_tickets[ticket] = {"sub": sub, "exp": now + GOOGLE_TICKET_TTL}
-    return web.json_response({"ok": True, "needs_username": True, "ticket": ticket})
-
-async def google_username_handler(request):
-    data = await request.json()
-    ip = get_client_ip(request)
-    if not check_rate_limit(ip, "google_name", 20, 600):
-        return web.json_response({"error": "Too many attempts - try again in a few minutes."}, status=429)
-    t = google_tickets.get(str(data.get("ticket") or ""))
-    if not t or t["exp"] < time.time():
-        return web.json_response({"error": "Your Google sign-in timed out. Press the Google button again."}, status=400)
-    uname = str(data.get("username") or "").strip()
-    if len(uname) < 3 or len(uname) > 20 or not uname.isalnum() or not uname.isascii():
-        return web.json_response({"error": "Username must be 3-20 letters/numbers (A-Z, 0-9)"}, status=400)
-    if uname.lower() in RESERVED_USERNAMES or label_is_staffy(uname):
-        return web.json_response({"error": "That username is reserved"}, status=400)
-    if is_banned(uname) or is_ip_banned(request):
-        return web.json_response({"error": "This account is banned"}, status=403)
-    if uname.lower() in {u.lower() for u in accounts}:
-        return web.json_response({"error": "Username already taken"}, status=400)
-    if google_find_user(t["sub"]):
-        return web.json_response({"error": "This Google account already has a username. Press the Google button again to log in."}, status=400)
-    google_tickets.pop(str(data.get("ticket")), None)
-    accounts[uname] = {"google": t["sub"], "algo": "google", "created": time.time()}
-    await save_account_one(uname)
-    token = new_session(uname)
-    await track_ip(uname, request)
+    if device_id and not is_device_banned(device_id):
+        track_user_device(uname, device_id); await save_user_devices()
     return web.json_response({"ok": True, "token": token, "username": uname})
 
 async def auth_suggest_mode_handler(request):
@@ -1519,8 +1455,6 @@ async def login_handler(request):
     if not found:
         return web.json_response({"error": "Invalid username or password"}, status=400)
     acc = accounts[found]
-    if acc.get("google") and not acc.get("password_hash"):
-        return web.json_response({"error": "This account signs in with Google. Use the Google button instead."}, status=400)
     ok, rehash = await averify_password(acc, pwd)
     if not ok:
         return web.json_response({"error": "Invalid username or password"}, status=400)
@@ -8615,7 +8549,7 @@ async def json_guard_middleware(request, handler):
         return web.json_response({"error": "Server error"}, status=500)
 
 _BAN_GUARD_EXEMPT_PATHS = {
-    "/api/login", "/api/register", "/api/auth/suggest-mode", "/api/auth/status", "/api/auth/config", "/api/auth/google", "/api/auth/google/username",
+    "/api/login", "/api/register", "/api/auth/suggest-mode", "/api/auth/status",
 }
 
 @web.middleware
@@ -11857,7 +11791,7 @@ _g("/ws/world", world_ws_handler)
 _p("/api/admin/emergency", admin_emergency_handler)
 _admin_json_view = lambda key, src: (lambda r: web.json_response({key: src()}) if is_admin(get_auth_user(r)) else web.json_response({"error": "Forbidden"}, status=403))
 for _path, _h in (
-    ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/version", version_handler), ("/api/auth/config", auth_config_handler),
+    ("/api/health", health_handler), ("/api/captcha", captcha_handler), ("/api/version", version_handler),
     ("/api/avatar", avatar_handler),
     ("/api/auth/suggest-mode", auth_suggest_mode_handler), ("/api/lobbies", lobbies_handler),
     ("/api/my-lobbies", my_lobbies_handler), ("/api/lobbies/info", lobby_detail_handler),
@@ -11893,7 +11827,6 @@ for _path, _h in (
 ): _g(_path, _h)
 for _path, _h in (
     ("/api/register", register_handler), ("/api/logout", logout_handler), ("/api/login", login_handler),
-    ("/api/auth/google", google_auth_handler), ("/api/auth/google/username", google_username_handler),
     ("/api/lobbies/create", create_lobby_handler), ("/api/lobbies/delete", delete_lobby_handler),
     ("/api/lobbies/update", update_lobby_handler), ("/api/lobbies/join-code", join_lobby_by_code_handler),
     ("/api/friends/add", friend_add_handler), ("/api/friends/accept", friend_accept_handler),
