@@ -1874,6 +1874,15 @@
         </div>
       </div>
       <button id="btn-auth-submit" class="win-btn" style="width:100%;padding:10px;font-size:14px;font-weight:700;margin-top:4px;">Log In</button>
+      <div id="google-auth" style="display:none;margin-top:8px;">
+        <div id="google-or" style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted);margin:4px 0 8px;"><span style="flex:1;height:1px;background:var(--border);"></span>or<span style="flex:1;height:1px;background:var(--border);"></span></div>
+        <div id="google-btn" style="display:flex;justify-content:center;min-height:44px;"></div>
+      </div>
+      <div id="google-name" style="display:none;margin-top:4px;">
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.45;margin-bottom:8px;">You are signed in with Google. Choose the username other players will see (3-20 letters or numbers). You cannot change it later.</div>
+        <input id="google-username" class="win-input" type="text" placeholder="Username (3-20 letters/numbers)" maxlength="20" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:6px;">
+        <button id="btn-google-username" class="win-btn" style="width:100%;padding:10px;font-size:14px;font-weight:700;">Create account</button>
+      </div>
       <div id="auth-error" style="min-height:16px;font-size:11px;color:var(--red);text-align:center;margin-top:6px;">&nbsp;</div>
       <button class="menu-btn wide" id="btn-auth-guest" style="margin-top:4px;">Play as guest instead</button>
         </div>
@@ -5826,8 +5835,7 @@ function setAuthMode(register) {
     submit.textContent = 'Create Account';
     title.textContent = 'Create an account';
     helper.textContent = 'Pick a username (3-20 letters/numbers), a password (6+ chars), and solve the captcha below.';
-    captchaRow.style.display = 'flex';
-    fetchCaptcha();
+    if (!GOOGLE_ID) { captchaRow.style.display = 'flex'; fetchCaptcha(); }
   } else {
     loginBtn.style.background = 'var(--accent)';
     loginBtn.style.color = '#fff';
@@ -5838,8 +5846,74 @@ function setAuthMode(register) {
     helper.textContent = 'Welcome back! Enter your username and password.';
     captchaRow.style.display = 'none';
   }
+  applyGoogleLayout(register);
   authError.innerHTML = '&nbsp;';
 }
+// ---- Sign in with Google (when the server has a client id): sign up is just the Google button and then a username; log in can use it too
+var GOOGLE_ID = '', googleTicket = '';
+function applyGoogleLayout(register) {
+  const g = document.getElementById('google-auth'); if (!g) return;
+  if (!GOOGLE_ID) { g.style.display = 'none'; return; }
+  g.style.display = 'block';
+  const submit = document.getElementById('btn-auth-submit');
+  authUser.style.display = authPass.style.display = submit.style.display = register ? 'none' : '';
+  if (register) {
+    captchaRow.style.display = 'none';
+    document.getElementById('auth-helper').textContent = 'Sign up with your Google account, then choose a username. No password and no captcha.';
+  }
+  document.getElementById('google-or').style.display = register ? 'none' : 'flex';
+}
+function finishAuth(data) {
+  authToken = data.token; username = data.username;
+  safeStore.setItem('ezplace_token', authToken); safeStore.setItem('ezplace_user', username);
+  isGuest = false; document.body.classList.remove('guest-mode');
+  showLoggedIn(); openMenuView('home', true);
+}
+function showGoogleNameStep() {
+  for (const id of ['auth-mode-switch', 'auth-user', 'auth-pass', 'captcha-row', 'btn-auth-submit', 'google-auth']) { const e = document.getElementById(id); if (e) e.style.display = 'none'; }
+  document.getElementById('auth-title').textContent = 'Choose a username';
+  document.getElementById('auth-helper').textContent = '';
+  document.getElementById('google-name').style.display = 'block';
+  authError.innerHTML = '&nbsp;';
+  const inp = document.getElementById('google-username'); if (inp) inp.focus();
+}
+async function onGoogleCredential(resp) {
+  authError.innerHTML = '&nbsp;';
+  try {
+    const res = await fetch('/api/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: resp && resp.credential }) });
+    const d = await res.json();
+    if (d.error) { authError.textContent = d.error; return; }
+    if (d.needs_username) { googleTicket = d.ticket; showGoogleNameStep(); return; }
+    finishAuth(d);
+  } catch { authError.textContent = 'Server offline'; }
+}
+async function submitGoogleUsername() {
+  const name = (document.getElementById('google-username').value || '').trim();
+  if (!name) { authError.textContent = 'Type a username'; return; }
+  try {
+    const res = await fetch('/api/auth/google/username', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticket: googleTicket, username: name }) });
+    const d = await res.json();
+    if (d.error) { authError.textContent = d.error; return; }
+    finishAuth(d);
+  } catch { authError.textContent = 'Server offline'; }
+}
+async function initGoogle() {
+  try { const c = await (await fetch('/api/auth/config', { cache: 'no-store' })).json(); GOOGLE_ID = (c && c.google_client_id) || ''; } catch { GOOGLE_ID = ''; }
+  if (!GOOGLE_ID) return;
+  applyGoogleLayout(isRegisterMode);
+  const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.defer = true;
+  s.onload = () => {
+    try {
+      google.accounts.id.initialize({ client_id: GOOGLE_ID, callback: onGoogleCredential });
+      google.accounts.id.renderButton(document.getElementById('google-btn'), { theme: 'filled_blue', size: 'large', text: 'continue_with', shape: 'pill', width: 280 });
+    } catch (e) { authError.textContent = 'Could not load Google sign-in'; }
+  };
+  s.onerror = () => { GOOGLE_ID = ''; applyGoogleLayout(isRegisterMode); if (isRegisterMode) { captchaRow.style.display = 'flex'; fetchCaptcha(); } };
+  document.head.appendChild(s);
+}
+document.getElementById('btn-google-username').onclick = submitGoogleUsername;
+document.getElementById('google-username').addEventListener('keydown', e => { if (e.key === 'Enter') submitGoogleUsername(); });
+initGoogle();
 
 document.getElementById('mode-login').onclick = () => setAuthMode(false);
 document.getElementById('mode-register').onclick = () => setAuthMode(true);
@@ -5866,10 +5940,7 @@ async function doAuth(endpoint, needCaptcha) {
     const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
     if (data.error) { authError.textContent = data.error; if (needCaptcha) fetchCaptcha(); return; }
-    authToken = data.token; username = data.username;
-    safeStore.setItem('ezplace_token', authToken); safeStore.setItem('ezplace_user', username);
-    isGuest = false; document.body.classList.remove('guest-mode');
-    showLoggedIn(); openMenuView('home', true);
+    finishAuth(data);
   } catch { authError.textContent = 'Server offline'; }
 }
 
