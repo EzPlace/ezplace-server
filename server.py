@@ -11048,12 +11048,12 @@ async def _w_sign_remove(me):
     near, bd = None, 8.0 * 8.0
     for s in world_signs.values():
         d = (s["x"] - me["x"]) ** 2 + (s["z"] - me["z"]) ** 2 + (s["y"] - me["y"]) ** 2
-        if d < bd and (s["own"] == me["name"].lower() or is_admin(me["name"]) or is_moderator(me["name"])): near, bd = s, d
-    if near is None: return await _w_sys(me, "None of your signs is within 8 blocks.")
+        if d < bd: near, bd = s, d                                              # anybody can pick up any sign
+    if near is None: return await _w_sys(me, "There is no sign within 8 blocks.")
     world_signs.pop(near["id"], None)
     await _w_broadcast({"t": "signdel", "id": near["id"]})
     await _w_sign_save()
-    await _w_sys(me, "Sign picked up.")
+    await _w_sys(me, "Sign picked up." if near["own"] == me["name"].lower() else f"Picked up {near['by']}'s sign.")
 
 async def _w_command(p, text):
     parts = text[1:].split()
@@ -11109,7 +11109,7 @@ async def _w_command(p, text):
         await _w_teleport(p, spot[0], spot[1], spot[2])
         await _w_sys(p, "Moved you to the nearest free spot.")
     elif cmd == "help":
-        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z], /spawn, /unstuck, /sign [text] (or press G) to leave a sign, /unsign to pick one up")
+        await _w_sys(p, "Commands: /tpa [player], /tpaccept, /tpdeny, /goto [x] [y] [z], /spawn, /unstuck, /sign [text] (or press G) to leave a sign, /unsign to pick up the nearest sign (anyone's)")
     else:
         await _w_sys(p, "Unknown command. Try /help.")
 
